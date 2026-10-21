@@ -28,15 +28,14 @@
 
 /* Platz unter dem letzten Ordner: Höhe des Umschalters samt Abstand (#400 Punkt 2). */
 .folder-list {
-  padding-bottom: 56px;
+  padding-bottom: 60px;
 }
 
 /* #400 Punkt 2: Umschalter schwebt über der Ordnerliste. Fläche leicht transparent,
  * darunter weichgezeichnet (backdrop-filter, GTK 4.22).
  * #401: Kontur hauchdünn dunkel (--shade-color, Deckkraft ×1,8: hell 0,14, dunkel 0,63)
  * statt Akzent;
- * Knöpfe bündig an der Kontur, kompakter. Radius 10px = 16px der Seitenleiste minus
- * 6px Abstand (konzentrisch), Knöpfe innen 9px = 10px minus 1px Kontur. */
+ * Knöpfe bündig an der Kontur, kompakter. Radius 10px (Abstand zum Rand seit Arnd 8px statt 6px), Knöpfe innen 9px = 10px minus 1px Kontur. */
 .floating-switcher {
   border: 1px solid RGB(from var(--shade-color) r g b / calc(alpha * 1.8));
   border-radius: 10px;
@@ -57,7 +56,7 @@
 
 .floating-switcher viewswitcher button.toggle > stack > box.narrow {
   padding-top: 5px;
-  -gtk-icon-size: 14px;
+  -gtk-icon-size: 16px;
 }
 
 .floating-switcher viewswitcher button.toggle > stack > box.narrow > label {

@@ -28,20 +28,27 @@
 
 /* Platz unter dem letzten Ordner: Höhe des Umschalters samt Abstand (#400 Punkt 2). */
 .folder-list {
-  padding-bottom: 60px;
+  padding-bottom: 48px;
 }
 
 /* #400 Punkt 2: Umschalter schwebt über der Ordnerliste. Fläche leicht transparent,
  * darunter weichgezeichnet (backdrop-filter, GTK 4.22).
- * #401: Kontur hauchdünn dunkel (--shade-color, Deckkraft ×1,8: hell 0,14, dunkel 0,63)
- * statt Akzent;
- * Knöpfe bündig an der Kontur, kompakter. Radius 10px (Abstand zum Rand seit Arnd 8px statt 6px), Knöpfe innen 9px = 10px minus 1px Kontur. */
+ * #401: Kontur hauchdünn dunkel statt Akzent. Hell: --shade-color mit Deckkraft ×1,8
+ * (0,14) ergibt einen dezent dunkleren Ton der Seitenleiste. Knöpfe bündig an der
+ * Kontur, nur Symbole (Arnd); Name bleibt als Tooltip und a11y-Label.
+ * Radius 10px, Abstand zum Rand 8px, Knöpfe innen 9px = 10px minus 1px Kontur. */
 .floating-switcher {
   border: 1px solid RGB(from var(--shade-color) r g b / calc(alpha * 1.8));
   border-radius: 10px;
   background-color: color-mix(in srgb, var(--sidebar-bg-color) 62%, transparent);
   backdrop-filter: blur(4px);
   box-shadow: 0 1px 4px var(--shade-color);
+}
+
+/* Dunkel: gleiche Logik, Kontur als etwas dunklerer Ton der Seitenleiste
+ * (70 % --sidebar-bg-color, 30 % --dark-4); --shade-color wirkte hier zu hart. */
+.dark .floating-switcher {
+  border-color: color-mix(in srgb, var(--sidebar-bg-color) 70%, var(--dark-4));
 }
 
 /* libadwaita: viewswitcher.narrow margin -3px oben/unten, border-spacing 3px. */
@@ -55,14 +62,17 @@
 }
 
 .floating-switcher viewswitcher button.toggle > stack > box.narrow {
-  padding-top: 5px;
+  padding-top: 7px;
+  padding-bottom: 7px;
   -gtk-icon-size: 16px;
 }
 
+/* Nur Symbole: Beschriftung ohne Größe; sie bleibt im Widget-Baum (a11y-Name). */
 .floating-switcher viewswitcher button.toggle > stack > box.narrow > label {
-  min-height: 16px;
-  padding-bottom: 3px;
-  font-weight: 500;
+  font-size: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
 }
 
 /* #400 Punkt 4: Nachrichtenliste wie 04/05 – ohne Trennlinien, ruhige Zeilen,

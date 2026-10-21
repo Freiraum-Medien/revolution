@@ -186,6 +186,51 @@ revolution_mail_view_unroot (GtkWidget *widget)
   GTK_WIDGET_CLASS (revolution_mail_view_parent_class)->unroot (widget);
 }
 
+/* #401: Umschalter nur mit Symbolen. AdwViewSwitcher setzt an seinen Knöpfen keinen
+ * Tooltip (Prüfung per Hover, headless); der n-te Knopf gehört zur n-ten Seite des
+ * Stacks, deren Titel als Tooltip erscheint. Der a11y-Name bleibt die Beschriftung. */
+static gboolean
+on_switcher_query_tooltip (RevolutionMailView *self,
+                           int                 x,
+                           int                 y,
+                           gboolean            keyboard,
+                           GtkTooltip         *tooltip,
+                           GtkWidget          *switcher)
+{
+  g_autoptr (GtkSelectionModel) pages = NULL;
+  g_autoptr (AdwViewStackPage) page = NULL;
+  GtkWidget *button;
+  GtkWidget *child;
+  guint index = 0;
+
+  if (keyboard)
+    button = gtk_root_get_focus (gtk_widget_get_root (switcher));
+  else
+    button = gtk_widget_pick (switcher, x, y, GTK_PICK_DEFAULT);
+
+  while (button != NULL && button != switcher && !GTK_IS_TOGGLE_BUTTON (button))
+    button = gtk_widget_get_parent (button);
+
+  if (button == NULL || button == switcher || self->stack == NULL)
+    return FALSE;
+
+  for (child = gtk_widget_get_first_child (switcher); child != NULL && child != button;
+       child = gtk_widget_get_next_sibling (child))
+    if (GTK_IS_TOGGLE_BUTTON (child))
+      index++;
+
+  if (child == NULL)
+    return FALSE;
+
+  pages = adw_view_stack_get_pages (self->stack);
+  page = g_list_model_get_item (G_LIST_MODEL (pages), index);
+  if (page == NULL)
+    return FALSE;
+
+  gtk_tooltip_set_text (tooltip, adw_view_stack_page_get_title (page));
+  return TRUE;
+}
+
 /* #401 Punkt 1: Klasse .dark für Regeln nur im dunklen Design (style.css). */
 static void
 on_dark_changed (AdwStyleManager    *manager,
@@ -269,6 +314,7 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, folder_list);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, switcher);
   gtk_widget_class_bind_template_callback (widget_class, on_search_toggled);
+  gtk_widget_class_bind_template_callback (widget_class, on_switcher_query_tooltip);
   gtk_widget_class_bind_template_callback (widget_class, on_search_started);
   gtk_widget_class_bind_template_callback (widget_class, on_search_stop);
 }

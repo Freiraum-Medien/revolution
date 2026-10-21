@@ -1010,9 +1010,12 @@ template $RevolutionMailView: Adw.BreakpointBin {
       ]
 
       // #401: äußere Knöpfe bündig an der Kontur, daher ohne Innenabstand (style.css).
+      // Nur Symbole (Arnd): der Seitentitel erscheint als Tooltip (mail-view.c).
       child: Adw.ViewSwitcher {
         policy: narrow;
         stack: bind template.stack;
+        has-tooltip: true;
+        query-tooltip => $on_switcher_query_tooltip() swapped;
       };
     }
 

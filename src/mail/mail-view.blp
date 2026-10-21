@@ -7,12 +7,17 @@ template $RevolutionMailView: Adw.BreakpointBin {
   width-request: 360;
   height-request: 294;
 
-  // Briefing 1.2: ≤ 1000 sp „tablet“, ≤ 600 sp „mobile“ (stamp-mail-view.blp:8-26).
+  // Briefing 1.2: ≤ 1000 sp Seitenleiste eingeklappt, ≤ 600 sp „mobile“ (stamp-mail-view.blp:8-26).
+  // Es gilt nur der zuletzt passende Breakpoint, daher setzt „mobile“ show-sidebar erneut.
   Adw.Breakpoint {
     condition ("max-width: 1000sp")
 
     setters {
-      mail_layout.layout-name: "tablet";
+      split.collapsed: true;
+      split.show-sidebar: false;
+      split.sidebar-width-fraction: 0.28;
+      split.min-sidebar-width: 260;
+      split.max-sidebar-width: 320;
       sidebar_button.visible: true;
     }
   }
@@ -22,6 +27,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
     setters {
       mail_layout.layout-name: "mobile";
+      split.show-sidebar: false;
       sidebar_button.visible: true;
       list_header.show-end-title-buttons: true;
     }
@@ -44,6 +50,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
         // Viewport: sonst blendet GtkListView beim Start den ersten
         // Abschnittskopf („Favoriten“) aus, erst Hochscrollen zeigt ihn.
+        // Ursache klären in #350, Virtualisierung geht verloren.
         child: Viewport {
           child: ListView folder_list {
             tab-behavior: item;
@@ -101,6 +108,11 @@ template $RevolutionMailView: Adw.BreakpointBin {
                       label: bind template.item as <TreeListRow>.item as <$RevolutionSampleFolder>.unread;
                       tooltip-text: _("Ungelesene Nachrichten");
 
+                      // Name = Zahl aus dem Text; Blueprint kann accessibility nicht binden.
+                      accessibility {
+                        description: _("ungelesen");
+                      }
+
                       styles [
                         "dimmed",
                         "numeric",
@@ -126,7 +138,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
         title-widget: Adw.WindowTitle {
           title: _("Alle Eingänge");
-          subtitle: _("128 E-Mails, 9 ungelesen");
+          subtitle: _("10 E-Mails, 4 ungelesen");
         };
 
         [start]
@@ -134,7 +146,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
           visible: false;
           icon-name: "sidebar-show-symbolic";
           tooltip-text: _("Seitenleiste anzeigen");
-          active: bind tablet_osv.show-sidebar bidirectional;
+          active: bind split.show-sidebar bidirectional;
 
           accessibility {
             label: _("Seitenleiste anzeigen");
@@ -624,10 +636,12 @@ template $RevolutionMailView: Adw.BreakpointBin {
     }
 
     // Breit: Seitenleiste | Liste | Nachricht, Listenbreite ziehbar (stamp-mail-view.blp:57-96).
+    // Schmal (≤ 1000 sp): dieselbe Ansicht, Seitenleiste eingeklappt als Überlagerung
+    // (stamp-mail-view.blp:98-137), Werte per Breakpoint oben.
     Adw.Layout {
       name: "desktop";
 
-      content: Adw.OverlaySplitView {
+      content: Adw.OverlaySplitView split {
         sidebar-width-fraction: 0.22;
         min-sidebar-width: 220;
         max-sidebar-width: 280;
@@ -663,48 +677,6 @@ template $RevolutionMailView: Adw.BreakpointBin {
       };
     }
 
-    // Schmal: Seitenleiste eingeklappt als Überlagerung (stamp-mail-view.blp:98-137).
-    Adw.Layout {
-      name: "tablet";
-
-      content: Adw.OverlaySplitView tablet_osv {
-        collapsed: true;
-        show-sidebar: false;
-        sidebar-width-fraction: 0.28;
-        min-sidebar-width: 260;
-        max-sidebar-width: 320;
-
-        sidebar: Adw.ToolbarView {
-          bottom-bar-style: raised;
-
-          content: Adw.LayoutSlot {
-            id: "sidebar";
-          };
-
-          [bottom]
-          Adw.LayoutSlot {
-            id: "switcher";
-          }
-        };
-
-        content: Paned {
-          position: 340;
-          shrink-start-child: false;
-          shrink-end-child: false;
-          resize-start-child: false;
-          resize-end-child: true;
-
-          start-child: Adw.LayoutSlot {
-            id: "list";
-          };
-
-          end-child: Adw.LayoutSlot {
-            id: "content";
-          };
-        };
-      };
-    }
-
     // Telefon: Liste → Nachricht (stamp-mail-view.blp:139-185).
     Adw.Layout {
       name: "mobile";
@@ -716,7 +688,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
           child: Adw.OverlaySplitView {
             collapsed: true;
-            show-sidebar: bind tablet_osv.show-sidebar bidirectional;
+            show-sidebar: bind split.show-sidebar bidirectional;
             sidebar-width-fraction: 0.75;
             min-sidebar-width: 260;
             max-sidebar-width: 320;

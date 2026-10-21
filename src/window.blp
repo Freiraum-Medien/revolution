@@ -9,21 +9,24 @@ Adw.ApplicationWindow window {
   height-request: 294;
 
   // Briefing 0: Strg+1/2/3 je Ansicht (Vorlage stamp-window.blp:11-25).
-  // Die Aktionen win.show-* entstehen erst mit Logik; im Prototyp nur hinterlegt.
+  // win.view: GPropertyAction auf app_stack.visible-child-name (main.c).
   ShortcutController {
     Shortcut {
       trigger: "<primary>1";
-      action: "action(win.show-mail)";
+      action: "action(win.view)";
+      arguments: "'mail'";
     }
 
     Shortcut {
       trigger: "<primary>2";
-      action: "action(win.show-contacts)";
+      action: "action(win.view)";
+      arguments: "'contacts'";
     }
 
     Shortcut {
       trigger: "<primary>3";
-      action: "action(win.show-calendar)";
+      action: "action(win.view)";
+      arguments: "'calendar'";
     }
   }
 

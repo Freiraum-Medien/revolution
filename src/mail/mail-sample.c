@@ -24,12 +24,12 @@ static const struct {
   guint       depth;
 } folders[] = {
   { NULL,                      N_("Favoriten"),     NULL, 0 },
-  { "inbox-symbolic",          N_("Alle Eingänge"), "9",  0 },
+  { "inbox-symbolic",          N_("Alle Eingänge"), "4",  0 },
   { "starred-symbolic",        N_("Markiert"),      "3",  0 },
   { "drafts-symbolic",         N_("Entwürfe"),      "2",  0 },
   { "mail-send-symbolic",      N_("Gesendet"),      "",   0 },
   { NULL,                      N_("Privat"),        NULL, 0 },
-  { "inbox-symbolic",          N_("Eingang"),       "6",  0 },
+  { "inbox-symbolic",          N_("Eingang"),       "3",  0 },
   { "drafts-symbolic",         N_("Entwürfe"),      "1",  0 },
   { "mail-send-symbolic",      N_("Gesendet"),      "",   0 },
   { "mail-mark-junk-symbolic", N_("Spam"),          "2",  0 },
@@ -39,7 +39,7 @@ static const struct {
   { "folder-symbolic",         N_("Lissabon"),      "1",  1 },
   { "folder-symbolic",         N_("Norwegen"),      "",   1 },
   { NULL,                      N_("Arbeit"),        NULL, 0 },
-  { "inbox-symbolic",          N_("Eingang"),       "3",  0 },
+  { "inbox-symbolic",          N_("Eingang"),       "1",  0 },
   { "drafts-symbolic",         N_("Entwürfe"),      "1",  0 },
   { "mail-send-symbolic",      N_("Gesendet"),      "",   0 },
   { "mail-mark-junk-symbolic", N_("Spam"),          "",   0 },

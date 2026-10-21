@@ -10,6 +10,7 @@
 #include <glib/gi18n.h>
 #include <adwaita.h>
 
+#include "contacts/contacts-view.h"
 #include "mail/mail-view.h"
 
 static void
@@ -23,6 +24,7 @@ on_activate (GtkApplication *app)
   if (window == NULL)
     {
       g_type_ensure (REVOLUTION_TYPE_MAIL_VIEW);
+      g_type_ensure (REVOLUTION_TYPE_CONTACTS_VIEW);
       builder = gtk_builder_new_from_resource ("/org/revolution/Mail/window.ui");
       window = GTK_WINDOW (gtk_builder_get_object (builder, "window"));
       /* win.view für Strg+1/2/3 (window.blp): wechselt die AdwViewStack-Seite. */

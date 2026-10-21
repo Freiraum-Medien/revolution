@@ -3,3 +3,5 @@ src/main.c
 src/window.blp
 src/mail/mail-sample.c
 src/mail/mail-view.blp
+src/contacts/contacts-sample.c
+src/contacts/contacts-view.blp

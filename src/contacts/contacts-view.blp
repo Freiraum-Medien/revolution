@@ -1,0 +1,491 @@
+// Kontakte-Ansicht, Prototyp #338. Ohne Logik, Beispieldaten aus contacts-sample.c.
+// Aufbau nach quelltext/stamp/src/views/contact/stamp-contact-view.blp:4-185 und
+// mail-view.blp (Briefing 1.4); Design-Referenz GNOME Contacts 49.0.
+using Gtk 4.0;
+using Adw 1;
+
+template $RevolutionContactsView: Adw.BreakpointBin {
+  width-request: 360;
+  height-request: 294;
+
+  // Wie mail-view.blp: ≤ 1000 sp Seitenleiste eingeklappt, ≤ 600 sp „mobile“
+  // (stamp-contact-view.blp:8-26).
+  Adw.Breakpoint {
+    condition ("max-width: 1000sp")
+
+    setters {
+      split.collapsed: true;
+      split.show-sidebar: false;
+      split.sidebar-width-fraction: 0.28;
+      split.min-sidebar-width: 260;
+      split.max-sidebar-width: 320;
+      sidebar_button.visible: true;
+    }
+  }
+
+  Adw.Breakpoint {
+    condition ("max-width: 600sp")
+
+    setters {
+      contacts_layout.layout-name: "mobile";
+      split.show-sidebar: false;
+      sidebar_button.visible: true;
+      list_header.show-end-title-buttons: true;
+    }
+  }
+
+  child: Adw.MultiLayoutView contacts_layout {
+    // Seitenleiste: Adressbücher je Konto als GtkListView mit navigation-sidebar,
+    // gleich wie die Ordnerliste in mail-view.blp (CR #397) und Stamp
+    // stamp-book-list.blp:5-8.
+    [sidebar]
+    Adw.ToolbarView {
+      [top]
+      Adw.HeaderBar {
+        title-widget: Adw.WindowTitle {
+          title: _("Revolution");
+        };
+      }
+
+      content: ScrolledWindow {
+        hscrollbar-policy: never;
+
+        // Viewport wie mail-view.blp: sonst fehlt beim Start der erste Abschnittskopf.
+        child: Viewport {
+          child: ListView book_list {
+            tab-behavior: item;
+
+            styles [
+              "navigation-sidebar",
+            ]
+
+            accessibility {
+              label: _("Adressbücher");
+            }
+
+            model: SingleSelection book_selection {};
+
+            header-factory: BuilderListItemFactory {
+              template ListHeader {
+                child: Label {
+                  label: bind template.item as <$RevolutionSampleEntry>.group;
+                  xalign: 0;
+                  margin-start: 14;
+                  margin-end: 14;
+                  margin-top: 12;
+                  margin-bottom: 6;
+                  ellipsize: end;
+
+                  styles [
+                    "caption-heading",
+                    "dimmed",
+                  ]
+                };
+              }
+            };
+
+            factory: BuilderListItemFactory {
+              template ListItem {
+                child: Box {
+                  spacing: 12;
+
+                  Image {
+                    icon-name: "x-office-address-book-symbolic";
+                    accessible-role: presentation;
+                  }
+
+                  Label {
+                    label: bind template.item as <$RevolutionSampleEntry>.title;
+                    hexpand: true;
+                    xalign: 0;
+                    ellipsize: end;
+                  }
+                };
+              }
+            };
+          };
+        };
+      };
+    }
+
+    // Kontaktliste: Avatar + Name (stamp-contact-row.blp:15-18), Abschnitte je
+    // Anfangsbuchstabe (Briefing 1.4), navigation-sidebar wie GNOME Contacts
+    // und stamp-contact-list.blp:107-109.
+    [list]
+    Adw.ToolbarView list_pane {
+      width-request: 300;
+
+      [top]
+      Adw.HeaderBar list_header {
+        show-end-title-buttons: false;
+
+        title-widget: Adw.WindowTitle {
+          title: _("Persönlich");
+          subtitle: _("12 Kontakte");
+        };
+
+        [start]
+        ToggleButton sidebar_button {
+          visible: false;
+          icon-name: "sidebar-show-symbolic";
+          tooltip-text: _("Seitenleiste anzeigen");
+          active: bind split.show-sidebar bidirectional;
+
+          accessibility {
+            label: _("Seitenleiste anzeigen");
+          }
+        }
+
+        // GNOME Contacts: „Add New Contact“, list-add-symbolic (contacts-main-window.ui).
+        [start]
+        Button {
+          icon-name: "list-add-symbolic";
+          tooltip-text: _("Neuer Kontakt");
+          action-name: "contact.new";
+
+          accessibility {
+            label: _("Neuer Kontakt");
+          }
+        }
+
+        [end]
+        ToggleButton {
+          icon-name: "edit-find-symbolic";
+          tooltip-text: _("Suchen");
+          active: bind search_bar.search-mode-enabled bidirectional;
+
+          accessibility {
+            label: _("Suchen");
+          }
+
+          // Strg+F wie mail-view.blp (HIG-SE).
+          ShortcutController {
+            scope: global;
+
+            Shortcut {
+              trigger: "<primary>f";
+              action: "activate";
+            }
+          }
+        }
+      }
+
+      [top]
+      SearchBar search_bar {
+        key-capture-widget: list_pane;
+
+        // Direktes Kind, damit GtkSearchBar das Feld selbst verbindet (Tippen startet Suche).
+        child: SearchEntry {
+          hexpand: true;
+          placeholder-text: _("Kontakte durchsuchen");
+
+          accessibility {
+            label: _("Kontakte durchsuchen");
+          }
+        };
+      }
+
+      content: ScrolledWindow {
+        hscrollbar-policy: never;
+
+        child: Viewport {
+          child: ListView contact_list {
+            tab-behavior: item;
+
+            styles [
+              "navigation-sidebar",
+            ]
+
+            accessibility {
+              label: _("Kontakte");
+            }
+
+            model: SingleSelection contact_selection {};
+
+            header-factory: BuilderListItemFactory {
+              template ListHeader {
+                child: Label {
+                  label: bind template.item as <$RevolutionSampleEntry>.group;
+                  xalign: 0;
+                  margin-start: 14;
+                  margin-end: 14;
+                  margin-top: 6;
+                  margin-bottom: 3;
+
+                  styles [
+                    "caption-heading",
+                    "dimmed",
+                  ]
+                };
+              }
+            };
+
+            factory: BuilderListItemFactory {
+              template ListItem {
+                child: Box {
+                  spacing: 12;
+
+                  Adw.Avatar {
+                    size: 32;
+                    show-initials: true;
+                    text: bind template.item as <$RevolutionSampleEntry>.title;
+                  }
+
+                  Label {
+                    label: bind template.item as <$RevolutionSampleEntry>.title;
+                    hexpand: true;
+                    xalign: 0;
+                    ellipsize: end;
+                  }
+                };
+              }
+            };
+          };
+        };
+      };
+    }
+
+    // Kontakt: Aufbau nach stamp-contact-details.blp:40-112 und GNOME Contacts
+    // (AdwClamp 500, contacts-contact-pane.ui; Kopfleiste mit „Bearbeiten“,
+    // contacts-main-window.ui). Gruppen als AdwPreferencesGroup (Briefing 1.4).
+    [content]
+    Adw.ToolbarView {
+      width-request: 360;
+
+      [top]
+      Adw.HeaderBar {
+        show-title: false;
+        show-start-title-buttons: false;
+
+        [end]
+        Button {
+          icon-name: "document-edit-symbolic";
+          tooltip-text: _("Kontakt bearbeiten");
+          action-name: "contact.edit";
+
+          accessibility {
+            label: _("Kontakt bearbeiten");
+          }
+        }
+      }
+
+      content: ScrolledWindow {
+        hscrollbar-policy: never;
+
+        child: Adw.Clamp {
+          maximum-size: 500;
+          margin-top: 12;
+          margin-bottom: 24;
+          margin-start: 12;
+          margin-end: 12;
+
+          child: Box {
+            orientation: vertical;
+            spacing: 18;
+
+            Box {
+              orientation: vertical;
+              spacing: 12;
+
+              Adw.Avatar {
+                size: 96;
+                show-initials: true;
+                text: _("Anna Behrens");
+                halign: center;
+              }
+
+              Label {
+                label: _("Anna Behrens");
+                wrap: true;
+                wrap-mode: word_char;
+                justify: center;
+                selectable: true;
+
+                styles [
+                  "title-1",
+                ]
+              }
+
+              // Aktion „Mail schreiben“ (OP #338, öffnet später den Composer, OP #369).
+              Button {
+                halign: center;
+                action-name: "contact.write-mail";
+                tooltip-text: _("Mail an Anna Behrens schreiben");
+
+                child: Adw.ButtonContent {
+                  icon-name: "mail-message-new-symbolic";
+                  label: _("Mail schreiben");
+                };
+
+                styles [
+                  "pill",
+                  "suggested-action",
+                ]
+              }
+            }
+
+            // Zeilen mit Stilklasse „property“: Art klein, Wert groß (libadwaita-CSS).
+            Adw.PreferencesGroup {
+              title: _("E-Mail");
+
+              Adw.ActionRow {
+                title: _("Privat");
+                subtitle: "anna.behrens@example.org";
+                subtitle-selectable: true;
+
+                styles [
+                  "property",
+                ]
+              }
+
+              Adw.ActionRow {
+                title: _("Arbeit");
+                subtitle: "behrens@albrecht-partner.example";
+                subtitle-selectable: true;
+
+                styles [
+                  "property",
+                ]
+              }
+            }
+
+            Adw.PreferencesGroup {
+              title: _("Telefon");
+
+              Adw.ActionRow {
+                title: _("Mobil");
+                subtitle: "+49 170 0000123";
+                subtitle-selectable: true;
+
+                styles [
+                  "property",
+                ]
+              }
+            }
+
+            Adw.PreferencesGroup {
+              title: _("Adresse");
+
+              Adw.ActionRow {
+                title: _("Privat");
+                subtitle: _("Am Mühlbach 7\n12345 Musterstadt");
+                subtitle-selectable: true;
+                subtitle-lines: 0;
+
+                styles [
+                  "property",
+                ]
+              }
+            }
+
+            Adw.PreferencesGroup {
+              title: _("Organisation");
+
+              Adw.ActionRow {
+                title: _("Projektleiterin");
+                subtitle: _("Albrecht und Partner Architekten");
+                subtitle-selectable: true;
+
+                styles [
+                  "property",
+                ]
+              }
+            }
+          };
+        };
+      };
+    }
+
+    // Ansichtsumschalter Mail/Kontakte/Kalender (Briefing 0), wie mail-view.blp.
+    [switcher]
+    Adw.ViewSwitcherBar {
+      stack: bind template.stack;
+      reveal: true;
+    }
+
+    // Breit: Seitenleiste | Liste | Kontakt (stamp-contact-view.blp:57-96).
+    // Schmal (≤ 1000 sp): Seitenleiste als Überlagerung, Werte per Breakpoint oben.
+    Adw.Layout {
+      name: "desktop";
+
+      content: Adw.OverlaySplitView split {
+        sidebar-width-fraction: 0.22;
+        min-sidebar-width: 220;
+        max-sidebar-width: 280;
+
+        sidebar: Adw.ToolbarView {
+          bottom-bar-style: raised;
+
+          content: Adw.LayoutSlot {
+            id: "sidebar";
+          };
+
+          [bottom]
+          Adw.LayoutSlot {
+            id: "switcher";
+          }
+        };
+
+        content: Paned {
+          position: 320;
+          shrink-start-child: false;
+          shrink-end-child: false;
+          resize-start-child: false;
+          resize-end-child: true;
+
+          start-child: Adw.LayoutSlot {
+            id: "list";
+          };
+
+          end-child: Adw.LayoutSlot {
+            id: "content";
+          };
+        };
+      };
+    }
+
+    // Telefon: Liste → Kontakt (stamp-contact-view.blp:139-178).
+    Adw.Layout {
+      name: "mobile";
+
+      content: Adw.NavigationView {
+        Adw.NavigationPage {
+          title: _("Kontakte");
+          tag: "list";
+
+          child: Adw.OverlaySplitView {
+            collapsed: true;
+            show-sidebar: bind split.show-sidebar bidirectional;
+            sidebar-width-fraction: 0.75;
+            min-sidebar-width: 260;
+            max-sidebar-width: 320;
+
+            sidebar: Adw.LayoutSlot {
+              id: "sidebar";
+            };
+
+            content: Adw.ToolbarView {
+              content: Adw.LayoutSlot {
+                id: "list";
+              };
+
+              [bottom]
+              Adw.LayoutSlot {
+                id: "switcher";
+              }
+            };
+          };
+        }
+
+        Adw.NavigationPage {
+          title: _("Kontakt");
+          tag: "contact";
+
+          child: Adw.LayoutSlot {
+            id: "content";
+          };
+        }
+      };
+    }
+  };
+}

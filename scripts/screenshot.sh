@@ -65,6 +65,8 @@ shoot () {
         sleep 2
         if [ -n "$CLICK" ]; then
           python3 -c "import os; from Xlib import display, X; from Xlib.ext import xtest; d = display.Display(); x, y = map(int, os.environ[\"CLICK\"].split(\",\")); xtest.fake_input(d, X.MotionNotify, x=x, y=y); xtest.fake_input(d, X.ButtonPress, 1); xtest.fake_input(d, X.ButtonRelease, 1); d.sync()"
+          # Zeiger nach 0,0: ein unter ihm geöffnetes Fenster zeigte sonst einen Tooltip (#337).
+          python3 -c "from Xlib import display, X; from Xlib.ext import xtest; d = display.Display(); xtest.fake_input(d, X.MotionNotify, x=0, y=0); d.sync()"
           sleep 1
           # Popover ist eine eigene X-Oberfläche: ganze Xvfb-Anzeige (= Fenstergröße) aufnehmen.
           import -window root "$OUT"

@@ -1,0 +1,689 @@
+using Gtk 4.0;
+using Adw 1;
+
+// Composer (Prototyp #337, Briefing 1.3). Vorlage
+// quelltext/stamp/src/views/mail/composer/stamp-composer.blp, Apple V5.
+// Nur Oberfläche mit fiktiven Beispieldaten, keine Logik.
+template $RevolutionComposer: Adw.ApplicationWindow {
+  title: _("Neue E-Mail");
+  default-width: 960;
+  default-height: 720;
+  width-request: 360;
+  height-request: 294;
+  focus-widget: body_view;
+
+  // Kürzel wie Stamp (stamp-composer.c:2376-2384): Strg+Enter Senden,
+  // Strg+Umschalt+Enter Später senden; Fangphase, damit das Textfeld sie
+  // nicht verschluckt. Strg+B/I/U für die Formatierungsleiste.
+  ShortcutController {
+    propagation-phase: capture;
+
+    Shortcut {
+      trigger: "<primary>Return";
+      action: "action(composer.send)";
+    }
+
+    Shortcut {
+      trigger: "<primary><shift>Return";
+      action: "action(composer.send-later)";
+    }
+
+    Shortcut {
+      trigger: "<primary>b";
+      action: "action(composer.bold)";
+    }
+
+    Shortcut {
+      trigger: "<primary>i";
+      action: "action(composer.italic)";
+    }
+
+    Shortcut {
+      trigger: "<primary>u";
+      action: "action(composer.underline)";
+    }
+  }
+
+  content: Adw.ToolbarView {
+    bottom-bar-style: raised;
+    reveal-bottom-bars: bind format_button.active;
+
+    [top]
+    Adw.HeaderBar {
+      // Briefing 1.3: Titel = Betreff bzw. „Neue E-Mail“ (stamp-composer.blp:17-19).
+      title-widget: Adw.WindowTitle {
+        title: _("Neue E-Mail");
+      };
+
+      // Briefing 1.3 (Vorschlag): Anhang und Formatierung ein/aus am Anfang.
+      [start]
+      Button {
+        icon-name: "mail-attachment-symbolic";
+        tooltip-text: _("Anhang hinzufügen");
+        action-name: "composer.attach";
+
+        accessibility {
+          label: _("Anhang hinzufügen");
+        }
+      }
+
+      [start]
+      ToggleButton format_button {
+        icon-name: "format-text-rich-symbolic";
+        tooltip-text: _("Formatierung anzeigen");
+        active: true;
+
+        accessibility {
+          label: _("Formatierung anzeigen");
+        }
+      }
+
+      // Senden mit suggested-action und Menü (stamp-composer.blp:32-55).
+      [end]
+      Adw.SplitButton {
+        label: _("Senden");
+        tooltip-text: _("Senden (Strg+Eingabe)");
+        dropdown-tooltip: _("Weitere Sendeoptionen");
+        action-name: "composer.send";
+        menu-model: send_menu;
+
+        styles [
+          "suggested-action",
+        ]
+      }
+    }
+
+    content: Box {
+      orientation: vertical;
+
+      styles [
+        "view",
+      ]
+
+      // Felder untereinander mit Trennlinien (stamp-composer.blp:61-285),
+      // Reihenfolge wie Apple V5: An, Kopie, Betreff, Von + Signatur.
+      Grid {
+        column-spacing: 12;
+        row-spacing: 3;
+
+        Label to_label {
+          label: _("An");
+          halign: start;
+          margin-start: 18;
+
+          styles [
+            "dimmed",
+          ]
+
+          layout {
+            column: 0;
+            row: 0;
+          }
+        }
+
+        Entry to_entry {
+          hexpand: true;
+          text: _("Jonas Weber <jonas.weber@example.org>");
+
+          accessibility {
+            labelled-by: to_label;
+          }
+
+          styles [
+            "flat",
+          ]
+
+          layout {
+            column: 1;
+            row: 0;
+          }
+        }
+
+        // Kopie/Blindkopie per Knopf einblenden (stamp-composer.blp:131-147).
+        ToggleButton cc_button {
+          icon-name: "view-more-symbolic";
+          tooltip-text: _("Kopie und Blindkopie anzeigen");
+          halign: end;
+          valign: center;
+          margin-end: 12;
+          active: true;
+
+          accessibility {
+            label: _("Kopie und Blindkopie anzeigen");
+          }
+
+          styles [
+            "flat",
+          ]
+
+          layout {
+            column: 2;
+            row: 0;
+          }
+        }
+
+        Separator {
+          visible: bind cc_button.active;
+
+          layout {
+            column: 0;
+            column-span: 3;
+            row: 1;
+          }
+        }
+
+        Label cc_label {
+          label: _("Kopie");
+          halign: start;
+          margin-start: 18;
+          visible: bind cc_button.active;
+
+          styles [
+            "dimmed",
+          ]
+
+          layout {
+            column: 0;
+            row: 2;
+          }
+        }
+
+        Entry cc_entry {
+          text: _("Mara Schulz <mara.schulz@example.net>");
+          visible: bind cc_button.active;
+
+          accessibility {
+            labelled-by: cc_label;
+          }
+
+          styles [
+            "flat",
+          ]
+
+          layout {
+            column: 1;
+            column-span: 2;
+            row: 2;
+          }
+        }
+
+        Separator {
+          visible: bind cc_button.active;
+
+          layout {
+            column: 0;
+            column-span: 3;
+            row: 3;
+          }
+        }
+
+        Label bcc_label {
+          label: _("Blindkopie");
+          halign: start;
+          margin-start: 18;
+          visible: bind cc_button.active;
+
+          styles [
+            "dimmed",
+          ]
+
+          layout {
+            column: 0;
+            row: 4;
+          }
+        }
+
+        Entry bcc_entry {
+          visible: bind cc_button.active;
+
+          accessibility {
+            labelled-by: bcc_label;
+          }
+
+          styles [
+            "flat",
+          ]
+
+          layout {
+            column: 1;
+            column-span: 2;
+            row: 4;
+          }
+        }
+
+        Separator {
+          layout {
+            column: 0;
+            column-span: 3;
+            row: 5;
+          }
+        }
+
+        Label subject_label {
+          label: _("Betreff");
+          halign: start;
+          margin-start: 18;
+
+          styles [
+            "dimmed",
+          ]
+
+          layout {
+            column: 0;
+            row: 6;
+          }
+        }
+
+        Entry subject_entry {
+          text: _("Hoffest am Samstag – Planung");
+
+          accessibility {
+            labelled-by: subject_label;
+          }
+
+          styles [
+            "flat",
+          ]
+
+          layout {
+            column: 1;
+            column-span: 2;
+            row: 6;
+          }
+        }
+
+        Separator {
+          layout {
+            column: 0;
+            column-span: 3;
+            row: 7;
+          }
+        }
+
+        Label from_label {
+          label: _("Von");
+          halign: start;
+          margin-start: 18;
+
+          styles [
+            "dimmed",
+          ]
+
+          layout {
+            column: 0;
+            row: 8;
+          }
+        }
+
+        // Identität wählbar (stamp-composer.blp:80, DropDown from).
+        DropDown from_dropdown {
+          halign: start;
+          valign: center;
+
+          model: StringList {
+            strings [
+              _("Lena Hoffmann – lena@hofladen-hoffmann.example"),
+              _("Lena Hoffmann – lena.hoffmann@example.org"),
+            ]
+          };
+
+          accessibility {
+            labelled-by: from_label;
+          }
+
+          layout {
+            column: 1;
+            row: 8;
+          }
+        }
+
+        // Signatur rechts in der Von-Zeile wie Apple V5 („Signatur: Ohne“).
+        Box {
+          spacing: 12;
+          valign: center;
+          margin-end: 12;
+
+          Label signature_label {
+            label: _("Signatur");
+
+            styles [
+              "dimmed",
+            ]
+          }
+
+          DropDown {
+            model: StringList {
+              strings [
+                _("Ohne"),
+                _("Geschäftlich"),
+                _("Privat"),
+              ]
+            };
+
+            selected: 1;
+
+            accessibility {
+              labelled-by: signature_label;
+            }
+          }
+
+          layout {
+            column: 2;
+            row: 8;
+          }
+        }
+
+        Separator {
+          layout {
+            column: 0;
+            column-span: 3;
+            row: 9;
+          }
+        }
+      }
+
+      // Anhangbereich als WrapBox (stamp-composer.blp:270-284), Anhang-Knopf
+      // wie Stamp stamp-attachment-button.blp (Symbol, Name, Größe gedimmt).
+      Adw.WrapBox {
+        child-spacing: 12;
+        line-spacing: 12;
+        margin-top: 12;
+        margin-bottom: 12;
+        margin-start: 18;
+        margin-end: 18;
+
+        Box {
+          styles [
+            "linked",
+          ]
+
+          Button {
+            action-name: "composer.open-attachment";
+            action-target: "'lageplan'";
+            tooltip-text: _("Anhang öffnen");
+
+            accessibility {
+              label: _("Lageplan-Hoffest.pdf, 1,2 MB");
+            }
+
+            child: Box {
+              spacing: 6;
+
+              Image {
+                icon-name: "x-office-document-symbolic";
+                icon-size: large;
+                accessible-role: presentation;
+              }
+
+              Box {
+                orientation: vertical;
+                valign: center;
+
+                Label {
+                  label: _("Lageplan-Hoffest.pdf");
+                  halign: start;
+                  ellipsize: middle;
+                }
+
+                Label {
+                  label: _("1,2 MB");
+                  halign: start;
+
+                  styles [
+                    "caption",
+                    "dimmed",
+                    "numeric",
+                  ]
+                }
+              }
+            };
+          }
+
+          Button {
+            icon-name: "window-close-symbolic";
+            tooltip-text: _("Anhang entfernen");
+            action-name: "composer.remove-attachment";
+            action-target: "'lageplan'";
+
+            accessibility {
+              label: _("Lageplan-Hoffest.pdf entfernen");
+            }
+          }
+        }
+
+        Box {
+          styles [
+            "linked",
+          ]
+
+          Button {
+            action-name: "composer.open-attachment";
+            action-target: "'stand'";
+            tooltip-text: _("Anhang öffnen");
+
+            accessibility {
+              label: _("Marktstand.jpg, 3,4 MB");
+            }
+
+            child: Box {
+              spacing: 6;
+
+              Image {
+                icon-name: "image-x-generic-symbolic";
+                icon-size: large;
+                accessible-role: presentation;
+              }
+
+              Box {
+                orientation: vertical;
+                valign: center;
+
+                Label {
+                  label: _("Marktstand.jpg");
+                  halign: start;
+                  ellipsize: middle;
+                }
+
+                Label {
+                  label: _("3,4 MB");
+                  halign: start;
+
+                  styles [
+                    "caption",
+                    "dimmed",
+                    "numeric",
+                  ]
+                }
+              }
+            };
+          }
+
+          Button {
+            icon-name: "window-close-symbolic";
+            tooltip-text: _("Anhang entfernen");
+            action-name: "composer.remove-attachment";
+            action-target: "'stand'";
+
+            accessibility {
+              label: _("Marktstand.jpg entfernen");
+            }
+          }
+        }
+      }
+
+      Separator {}
+
+      // Nachrichtentext: Platzhalter (Stamp: WebView, stamp-composer.blp:287-297).
+      ScrolledWindow {
+        hscrollbar-policy: never;
+        vexpand: true;
+
+        child: TextView body_view {
+          wrap-mode: word_char;
+          top-margin: 18;
+          bottom-margin: 18;
+          left-margin: 18;
+          right-margin: 18;
+
+          accessibility {
+            label: _("Nachrichtentext");
+          }
+
+          buffer: TextBuffer {
+            text: _("Hallo Jonas,\n\nfür das Hoffest am Samstag habe ich den Lageplan angehängt. Der Marktstand steht wie im letzten Jahr neben der Scheune, Aufbau ab 8 Uhr.\n\nKannst du bis Donnerstag Bescheid geben, ob ihr die Bänke mitbringt?\n\nViele Grüße\nLena\n\n-- \nLena Hoffmann\nHofladen Hoffmann · Lindenweg 4 · 12345 Musterstadt");
+          };
+        };
+      }
+    };
+
+    // Formatierungsleiste unten wie Stamp ([bottom] Adw.WrapBox button_bar,
+    // stamp-composer.blp:300-420); Auswahl laut Briefing 1.3.
+    [bottom]
+    Adw.WrapBox {
+      child-spacing: 6;
+      line-spacing: 6;
+      margin-top: 6;
+      margin-bottom: 6;
+      margin-start: 12;
+      margin-end: 12;
+
+      ToggleButton {
+        icon-name: "format-text-bold-symbolic";
+        tooltip-text: _("Fett (Strg+B)");
+        action-name: "composer.bold";
+
+        accessibility {
+          label: _("Fett");
+        }
+
+        styles [
+          "flat",
+        ]
+      }
+
+      ToggleButton {
+        icon-name: "format-text-italic-symbolic";
+        tooltip-text: _("Kursiv (Strg+I)");
+        action-name: "composer.italic";
+
+        accessibility {
+          label: _("Kursiv");
+        }
+
+        styles [
+          "flat",
+        ]
+      }
+
+      ToggleButton {
+        icon-name: "format-text-underline-symbolic";
+        tooltip-text: _("Unterstrichen (Strg+U)");
+        action-name: "composer.underline";
+
+        accessibility {
+          label: _("Unterstrichen");
+        }
+
+        styles [
+          "flat",
+        ]
+      }
+
+      ToggleButton {
+        icon-name: "format-text-strikethrough-symbolic";
+        tooltip-text: _("Durchgestrichen");
+        action-name: "composer.strikethrough";
+
+        accessibility {
+          label: _("Durchgestrichen");
+        }
+
+        styles [
+          "flat",
+        ]
+      }
+
+      Separator {
+        orientation: vertical;
+        margin-top: 6;
+        margin-bottom: 6;
+      }
+
+      ToggleButton {
+        icon-name: "view-list-bullet-symbolic";
+        tooltip-text: _("Aufzählung");
+        action-name: "composer.bullet-list";
+
+        accessibility {
+          label: _("Aufzählung");
+        }
+
+        styles [
+          "flat",
+        ]
+      }
+
+      ToggleButton {
+        icon-name: "view-list-ordered-symbolic";
+        tooltip-text: _("Nummerierung");
+        action-name: "composer.numbered-list";
+
+        accessibility {
+          label: _("Nummerierung");
+        }
+
+        styles [
+          "flat",
+        ]
+      }
+
+      Separator {
+        orientation: vertical;
+        margin-top: 6;
+        margin-bottom: 6;
+      }
+
+      Button {
+        icon-name: "insert-link-symbolic";
+        tooltip-text: _("Link einfügen");
+        action-name: "composer.insert-link";
+
+        accessibility {
+          label: _("Link einfügen");
+        }
+
+        styles [
+          "flat",
+        ]
+      }
+    }
+  };
+}
+
+// Einheitliche Zeilenhöhe der Felder wie Stamp (stamp-composer.blp:579-589).
+SizeGroup {
+  mode: vertical;
+
+  widgets [
+    to_entry,
+    cc_entry,
+    bcc_entry,
+    subject_entry,
+    from_dropdown,
+  ]
+}
+
+// Menü am Senden-Knopf wie Stamp (stamp-composer.blp:591-603).
+menu send_menu {
+  section {
+    item {
+      label: _("Senden");
+      action: "composer.send";
+    }
+
+    item {
+      label: _("Später senden…");
+      action: "composer.send-later";
+    }
+  }
+}

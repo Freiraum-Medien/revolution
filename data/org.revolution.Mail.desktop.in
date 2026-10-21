@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Revolution
+Comment=Read and write email
+Exec=revolution
+Icon=mail-unread
+Terminal=false
+Type=Application
+Categories=GNOME;GTK;Office;Email;
+Keywords=Mail;Email;E-Mail;
+StartupNotify=true

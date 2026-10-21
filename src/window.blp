@@ -1,0 +1,25 @@
+using Gtk 4.0;
+using Adw 1;
+
+Adw.ApplicationWindow window {
+  title: _("Revolution");
+  default-width: 1200;
+  default-height: 760;
+  width-request: 360;
+  height-request: 294;
+
+  content: Adw.ToolbarView {
+    [top]
+    Adw.HeaderBar {
+      title-widget: Adw.WindowTitle {
+        title: _("Revolution");
+      };
+    }
+
+    content: Adw.StatusPage {
+      icon-name: "mail-unread-symbolic";
+      title: _("Revolution");
+      description: _("Prototype scaffold");
+    };
+  };
+}

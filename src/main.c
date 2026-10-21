@@ -1,0 +1,46 @@
+/* main.c
+ *
+ * Copyright 2026 Arnd Messer
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+#include "config.h"
+
+#include <glib/gi18n.h>
+#include <adwaita.h>
+
+static void
+on_activate (GtkApplication *app)
+{
+  g_autoptr (GtkBuilder) builder = NULL;
+  GtkWindow *window;
+
+  window = gtk_application_get_active_window (app);
+  if (window == NULL)
+    {
+      builder = gtk_builder_new_from_resource ("/org/revolution/Mail/window.ui");
+      window = GTK_WINDOW (gtk_builder_get_object (builder, "window"));
+      gtk_window_set_application (window, app);
+    }
+
+  gtk_window_present (window);
+}
+
+int
+main (int    argc,
+      char **argv)
+{
+  g_autoptr (AdwApplication) app = NULL;
+
+  bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR);
+  bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
+  textdomain (GETTEXT_PACKAGE);
+
+  g_set_application_name (_("Revolution"));
+
+  app = adw_application_new (APPLICATION_ID, G_APPLICATION_DEFAULT_FLAGS);
+  g_signal_connect (app, "activate", G_CALLBACK (on_activate), NULL);
+
+  return g_application_run (G_APPLICATION (app), argc, argv);
+}

@@ -121,3 +121,67 @@
   color: var(--light-1);
   font-weight: 700;
 }
+
+/* #401 Punkt 1: nur dunkel – Trennstrich zwischen Liste und Nachricht dunkler als
+ * der Hintergrund (Vorbild 11). libadwaita zeichnet die Linie als box-shadow mit
+ * currentColor (hell); hier --shade-color (dunkel, rgba(16,16,16,0.35) im Dunkel-Stylesheet).
+ * Klasse .dark setzt mail-view.c nach AdwStyleManager:dark: die Media-Query
+ * prefers-color-scheme griff im Test (ADW_DEBUG_COLOR_SCHEME=prefer-dark) nicht. */
+.dark .mail-split paned.horizontal > separator {
+  box-shadow: inset 1px 0 var(--shade-color);
+}
+
+/* #401 Punkt 2: Hauptmenü kompakter und edler. Trennlinien dunkel und über die volle
+ * Breite, Einträge ohne Einzug nah am Rand (libadwaita: Innenabstand 6px, Zeile 32px). */
+menubutton.primary-menu popover.menu > contents > stack > box {
+  padding: 4px 0;
+}
+
+menubutton.primary-menu popover.menu modelbutton {
+  min-height: 28px;
+  margin: 0 4px;
+  padding: 0 10px;
+  border-radius: 7px;
+}
+
+menubutton.primary-menu popover.menu separator {
+  margin: 4px 0;
+  background-color: var(--shade-color);
+}
+
+/* #401 Punkt 4: Hinweis als abgerundete Pille (Vorbild 12). */
+.mail-notice {
+  padding: 5px 5px 5px 14px;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, currentColor 6%, transparent);
+  font-size: 0.93em;
+}
+
+.mail-notice > image {
+  color: var(--accent-color);
+}
+
+.mail-notice-button {
+  min-height: 26px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--accent-bg-color) 16%, transparent);
+  color: var(--accent-color);
+}
+
+.mail-notice-button:hover {
+  background-color: color-mix(in srgb, var(--accent-bg-color) 24%, transparent);
+}
+
+/* #401 Punkt 5: Mailkopf graziler (Vorbild 13). */
+.mail-sender {
+  font-weight: 600;
+}
+
+.mail-subject {
+  font-weight: 400;
+}
+
+.mail-details {
+  font-weight: 400;
+}

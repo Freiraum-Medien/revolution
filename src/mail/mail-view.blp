@@ -94,6 +94,12 @@ template $RevolutionMailView: Adw.BreakpointBin {
         MenuButton {
           primary: true;
           icon-name: "open-menu-symbolic";
+
+          // #401 Punkt 2: kompaktes Menü ohne Einzug (style.css .primary-menu).
+          styles [
+            "primary-menu",
+          ]
+
           tooltip-text: _("Hauptmenü");
           menu-model: primary_menu;
 
@@ -597,26 +603,54 @@ template $RevolutionMailView: Adw.BreakpointBin {
         };
       }
 
-      // HIG-BN: Banner für einen anhaltenden Zustand (adw-banner.h:31-42).
-      [top]
-      Adw.Banner {
-        title: _("Entfernte Inhalte gesperrt");
-        button-label: _("Laden");
-        revealed: true;
-      }
-
       // #400 Punkt 7: Kopf frei auf dem Hintergrund, darunter der Mailtext als große
       // abgerundete Karte bis zum unteren Rand (Vorbild 03). Nur der Inhalt scrollt.
       content: Box {
         orientation: vertical;
 
+        // #401 Punkt 4: Hinweis im Apple-Stil (Vorbild 12) statt Adw.Banner über die
+        // volle Breite: abgerundete Pille mit Abstand, Symbol links, Knopf in Akzentfarbe.
+        Box {
+          spacing: 12;
+          margin-start: 12;
+          margin-end: 12;
+          margin-top: 6;
+
+          styles [
+            "mail-notice",
+          ]
+
+          Image {
+            icon-name: "preferences-system-privacy-symbolic";
+            accessible-role: presentation;
+          }
+
+          Label {
+            label: _("Entfernte Inhalte gesperrt");
+            hexpand: true;
+            xalign: 0;
+            ellipsize: end;
+          }
+
+          Button {
+            label: _("Laden");
+            tooltip-text: _("Entfernte Inhalte dieser E-Mail laden");
+            valign: center;
+
+            styles [
+              "mail-notice-button",
+            ]
+          }
+        }
+
         // Nachrichtenkopf, Vorlage stamp-message-header.blp:4-150.
+        // #401 Punkt 5: graziler (Vorbild 13): nur der Absender halbfett, Betreff gleich groß.
         Grid {
           column-spacing: 12;
           row-spacing: 2;
           margin-start: 24;
           margin-end: 18;
-          margin-top: 16;
+          margin-top: 14;
           margin-bottom: 14;
 
           Adw.Avatar {
@@ -648,7 +682,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
               selectable: true;
 
               styles [
-                "heading",
+                "mail-sender",
               ]
             }
 
@@ -696,7 +730,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
             }
 
             styles [
-              "title-4",
+              "mail-subject",
             ]
           }
 
@@ -734,6 +768,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
               styles [
                 "flat",
+                "mail-details",
               ]
             }
           }
@@ -1172,10 +1207,12 @@ menu primary_menu {
     }
   }
 
+  // #401 Punkt 2: ohne Haken (eine Haken-Spalte rückt alle Einträge ein),
+  // daher die zustandslose Aktion mail.toggle-sidebar statt mail.sidebar.
   section {
     item {
-      label: _("Seiten_leiste anzeigen");
-      action: "mail.sidebar";
+      label: _("Seiten_leiste ein-/ausblenden");
+      action: "mail.toggle-sidebar";
       accel: "F9";
     }
   }

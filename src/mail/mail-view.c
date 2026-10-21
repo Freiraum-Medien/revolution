@@ -108,9 +108,22 @@ on_search (GSimpleAction *action G_GNUC_UNUSED,
     gtk_toggle_button_set_active (self->search_button, TRUE);
 }
 
+/* mail.toggle-sidebar fürs Hauptmenü (#401 Punkt 2): wie mail.sidebar (F9), aber
+ * zustandslos, damit GtkPopoverMenu keine Haken-Spalte einrückt. */
+static void
+on_toggle_sidebar (GSimpleAction *action G_GNUC_UNUSED,
+                   GVariant      *parameter G_GNUC_UNUSED,
+                   gpointer       user_data)
+{
+  RevolutionMailView *self = user_data;
+
+  adw_overlay_split_view_set_show_sidebar (self->split, !adw_overlay_split_view_get_show_sidebar (self->split));
+}
+
 /* preferences, shortcuts, about: Platzhalter des Primärmenüs (#399 Punkt 3). */
 static const GActionEntry mail_actions[] = {
   { "search", on_search, NULL, NULL, NULL, { 0 } },
+  { "toggle-sidebar", on_toggle_sidebar, NULL, NULL, NULL, { 0 } },
   { "preferences", NULL, NULL, NULL, NULL, { 0 } },
   { "shortcuts", NULL, NULL, NULL, NULL, { 0 } },
   { "about", NULL, NULL, NULL, NULL, { 0 } },
@@ -171,6 +184,18 @@ revolution_mail_view_unroot (GtkWidget *widget)
   g_signal_handlers_disconnect_by_func (gtk_widget_get_root (widget), on_focus_widget, widget);
 
   GTK_WIDGET_CLASS (revolution_mail_view_parent_class)->unroot (widget);
+}
+
+/* #401 Punkt 1: Klasse .dark für Regeln nur im dunklen Design (style.css). */
+static void
+on_dark_changed (AdwStyleManager    *manager,
+                 GParamSpec         *pspec G_GNUC_UNUSED,
+                 RevolutionMailView *self)
+{
+  if (adw_style_manager_get_dark (manager))
+    gtk_widget_add_css_class (GTK_WIDGET (self), "dark");
+  else
+    gtk_widget_remove_css_class (GTK_WIDGET (self), "dark");
 }
 
 enum { PROP_0, PROP_STACK, N_PROPS };
@@ -257,6 +282,7 @@ revolution_mail_view_init (RevolutionMailView *self)
   g_autoptr (GSimpleActionGroup) message_group = g_simple_action_group_new ();
   g_autoptr (GSimpleActionGroup) mail_group = g_simple_action_group_new ();
   g_autoptr (GPropertyAction) sidebar_action = NULL;
+  AdwStyleManager *style_manager = adw_style_manager_get_default ();
 
   gtk_widget_init_template (GTK_WIDGET (self));
 
@@ -274,4 +300,7 @@ revolution_mail_view_init (RevolutionMailView *self)
   sidebar_action = g_property_action_new ("sidebar", self->split, "show-sidebar");
   g_action_map_add_action (G_ACTION_MAP (mail_group), G_ACTION (sidebar_action));
   gtk_widget_insert_action_group (GTK_WIDGET (self), "mail", G_ACTION_GROUP (mail_group));
+
+  g_signal_connect_object (style_manager, "notify::dark", G_CALLBACK (on_dark_changed), self, G_CONNECT_DEFAULT);
+  on_dark_changed (style_manager, NULL, self);
 }

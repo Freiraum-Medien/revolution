@@ -8,9 +8,14 @@
 #     mehrere Klicks nacheinander als „X,Y X,Y“
 #   KEYS="Control_L+3 …" (optional, Umgebung): vor CLICK Tastendrücke per XTest (X-Keysym-Namen)
 #   ROUND=15 (optional, Umgebung): Fensterecken nachträglich mit ImageMagick abrunden (Radius in px,
-#     transparente Ecken). Grund: Xvfb hat keinen Compositor, libadwaita setzt dann window.solid-csd
-#     mit --window-radius: 0px; auf dem Desktop gilt --window-radius: 15px (libadwaita-Stylesheet
-#     default-light-yaru-default.css Zeilen 159, 3050, 3070). Nur Nachbearbeitung des Bildes.
+#     transparente Ecken). Seit #400 zeichnet GTK die Ecken selbst (siehe Compositor), ROUND
+#     bleibt als Absicherung; auf dem Desktop gilt --window-radius: 15px (libadwaita-Stylesheet
+#     default-light-yaru-default.css Zeile 159).
+# Compositor (#400): Xvfb hat keinen. Ohne ihn zeichnet GTK Fenster und Popover eckig ohne
+#   Schatten (window.solid-csd), Menüs sähen anders aus als auf dem Desktop. Ein Python-Helfer
+#   meldet sich als Compositing-Manager (Besitzer der Auswahl _NET_WM_CM_S0, ICCCM/EWMH);
+#   GTK nutzt dann RGBA-Fenster. Die Aufnahme setzt alle Fenster mit Alphakanal in
+#   Stapelreihenfolge zusammen (python3-pil) und schneidet auf das App-Fenster zu.
 # Läuft ausschließlich in einem eigenen Xvfb (xvfb-run -a) und einer eigenen
 # D-Bus-Sitzung (dbus-run-session). Es erscheint nie ein Fenster auf dem Desktop.
 set -euo pipefail
@@ -43,6 +48,7 @@ for tool in xvfb-run dbus-run-session import xwininfo python3 ${ROUND:+magick}; 
   command -v "$tool" >/dev/null || { echo "Fehlt: $tool" >&2; exit 1; }
 done
 python3 -c 'import Xlib' 2>/dev/null || { echo "Fehlt: python3-xlib" >&2; exit 1; }
+python3 -c 'import PIL' 2>/dev/null || { echo "Fehlt: python3-pil" >&2; exit 1; }
 mkdir -p "$OUT_DIR"
 
 REAL_DISPLAY="${DISPLAY:-}"
@@ -58,7 +64,7 @@ shoot () {
     REAL_DISPLAY="$REAL_DISPLAY" BIN="$BIN" OUT="$out" WIDTH="$WIDTH" HEIGHT="$HEIGHT" CLICK="$CLICK" KEYS="$KEYS" \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo GTK_A11Y=none NO_AT_BRIDGE=1 \
     ADW_DEBUG_COLOR_SCHEME="$scheme" \
-    xvfb-run -a -s "-screen 0 ${WIDTH}x${HEIGHT}x24" \
+    xvfb-run -a -s "-screen 0 ${WIDTH}x${HEIGHT}x24 +extension Composite" \
     dbus-run-session -- bash -c '
       set -euo pipefail
       if [ -z "${DISPLAY:-}" ] || [ "$DISPLAY" = "$REAL_DISPLAY" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
@@ -66,6 +72,17 @@ shoot () {
         exit 2
       fi
       echo "Xvfb-Anzeige: $DISPLAY (echte Sitzung: ${REAL_DISPLAY:-keine})"
+      # Compositing-Manager-Attrappe (siehe Kopf): besitzt _NET_WM_CM_S0, solange sie läuft.
+      python3 -c "
+import time
+from Xlib import display, X
+d = display.Display()
+w = d.screen().root.create_window(-10, -10, 1, 1, 0, X.CopyFromParent)
+w.set_selection_owner(d.intern_atom(\"_NET_WM_CM_S0\"), X.CurrentTime)
+d.sync()
+time.sleep(600)
+" & cm=$!
+      sleep 1
       "$BIN" & pid=$!
       sleep 3
       win=$(xwininfo -root -tree | awk "/\"Revolution\"/ {print \$1; exit}")
@@ -100,15 +117,34 @@ for combo in os.environ[\"KEYS\"].split():
           # Zeiger nach 0,0: ein unter ihm geöffnetes Fenster zeigte sonst einen Tooltip (#337).
           python3 -c "from Xlib import display, X; from Xlib.ext import xtest; d = display.Display(); xtest.fake_input(d, X.MotionNotify, x=0, y=0); d.sync()"
           sleep 1
-          # Popover ist eine eigene X-Oberfläche: ganze Xvfb-Anzeige (= Fenstergröße) aufnehmen.
-          import -window root "$OUT"
-        else
-          import -window "$win" "$OUT"
         fi
+        # Alle sichtbaren Fenster (App, Popover) mit Alphakanal in Stapelreihenfolge
+        # zusammensetzen und auf das App-Fenster zuschneiden.
+        WIN="$win" python3 -c "
+import os
+from Xlib import display, X
+from PIL import Image
+d = display.Display()
+root = d.screen().root
+size = (d.screen().width_in_pixels, d.screen().height_in_pixels)
+out = Image.new(\"RGBA\", size, (0, 0, 0, 0))
+for w in root.query_tree().children:
+    if w.get_attributes().map_state != X.IsViewable:
+        continue
+    g = w.get_geometry()
+    raw = w.get_image(0, 0, g.width, g.height, X.ZPixmap, 0xffffffff).data
+    if g.depth == 32:
+        im = Image.frombytes(\"RGBa\", (g.width, g.height), raw, \"raw\", \"BGRa\").convert(\"RGBA\")
+    else:
+        im = Image.frombytes(\"RGB\", (g.width, g.height), raw, \"raw\", \"BGRX\").convert(\"RGBA\")
+    out.alpha_composite(im, (g.x, g.y))
+g = d.create_resource_object(\"window\", int(os.environ[\"WIN\"], 16)).get_geometry()
+out.crop((g.x, g.y, g.x + g.width, g.y + g.height)).save(os.environ[\"OUT\"])
+"
       else
         import -window root "$OUT"
       fi
-      kill "$pid"; wait "$pid" 2>/dev/null || true
+      kill "$pid" "$cm"; wait "$pid" 2>/dev/null || true
     '
   rm -rf "$rundir"
   if [ -n "$ROUND" ]; then

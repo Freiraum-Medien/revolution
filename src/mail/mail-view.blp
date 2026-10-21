@@ -20,6 +20,28 @@ template $RevolutionMailView: Adw.BreakpointBin {
       trigger: "F9";
       action: "action(mail.sidebar)";
     }
+
+    // #400 Punkt 3/8: Kürzel der Menüeinträge (HIG Keyboard, Standardkürzel
+    // Strg+N, Strg+P, Strg+Komma, Strg+?), im Menü rechts angezeigt (accel-Attribut).
+    Shortcut {
+      trigger: "<primary>n";
+      action: "action(list.compose)";
+    }
+
+    Shortcut {
+      trigger: "<primary>p";
+      action: "action(message.print)";
+    }
+
+    Shortcut {
+      trigger: "<primary>comma";
+      action: "action(mail.preferences)";
+    }
+
+    Shortcut {
+      trigger: "<primary>question";
+      action: "action(mail.shortcuts)";
+    }
   }
 
   // Briefing 1.2: ≤ 1000 sp Seitenleiste eingeklappt, ≤ 600 sp „mobile“ (stamp-mail-view.blp:8-26).
@@ -31,13 +53,12 @@ template $RevolutionMailView: Adw.BreakpointBin {
       split.collapsed: true;
       split.show-sidebar: false;
       split.sidebar-width-fraction: 0.28;
-      split.min-sidebar-width: 260;
-      split.max-sidebar-width: 320;
-      // Neu wandert in die Listenspalte: alle Knöpfe der Nachricht passen sonst
-      // nicht neben die Liste (900 px, mail-schmal.png).
-      list_compose_button.visible: true;
-      compose_button.visible: false;
+      split.min-sidebar-width: 276;
+      split.max-sidebar-width: 336;
+      // #400 Punkt 6: Neu bleibt in der Kopfleiste der Nachricht (Arnd). Damit alle
+      // Knöpfe bei 900 px neben die Liste passen: ohne Abstandhalter, Liste mind. 280.
       compose_spacer.visible: false;
+      list_pane.width-request: 280;
     }
   }
 
@@ -88,12 +109,17 @@ template $RevolutionMailView: Adw.BreakpointBin {
         // Viewport: sonst blendet GtkListView beim Start den ersten
         // Abschnittskopf („Favoriten“) aus, erst Hochscrollen zeigt ihn.
         // Ursache klären in #350, Virtualisierung geht verloren.
-        child: Viewport {
+        // #400: Scrollen zum Fokus übernimmt mail-view.c (Umschalter liegt darüber).
+        child: Viewport folder_viewport {
+          scroll-to-focus: false;
+
           child: ListView folder_list {
             tab-behavior: item;
 
+            // folder-list: unterer Innenabstand = Höhe des Umschalters (style.css).
             styles [
               "navigation-sidebar",
+              "folder-list",
             ]
 
             accessibility {
@@ -243,12 +269,13 @@ template $RevolutionMailView: Adw.BreakpointBin {
       content: ScrolledWindow {
         hscrollbar-policy: never;
 
+        // #400 Punkt 4: Auswahl als abgerundete Akzentfläche mit Abstand zum Rand,
+        // ohne Trennlinien (Vorbild 04/05, style.css).
         child: ListView message_list {
-          show-separators: true;
           tab-behavior: item;
 
           styles [
-            "rich-list",
+            "message-list",
           ]
 
           accessibility {
@@ -513,7 +540,6 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                 ToggleButton {
                   icon-name: "starred-symbolic";
-                  active: true;
                   tooltip-text: _("Markieren");
 
                   accessibility {
@@ -521,9 +547,11 @@ template $RevolutionMailView: Adw.BreakpointBin {
                   }
                 }
 
-                // Sekundärmenü der Nachricht (HIG Menus), bleibt neben dem Primärmenü.
+                // #400 Punkt 8: Sekundärmenü der Nachricht als Mail-Symbol mit Pfeil
+                // wie der Ordner-Knopf daneben (statt view-more, Arnd: verwirrend).
                 MenuButton {
-                  icon-name: "view-more-symbolic";
+                  icon-name: "mail-unread-symbolic";
+                  always-show-arrow: true;
                   tooltip-text: _("Weitere Aktionen");
                   menu-model: message_menu;
 
@@ -577,197 +605,382 @@ template $RevolutionMailView: Adw.BreakpointBin {
         revealed: true;
       }
 
-      content: ScrolledWindow {
-        hscrollbar-policy: never;
+      // #400 Punkt 7: Kopf frei auf dem Hintergrund, darunter der Mailtext als große
+      // abgerundete Karte bis zum unteren Rand (Vorbild 03). Nur der Inhalt scrollt.
+      content: Box {
+        orientation: vertical;
 
-        // #399 Punkt 1: die Mail als Karte mit runden Ecken und Abstand zum Rand
-        // (Stilklasse .card, libadwaita-Stylesheet).
-        child: Box {
-          orientation: vertical;
-          valign: start;
-          margin-start: 18;
+        // Nachrichtenkopf, Vorlage stamp-message-header.blp:4-150.
+        Grid {
+          column-spacing: 12;
+          row-spacing: 2;
+          margin-start: 24;
           margin-end: 18;
-          margin-top: 18;
-          margin-bottom: 18;
+          margin-top: 16;
+          margin-bottom: 14;
 
-          styles [
-            "card",
-          ]
+          Adw.Avatar {
+            size: 48;
+            valign: start;
+            show-initials: true;
+            text: _("Stadtwerke Lindenau");
 
-          // Nachrichtenkopf, Vorlage stamp-message-header.blp:4-150.
-          Grid {
-            column-spacing: 12;
-            row-spacing: 2;
-            margin-start: 18;
-            margin-end: 18;
-            margin-top: 18;
-            margin-bottom: 12;
-
-            Adw.Avatar {
-              size: 48;
-              valign: start;
-              show-initials: true;
-              text: _("Jana Albrecht");
-
-              layout {
-                column: 0;
-                row: 0;
-                row-span: 3;
-              }
+            layout {
+              column: 0;
+              row: 0;
+              row-span: 3;
             }
+          }
 
-            Box {
-              spacing: 6;
+          Box {
+            spacing: 6;
 
-              layout {
-                column: 1;
-                row: 0;
-              }
-
-              Label {
-                label: _("Jana Albrecht");
-                hexpand: true;
-                xalign: 0;
-                ellipsize: end;
-                selectable: true;
-
-                styles [
-                  "heading",
-                ]
-              }
-
-              Image {
-                icon-name: "inbox-symbolic";
-                tooltip-text: _("Ordner");
-
-                accessibility {
-                  label: _("Ordner");
-                }
-
-                styles [
-                  "dimmed",
-                ]
-              }
-
-              Label {
-                label: _("Eingang — Privat");
-
-                styles [
-                  "dimmed",
-                ]
-              }
-
-              Label {
-                label: _("Heute, 09:14");
-                margin-start: 6;
-
-                styles [
-                  "numeric",
-                  "dimmed",
-                ]
-              }
+            layout {
+              column: 1;
+              row: 0;
             }
 
             Label {
-              label: _("Unterlagen für das Projekt Nordlicht");
+              label: _("Stadtwerke Lindenau");
+              hexpand: true;
               xalign: 0;
-              wrap: true;
+              ellipsize: end;
               selectable: true;
 
-              layout {
-                column: 1;
-                row: 1;
-              }
-
               styles [
-                "title-4",
+                "heading",
               ]
             }
 
-            Box {
-              spacing: 6;
+            Image {
+              icon-name: "inbox-symbolic";
+              tooltip-text: _("Ordner");
 
-              layout {
-                column: 1;
-                row: 2;
+              accessibility {
+                label: _("Ordner");
               }
 
-              Label {
-                label: _("An:");
+              styles [
+                "dimmed",
+              ]
+            }
 
-                styles [
-                  "dimmed",
-                ]
-              }
+            Label {
+              label: _("Eingang — Privat");
 
-              Label {
-                label: _("Lena Vogt");
-                hexpand: true;
-                xalign: 0;
-                ellipsize: end;
+              styles [
+                "dimmed",
+              ]
+            }
 
-                styles [
-                  "dimmed",
-                ]
-              }
+            Label {
+              label: _("Heute, 07:30");
+              margin-start: 6;
 
-              Button {
-                label: _("Details");
-                tooltip-text: _("Alle Kopfzeilen anzeigen");
-                valign: center;
-
-                styles [
-                  "flat",
-                ]
-              }
+              styles [
+                "numeric",
+                "dimmed",
+              ]
             }
           }
 
-          Separator {}
-
-          // Platzhalter für den Inhalt (WebKitGTK folgt in #354).
           Label {
-            label: _("Hallo Lena,\n\nanbei die überarbeiteten Pläne für das Projekt Nordlicht und die aktuelle Kostenschätzung. Gegenüber dem letzten Stand haben sich vor allem die Positionen für die Fassade und die Außenanlagen geändert.\n\nKannst du bis Freitag einen Blick darauf werfen? Die Abstimmung mit dem Bauamt ist für nächste Woche angesetzt, und ich würde die Unterlagen gern vorher mit dir durchgehen.\n\nViele Grüße\nJana");
+            label: _("Ihre Jahresabrechnung 2026");
             xalign: 0;
-            yalign: 0;
             wrap: true;
             selectable: true;
-            margin-start: 18;
-            margin-end: 18;
-            margin-top: 18;
-            margin-bottom: 18;
+
+            layout {
+              column: 1;
+              row: 1;
+            }
+
+            styles [
+              "title-4",
+            ]
           }
-        };
+
+          Box {
+            spacing: 6;
+
+            layout {
+              column: 1;
+              row: 2;
+            }
+
+            Label {
+              label: _("An:");
+
+              styles [
+                "dimmed",
+              ]
+            }
+
+            Label {
+              label: _("Lena Vogt");
+              hexpand: true;
+              xalign: 0;
+              ellipsize: end;
+
+              styles [
+                "dimmed",
+              ]
+            }
+
+            Button {
+              label: _("Details");
+              tooltip-text: _("Alle Kopfzeilen anzeigen");
+              valign: center;
+
+              styles [
+                "flat",
+              ]
+            }
+          }
+        }
+
+        // HTML-Mail: eigener weißer Hintergrund auch im Dunkelmodus (style.css .html-mail).
+        // Platzhalter für WebKitGTK (#354), Inhalt nachgebildet mit Labels.
+        Adw.Bin {
+          vexpand: true;
+          overflow: hidden;
+          margin-start: 12;
+          margin-end: 12;
+          margin-bottom: 12;
+
+          styles [
+            "html-mail",
+          ]
+
+          child: ScrolledWindow {
+            hscrollbar-policy: never;
+
+            child: Adw.Clamp {
+              maximum-size: 620;
+              tightening-threshold: 480;
+              margin-start: 28;
+              margin-end: 28;
+              margin-top: 28;
+              margin-bottom: 36;
+
+              child: Box {
+                orientation: vertical;
+                spacing: 18;
+
+                Box {
+                  spacing: 12;
+
+                  Label {
+                    label: _("Stadtwerke Lindenau");
+                    hexpand: true;
+                    xalign: 0;
+
+                    styles [
+                      "html-brand",
+                    ]
+                  }
+
+                  Label {
+                    label: _("Kundennummer 104 227 1");
+                    xalign: 1;
+
+                    styles [
+                      "html-small",
+                    ]
+                  }
+                }
+
+                Separator {
+                  styles [
+                    "html-rule",
+                  ]
+                }
+
+                Label {
+                  label: _("Ihre Jahresabrechnung 2026 ist da");
+                  xalign: 0;
+                  wrap: true;
+                  selectable: true;
+
+                  styles [
+                    "html-title",
+                  ]
+                }
+
+                Label {
+                  label: _("Sehr geehrte Frau Vogt,\n\nvielen Dank, dass Sie Ihre Energie von uns beziehen. Ihre <b>Jahresabrechnung für 2026</b> steht ab sofort in Ihrem Kundenportal bereit. Die gute Nachricht vorweg: Sie haben weniger verbraucht als im Vorjahr und erhalten ein <b>Guthaben</b>.");
+                  use-markup: true;
+                  xalign: 0;
+                  wrap: true;
+                  selectable: true;
+                }
+
+                Grid {
+                  column-spacing: 24;
+                  row-spacing: 8;
+
+                  styles [
+                    "html-box",
+                  ]
+
+                  Label {
+                    label: _("Abrechnungszeitraum");
+                    xalign: 0;
+                    hexpand: true;
+
+                    layout {
+                      column: 0;
+                      row: 0;
+                    }
+                  }
+
+                  Label {
+                    label: _("01.01. – 31.12.2026");
+                    xalign: 1;
+
+                    layout {
+                      column: 1;
+                      row: 0;
+                    }
+                  }
+
+                  Label {
+                    label: _("Verbrauch Strom");
+                    xalign: 0;
+
+                    layout {
+                      column: 0;
+                      row: 1;
+                    }
+                  }
+
+                  Label {
+                    label: _("2.418 kWh");
+                    xalign: 1;
+
+                    layout {
+                      column: 1;
+                      row: 1;
+                    }
+                  }
+
+                  Label {
+                    label: _("Neuer Abschlag ab Januar");
+                    xalign: 0;
+
+                    layout {
+                      column: 0;
+                      row: 2;
+                    }
+                  }
+
+                  Label {
+                    label: _("72,00 € monatlich");
+                    xalign: 1;
+
+                    layout {
+                      column: 1;
+                      row: 2;
+                    }
+                  }
+
+                  Label {
+                    label: _("<b>Ihr Guthaben</b>");
+                    use-markup: true;
+                    xalign: 0;
+
+                    layout {
+                      column: 0;
+                      row: 3;
+                    }
+                  }
+
+                  Label {
+                    label: _("<b>84,20 €</b>");
+                    use-markup: true;
+                    xalign: 1;
+
+                    layout {
+                      column: 1;
+                      row: 3;
+                    }
+
+                    styles [
+                      "html-credit",
+                    ]
+                  }
+                }
+
+                Label {
+                  label: _("Das Guthaben überweisen wir in den nächsten Tagen auf Ihr Konto. Den neuen Abschlag haben wir an Ihren Verbrauch angepasst.");
+                  xalign: 0;
+                  wrap: true;
+                  selectable: true;
+                }
+
+                Label {
+                  label: _("Zur Rechnung im Kundenportal");
+                  halign: start;
+
+                  styles [
+                    "html-button",
+                  ]
+                }
+
+                Label {
+                  label: _("Freundliche Grüße\nIhr Kundenservice der Stadtwerke Lindenau");
+                  xalign: 0;
+                  wrap: true;
+                  selectable: true;
+                }
+
+                Separator {
+                  margin-top: 12;
+
+                  styles [
+                    "html-rule-thin",
+                  ]
+                }
+
+                Label {
+                  label: _("Stadtwerke Lindenau GmbH · Am Wasserturm 4 · 04179 Lindenau\nSie erhalten diese E-Mail, weil Sie Kundin der Stadtwerke Lindenau sind.");
+                  xalign: 0;
+                  wrap: true;
+
+                  styles [
+                    "html-small",
+                  ]
+                }
+              };
+            };
+          };
+        }
       };
     }
 
     // Ansichtsumschalter Mail/Kontakte/Kalender (Briefing 0, stamp-mail-view.blp:187-191).
-    // #399 Punkt 2: schwebend (Abstand, Radius, Schatten, Kontur), Vorbild HIG „Overlaid Controls“.
-    // Außen die Kontur im Akzent-Verlauf, innen eine fast deckende Fläche in der
-    // Farbe der Seitenleiste (mail/style.css). Ohne .osd: das wäre auch im hellen
-    // Modus ein dunkler Block (Sichtprüfung PM, #399).
+    // #400 Punkt 2: schwebt über der Ordnerliste (Gtk.Overlay unten), ohne eigene Leiste
+    // und ohne Trennstrich; Kontur 1 px Akzent, Fläche leicht transparent mit Blur (style.css).
+    // valign end auf dem Slot: sonst deckt der Slot die ganze Liste ab und schluckt Klicks.
     [switcher]
-    Adw.Bin {
+    Adw.Bin switcher {
       valign: end;
-      margin-start: 12;
-      margin-end: 12;
-      margin-top: 12;
-      margin-bottom: 12;
+      margin-start: 6;
+      margin-end: 6;
+      margin-top: 6;
+      margin-bottom: 6;
 
       styles [
         "floating-switcher",
       ]
 
-      child: Box {
-        Adw.ViewSwitcher {
-          policy: narrow;
-          hexpand: true;
-          margin-start: 6;
-          margin-end: 6;
-          margin-top: 9;
-          margin-bottom: 6;
-          stack: bind template.stack;
-        }
+      child: Adw.ViewSwitcher {
+        policy: narrow;
+        margin-start: 4;
+        margin-end: 4;
+        margin-top: 4;
+        margin-bottom: 4;
+        stack: bind template.stack;
       };
     }
 
@@ -779,21 +992,35 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
       content: Adw.OverlaySplitView split {
         sidebar-width-fraction: 0.22;
-        min-sidebar-width: 220;
-        max-sidebar-width: 280;
+        min-sidebar-width: 236;
+        max-sidebar-width: 296;
 
-        // #399: Umschalter unter der Ordnerliste statt darüber gelegt (Gtk.Overlay):
-        // sonst scrollte die Tastatur (Pfeil/Ende) den markierten Ordner unter den
-        // Umschalter (Review m-7). Flache untere Leiste ohne Hintergrund; „schwebend“
-        // wirkt er über Abstand, Radius, Schatten und Kontur (mail/style.css).
-        sidebar: Adw.ToolbarView {
-          content: Adw.LayoutSlot {
+        styles [
+          "mail-split",
+        ]
+
+        // #400 Punkt 1: Seitenleiste als schwebende, abgerundete Fläche mit Abstand
+        // zum Fensterrand rundum (Vorbild 06/07, style.css .floating-sidebar).
+        // Punkt 2: Umschalter als Überlagerung über der Ordnerliste.
+        sidebar: Overlay {
+          overflow: hidden;
+          margin-start: 8;
+          margin-end: 8;
+          margin-top: 8;
+          margin-bottom: 8;
+
+          styles [
+            "floating-sidebar",
+          ]
+
+          child: Adw.LayoutSlot {
             id: "sidebar";
           };
 
-          [bottom]
+          [overlay]
           Adw.LayoutSlot {
             id: "switcher";
+            valign: end;
           }
         };
 
@@ -861,6 +1088,9 @@ template $RevolutionMailView: Adw.BreakpointBin {
   };
 }
 
+// #400 Punkt 3/5/8: Menüs wie GNOME Dateien (Vorbild 08): Gruppen als Abschnitte,
+// die GtkPopoverMenu mit Trennlinien zeichnet; Tastenkürzel rechts über das
+// accel-Attribut (nur Anzeige, ausgelöst durch den ShortcutController oben).
 menu filter_menu {
   section {
     item {
@@ -868,7 +1098,9 @@ menu filter_menu {
       action: "list.filter";
       target: "all";
     }
+  }
 
+  section {
     item {
       label: _("Ungelesen");
       action: "list.filter";
@@ -913,25 +1145,52 @@ menu message_menu {
       label: _("Als ungelesen markieren");
       action: "message.mark-unread";
     }
+  }
 
+  section {
     item {
       label: _("Drucken…");
       action: "message.print";
+      accel: "<primary>p";
     }
   }
 }
 
-// #399 Punkt 3: Inhalt Platzhalter, Aktionen ohne Logik (mail-view.c).
+// Inhalt Platzhalter, Aktionen ohne Logik (mail-view.c).
 menu primary_menu {
+  section {
+    item {
+      label: _("_Neue E-Mail");
+      action: "list.compose";
+      accel: "<primary>n";
+    }
+
+    item {
+      label: _("_Suchen");
+      action: "mail.search";
+      accel: "<primary>f";
+    }
+  }
+
+  section {
+    item {
+      label: _("Seiten_leiste anzeigen");
+      action: "mail.sidebar";
+      accel: "F9";
+    }
+  }
+
   section {
     item {
       label: _("_Einstellungen");
       action: "mail.preferences";
+      accel: "<primary>comma";
     }
 
     item {
       label: _("_Tastenkürzel");
       action: "mail.shortcuts";
+      accel: "<primary>question";
     }
 
     item {

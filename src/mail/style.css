@@ -1,26 +1,123 @@
-/* style.css – eigenes CSS der App (#399), lädt AdwApplication automatisch aus
+/* style.css – eigenes CSS der App (#399, #400), lädt AdwApplication automatisch aus
  * der GResource (/org/revolution/Mail/style.css, Adw-1.gir Zeile 7362).
  *
- * Einziger Eintrag: schwebender Umschalter Mail | Kontakte | Kalender
- * (mail-view.blp). libadwaita hat keine Stilklasse für eine Verlaufskontur;
- * HIG-ST: „keep the amount of this custom styling to a minimum“.
- * Nur Variablen, keine festen Farbwerte. Radius 15px = --window-radius
- * (libadwaita-Stylesheet Zeile 159), fest, weil window.solid-csd ihn auf 0 setzt.
+ * Custom-CSS ausdrücklich gewünscht (Arnd, #400), Farben nur aus libadwaita-Variablen
+ * (Palette --light-1 … --dark-4 und --blue-4 aus dem libadwaita-Stylesheet).
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-/* Außen: 2px Kontur im Verlauf der Akzentfarbe, Schatten aus --shade-color.
- * Verlauf durchgehend deckend: darunterliegender Text scheint nicht durch. */
+/* #400 Punkt 1: Seitenleiste als schwebende Fläche (Vorbild 06/07). Der Bereich der
+ * Seitenleiste selbst bleibt ohne eigene Farbe und ohne Trennlinie, dort zeigt sich
+ * der Fensterhintergrund; darauf liegt die abgerundete Fläche mit Abstand rundum. */
+.mail-split > .sidebar-pane {
+  background: none;
+  box-shadow: none;
+}
+
+.mail-split,
+.mail-split > .content-pane {
+  background-color: var(--window-bg-color);
+}
+
+.floating-sidebar {
+  border-radius: 16px;
+  background-color: var(--sidebar-bg-color);
+  box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
+}
+
+/* Platz unter dem letzten Ordner: Höhe des Umschalters samt Abstand (#400 Punkt 2). */
+.folder-list {
+  padding-bottom: 72px;
+}
+
+/* #400 Punkt 2: Umschalter schwebt über der Ordnerliste. Kontur 1 px Akzent, Fläche
+ * leicht transparent, darunter weichgezeichnet (backdrop-filter, GTK 4.22).
+ * Radius 10px = 16px der Seitenleiste minus 6px Abstand (konzentrisch). */
 .floating-switcher {
-  padding: 2px;
-  border-radius: 15px;
-  background-image: linear-gradient(135deg, var(--accent-bg-color), color-mix(in srgb, var(--accent-color) 25%, var(--sidebar-bg-color)), var(--accent-color));
+  border: 1px solid var(--accent-bg-color);
+  border-radius: 10px;
+  background-color: color-mix(in srgb, var(--sidebar-bg-color) 62%, transparent);
+  backdrop-filter: blur(4px);
   box-shadow: 0 2px 8px var(--shade-color);
 }
 
-/* Innen: Fläche der Seitenleiste, 90 % deckend; der Verlauf darunter tönt leicht. */
-.floating-switcher > box {
-  border-radius: 13px;
-  background-color: color-mix(in srgb, var(--sidebar-bg-color) 90%, transparent);
+/* #400 Punkt 4: Nachrichtenliste wie 04/05 – ohne Trennlinien, ruhige Zeilen,
+ * Auswahl als abgerundete, kräftige Akzentfläche mit Abstand zum Rand. */
+.message-list {
+  background: none;
+  padding: 4px 8px 8px;
+}
+
+.message-list > row {
+  margin: 1px 0;
+  padding: 10px 12px 10px 4px;
+  border-radius: 12px;
+}
+
+.message-list > row:selected,
+.message-list > row:selected:hover,
+.message-list > row:selected:focus-within {
+  background-color: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+}
+
+.message-list > row:selected .accent {
+  color: inherit;
+}
+
+/* #400 Punkt 7: HTML-Mail behält ihren eigenen weißen Hintergrund, auch im
+ * Dunkelmodus (Vorbild 03). Nachbildung einer typischen HTML-Mail. */
+.html-mail {
+  border-radius: 12px;
+  background-color: var(--light-1);
+  color: var(--dark-4);
+  box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
+}
+
+.html-mail selection {
+  background-color: color-mix(in srgb, var(--blue-4) 25%, transparent);
+}
+
+.html-brand {
+  font-weight: 800;
+  font-size: 18px;
+  color: var(--blue-4);
+}
+
+.html-title {
+  font-weight: 700;
+  font-size: 24px;
+}
+
+.html-small {
+  font-size: 12px;
+  color: var(--dark-1);
+}
+
+.html-rule {
+  min-height: 2px;
+  background-color: var(--blue-4);
+}
+
+.html-rule-thin {
+  background-color: var(--light-3);
+}
+
+.html-box {
+  padding: 16px 18px;
+  border-radius: 8px;
+  background-color: color-mix(in srgb, var(--blue-4) 7%, var(--light-1));
+}
+
+.html-credit {
+  color: var(--blue-4);
+}
+
+.html-button {
+  padding: 10px 20px;
+  border-radius: 6px;
+  background-color: var(--blue-4);
+  color: var(--light-1);
+  font-weight: 700;
 }

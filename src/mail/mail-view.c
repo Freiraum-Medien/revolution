@@ -25,6 +25,9 @@ struct _RevolutionMailView
   GtkSearchEntry      *search_entry;
   GtkToggleButton     *search_button;
   AdwOverlaySplitView *split;
+  GtkViewport         *folder_viewport;
+  GtkWidget           *folder_list;
+  GtkWidget           *switcher;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionMailView, revolution_mail_view, ADW_TYPE_BREAKPOINT_BIN)
@@ -119,6 +122,57 @@ static const GActionEntry message_actions[] = {
   { "print", NULL, NULL, NULL, NULL, { 0 } },
 };
 
+/* #400 Punkt 2: der Umschalter schwebt über dem unteren Rand der Ordnerliste.
+ * Statt GtkViewport:scroll-to-focus (scrollt nur bis zum Rand des Viewports)
+ * scrollt der fokussierte Ordner bis über die Oberkante des Umschalters. */
+static void
+on_focus_widget (GtkRoot            *root,
+                 GParamSpec         *pspec G_GNUC_UNUSED,
+                 RevolutionMailView *self)
+{
+  GtkWidget *focus = gtk_root_get_focus (root);
+  GtkWidget *viewport = GTK_WIDGET (self->folder_viewport);
+  GtkAdjustment *adjustment;
+  graphene_rect_t row, switcher;
+  double bottom, value;
+
+  if (focus == NULL || !gtk_widget_is_ancestor (focus, self->folder_list) ||
+      !gtk_widget_compute_bounds (focus, viewport, &row))
+    return;
+
+  adjustment = gtk_scrollable_get_vadjustment (GTK_SCROLLABLE (viewport));
+  value = gtk_adjustment_get_value (adjustment);
+  bottom = gtk_widget_get_height (viewport);
+
+  /* Nur wenn der Umschalter über diesem Viewport liegt (Layout „desktop“). */
+  if (gtk_widget_get_mapped (self->switcher) &&
+      gtk_widget_compute_bounds (self->switcher, viewport, &switcher) &&
+      switcher.origin.y > 0 && switcher.origin.y < bottom)
+    bottom = switcher.origin.y - gtk_widget_get_margin_top (self->switcher);
+
+  if (row.origin.y < 0)
+    gtk_adjustment_set_value (adjustment, value + row.origin.y);
+  else if (row.origin.y + row.size.height > bottom)
+    gtk_adjustment_set_value (adjustment, value + row.origin.y + row.size.height - bottom);
+}
+
+static void
+revolution_mail_view_root (GtkWidget *widget)
+{
+  GTK_WIDGET_CLASS (revolution_mail_view_parent_class)->root (widget);
+
+  g_signal_connect_object (gtk_widget_get_root (widget), "notify::focus-widget",
+                           G_CALLBACK (on_focus_widget), widget, G_CONNECT_DEFAULT);
+}
+
+static void
+revolution_mail_view_unroot (GtkWidget *widget)
+{
+  g_signal_handlers_disconnect_by_func (gtk_widget_get_root (widget), on_focus_widget, widget);
+
+  GTK_WIDGET_CLASS (revolution_mail_view_parent_class)->unroot (widget);
+}
+
 enum { PROP_0, PROP_STACK, N_PROPS };
 
 static void
@@ -169,6 +223,8 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   object_class->get_property = revolution_mail_view_get_property;
   object_class->set_property = revolution_mail_view_set_property;
   object_class->dispose = revolution_mail_view_dispose;
+  widget_class->root = revolution_mail_view_root;
+  widget_class->unroot = revolution_mail_view_unroot;
 
   g_object_class_install_property (object_class, PROP_STACK,
                                    g_param_spec_object ("stack", NULL, NULL, ADW_TYPE_VIEW_STACK,
@@ -184,6 +240,9 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, search_entry);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, search_button);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, split);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, folder_viewport);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, folder_list);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, switcher);
   gtk_widget_class_bind_template_callback (widget_class, on_search_toggled);
   gtk_widget_class_bind_template_callback (widget_class, on_search_started);
   gtk_widget_class_bind_template_callback (widget_class, on_search_stop);
@@ -203,6 +262,8 @@ revolution_mail_view_init (RevolutionMailView *self)
 
   gtk_single_selection_set_model (self->folder_selection, folders);
   gtk_single_selection_set_model (self->message_selection, messages);
+  /* #400 Punkt 7: angezeigt wird die HTML-Mail der Stadtwerke (3. Zeile, mail-sample.c). */
+  gtk_single_selection_set_selected (self->message_selection, 2);
 
   g_action_map_add_action_entries (G_ACTION_MAP (list_group), list_actions, G_N_ELEMENTS (list_actions), self);
   g_action_map_add_action_entries (G_ACTION_MAP (message_group), message_actions, G_N_ELEMENTS (message_actions), NULL);

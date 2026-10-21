@@ -10,7 +10,6 @@ using Adw 1;
 template $RevolutionCalendarView: Adw.BreakpointBin {
   width-request: 360;
   height-request: 294;
-
   // Kürzel wie GNOME Calendar (gcal-window.blp:11-75, F9 :181-188), Aktionen in
   // calendar-view.c. Scope local: wirken nur auf der Kalender-Seite.
   ShortcutController {
@@ -70,6 +69,17 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
       trigger: "F9";
       action: "action(calendar.sidebar)";
     }
+
+    // #402: Kürzel der Hauptmenü-Einträge wie Mail (mail-view.blp:26-43).
+    Shortcut {
+      trigger: "<Control>comma";
+      action: "action(calendar.preferences)";
+    }
+
+    Shortcut {
+      trigger: "<Control>question";
+      action: "action(calendar.shortcuts)";
+    }
   }
 
   // Wie Mail (mail-view.blp:10-23) und GNOME Calendar (gcal-window.blp:323-330):
@@ -80,133 +90,217 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
     setters {
       split.collapsed: true;
       split.show-sidebar: false;
+      // #402: Breiten wie Mail (mail-view.blp:53-57).
       split.sidebar-width-fraction: 0.28;
-      split.min-sidebar-width: 260;
-      split.max-sidebar-width: 320;
-      sidebar_button.visible: true;
+      split.min-sidebar-width: 276;
+      split.max-sidebar-width: 336;
       view_switcher.policy: narrow;
     }
   }
 
+  // #402: Breiten und Klasse mail-split wie Mail (mail-view.blp:1033-1040, style.css).
   child: Adw.OverlaySplitView split {
     sidebar-width-fraction: 0.22;
-    min-sidebar-width: 220;
-    max-sidebar-width: 280;
+    min-sidebar-width: 236;
+    max-sidebar-width: 296;
 
-    // Seitenleiste: Monatsauswahl + Kalenderliste (gcal-window.blp:150-166).
-    sidebar: Adw.ToolbarView {
-      bottom-bar-style: raised;
+    styles [
+      "mail-split",
+    ]
 
-      [top]
-      Adw.HeaderBar {
-        title-widget: Adw.WindowTitle {
-          title: _("Revolution");
-        };
-      }
+    // #402: Seitenleiste als schwebende, abgerundete Fläche mit Abstand zum Fensterrand,
+    // Umschalter als Überlagerung darüber (wie mail-view.blp:1042-1064).
+    sidebar: Overlay {
+      overflow: hidden;
+      margin-start: 8;
+      margin-end: 8;
+      margin-top: 8;
+      margin-bottom: 8;
 
-      content: ScrolledWindow {
-        hscrollbar-policy: never;
+      styles [
+        "floating-sidebar",
+      ]
 
-        child: Box {
-          orientation: vertical;
+      // Seitenleiste: Monatsauswahl + Kalenderliste (gcal-window.blp:150-166).
+      child: Adw.ToolbarView {
+        [top]
+        Adw.HeaderBar {
+          title-widget: Adw.WindowTitle {
+            title: _("Revolution");
+          };
 
-          // GcalDateChooser ist ein eigenes C-Widget; hier Gtk.Calendar.
-          Calendar date_chooser {
-            year: 2026;
-            month: 9;
-            day: 21;
-            margin-start: 12;
-            margin-end: 12;
-            margin-top: 6;
-            margin-bottom: 6;
-
-            accessibility {
-              label: _("Datum wählen");
-            }
-          }
-
-          // Kalenderliste (gcal-calendar-list.blp:14-23), je Konto ein Abschnitt wie die
-          // Ordnerliste in mail-view.blp. Farbe und Ein/Aus im Ankreuzfeld.
-          ListView calendar_list {
-            tab-behavior: item;
+          // #402: Hauptmenü wie Mail (mail-view.blp:88-106), Nautilus-Optik über .primary-menu.
+          [end]
+          MenuButton {
+            primary: true;
+            icon-name: "open-menu-symbolic";
 
             styles [
-              "navigation-sidebar",
+              "primary-menu",
             ]
 
+            tooltip-text: _("Hauptmenü");
+            menu-model: primary_menu;
+
             accessibility {
-              label: _("Kalender");
+              label: _("Hauptmenü");
+            }
+          }
+        }
+
+        content: ScrolledWindow {
+          hscrollbar-policy: never;
+
+          child: Box {
+            orientation: vertical;
+
+            // GcalDateChooser ist ein eigenes C-Widget; hier Gtk.Calendar.
+            // #402: ohne eigenen Rahmen auf der Seitenleisten-Fläche (style.css .date-chooser).
+            Calendar date_chooser {
+              year: 2026;
+              month: 9;
+              day: 21;
+              margin-start: 12;
+              margin-end: 12;
+              margin-top: 6;
+              margin-bottom: 6;
+
+              accessibility {
+                label: _("Datum wählen");
+              }
+
+              styles [
+                "date-chooser",
+              ]
             }
 
-            model: NoSelection calendar_model {};
+            // Kalenderliste (gcal-calendar-list.blp:14-23), je Konto ein Abschnitt wie die
+            // Ordnerliste in mail-view.blp. Farbe und Ein/Aus im Ankreuzfeld.
+            // #402: unterer Abstand = Höhe des Umschalters samt Rand wie .folder-list (style.css).
+            ListView calendar_list {
+              tab-behavior: item;
+              margin-bottom: 56;
 
-            header-factory: BuilderListItemFactory {
-              template ListHeader {
-                child: Label {
-                  label: bind template.item as <$RevolutionSampleCalendar>.group;
-                  xalign: 0;
-                  margin-start: 14;
-                  margin-end: 14;
-                  margin-top: 12;
-                  margin-bottom: 6;
-                  ellipsize: end;
+              // calendar-list: Abstand Ankreuzfeld–Name wie Symbol–Name der Ordnerliste (style.css).
+              styles [
+                "navigation-sidebar",
+                "calendar-list",
+              ]
 
-                  styles [
-                    "caption-heading",
-                    "dimmed",
-                  ]
-                };
+              accessibility {
+                label: _("Kalender");
               }
-            };
 
-            factory: BuilderListItemFactory {
-              template ListItem {
-                activatable: false;
+              model: NoSelection calendar_model {};
 
-                child: CheckButton {
-                  label: bind template.item as <$RevolutionSampleCalendar>.title;
-                  // Anfangszustand aus den Beispieldaten; Umschalten ändert nur das Ankreuzfeld.
-                  active: bind template.item as <$RevolutionSampleCalendar>.visible;
-                  css-classes: bind template.item as <$RevolutionSampleCalendar>.css-classes;
-                  tooltip-text: _("Kalender ein- oder ausblenden");
-                };
-              }
-            };
-          }
+              header-factory: BuilderListItemFactory {
+                template ListHeader {
+                  child: Label {
+                    label: bind template.item as <$RevolutionSampleCalendar>.group;
+                    xalign: 0;
+                    margin-start: 14;
+                    margin-end: 14;
+                    margin-top: 12;
+                    margin-bottom: 6;
+                    ellipsize: end;
+
+                    styles [
+                      "caption-heading",
+                      "dimmed",
+                    ]
+                  };
+                }
+              };
+
+              factory: BuilderListItemFactory {
+                template ListItem {
+                  activatable: false;
+
+                  child: CheckButton {
+                    label: bind template.item as <$RevolutionSampleCalendar>.title;
+                    // Anfangszustand aus den Beispieldaten; Umschalten ändert nur das Ankreuzfeld.
+                    active: bind template.item as <$RevolutionSampleCalendar>.visible;
+                    css-classes: bind template.item as <$RevolutionSampleCalendar>.css-classes;
+                    tooltip-text: _("Kalender ein- oder ausblenden");
+                  };
+                }
+              };
+            }
+          };
         };
       };
 
-      // Ansichtsumschalter Mail/Kontakte/Kalender (Briefing 0, wie mail-view.blp).
-      [bottom]
-      Adw.ViewSwitcherBar {
-        stack: bind template.stack;
-        reveal: true;
+      // #402: Ansichtsumschalter Mail/Kalender/Kontakte schwebt über der Kalenderliste,
+      // nur Symbole, Klassen und Tooltip wie Mail (mail-view.blp:1000-1025, style.css).
+
+      [overlay]
+      Adw.Bin switcher {
+        valign: end;
+        margin-start: 8;
+        margin-end: 8;
+        margin-top: 8;
+        margin-bottom: 8;
+
+        styles [
+          "floating-switcher",
+        ]
+
+        child: Adw.ViewSwitcher {
+          policy: narrow;
+          stack: bind template.stack;
+          has-tooltip: true;
+          query-tooltip => $on_switcher_query_tooltip() swapped;
+        };
       }
     };
 
+    // #402: Hauptbereich ohne Klasse .view auf dem Fensterhintergrund wie Mail (.mail-split).
     content: Adw.ToolbarView {
+      // calendar-main: dunkle Trennlinien im Dunkelmodus (style.css).
       styles [
-        "view",
+        "calendar-main",
       ]
 
       // Kopfleiste (gcal-window.blp:174-211). Titel = Monat und Jahr
       // (gcal-calendar-navigation-button.c:106, „%B %Y“).
+
+      // #402: Aufbau wie die Kopfleiste der Mail-Nachricht (mail-view.blp:438-449): alles im
+      // Titel, damit der Titel linksbündig direkt neben dem Seitenleisten-Knopf steht wie in
+      // der Mail-Liste (mail-view.blp:233-262); Fensterknöpfe als Gtk.WindowControls.
       [top]
       Adw.HeaderBar {
-        [start]
-        ToggleButton sidebar_button {
-          visible: false;
-          icon-name: "sidebar-show-symbolic";
-          tooltip-text: _("Seitenleiste anzeigen");
-          active: bind split.show-sidebar bidirectional;
+        show-start-title-buttons: false;
+        show-end-title-buttons: false;
 
-          accessibility {
-            label: _("Seitenleiste anzeigen");
+        title-widget: Box {
+          hexpand: true;
+          spacing: 6;
+
+          // #402: Knopf immer sichtbar wie Mail (mail-view.blp:208-218); F9 oben im Controller.
+          ToggleButton sidebar_button {
+            icon-name: "sidebar-show-symbolic";
+            tooltip-text: _("Seitenleiste ein-/ausblenden");
+            active: bind split.show-sidebar bidirectional;
+
+            accessibility {
+              label: _("Seitenleiste ein-/ausblenden");
+            }
           }
-        }
 
-        title-widget: Adw.WindowTitle {
-          title: _("Oktober 2026");
+          Label {
+            label: _("Oktober 2026");
+            hexpand: true;
+            xalign: 0;
+            ellipsize: end;
+
+            styles [
+              "heading",
+            ]
+          }
+
+          WindowControls {
+            side: end;
+          }
         };
       }
 
@@ -223,8 +317,8 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
 
           child: Box {
             orientation: vertical;
-
-            // Wochentage (gcal-month-view.blp:40-92).
+            // Wochentage (gcal-month-view.blp:40-92). #402: leicht wie die Abschnittsköpfe
+            // der Mail-Ordnerliste (caption-heading, dimmed; mail-view.blp:144-147).
             Box {
               homogeneous: true;
               margin-top: 6;
@@ -236,7 +330,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
                 margin-start: 12;
 
                 styles [
-                  "heading",
+                  "caption-heading",
                   "dimmed",
                 ]
               }
@@ -247,7 +341,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
                 margin-start: 12;
 
                 styles [
-                  "heading",
+                  "caption-heading",
                   "dimmed",
                 ]
               }
@@ -258,7 +352,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
                 margin-start: 12;
 
                 styles [
-                  "heading",
+                  "caption-heading",
                   "dimmed",
                 ]
               }
@@ -269,7 +363,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
                 margin-start: 12;
 
                 styles [
-                  "heading",
+                  "caption-heading",
                   "dimmed",
                 ]
               }
@@ -280,7 +374,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
                 margin-start: 12;
 
                 styles [
-                  "heading",
+                  "caption-heading",
                   "dimmed",
                 ]
               }
@@ -291,7 +385,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
                 margin-start: 12;
 
                 styles [
-                  "heading",
+                  "caption-heading",
                   "dimmed",
                 ]
               }
@@ -302,7 +396,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
                 margin-start: 12;
 
                 styles [
-                  "heading",
+                  "caption-heading",
                   "dimmed",
                 ]
               }
@@ -337,7 +431,6 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
           title: _("_Woche");
           use-underline: true;
           icon-name: "calendar-week-symbolic";
-
           // Aufbau nach gcal-week-view.blp:3-108.
           child: Box {
             orientation: vertical;
@@ -393,6 +486,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
       };
 
       // Untere Leiste (gcal-window.blp:265-315).
+
       [bottom]
       ActionBar {
         [start]
@@ -461,10 +555,15 @@ SizeGroup {
 }
 
 // Termin-Detail (gcal-event-popover.blp:3-158), Inhalt setzt calendar-view.c.
+// #402: Nautilus-Optik wie das Hauptmenü der Mail (style.css .event-popover).
 Popover event_popover {
   default-widget: edit_button;
   position: top;
   width-request: 250;
+
+  styles [
+    "event-popover",
+  ]
 
   child: Box {
     orientation: vertical;
@@ -480,7 +579,6 @@ Popover event_popover {
         hexpand: true;
         orientation: vertical;
         spacing: 6;
-
         // Nicht wählbar: sonst erhält der Titel beim Öffnen den Fokus und erscheint markiert.
         Label event_summary {
           wrap: true;
@@ -489,9 +587,9 @@ Popover event_popover {
           max-width-chars: 23;
           lines: 6;
           ellipsize: end;
-
+          // #402: halbfett wie der Absender im Mailkopf (.mail-sender, style.css).
           styles [
-            "title-4",
+            "event-title",
           ]
         }
 
@@ -552,7 +650,8 @@ Popover event_popover {
           label: _("Ort");
 
           styles [
-            "heading",
+            "caption-heading",
+            "dimmed",
           ]
         }
 
@@ -565,4 +664,50 @@ Popover event_popover {
       }
     }
   };
+}
+
+// #402: Hauptmenü mit Inhalt wie Mail (mail-view.blp:1199-1243); erster Eintrag Neuer Termin
+// statt Neue E-Mail, weil Strg+N hier calendar.new-event auslöst. Aktionen in calendar-view.c.
+menu primary_menu {
+  section {
+    item {
+      label: _("_Neuer Termin");
+      action: "calendar.new-event";
+      accel: "<primary>n";
+    }
+
+    item {
+      label: _("_Suchen");
+      action: "calendar.search";
+      accel: "<primary>f";
+    }
+  }
+
+  // Ohne Haken wie Mail: zustandslose Aktion calendar.toggle-sidebar statt calendar.sidebar.
+  section {
+    item {
+      label: _("Seiten_leiste ein-/ausblenden");
+      action: "calendar.toggle-sidebar";
+      accel: "F9";
+    }
+  }
+
+  section {
+    item {
+      label: _("_Einstellungen");
+      action: "calendar.preferences";
+      accel: "<primary>comma";
+    }
+
+    item {
+      label: _("_Tastenkürzel");
+      action: "calendar.shortcuts";
+      accel: "<primary>question";
+    }
+
+    item {
+      label: _("_Info zu Revolution");
+      action: "calendar.about";
+    }
+  }
 }

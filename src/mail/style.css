@@ -251,3 +251,61 @@ menubutton.primary-menu popover.menu separator {
 .mail-details {
   font-weight: 400;
 }
+
+/* Kalender (#402) – Designsprache der Mail auf die Kalender-Ansicht übertragen.
+ * Seitenleiste, Umschalter und Hauptmenü nutzen die Klassen oben (.mail-split,
+ * .floating-sidebar, .floating-switcher, .primary-menu); hier nur Ergänzungen. */
+
+/* Monatsauswahl ohne eigenen Rahmen und Hintergrund auf der Seitenleisten-Fläche. */
+calendar.date-chooser {
+  border: none;
+  background: none;
+}
+
+/* Kalenderliste: Abstand Ankreuzfeld–Name wie Symbol–Name der Ordnerliste (12px,
+ * mail-view.blp Box spacing); libadwaita lässt hier etwa 6px. */
+.calendar-list checkbutton > label {
+  margin-left: 6px;
+}
+
+/* Nur Wichtiges halbfett wie der Mailkopf (.mail-sender 600): Monatsanfang, heute. */
+.calendar-emphasis {
+  font-weight: 600;
+}
+
+/* Tagesnummer der Woche groß (.title-2), aber nicht fett. */
+.calendar-day-number {
+  font-weight: 400;
+}
+
+.calendar-day-number.calendar-emphasis {
+  font-weight: 600;
+}
+
+/* Termine ruhig und abgerundet (Radius wie .html-box), Schrift leicht.
+ * Farbe und Kante setzt calendar-view.c (load_colors). */
+button.calendar-event {
+  border-radius: 8px;
+  font-weight: 400;
+}
+
+/* Dunkel: Trennlinien dunkler als der Hintergrund wie der Trennstrich der Mail
+ * (.dark .mail-split paned.horizontal > separator). */
+.dark .calendar-main separator {
+  background-color: var(--shade-color);
+}
+
+/* Termin-Detail in Nautilus-Optik wie das Hauptmenü: Trennlinien dunkel und über
+ * die volle Breite, Titel halbfett wie .mail-sender. */
+popover.event-popover > contents {
+  padding: 0;
+}
+
+popover.event-popover separator {
+  background-color: var(--shade-color);
+}
+
+.event-title {
+  font-size: 1.1em;
+  font-weight: 600;
+}

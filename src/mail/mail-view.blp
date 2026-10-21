@@ -374,8 +374,10 @@ template $RevolutionMailView: Adw.BreakpointBin {
                       ellipsize: end;
                     }
 
+                    // #401: Symbole dezent wie Apple Mail (Vorbild 17): 12px, grau (style.css).
                     Image {
                       icon-name: "mail-attachment-symbolic";
+                      pixel-size: 12;
                       visible: bind template.item as <$RevolutionSampleMessage>.attachment;
                       tooltip-text: _("Mit Anhang");
 
@@ -385,11 +387,13 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                       styles [
                         "dimmed",
+                        "list-icon",
                       ]
                     }
 
                     Image {
                       icon-name: "starred-symbolic";
+                      pixel-size: 12;
                       visible: bind template.item as <$RevolutionSampleMessage>.starred;
                       tooltip-text: _("Markiert");
 
@@ -399,6 +403,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                       styles [
                         "accent",
+                        "list-icon",
                       ]
                     }
                   }

@@ -122,6 +122,16 @@
   color: inherit;
 }
 
+/* #401: Büroklammer und Stern dezent wie Apple Mail (Vorbild 17): 12px statt 16px
+ * (pixel-size in mail-view.blp), Büroklammer grauer als .dimmed, Stern etwas zurück. */
+.message-list .list-icon.dimmed {
+  opacity: 0.4;
+}
+
+.message-list .list-icon.accent {
+  opacity: 0.8;
+}
+
 /* #400 Punkt 7: HTML-Mail behält ihren eigenen weißen Hintergrund, auch im
  * Dunkelmodus (Vorbild 03). Nachbildung einer typischen HTML-Mail. */
 .html-mail {

@@ -10,17 +10,25 @@
 #include <glib/gi18n.h>
 #include <adwaita.h>
 
+#include "mail/mail-view.h"
+
 static void
 on_activate (GtkApplication *app)
 {
   g_autoptr (GtkBuilder) builder = NULL;
+  g_autoptr (GPropertyAction) view_action = NULL;
   GtkWindow *window;
 
   window = gtk_application_get_active_window (app);
   if (window == NULL)
     {
+      g_type_ensure (REVOLUTION_TYPE_MAIL_VIEW);
       builder = gtk_builder_new_from_resource ("/org/revolution/Mail/window.ui");
       window = GTK_WINDOW (gtk_builder_get_object (builder, "window"));
+      /* win.view für Strg+1/2/3 (window.blp): wechselt die AdwViewStack-Seite. */
+      view_action = g_property_action_new ("view", gtk_builder_get_object (builder, "app_stack"),
+                                           "visible-child-name");
+      g_action_map_add_action (G_ACTION_MAP (window), G_ACTION (view_action));
       gtk_window_set_application (window, app);
     }
 

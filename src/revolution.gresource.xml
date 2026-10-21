@@ -2,5 +2,10 @@
 <gresources>
   <gresource prefix="/org/revolution/Mail">
     <file>window.ui</file>
+    <file>mail-view.ui</file>
+    <file>icons/scalable/actions/archive-symbolic.svg</file>
+    <file>icons/scalable/actions/drafts-symbolic.svg</file>
+    <file>icons/scalable/actions/inbox-symbolic.svg</file>
+    <file>icons/scalable/actions/sort-order-symbolic.svg</file>
   </gresource>
 </gresources>

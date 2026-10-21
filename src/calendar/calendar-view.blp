@@ -11,7 +11,8 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
   width-request: 360;
   height-request: 294;
 
-  // Kürzel wie GNOME Calendar (gcal-window.blp:11-75), Aktionen in calendar-view.c.
+  // Kürzel wie GNOME Calendar (gcal-window.blp:11-75, F9 :181-188), Aktionen in
+  // calendar-view.c. Scope local: wirken nur auf der Kalender-Seite.
   ShortcutController {
     Shortcut {
       trigger: "<Control>t";
@@ -58,6 +59,16 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
     Shortcut {
       trigger: "<Control>n";
       action: "action(calendar.new-event)";
+    }
+
+    Shortcut {
+      trigger: "<Control>f";
+      action: "action(calendar.search)";
+    }
+
+    Shortcut {
+      trigger: "F9";
+      action: "action(calendar.sidebar)";
     }
   }
 
@@ -192,15 +203,6 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
           accessibility {
             label: _("Seitenleiste anzeigen");
           }
-
-          ShortcutController {
-            scope: managed;
-
-            Shortcut {
-              trigger: "F9";
-              action: "activate";
-            }
-          }
         }
 
         title-widget: Adw.WindowTitle {
@@ -320,6 +322,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
               child: Box month_weeks {
                 orientation: vertical;
                 homogeneous: true;
+                accessible-role: group;
 
                 accessibility {
                   label: _("Monat");
@@ -344,10 +347,10 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
 
               // Wochentage und ganztägige Termine (GcalWeekHeader).
               Grid week_header {
+                accessible-role: group;
                 hexpand: true;
                 column-homogeneous: true;
-                margin-top: 6;
-                margin-bottom: 6;
+                margin-top: 4;
 
                 accessibility {
                   label: _("Ganztägige Termine");
@@ -357,8 +360,10 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
 
             Separator {}
 
-            ScrolledWindow week_scroller {
+            // Fest 07–21 Uhr; bei wenig Platz abgeschnitten wie der Monat.
+            ScrolledWindow {
               hscrollbar-policy: external;
+              vscrollbar-policy: external;
               vexpand: true;
 
               child: Viewport {
@@ -369,8 +374,9 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
                     homogeneous: true;
                   }
 
-                  // Stundenraster mit Terminen (GcalWeekGrid), 48 halbe Stunden.
+                  // Stundenraster mit Terminen (GcalWeekGrid), 07–21 Uhr in halben Stunden.
                   Grid week_grid {
+                    accessible-role: group;
                     hexpand: true;
                     column-homogeneous: true;
                     row-homogeneous: true;

@@ -20,28 +20,29 @@
 #include "calendar-view.h"
 
 #define MONTH_WEEKS    5   /* gcal-month-view.c:39 N_ROWS_PER_PAGE */
-#define MONTH_SLOTS    2   /* Terminzeilen je Monatszelle, weitere als „+N“ */
-#define HOUR_HEIGHT    48  /* Mindesthöhe je Stunde (Stundenleiste) */
-#define FIRST_HOUR     7.5 /* oberer Rand der Wochenansicht beim ersten Anzeigen */
+#define MONTH_SLOTS    2   /* Terminzeilen je Monatszelle */
+#define FIRST_HOUR     7   /* Woche zeigt fest 07–21 Uhr */
+#define LAST_HOUR      21
+#define HOUR_HEIGHT    40  /* = Höhe eines einstündigen Termins (Gtk.Button); 14 Stunden passen in 1200×760 */
 
 struct _RevolutionCalendarView
 {
-  AdwBreakpointBin  parent_instance;
-  AdwViewStack     *stack;
-  AdwViewStack     *views;
-  GtkNoSelection   *calendar_model;
-  GtkBox           *month_weeks;
-  GtkGrid          *week_header;
-  GtkGrid          *week_grid;
-  GtkBox           *hour_bar;
-  GtkScrolledWindow *week_scroller;
-  GtkPopover       *event_popover;
-  GtkLabel         *event_summary;
-  GtkLabel         *event_when;
-  GtkLabel         *event_notes;
-  GtkWidget        *event_location_box;
-  GtkLabel         *event_location;
-  GtkCssProvider   *colors;
+  AdwBreakpointBin     parent_instance;
+  AdwViewStack        *stack;
+  AdwOverlaySplitView *split;
+  AdwViewStack        *views;
+  GtkNoSelection      *calendar_model;
+  GtkBox              *month_weeks;
+  GtkGrid             *week_header;
+  GtkGrid             *week_grid;
+  GtkBox              *hour_bar;
+  GtkPopover          *event_popover;
+  GtkLabel            *event_summary;
+  GtkLabel            *event_when;
+  GtkLabel            *event_notes;
+  GtkWidget           *event_location_box;
+  GtkLabel            *event_location;
+  GtkCssProvider      *colors;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionCalendarView, revolution_calendar_view, ADW_TYPE_BREAKPOINT_BIN)
@@ -53,6 +54,7 @@ static const GActionEntry calendar_actions[] = {
   { "next", NULL, NULL, NULL, NULL, { 0 } },
   { "new-event", NULL, NULL, NULL, NULL, { 0 } },
   { "edit-event", NULL, NULL, NULL, NULL, { 0 } },
+  { "search", NULL, NULL, NULL, NULL, { 0 } },
 };
 
 enum { PROP_0, PROP_STACK, N_PROPS };
@@ -65,13 +67,6 @@ sample_date (guint day)
   return g_date_time_add_days (first, day);
 }
 
-static char *
-event_time_text (const RevolutionSampleEvent *event)
-{
-  return g_strdup_printf ("%02d:%02d – %02d:%02d",
-                          event->start / 60, event->start % 60, event->end / 60, event->end % 60);
-}
-
 /* Termin-Detail wie GcalEventPopover (gcal-event-popover.blp): Titel, Zeit,
  * Notizen, Ort. Das Popover wandert an den angeklickten Termin. */
 static void
@@ -79,30 +74,9 @@ on_event_clicked (GtkButton              *button,
                   RevolutionCalendarView *self)
 {
   const RevolutionSampleEvent *event = g_object_get_data (G_OBJECT (button), "event");
-  g_autoptr (GDateTime) date = sample_date (event->day);
-  g_autofree char *day_text = g_date_time_format (date, _("%A, %-d. %B"));
-  g_autofree char *when = NULL;
-
-  if (event->start >= 0)
-    {
-      g_autofree char *time_text = event_time_text (event);
-
-      when = g_strdup_printf (_("%s, %s"), day_text, time_text);
-    }
-  else if (event->days > 1)
-    {
-      g_autoptr (GDateTime) last = sample_date (event->day + event->days - 1);
-      g_autofree char *last_text = g_date_time_format (last, _("%A, %-d. %B"));
-
-      when = g_strdup_printf (_("%s bis %s"), day_text, last_text);
-    }
-  else
-    {
-      when = g_strdup_printf (_("%s, ganztägig"), day_text);
-    }
 
   gtk_label_set_label (self->event_summary, _(event->summary));
-  gtk_label_set_label (self->event_when, when);
+  gtk_label_set_label (self->event_when, _(event->when));
   gtk_label_set_label (self->event_notes, event->notes ? _(event->notes) : _("Keine Notizen"));
   if (event->notes)
     gtk_widget_remove_css_class (GTK_WIDGET (self->event_notes), "dimmed");
@@ -117,57 +91,38 @@ on_event_clicked (GtkButton              *button,
   gtk_popover_popup (self->event_popover);
 }
 
-/* Termin als Knopf in Kalenderfarbe (Farbklasse siehe load_colors).
- * Waagrecht wie GcalEventWidget horizontal_box, senkrecht wie vertical_box
- * (gcal-event-widget.blp:37-78). */
+/* Termin als Knopf in Kalenderfarbe (Farbklasse siehe load_colors), Titel und
+ * Beginn wie GcalEventWidget horizontal_box (gcal-event-widget.blp:64-78). */
 static GtkWidget *
 event_button (RevolutionCalendarView      *self,
-              const RevolutionSampleEvent *event,
-              GtkOrientation               orientation)
+              const RevolutionSampleEvent *event)
 {
   g_autofree char *color_class = g_strdup_printf ("calendar-color-%u", event->calendar);
-  g_autofree char *time_text = event->start >= 0 ? event_time_text (event) : NULL;
   g_autofree char *a11y = NULL;
   GtkWidget *button = gtk_button_new ();
-  GtkWidget *box = gtk_box_new (orientation, 4);
+  GtkWidget *box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 4);
   GtkWidget *summary = gtk_label_new (_(event->summary));
 
+  gtk_widget_set_valign (box, GTK_ALIGN_START);
   gtk_label_set_xalign (GTK_LABEL (summary), 0);
   gtk_label_set_ellipsize (GTK_LABEL (summary), PANGO_ELLIPSIZE_END);
   gtk_widget_set_hexpand (summary, TRUE);
   gtk_widget_add_css_class (summary, "body");
+  gtk_box_append (GTK_BOX (box), summary);
 
-  if (time_text != NULL)
+  if (event->time != NULL)
     {
-      /* Monat: nur Beginn (wie GcalEventWidget timestamp_label), Woche: Beginn – Ende. */
-      g_autofree char *start_text = g_strndup (time_text, 5);
-      GtkWidget *time = gtk_label_new (orientation == GTK_ORIENTATION_HORIZONTAL ? start_text : time_text);
+      GtkWidget *time = gtk_label_new (event->time);
 
-      gtk_label_set_xalign (GTK_LABEL (time), 0);
       gtk_widget_add_css_class (time, "caption");
       gtk_widget_add_css_class (time, "dimmed");
       gtk_widget_add_css_class (time, "numeric");
-      if (orientation == GTK_ORIENTATION_HORIZONTAL)
-        {
-          gtk_box_append (GTK_BOX (box), summary);
-          gtk_box_append (GTK_BOX (box), time);
-        }
-      else
-        {
-          gtk_box_append (GTK_BOX (box), time);
-          gtk_box_append (GTK_BOX (box), summary);
-        }
-      a11y = g_strdup_printf ("%s, %s", _(event->summary), time_text);
-    }
-  else
-    {
-      gtk_box_append (GTK_BOX (box), summary);
-      a11y = g_strdup_printf (_("%s, ganztägig"), _(event->summary));
+      gtk_box_append (GTK_BOX (box), time);
     }
 
+  a11y = g_strdup_printf ("%s, %s", _(event->summary), _(event->when));
   gtk_button_set_child (GTK_BUTTON (button), box);
   gtk_widget_add_css_class (button, color_class);
-  gtk_widget_set_tooltip_text (button, a11y);
   gtk_accessible_update_property (GTK_ACCESSIBLE (button),
                                   GTK_ACCESSIBLE_PROPERTY_LABEL, a11y,
                                   GTK_ACCESSIBLE_PROPERTY_HAS_POPUP, TRUE,
@@ -191,8 +146,7 @@ separator (GtkOrientation orientation)
   return widget;
 }
 
-/* Monat: je Woche ein Gtk.Grid mit Tagesnummer, MONTH_SLOTS Terminzeilen und
- * einer Zeile „+N“ für weitere Termine (gcal-month-cell.blp:66-92, .c:631).
+/* Monat: je Woche ein Gtk.Grid mit Tagesnummer und MONTH_SLOTS Terminzeilen.
  * Trennlinien liegen als Gtk.Separator in denselben Zellen (Gtk.Grid erlaubt
  * Überlappung). Tag 1 zeigt den Monatsnamen, heute ist hervorgehoben
  * (gcal-month-cell.c:85-125, 540-570). */
@@ -201,7 +155,6 @@ fill_month (RevolutionCalendarView *self)
 {
   const RevolutionSampleEvent *events;
   guint n_events;
-  guint hidden[MONTH_WEEKS * 7] = { 0, };
   GtkGrid *weeks[MONTH_WEEKS];
 
   for (int week = 0; week < MONTH_WEEKS; week++)
@@ -249,52 +202,28 @@ fill_month (RevolutionCalendarView *self)
   for (guint i = 0; i < n_events; i++)
     {
       const RevolutionSampleEvent *event = &events[i];
-      GtkWidget *button;
+      GtkWidget *button = event_button (self, event);
 
-      if (event->slot >= MONTH_SLOTS)
-        {
-          hidden[event->day]++;
-          continue;
-        }
+      g_assert (event->day < MONTH_WEEKS * 7);
+      g_assert (event->day % 7 + event->days <= 7);
+      g_assert (event->slot < MONTH_SLOTS);
 
-      button = event_button (self, event, GTK_ORIENTATION_HORIZONTAL);
       gtk_widget_set_margin_start (button, 4);
       gtk_widget_set_margin_end (button, 4);
       gtk_widget_set_margin_bottom (button, 2);
       gtk_grid_attach (weeks[event->day / 7], button, event->day % 7, 1 + event->slot, event->days, 1);
     }
-
-  for (guint day = 0; day < G_N_ELEMENTS (hidden); day++)
-    {
-      g_autofree char *text = NULL;
-      g_autofree char *tooltip = NULL;
-      GtkWidget *label;
-
-      if (hidden[day] == 0)
-        continue;
-
-      text = g_strdup_printf ("+%u", hidden[day]);
-      tooltip = g_strdup_printf (g_dngettext (GETTEXT_PACKAGE, "%u weiterer Termin", "%u weitere Termine", hidden[day]),
-                                 hidden[day]);
-      label = gtk_label_new (text);
-      gtk_label_set_xalign (GTK_LABEL (label), 0);
-      gtk_widget_set_valign (label, GTK_ALIGN_START);
-      gtk_widget_set_margin_start (label, 12);
-      gtk_widget_set_tooltip_text (label, tooltip);
-      gtk_accessible_update_property (GTK_ACCESSIBLE (label), GTK_ACCESSIBLE_PROPERTY_LABEL, tooltip, -1);
-      gtk_widget_add_css_class (label, "caption-heading");
-      gtk_widget_add_css_class (label, "dimmed");
-      gtk_grid_attach (weeks[day / 7], label, day % 7, MONTH_SLOTS + 1, 1, 1);
-    }
 }
 
 /* Woche 19.–25.10.: Kopf mit Wochentag und Tagesnummer (gcal-week-header.c:995-1027,
- * 1565-1590), ganztägige Termine darunter; Raster mit 48 halben Stunden. */
+ * 1565-1590), ganztägige Termine darunter; Raster FIRST_HOUR–LAST_HOUR in halben
+ * Stunden. */
 static void
 fill_week (RevolutionCalendarView *self)
 {
   const RevolutionSampleEvent *events;
   guint n_events;
+  int rows = (LAST_HOUR - FIRST_HOUR) * 2;
 
   for (int column = 0; column < 7; column++)
     {
@@ -319,10 +248,10 @@ fill_week (RevolutionCalendarView *self)
       gtk_box_append (GTK_BOX (box), day);
       gtk_grid_attach (self->week_header, box, column, 0, 1, 1);
 
-      gtk_grid_attach (self->week_grid, separator (GTK_ORIENTATION_VERTICAL), column, 0, 1, 48);
+      gtk_grid_attach (self->week_grid, separator (GTK_ORIENTATION_VERTICAL), column, 0, 1, rows);
     }
 
-  for (int hour = 0; hour < 24; hour++)
+  for (int hour = FIRST_HOUR; hour < LAST_HOUR; hour++)
     {
       g_autofree char *text = g_strdup_printf ("%02d:00", hour);
       GtkWidget *label = gtk_label_new (text);
@@ -336,8 +265,8 @@ fill_week (RevolutionCalendarView *self)
       gtk_widget_add_css_class (label, "numeric");
       gtk_box_append (self->hour_bar, label);
 
-      if (hour > 0)
-        gtk_grid_attach (self->week_grid, separator (GTK_ORIENTATION_HORIZONTAL), 0, hour * 2, 7, 1);
+      if (hour > FIRST_HOUR)
+        gtk_grid_attach (self->week_grid, separator (GTK_ORIENTATION_HORIZONTAL), 0, (hour - FIRST_HOUR) * 2, 7, 1);
     }
 
   events = revolution_calendar_sample_events (&n_events);
@@ -349,48 +278,24 @@ fill_week (RevolutionCalendarView *self)
       if (event->day < REVOLUTION_SAMPLE_WEEK || event->day >= REVOLUTION_SAMPLE_WEEK + 7)
         continue;
 
+      button = event_button (self, event);
+      gtk_widget_set_margin_start (button, 3);
+      gtk_widget_set_margin_end (button, 3);
+
       if (event->start < 0)
         {
-          button = event_button (self, event, GTK_ORIENTATION_HORIZONTAL);
           gtk_widget_set_margin_top (button, 6);
-          gtk_widget_set_margin_start (button, 2);
-          gtk_widget_set_margin_end (button, 2);
+          gtk_widget_set_margin_bottom (button, 4);
           gtk_grid_attach (self->week_header, button, event->day - REVOLUTION_SAMPLE_WEEK, 1, event->days, 1);
         }
       else
         {
-          button = event_button (self, event, GTK_ORIENTATION_VERTICAL);
-          gtk_widget_set_margin_top (button, 1);
-          gtk_widget_set_margin_bottom (button, 1);
-          gtk_widget_set_margin_start (button, 3);
-          gtk_widget_set_margin_end (button, 3);
+          g_assert (event->start >= FIRST_HOUR * 60 && event->end <= LAST_HOUR * 60);
+
           gtk_grid_attach (self->week_grid, button, event->day - REVOLUTION_SAMPLE_WEEK,
-                           event->start / 30, 1, (event->end - event->start) / 30);
+                           (event->start - FIRST_HOUR * 60) / 30, 1, (event->end - event->start) / 30);
         }
     }
-}
-
-/* Beim ersten Anzeigen der Woche zum Vormittag scrollen (GNOME Calendar
- * scrollt zur aktuellen Uhrzeit). Erst nach der Größenzuteilung, sonst setzt
- * der Viewport den Wert zurück. */
-static void
-scroll_to_first_hour (gpointer user_data)
-{
-  GtkAdjustment *adjustment = user_data;
-
-  gtk_adjustment_set_value (adjustment, gtk_adjustment_get_upper (adjustment) * FIRST_HOUR / 24);
-  g_object_unref (adjustment);
-}
-
-static void
-on_week_adjustment_changed (GtkAdjustment *adjustment,
-                            gpointer       user_data)
-{
-  if (gtk_adjustment_get_upper (adjustment) <= gtk_adjustment_get_page_size (adjustment))
-    return;
-
-  g_signal_handlers_disconnect_by_func (adjustment, on_week_adjustment_changed, user_data);
-  g_idle_add_once (scroll_to_first_hour, g_object_ref (adjustment));
 }
 
 /* Kalenderfarben sind Nutzerdaten (Briefing 3, Punkt 2): je Kalender eine
@@ -413,8 +318,7 @@ load_colors (RevolutionCalendarView *self)
       g_string_append_printf (css,
                               "checkbutton.%1$s > check { box-shadow: inset 0 0 0 2px %2$s; }\n"
                               "checkbutton.%1$s > check:checked { background-color: %2$s; color: white; box-shadow: none; }\n"
-                              "button.%1$s { background-color: color-mix(in srgb, %2$s 25%%, var(--view-bg-color)); box-shadow: inset 4px 0 %2$s; }\n"
-                              "button.%1$s:hover { background-color: color-mix(in srgb, %2$s 35%%, var(--view-bg-color)); }\n",
+                              "button.%1$s { background-color: color-mix(in srgb, %2$s 25%%, var(--view-bg-color)); box-shadow: inset 4px 0 %2$s; }\n",
                               classes[0], color);
     }
 
@@ -422,7 +326,7 @@ load_colors (RevolutionCalendarView *self)
   gtk_css_provider_load_from_string (self->colors, css->str);
   gtk_style_context_add_provider_for_display (gtk_widget_get_display (GTK_WIDGET (self)),
                                               GTK_STYLE_PROVIDER (self->colors),
-                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 }
 
 static void
@@ -488,13 +392,13 @@ revolution_calendar_view_class_init (RevolutionCalendarViewClass *klass)
   g_type_ensure (REVOLUTION_TYPE_SAMPLE_CALENDAR);
 
   gtk_widget_class_set_template_from_resource (widget_class, "/org/revolution/Mail/calendar-view.ui");
+  gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, split);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, views);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, calendar_model);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, month_weeks);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, week_header);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, week_grid);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, hour_bar);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, week_scroller);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, event_popover);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, event_summary);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, event_when);
@@ -509,6 +413,7 @@ revolution_calendar_view_init (RevolutionCalendarView *self)
   g_autoptr (GListModel) calendars = revolution_calendar_sample_calendars ();
   g_autoptr (GSimpleActionGroup) group = g_simple_action_group_new ();
   g_autoptr (GPropertyAction) view_action = NULL;
+  g_autoptr (GPropertyAction) sidebar_action = NULL;
 
   gtk_widget_init_template (GTK_WIDGET (self));
 
@@ -516,12 +421,13 @@ revolution_calendar_view_init (RevolutionCalendarView *self)
   load_colors (self);
   fill_month (self);
   fill_week (self);
-  g_signal_connect (gtk_scrolled_window_get_vadjustment (self->week_scroller), "changed",
-                    G_CALLBACK (on_week_adjustment_changed), NULL);
 
-  /* calendar.view für Alt+1/Alt+2 wie win.view in main.c. */
+  /* calendar.view für Alt+1/Alt+2 wie win.view in main.c;
+   * calendar.sidebar für F9 (gcal-window.blp:181-188). */
   view_action = g_property_action_new ("view", self->views, "visible-child-name");
+  sidebar_action = g_property_action_new ("sidebar", self->split, "show-sidebar");
   g_action_map_add_action_entries (G_ACTION_MAP (group), calendar_actions, G_N_ELEMENTS (calendar_actions), NULL);
   g_action_map_add_action (G_ACTION_MAP (group), G_ACTION (view_action));
+  g_action_map_add_action (G_ACTION_MAP (group), G_ACTION (sidebar_action));
   gtk_widget_insert_action_group (GTK_WIDGET (self), "calendar", G_ACTION_GROUP (group));
 }

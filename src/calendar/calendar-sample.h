@@ -20,11 +20,13 @@ typedef struct
 {
   guint       day;
   guint       days;      /* Dauer in Tagen, nur ganztägig */
-  int         start;     /* Minuten ab 0:00; -1 = ganztägig */
+  int         start;     /* Minuten ab 0:00 (Lage in der Woche); -1 = ganztägig */
   int         end;
-  guint       slot;      /* Zeile in der Monatszelle (0 … 2) */
+  guint       slot;      /* Zeile in der Monatszelle (0 … 1) */
   guint       calendar;  /* Index der Kalenderfarbe */
+  const char *time;      /* Beginn im Termin, NULL = ganztägig */
   const char *summary;
+  const char *when;      /* Zeitangabe im Termin-Detail */
   const char *location;
   const char *notes;
 } RevolutionSampleEvent;

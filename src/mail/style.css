@@ -28,18 +28,42 @@
 
 /* Platz unter dem letzten Ordner: Höhe des Umschalters samt Abstand (#400 Punkt 2). */
 .folder-list {
-  padding-bottom: 72px;
+  padding-bottom: 56px;
 }
 
-/* #400 Punkt 2: Umschalter schwebt über der Ordnerliste. Kontur 1 px Akzent, Fläche
- * leicht transparent, darunter weichgezeichnet (backdrop-filter, GTK 4.22).
- * Radius 10px = 16px der Seitenleiste minus 6px Abstand (konzentrisch). */
+/* #400 Punkt 2: Umschalter schwebt über der Ordnerliste. Fläche leicht transparent,
+ * darunter weichgezeichnet (backdrop-filter, GTK 4.22).
+ * #401: Kontur hauchdünn dunkel (--shade-color, Deckkraft ×1,8: hell 0,14, dunkel 0,63)
+ * statt Akzent;
+ * Knöpfe bündig an der Kontur, kompakter. Radius 10px = 16px der Seitenleiste minus
+ * 6px Abstand (konzentrisch), Knöpfe innen 9px = 10px minus 1px Kontur. */
 .floating-switcher {
-  border: 1px solid var(--accent-bg-color);
+  border: 1px solid RGB(from var(--shade-color) r g b / calc(alpha * 1.8));
   border-radius: 10px;
   background-color: color-mix(in srgb, var(--sidebar-bg-color) 62%, transparent);
   backdrop-filter: blur(4px);
-  box-shadow: 0 2px 8px var(--shade-color);
+  box-shadow: 0 1px 4px var(--shade-color);
+}
+
+/* libadwaita: viewswitcher.narrow margin -3px oben/unten, border-spacing 3px. */
+.floating-switcher viewswitcher {
+  margin: 0;
+  border-spacing: 0;
+}
+
+.floating-switcher viewswitcher button.toggle {
+  border-radius: 9px;
+}
+
+.floating-switcher viewswitcher button.toggle > stack > box.narrow {
+  padding-top: 5px;
+  -gtk-icon-size: 14px;
+}
+
+.floating-switcher viewswitcher button.toggle > stack > box.narrow > label {
+  min-height: 16px;
+  padding-bottom: 3px;
+  font-weight: 500;
 }
 
 /* #400 Punkt 4: Nachrichtenliste wie 04/05 – ohne Trennlinien, ruhige Zeilen,

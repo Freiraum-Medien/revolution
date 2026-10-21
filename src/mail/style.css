@@ -251,3 +251,94 @@ menubutton.primary-menu popover.menu separator {
 .mail-details {
   font-weight: 400;
 }
+
+/* Composer (#402) */
+/* Designsprache der Mail-Ansicht (#400, #401) auf das Fenster „Neue E-Mail“ übertragen.
+ * Klasse .composer am Fenster (composer.blp), .dark setzt composer.c wie mail-view.c. */
+
+/* Trennlinien der Felder: dunkel dunkler als der Hintergrund (wie #401 Punkt 1). */
+.composer.dark .composer-fields > separator {
+  background-color: var(--shade-color);
+}
+
+/* Werte normal, kaum Fett (Mailkopf #401 Punkt 5): Auswahlfelder Von/Signatur flach
+ * ohne Fettschrift (libadwaita setzt Knopfbeschriftungen fett), Pfeil gedimmt. */
+.composer-dropdown > button {
+  background: none;
+  font-weight: 400;
+}
+
+.composer-dropdown > button:hover {
+  background-color: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.composer-dropdown > button:active,
+.composer-dropdown > button:checked {
+  background-color: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.composer-dropdown > button arrow {
+  opacity: 0.55;
+}
+
+/* Kleine, dezente Symbole (Vorbild 17). */
+.composer-icon {
+  opacity: 0.7;
+}
+
+/* Auswahllisten von Von/Signatur in Nautilus-Optik wie das Hauptmenü (#401 Punkt 2,
+ * Vorbild 08): kompakte Zeilen nah am Rand, abgerundete Hervorhebung. */
+.composer-dropdown popover > contents {
+  padding: 4px 0;
+}
+
+.composer-dropdown popover listview {
+  background: none;
+}
+
+.composer-dropdown popover listview > row {
+  min-height: 28px;
+  margin: 0 4px;
+  padding: 0 10px;
+  border-radius: 7px;
+}
+
+/* Anhänge als ruhige Pille wie der Hinweis (.mail-notice, #401 Punkt 4, Vorbild 12). */
+.composer-attachment {
+  padding: 3px;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.composer-attachment > button {
+  min-height: 26px;
+  border-radius: 999px;
+  font-weight: 400;
+}
+
+.composer-attachment > button:first-child {
+  padding: 0 10px 0 9px;
+}
+
+.composer-attachment > button.circular {
+  min-width: 26px;
+  padding: 0;
+  opacity: 0.55;
+}
+
+.composer-attachment > button.circular:hover {
+  opacity: 1;
+}
+
+/* Schreibfläche als große abgerundete Karte mit Abstand wie die Mail-Karte (.html-mail,
+ * #400 Punkt 7); Farbe aus --card-bg-color, folgt dem Farbschema. */
+.composer-card {
+  border-radius: 12px;
+  background-color: var(--card-bg-color);
+  box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
+}
+
+.composer-card textview,
+.composer-card textview > text {
+  background-color: transparent;
+}

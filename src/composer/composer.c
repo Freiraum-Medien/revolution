@@ -38,6 +38,19 @@ static const GActionEntry composer_actions[] = {
   { "insert-link", NULL, NULL, NULL, NULL, { 0 } },
 };
 
+/* #402: Klasse .dark für Regeln nur im dunklen Design (style.css, Abschnitt
+ * „Composer (#402)“), wie mail-view.c on_dark_changed (#401 Punkt 1). */
+static void
+on_dark_changed (AdwStyleManager    *manager,
+                 GParamSpec         *pspec G_GNUC_UNUSED,
+                 RevolutionComposer *self)
+{
+  if (adw_style_manager_get_dark (manager))
+    gtk_widget_add_css_class (GTK_WIDGET (self), "dark");
+  else
+    gtk_widget_remove_css_class (GTK_WIDGET (self), "dark");
+}
+
 static void
 revolution_composer_class_init (RevolutionComposerClass *klass)
 {
@@ -50,11 +63,15 @@ static void
 revolution_composer_init (RevolutionComposer *self)
 {
   g_autoptr (GSimpleActionGroup) group = g_simple_action_group_new ();
+  AdwStyleManager *style_manager = adw_style_manager_get_default ();
 
   gtk_widget_init_template (GTK_WIDGET (self));
 
   g_action_map_add_action_entries (G_ACTION_MAP (group), composer_actions, G_N_ELEMENTS (composer_actions), NULL);
   gtk_widget_insert_action_group (GTK_WIDGET (self), "composer", G_ACTION_GROUP (group));
+
+  g_signal_connect_object (style_manager, "notify::dark", G_CALLBACK (on_dark_changed), self, G_CONNECT_DEFAULT);
+  on_dark_changed (style_manager, NULL, self);
 }
 
 GtkWindow *

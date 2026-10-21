@@ -17,13 +17,14 @@
 
 struct _RevolutionMailView
 {
-  AdwBreakpointBin    parent_instance;
-  AdwViewStack       *stack;
-  GtkSingleSelection *folder_selection;
-  GtkSingleSelection *message_selection;
-  GtkStack           *header_stack;
-  GtkSearchEntry     *search_entry;
-  GtkToggleButton    *search_button;
+  AdwBreakpointBin     parent_instance;
+  AdwViewStack        *stack;
+  GtkSingleSelection  *folder_selection;
+  GtkSingleSelection  *message_selection;
+  GtkStack            *header_stack;
+  GtkSearchEntry      *search_entry;
+  GtkToggleButton     *search_button;
+  AdwOverlaySplitView *split;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionMailView, revolution_mail_view, ADW_TYPE_BREAKPOINT_BIN)
@@ -47,6 +48,16 @@ static const GActionEntry list_actions[] = {
   { "compose", on_compose, NULL, NULL, NULL, { 0 } },
 };
 
+/* Fokus ins Suchfeld ohne alles zu markieren: sonst ersetzt beim Tippen in der
+ * Liste (key-capture-widget) der zweite Buchstabe den ersten. */
+static void
+focus_search_entry (RevolutionMailView *self)
+{
+  GtkEditable *text = gtk_editable_get_delegate (GTK_EDITABLE (self->search_entry));
+
+  gtk_text_grab_focus_without_selecting (GTK_TEXT (text));
+}
+
 /* #399 Punkt 5: Suchknopf schaltet die Kopfleiste der Nachricht zwischen den
  * Aktionen und dem Suchfeld um („Lights off“), Fokus wandert mit. */
 static void
@@ -55,7 +66,7 @@ on_search_toggled (RevolutionMailView *self)
   if (gtk_toggle_button_get_active (self->search_button))
     {
       gtk_stack_set_visible_child_name (self->header_stack, "search");
-      gtk_widget_grab_focus (GTK_WIDGET (self->search_entry));
+      focus_search_entry (self);
     }
   else
     {
@@ -65,6 +76,13 @@ on_search_toggled (RevolutionMailView *self)
     }
 }
 
+/* Tippen in der Listenspalte (GtkSearchEntry::search-started) öffnet die Suche. */
+static void
+on_search_started (RevolutionMailView *self)
+{
+  gtk_toggle_button_set_active (self->search_button, TRUE);
+}
+
 /* Escape im Suchfeld (GtkSearchEntry::stop-search). */
 static void
 on_search_stop (RevolutionMailView *self)
@@ -72,7 +90,8 @@ on_search_stop (RevolutionMailView *self)
   gtk_toggle_button_set_active (self->search_button, FALSE);
 }
 
-/* mail.search für Strg+F: öffnet nur, schließt nicht (Schließen: Escape, Suchknopf). */
+/* mail.search für Strg+F: öffnet nur, schließt nicht (Schließen: Escape, Suchknopf).
+ * Ist die Suche schon offen, holt es den Fokus zurück ins Suchfeld. */
 static void
 on_search (GSimpleAction *action G_GNUC_UNUSED,
            GVariant      *parameter G_GNUC_UNUSED,
@@ -80,7 +99,10 @@ on_search (GSimpleAction *action G_GNUC_UNUSED,
 {
   RevolutionMailView *self = user_data;
 
-  gtk_toggle_button_set_active (self->search_button, TRUE);
+  if (gtk_toggle_button_get_active (self->search_button))
+    focus_search_entry (self);
+  else
+    gtk_toggle_button_set_active (self->search_button, TRUE);
 }
 
 /* preferences, shortcuts, about: Platzhalter des Primärmenüs (#399 Punkt 3). */
@@ -161,7 +183,9 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, header_stack);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, search_entry);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, search_button);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, split);
   gtk_widget_class_bind_template_callback (widget_class, on_search_toggled);
+  gtk_widget_class_bind_template_callback (widget_class, on_search_started);
   gtk_widget_class_bind_template_callback (widget_class, on_search_stop);
 }
 
@@ -173,6 +197,7 @@ revolution_mail_view_init (RevolutionMailView *self)
   g_autoptr (GSimpleActionGroup) list_group = g_simple_action_group_new ();
   g_autoptr (GSimpleActionGroup) message_group = g_simple_action_group_new ();
   g_autoptr (GSimpleActionGroup) mail_group = g_simple_action_group_new ();
+  g_autoptr (GPropertyAction) sidebar_action = NULL;
 
   gtk_widget_init_template (GTK_WIDGET (self));
 
@@ -184,5 +209,8 @@ revolution_mail_view_init (RevolutionMailView *self)
   gtk_widget_insert_action_group (GTK_WIDGET (self), "list", G_ACTION_GROUP (list_group));
   gtk_widget_insert_action_group (GTK_WIDGET (self), "message", G_ACTION_GROUP (message_group));
   g_action_map_add_action_entries (G_ACTION_MAP (mail_group), mail_actions, G_N_ELEMENTS (mail_actions), self);
+  /* mail.sidebar für F9 wie calendar.sidebar (calendar-view.c:426-431). */
+  sidebar_action = g_property_action_new ("sidebar", self->split, "show-sidebar");
+  g_action_map_add_action (G_ACTION_MAP (mail_group), G_ACTION (sidebar_action));
   gtk_widget_insert_action_group (GTK_WIDGET (self), "mail", G_ACTION_GROUP (mail_group));
 }

@@ -732,10 +732,10 @@ template $RevolutionMailView: Adw.BreakpointBin {
     }
 
     // Ansichtsumschalter Mail/Kontakte/Kalender (Briefing 0, stamp-mail-view.blp:187-191).
-    // #399 Punkt 2: schwebend wie HIG „Overlaid Controls“ (Stilklasse .osd).
-    // Außen die Kontur im Akzent-Verlauf, innen die halb transparente .osd-Fläche
-    // (mail/style.css). Zwei Ebenen, weil .osd --accent-bg-color auf Weiß setzt
-    // (libadwaita-Stylesheet default-light-yaru-default.css Zeile 171).
+    // #399 Punkt 2: schwebend über der Seitenleiste wie HIG „Overlaid Controls“.
+    // Außen die Kontur im Akzent-Verlauf, innen eine fast deckende Fläche in der
+    // Farbe der Seitenleiste (mail/style.css). Ohne .osd: das wäre auch im hellen
+    // Modus ein dunkler Block (Sichtprüfung PM, #399).
     [switcher]
     Adw.Bin {
       valign: end;
@@ -749,10 +749,6 @@ template $RevolutionMailView: Adw.BreakpointBin {
       ]
 
       child: Box {
-        styles [
-          "osd",
-        ]
-
         Adw.ViewSwitcher {
           policy: narrow;
           hexpand: true;

@@ -1,7 +1,7 @@
 /* style.css – eigenes CSS der App (#399), lädt AdwApplication automatisch aus
- * der GResource (/org/revolution/Mail/style.css).
+ * der GResource (/org/revolution/Mail/style.css, Adw-1.gir Zeile 7362).
  *
- * Einziger Eintrag: Kontur des schwebenden Umschalters Mail | Kontakte | Kalender
+ * Einziger Eintrag: schwebender Umschalter Mail | Kontakte | Kalender
  * (mail-view.blp). libadwaita hat keine Stilklasse für eine Verlaufskontur;
  * HIG-ST: „keep the amount of this custom styling to a minimum“.
  * Nur Variablen, keine festen Farbwerte. Radius 15px = --window-radius
@@ -10,16 +10,17 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-/* Außen: 2px Kontur im Verlauf der Akzentfarbe. */
+/* Außen: 2px Kontur im Verlauf der Akzentfarbe, Schatten aus --shade-color.
+ * Verlauf durchgehend deckend: darunterliegender Text scheint nicht durch. */
 .floating-switcher {
   padding: 2px;
   border-radius: 15px;
-  background-image: linear-gradient(135deg, var(--accent-bg-color), color-mix(in srgb, var(--accent-color) 25%, transparent), var(--accent-color));
+  background-image: linear-gradient(135deg, var(--accent-bg-color), color-mix(in srgb, var(--accent-color) 25%, var(--sidebar-bg-color)), var(--accent-color));
+  box-shadow: 0 2px 8px var(--shade-color);
 }
 
-/* Innen: .osd halb transparent (.osd setzt rgba(29, 29, 29, 0.975), Zeile 171):
- * die helle OSD-Schriftfarbe umgekehrt, 80 % deckend. */
-.floating-switcher > .osd {
+/* Innen: Fläche der Seitenleiste, 90 % deckend; der Verlauf darunter tönt leicht. */
+.floating-switcher > box {
   border-radius: 13px;
-  background-color: oklab(from currentColor calc(1 - l) a b / 80%);
+  background-color: color-mix(in srgb, var(--sidebar-bg-color) 90%, transparent);
 }

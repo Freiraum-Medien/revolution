@@ -1,5 +1,5 @@
 blueprints = []
-foreach blp : ['window.blp', 'mail/mail-view.blp']
+foreach blp : ['window.blp', 'mail/mail-view.blp', 'composer/composer.blp']
   blueprints += custom_target(
     input: blp,
     output: '@BASENAME@.ui',
@@ -16,6 +16,7 @@ resources = gnome.compile_resources('revolution-resources',
 
 executable('revolution',
   'main.c',
+  'composer/composer.c',
   'mail/mail-sample.c',
   'mail/mail-view.c',
   resources,

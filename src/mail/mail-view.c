@@ -11,6 +11,7 @@
 
 #include "config.h"
 
+#include "composer/composer.h"
 #include "mail-sample.h"
 #include "mail-view.h"
 
@@ -24,11 +25,23 @@ struct _RevolutionMailView
 
 G_DEFINE_FINAL_TYPE (RevolutionMailView, revolution_mail_view, ADW_TYPE_BREAKPOINT_BIN)
 
+/* list.compose öffnet den Composer (#337) als eigenes Fenster wie Stamp. */
+static void
+on_compose (GSimpleAction *action G_GNUC_UNUSED,
+            GVariant      *parameter G_GNUC_UNUSED,
+            gpointer       user_data)
+{
+  GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (user_data));
+
+  gtk_window_present (revolution_composer_new (gtk_window_get_application (GTK_WINDOW (root))));
+}
+
 /* Platzhalter ohne Logik, nur damit die Menüeinträge nicht ausgegraut sind.
  * list.filter ist zustandsbehaftet: ohne Handler setzt die Aktivierung nur
  * den Zustand (Radio-Marke im Menü), gefiltert wird nichts. */
 static const GActionEntry list_actions[] = {
   { "filter", NULL, "s", "'all'", NULL, { 0 } },
+  { "compose", on_compose, NULL, NULL, NULL, { 0 } },
 };
 
 static const GActionEntry message_actions[] = {
@@ -113,7 +126,7 @@ revolution_mail_view_init (RevolutionMailView *self)
   gtk_single_selection_set_model (self->folder_selection, folders);
   gtk_single_selection_set_model (self->message_selection, messages);
 
-  g_action_map_add_action_entries (G_ACTION_MAP (list_group), list_actions, G_N_ELEMENTS (list_actions), NULL);
+  g_action_map_add_action_entries (G_ACTION_MAP (list_group), list_actions, G_N_ELEMENTS (list_actions), self);
   g_action_map_add_action_entries (G_ACTION_MAP (message_group), message_actions, G_N_ELEMENTS (message_actions), NULL);
   gtk_widget_insert_action_group (GTK_WIDGET (self), "list", G_ACTION_GROUP (list_group));
   gtk_widget_insert_action_group (GTK_WIDGET (self), "message", G_ACTION_GROUP (message_group));

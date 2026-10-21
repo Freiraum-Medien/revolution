@@ -1,5 +1,6 @@
 data/org.revolution.Mail.desktop.in
 src/main.c
 src/window.blp
+src/composer/composer.blp
 src/mail/mail-sample.c
 src/mail/mail-view.blp

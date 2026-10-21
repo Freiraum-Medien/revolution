@@ -1,5 +1,5 @@
 blueprints = []
-foreach blp : ['window.blp', 'mail/mail-view.blp', 'composer/composer.blp']
+foreach blp : ['window.blp', 'mail/mail-view.blp', 'composer/composer.blp', 'contacts/contacts-view.blp']
   blueprints += custom_target(
     input: blp,
     output: '@BASENAME@.ui',
@@ -19,6 +19,8 @@ executable('revolution',
   'composer/composer.c',
   'mail/mail-sample.c',
   'mail/mail-view.c',
+  'contacts/contacts-sample.c',
+  'contacts/contacts-view.c',
   resources,
   dependencies: [
     dependency('gtk4', version: '>= 4.22'),

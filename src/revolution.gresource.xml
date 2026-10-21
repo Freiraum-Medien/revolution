@@ -4,6 +4,7 @@
     <file>window.ui</file>
     <file>mail-view.ui</file>
     <file>composer.ui</file>
+    <file>contacts-view.ui</file>
     <file>icons/scalable/actions/archive-symbolic.svg</file>
     <file>icons/scalable/actions/drafts-symbolic.svg</file>
     <file>icons/scalable/actions/inbox-symbolic.svg</file>

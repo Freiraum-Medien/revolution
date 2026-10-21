@@ -48,7 +48,9 @@ Adw.ApplicationWindow window {
       title: _("Kontakte");
       icon-name: "system-users-symbolic";
 
-      child: Adw.Bin {};
+      child: $RevolutionContactsView {
+        stack: app_stack;
+      };
     }
 
     // Kalender: #339

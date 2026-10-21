@@ -4,3 +4,5 @@ src/window.blp
 src/composer/composer.blp
 src/mail/mail-sample.c
 src/mail/mail-view.blp
+src/contacts/contacts-sample.c
+src/contacts/contacts-view.blp

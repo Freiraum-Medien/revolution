@@ -28,7 +28,7 @@
 
 /* Platz unter dem letzten Ordner: Höhe des Umschalters samt Abstand (#400 Punkt 2). */
 .folder-list {
-  padding-bottom: 48px;
+  padding-bottom: 50px;
 }
 
 /* #400 Punkt 2: Umschalter schwebt über der Ordnerliste. Fläche leicht transparent,
@@ -64,7 +64,8 @@
 .floating-switcher viewswitcher button.toggle > stack > box.narrow {
   padding-top: 7px;
   padding-bottom: 7px;
-  -gtk-icon-size: 16px;
+  /* 18px: einen Tick größer als die Ordnersymbole (16px, gemessen im Screenshot). */
+  -gtk-icon-size: 18px;
 }
 
 /* Nur Symbole: Beschriftung ohne Größe; sie bleibt im Widget-Baum (a11y-Name). */

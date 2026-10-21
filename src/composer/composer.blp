@@ -12,9 +12,9 @@ template $RevolutionComposer: Adw.ApplicationWindow {
   height-request: 294;
   focus-widget: body_view;
 
-  // Kürzel wie Stamp (stamp-composer.c:2376-2384): Strg+Enter Senden,
-  // Strg+Umschalt+Enter Später senden; Fangphase, damit das Textfeld sie
-  // nicht verschluckt. Strg+B/I/U für die Formatierungsleiste.
+  // Kürzel wie Stamp (stamp-composer.c:2376-2389): Strg+Enter Senden,
+  // Escape schließt; Fangphase, damit das Textfeld sie nicht verschluckt.
+  // Strg+B/I/U für die Formatierungsleiste.
   ShortcutController {
     propagation-phase: capture;
 
@@ -24,8 +24,8 @@ template $RevolutionComposer: Adw.ApplicationWindow {
     }
 
     Shortcut {
-      trigger: "<primary><shift>Return";
-      action: "action(composer.send-later)";
+      trigger: "Escape";
+      action: "action(window.close)";
     }
 
     Shortcut {
@@ -78,14 +78,12 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         }
       }
 
-      // Senden mit suggested-action und Menü (stamp-composer.blp:32-55).
+      // Senden mit suggested-action (stamp-composer.blp:37-49).
       [end]
-      Adw.SplitButton {
+      Button {
         label: _("Senden");
         tooltip-text: _("Senden (Strg+Eingabe)");
-        dropdown-tooltip: _("Weitere Sendeoptionen");
         action-name: "composer.send";
-        menu-model: send_menu;
 
         styles [
           "suggested-action",
@@ -671,19 +669,4 @@ SizeGroup {
     subject_entry,
     from_dropdown,
   ]
-}
-
-// Menü am Senden-Knopf wie Stamp (stamp-composer.blp:591-603).
-menu send_menu {
-  section {
-    item {
-      label: _("Senden");
-      action: "composer.send";
-    }
-
-    item {
-      label: _("Später senden…");
-      action: "composer.send-later";
-    }
-  }
 }

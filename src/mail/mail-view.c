@@ -25,9 +25,6 @@ struct _RevolutionMailView
 
 G_DEFINE_FINAL_TYPE (RevolutionMailView, revolution_mail_view, ADW_TYPE_BREAKPOINT_BIN)
 
-/* Platzhalter ohne Logik, nur damit die Menüeinträge nicht ausgegraut sind.
- * list.filter ist zustandsbehaftet: ohne Handler setzt die Aktivierung nur
- * den Zustand (Radio-Marke im Menü), gefiltert wird nichts. */
 /* list.compose öffnet den Composer (#337) als eigenes Fenster wie Stamp. */
 static void
 on_compose (GSimpleAction *action G_GNUC_UNUSED,
@@ -39,6 +36,9 @@ on_compose (GSimpleAction *action G_GNUC_UNUSED,
   gtk_window_present (revolution_composer_new (gtk_window_get_application (GTK_WINDOW (root))));
 }
 
+/* Platzhalter ohne Logik, nur damit die Menüeinträge nicht ausgegraut sind.
+ * list.filter ist zustandsbehaftet: ohne Handler setzt die Aktivierung nur
+ * den Zustand (Radio-Marke im Menü), gefiltert wird nichts. */
 static const GActionEntry list_actions[] = {
   { "filter", NULL, "s", "'all'", NULL, { 0 } },
   { "compose", on_compose, NULL, NULL, NULL, { 0 } },

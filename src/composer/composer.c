@@ -26,7 +26,6 @@ G_DEFINE_FINAL_TYPE (RevolutionComposer, revolution_composer, ADW_TYPE_APPLICATI
  * Aktivierung nur den Zustand um (ToggleButton zeigt ihn an). */
 static const GActionEntry composer_actions[] = {
   { "send", NULL, NULL, NULL, NULL, { 0 } },
-  { "send-later", NULL, NULL, NULL, NULL, { 0 } },
   { "attach", NULL, NULL, NULL, NULL, { 0 } },
   { "open-attachment", NULL, "s", NULL, NULL, { 0 } },
   { "remove-attachment", NULL, "s", NULL, NULL, { 0 } },

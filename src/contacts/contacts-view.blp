@@ -9,7 +9,8 @@ template $RevolutionContactsView: Adw.BreakpointBin {
   height-request: 294;
 
   // Wie mail-view.blp: ≤ 1000 sp Seitenleiste eingeklappt, ≤ 600 sp „mobile“
-  // (stamp-contact-view.blp:8-26).
+  // (stamp-contact-view.blp:8-26). GNOME Contacts klappt bei 560 sp ein
+  // (contacts-main-window.ui); 600 sp für Gleichlauf mit der Mail-Ansicht.
   Adw.Breakpoint {
     condition ("max-width: 1000sp")
 
@@ -68,7 +69,7 @@ template $RevolutionContactsView: Adw.BreakpointBin {
             header-factory: BuilderListItemFactory {
               template ListHeader {
                 child: Label {
-                  label: bind template.item as <$RevolutionSampleEntry>.group;
+                  label: bind template.item as <$RevolutionContactsSampleEntry>.group;
                   xalign: 0;
                   margin-start: 14;
                   margin-end: 14;
@@ -95,7 +96,7 @@ template $RevolutionContactsView: Adw.BreakpointBin {
                   }
 
                   Label {
-                    label: bind template.item as <$RevolutionSampleEntry>.title;
+                    label: bind template.item as <$RevolutionContactsSampleEntry>.title;
                     hexpand: true;
                     xalign: 0;
                     ellipsize: end;
@@ -110,7 +111,7 @@ template $RevolutionContactsView: Adw.BreakpointBin {
 
     // Kontaktliste: Avatar + Name (stamp-contact-row.blp:15-18), Abschnitte je
     // Anfangsbuchstabe (Briefing 1.4), navigation-sidebar wie GNOME Contacts
-    // und stamp-contact-list.blp:107-109.
+    // und stamp-contact-list.blp:119-121.
     [list]
     Adw.ToolbarView list_pane {
       width-request: 300;
@@ -145,6 +146,16 @@ template $RevolutionContactsView: Adw.BreakpointBin {
 
           accessibility {
             label: _("Neuer Kontakt");
+          }
+
+          // Strg+N wie GNOME Contacts (contacts-main-window.ui: <Control>n → win.new-contact).
+          ShortcutController {
+            scope: global;
+
+            Shortcut {
+              trigger: "<primary>n";
+              action: "activate";
+            }
           }
         }
 
@@ -188,6 +199,8 @@ template $RevolutionContactsView: Adw.BreakpointBin {
       content: ScrolledWindow {
         hscrollbar-policy: never;
 
+        // Viewport: ohne ihn fehlt beim Start der Abschnittskopf „A“ (headless
+        // geprüft). Ursache klären in #350, Virtualisierung geht verloren.
         child: Viewport {
           child: ListView contact_list {
             tab-behavior: item;
@@ -205,7 +218,7 @@ template $RevolutionContactsView: Adw.BreakpointBin {
             header-factory: BuilderListItemFactory {
               template ListHeader {
                 child: Label {
-                  label: bind template.item as <$RevolutionSampleEntry>.group;
+                  label: bind template.item as <$RevolutionContactsSampleEntry>.group;
                   xalign: 0;
                   margin-start: 14;
                   margin-end: 14;
@@ -225,14 +238,17 @@ template $RevolutionContactsView: Adw.BreakpointBin {
                 child: Box {
                   spacing: 12;
 
+                  // 32 px statt 48 (stamp-contact-row.blp:15-18): Platz bei 1280×800.
+                  // presentation: der Name steht im Label daneben, sonst doppelt vorgelesen.
                   Adw.Avatar {
                     size: 32;
                     show-initials: true;
-                    text: bind template.item as <$RevolutionSampleEntry>.title;
+                    accessible-role: presentation;
+                    text: bind template.item as <$RevolutionContactsSampleEntry>.title;
                   }
 
                   Label {
-                    label: bind template.item as <$RevolutionSampleEntry>.title;
+                    label: bind template.item as <$RevolutionContactsSampleEntry>.title;
                     hexpand: true;
                     xalign: 0;
                     ellipsize: end;
@@ -287,6 +303,8 @@ template $RevolutionContactsView: Adw.BreakpointBin {
               orientation: vertical;
               spacing: 12;
 
+              // 96 px statt 128 (stamp-contact-details.blp:40-68): sonst liegt
+              // „Organisation“ bei 1280×800 unter dem Rand.
               Adw.Avatar {
                 size: 96;
                 show-initials: true;

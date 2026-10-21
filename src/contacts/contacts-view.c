@@ -87,7 +87,7 @@ revolution_contacts_view_class_init (RevolutionContactsViewClass *klass)
                                    g_param_spec_object ("stack", NULL, NULL, ADW_TYPE_VIEW_STACK,
                                                         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
-  g_type_ensure (REVOLUTION_TYPE_SAMPLE_ENTRY);
+  g_type_ensure (REVOLUTION_TYPE_CONTACTS_SAMPLE_ENTRY);
 
   gtk_widget_class_set_template_from_resource (widget_class, "/org/revolution/Mail/contacts-view.ui");
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, book_selection);

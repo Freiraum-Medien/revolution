@@ -48,24 +48,24 @@ static const SampleRow contacts[] = {
   { "T", N_("Theresa Wolff") },
 };
 
-struct _RevolutionSampleEntry
+struct _RevolutionContactsSampleEntry
 {
   GObject     parent_instance;
   const char *title;
   const char *group;
 };
 
-G_DEFINE_FINAL_TYPE (RevolutionSampleEntry, revolution_sample_entry, G_TYPE_OBJECT)
+G_DEFINE_FINAL_TYPE (RevolutionContactsSampleEntry, revolution_contacts_sample_entry, G_TYPE_OBJECT)
 
 enum { PROP_0, PROP_TITLE, PROP_GROUP, N_PROPS };
 
 static void
-revolution_sample_entry_get_property (GObject    *object,
+revolution_contacts_sample_entry_get_property (GObject    *object,
                                       guint       prop_id,
                                       GValue     *value,
                                       GParamSpec *pspec)
 {
-  RevolutionSampleEntry *self = REVOLUTION_SAMPLE_ENTRY (object);
+  RevolutionContactsSampleEntry *self = REVOLUTION_CONTACTS_SAMPLE_ENTRY (object);
 
   switch (prop_id)
     {
@@ -76,13 +76,13 @@ revolution_sample_entry_get_property (GObject    *object,
 }
 
 static void
-revolution_sample_entry_class_init (RevolutionSampleEntryClass *klass)
+revolution_contacts_sample_entry_class_init (RevolutionContactsSampleEntryClass *klass)
 {
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
   GParamSpec *props[N_PROPS] = { NULL, };
   GParamFlags flags = G_PARAM_READABLE | G_PARAM_STATIC_STRINGS;
 
-  object_class->get_property = revolution_sample_entry_get_property;
+  object_class->get_property = revolution_contacts_sample_entry_get_property;
 
   props[PROP_TITLE] = g_param_spec_string ("title", NULL, NULL, NULL, flags);
   props[PROP_GROUP] = g_param_spec_string ("group", NULL, NULL, NULL, flags);
@@ -90,7 +90,7 @@ revolution_sample_entry_class_init (RevolutionSampleEntryClass *klass)
 }
 
 static void
-revolution_sample_entry_init (G_GNUC_UNUSED RevolutionSampleEntry *self)
+revolution_contacts_sample_entry_init (G_GNUC_UNUSED RevolutionContactsSampleEntry *self)
 {
 }
 
@@ -106,12 +106,12 @@ sectioned (const SampleRow *rows,
 
   for (guint i = 0; i < n_rows; i++)
     {
-      g_autoptr (RevolutionSampleEntry) entry = g_object_new (REVOLUTION_TYPE_SAMPLE_ENTRY, NULL);
+      g_autoptr (RevolutionContactsSampleEntry) entry = g_object_new (REVOLUTION_TYPE_CONTACTS_SAMPLE_ENTRY, NULL);
 
       if (i == 0 || g_strcmp0 (rows[i].group, rows[i - 1].group) != 0)
         {
           g_clear_object (&section);
-          section = g_list_store_new (REVOLUTION_TYPE_SAMPLE_ENTRY);
+          section = g_list_store_new (REVOLUTION_TYPE_CONTACTS_SAMPLE_ENTRY);
           g_list_store_append (sections, section);
         }
 

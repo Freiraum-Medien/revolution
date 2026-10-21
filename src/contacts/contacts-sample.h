@@ -11,8 +11,8 @@
 
 G_BEGIN_DECLS
 
-#define REVOLUTION_TYPE_SAMPLE_ENTRY (revolution_sample_entry_get_type ())
-G_DECLARE_FINAL_TYPE (RevolutionSampleEntry, revolution_sample_entry, REVOLUTION, SAMPLE_ENTRY, GObject)
+#define REVOLUTION_TYPE_CONTACTS_SAMPLE_ENTRY (revolution_contacts_sample_entry_get_type ())
+G_DECLARE_FINAL_TYPE (RevolutionContactsSampleEntry, revolution_contacts_sample_entry, REVOLUTION, CONTACTS_SAMPLE_ENTRY, GObject)
 
 GListModel *revolution_contacts_sample_books    (void);
 GListModel *revolution_contacts_sample_contacts (void);

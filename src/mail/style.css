@@ -251,3 +251,35 @@ menubutton.primary-menu popover.menu separator {
 .mail-details {
   font-weight: 400;
 }
+
+/* Kontakte (#402) */
+
+/* Kontaktliste wie .message-list (#400 Punkt 4): ohne Trennlinien, Auswahl als
+ * abgerundete Akzentfläche mit Abstand zum Rand. Links ohne Platz für den
+ * Ungelesen-Punkt, daher Zeile innen 12px wie rechts. */
+.contact-list {
+  background: none;
+  padding: 4px 8px 8px;
+}
+
+.contact-list > row {
+  margin: 1px 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+}
+
+.contact-list > row:selected,
+.contact-list > row:selected:hover,
+.contact-list > row:selected:focus-within {
+  background-color: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+}
+
+/* Karte wie .html-mail (Radius, Kontur, Schatten), Fläche in der Kartenfarbe
+ * des Designs: ein Kontakt hat keinen eigenen weißen Hintergrund. */
+.contact-card {
+  border-radius: 12px;
+  background-color: var(--card-bg-color);
+  color: var(--card-fg-color);
+  box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
+}

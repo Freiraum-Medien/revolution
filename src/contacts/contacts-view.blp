@@ -1,6 +1,8 @@
 // Kontakte-Ansicht, Prototyp #338. Ohne Logik, Beispieldaten aus contacts-sample.c.
 // Aufbau nach quelltext/stamp/src/views/contact/stamp-contact-view.blp:4-185 und
 // mail-view.blp (Briefing 1.4); Design-Referenz GNOME Contacts 49.0.
+// #402: Designsprache der Mail-Ansicht (#399–#401) übernommen, Muster jeweils
+// aus mail-view.blp, CSS-Klassen aus style.css wiederverwendet.
 using Gtk 4.0;
 using Adw 1;
 
@@ -8,9 +10,38 @@ template $RevolutionContactsView: Adw.BreakpointBin {
   width-request: 360;
   height-request: 294;
 
+  // #402 wie mail-view.blp: Strg+F öffnet die Suche in der Kopfleiste des Kontakts,
+  // F9 schaltet die Seitenleiste. Scope local: wirkt nur auf der Kontakte-Seite.
+  // Strg+N wie GNOME Contacts (contacts-main-window.ui: <Control>n → win.new-contact).
+  ShortcutController {
+    Shortcut {
+      trigger: "<primary>f";
+      action: "action(contacts.search)";
+    }
+
+    Shortcut {
+      trigger: "F9";
+      action: "action(contacts.sidebar)";
+    }
+
+    Shortcut {
+      trigger: "<primary>n";
+      action: "action(contact.new)";
+    }
+
+    Shortcut {
+      trigger: "<primary>comma";
+      action: "action(contacts.preferences)";
+    }
+
+    Shortcut {
+      trigger: "<primary>question";
+      action: "action(contacts.shortcuts)";
+    }
+  }
+
   // Wie mail-view.blp: ≤ 1000 sp Seitenleiste eingeklappt, ≤ 600 sp „mobile“
-  // (stamp-contact-view.blp:8-26). GNOME Contacts klappt bei 560 sp ein
-  // (contacts-main-window.ui); 600 sp für Gleichlauf mit der Mail-Ansicht.
+  // (stamp-contact-view.blp:8-26). Werte wie mail-view.blp (schwebende Seitenleiste).
   Adw.Breakpoint {
     condition ("max-width: 1000sp")
 
@@ -18,9 +49,9 @@ template $RevolutionContactsView: Adw.BreakpointBin {
       split.collapsed: true;
       split.show-sidebar: false;
       split.sidebar-width-fraction: 0.28;
-      split.min-sidebar-width: 260;
-      split.max-sidebar-width: 320;
-      sidebar_button.visible: true;
+      split.min-sidebar-width: 276;
+      split.max-sidebar-width: 336;
+      new_spacer.visible: false;
     }
   }
 
@@ -30,8 +61,11 @@ template $RevolutionContactsView: Adw.BreakpointBin {
     setters {
       contacts_layout.layout-name: "mobile";
       split.show-sidebar: false;
-      sidebar_button.visible: true;
       list_header.show-end-title-buttons: true;
+      // Wie mail-view.blp: Neu wandert schmal in die Kopfleiste der Liste.
+      list_new_button.visible: true;
+      new_button.visible: false;
+      new_spacer.visible: false;
     }
   }
 
@@ -46,18 +80,41 @@ template $RevolutionContactsView: Adw.BreakpointBin {
         title-widget: Adw.WindowTitle {
           title: _("Revolution");
         };
+
+        // #402: Primärmenü wie mail-view.blp (Nautilus-Optik, style.css .primary-menu).
+        [end]
+        MenuButton {
+          primary: true;
+          icon-name: "open-menu-symbolic";
+
+          styles [
+            "primary-menu",
+          ]
+
+          tooltip-text: _("Hauptmenü");
+          menu-model: primary_menu;
+
+          accessibility {
+            label: _("Hauptmenü");
+          }
+        }
       }
 
       content: ScrolledWindow {
         hscrollbar-policy: never;
 
         // Viewport wie mail-view.blp: sonst fehlt beim Start der erste Abschnittskopf.
-        child: Viewport {
+        // Scrollen zum Fokus übernimmt contacts-view.c (Umschalter liegt darüber).
+        child: Viewport book_viewport {
+          scroll-to-focus: false;
+
           child: ListView book_list {
             tab-behavior: item;
 
+            // folder-list: unterer Innenabstand = Höhe des Umschalters (style.css).
             styles [
               "navigation-sidebar",
+              "folder-list",
             ]
 
             accessibility {
@@ -110,8 +167,7 @@ template $RevolutionContactsView: Adw.BreakpointBin {
     }
 
     // Kontaktliste: Avatar + Name (stamp-contact-row.blp:15-18), Abschnitte je
-    // Anfangsbuchstabe (Briefing 1.4), navigation-sidebar wie GNOME Contacts
-    // und stamp-contact-list.blp:119-121.
+    // Anfangsbuchstabe (Briefing 1.4).
     [list]
     Adw.ToolbarView list_pane {
       width-request: 300;
@@ -120,26 +176,23 @@ template $RevolutionContactsView: Adw.BreakpointBin {
       Adw.HeaderBar list_header {
         show-end-title-buttons: false;
 
-        title-widget: Adw.WindowTitle {
-          title: _("Persönlich");
-          subtitle: _("12 Kontakte");
-        };
-
+        // Wie mail-view.blp: Knopf immer sichtbar, F9 oben im Controller.
         [start]
         ToggleButton sidebar_button {
-          visible: false;
           icon-name: "sidebar-show-symbolic";
-          tooltip-text: _("Seitenleiste anzeigen");
+          tooltip-text: _("Seitenleiste ein-/ausblenden");
           active: bind split.show-sidebar bidirectional;
 
           accessibility {
-            label: _("Seitenleiste anzeigen");
+            label: _("Seitenleiste ein-/ausblenden");
           }
         }
 
+        // Nur schmal (Breakpoints oben); breit steht Neu in der Kopfleiste des Kontakts.
         // GNOME Contacts: „Add New Contact“, list-add-symbolic (contacts-main-window.ui).
         [start]
-        Button {
+        Button list_new_button {
+          visible: false;
           icon-name: "list-add-symbolic";
           tooltip-text: _("Neuer Kontakt");
           action-name: "contact.new";
@@ -147,51 +200,33 @@ template $RevolutionContactsView: Adw.BreakpointBin {
           accessibility {
             label: _("Neuer Kontakt");
           }
-
-          // Strg+N wie GNOME Contacts (contacts-main-window.ui: <Control>n → win.new-contact).
-          ShortcutController {
-            scope: global;
-
-            Shortcut {
-              trigger: "<primary>n";
-              action: "activate";
-            }
-          }
         }
 
-        [end]
-        ToggleButton {
-          icon-name: "edit-find-symbolic";
-          tooltip-text: _("Suchen");
-          active: bind search_bar.search-mode-enabled bidirectional;
-
-          accessibility {
-            label: _("Suchen");
-          }
-
-          // Strg+F wie mail-view.blp (HIG-SE).
-          ShortcutController {
-            scope: global;
-
-            Shortcut {
-              trigger: "<primary>f";
-              action: "activate";
-            }
-          }
-        }
-      }
-
-      [top]
-      SearchBar search_bar {
-        key-capture-widget: list_pane;
-
-        // Direktes Kind, damit GtkSearchBar das Feld selbst verbindet (Tippen startet Suche).
-        child: SearchEntry {
+        // Titel linksbündig wie mail-view.blp (zwei Labels, Stilklassen aus HIG-TY).
+        title-widget: Box {
+          orientation: vertical;
+          valign: center;
           hexpand: true;
-          placeholder-text: _("Kontakte durchsuchen");
 
-          accessibility {
-            label: _("Kontakte durchsuchen");
+          Label {
+            label: _("Persönlich");
+            xalign: 0;
+            ellipsize: end;
+
+            styles [
+              "heading",
+            ]
+          }
+
+          Label {
+            label: _("12 Kontakte");
+            xalign: 0;
+            ellipsize: end;
+
+            styles [
+              "caption",
+              "dimmed",
+            ]
           }
         };
       }
@@ -201,12 +236,14 @@ template $RevolutionContactsView: Adw.BreakpointBin {
 
         // Viewport: ohne ihn fehlt beim Start der Abschnittskopf „A“ (headless
         // geprüft). Ursache klären in #350, Virtualisierung geht verloren.
+        // #402: Auswahl als abgerundete Akzentfläche wie die Nachrichtenliste
+        // (style.css .contact-list), ohne Trennlinien.
         child: Viewport {
           child: ListView contact_list {
             tab-behavior: item;
 
             styles [
-              "navigation-sidebar",
+              "contact-list",
             ]
 
             accessibility {
@@ -220,8 +257,8 @@ template $RevolutionContactsView: Adw.BreakpointBin {
                 child: Label {
                   label: bind template.item as <$RevolutionContactsSampleEntry>.group;
                   xalign: 0;
-                  margin-start: 14;
-                  margin-end: 14;
+                  margin-start: 12;
+                  margin-end: 12;
                   margin-top: 6;
                   margin-bottom: 3;
 
@@ -261,186 +298,471 @@ template $RevolutionContactsView: Adw.BreakpointBin {
       };
     }
 
-    // Kontakt: Aufbau nach stamp-contact-details.blp:40-112 und GNOME Contacts
-    // (AdwClamp 500, contacts-contact-pane.ui; Kopfleiste mit „Bearbeiten“,
-    // contacts-main-window.ui). Gruppen als AdwPreferencesGroup (Briefing 1.4).
+    // Kontakt: Kopfleiste mit Aktionen und Suche wie mail-view.blp, Kopf frei auf dem
+    // Hintergrund, Inhalt als große abgerundete Karte bis zum unteren Rand (wie die
+    // Nachricht, Vorbild 03). Felder nach stamp-contact-details.blp:40-112.
     [content]
     Adw.ToolbarView {
       width-request: 360;
 
+      // „Lights off“ wie mail-view.blp: Gtk.Stack wechselt von den Aktionen zum
+      // Suchfeld, Umschalten in contacts-view.c. Fensterknöpfe als Gtk.WindowControls
+      // im Titel (Begründung in mail-view.blp).
       [top]
       Adw.HeaderBar {
-        show-title: false;
         show-start-title-buttons: false;
+        show-end-title-buttons: false;
 
-        [end]
-        Button {
-          icon-name: "document-edit-symbolic";
-          tooltip-text: _("Kontakt bearbeiten");
-          action-name: "contact.edit";
+        title-widget: Box {
+          hexpand: true;
+          spacing: 6;
 
-          accessibility {
-            label: _("Kontakt bearbeiten");
+          Stack header_stack {
+            hexpand: true;
+            transition-type: over_left_right;
+            transition-duration: 250;
+
+            StackPage {
+              name: "actions";
+
+              child: Box {
+                spacing: 6;
+
+                Button new_button {
+                  icon-name: "list-add-symbolic";
+                  tooltip-text: _("Neuer Kontakt");
+                  action-name: "contact.new";
+
+                  accessibility {
+                    label: _("Neuer Kontakt");
+                  }
+                }
+
+                Separator new_spacer {
+                  styles [
+                    "spacer",
+                  ]
+                }
+
+                Box {
+                  hexpand: true;
+                }
+
+                Button {
+                  icon-name: "document-edit-symbolic";
+                  tooltip-text: _("Kontakt bearbeiten");
+                  action-name: "contact.edit";
+
+                  accessibility {
+                    label: _("Kontakt bearbeiten");
+                  }
+                }
+              };
+            }
+
+            StackPage {
+              name: "search";
+
+              // Escape (GtkSearchEntry::stop-search) schließt die Suche.
+              child: SearchEntry search_entry {
+                hexpand: true;
+                placeholder-text: _("Kontakte durchsuchen");
+                key-capture-widget: list_pane;
+                search-started => $on_search_started() swapped;
+                stop-search => $on_search_stop() swapped;
+
+                accessibility {
+                  label: _("Kontakte durchsuchen");
+                }
+              };
+            }
           }
-        }
+
+          ToggleButton search_button {
+            icon-name: "edit-find-symbolic";
+            tooltip-text: _("Suchen");
+            notify::active => $on_search_toggled() swapped;
+
+            accessibility {
+              label: _("Suchen");
+            }
+          }
+
+          WindowControls {
+            side: end;
+          }
+        };
       }
 
-      content: ScrolledWindow {
-        hscrollbar-policy: never;
+      content: Box {
+        orientation: vertical;
 
-        child: Adw.Clamp {
-          maximum-size: 500;
-          margin-top: 12;
-          margin-bottom: 24;
-          margin-start: 12;
-          margin-end: 12;
+        // Kopf wie der Nachrichtenkopf in mail-view.blp: nur der Name halbfett
+        // (style.css .mail-sender), Adressbuch klein und grau wie dort der Ordner.
+        Box {
+          spacing: 12;
+          margin-start: 24;
+          margin-end: 18;
+          margin-top: 14;
+          margin-bottom: 14;
 
-          child: Box {
+          Adw.Avatar {
+            size: 48;
+            valign: center;
+            show-initials: true;
+            text: _("Anna Behrens");
+          }
+
+          Box {
             orientation: vertical;
-            spacing: 18;
+            valign: center;
+            hexpand: true;
+            spacing: 2;
+
+            Label {
+              label: _("Anna Behrens");
+              xalign: 0;
+              ellipsize: end;
+              selectable: true;
+
+              styles [
+                "mail-sender",
+              ]
+            }
 
             Box {
-              orientation: vertical;
-              spacing: 12;
+              spacing: 6;
 
-              // 96 px statt 128 (stamp-contact-details.blp:40-68): sonst liegt
-              // „Organisation“ bei 1280×800 unter dem Rand.
-              Adw.Avatar {
-                size: 96;
-                show-initials: true;
-                text: _("Anna Behrens");
-                halign: center;
+              Image {
+                icon-name: "x-office-address-book-symbolic";
+                tooltip-text: _("Adressbuch");
+
+                accessibility {
+                  label: _("Adressbuch");
+                }
+
+                styles [
+                  "dimmed",
+                ]
               }
 
               Label {
-                label: _("Anna Behrens");
-                wrap: true;
-                wrap-mode: word_char;
-                justify: center;
-                selectable: true;
+                label: _("Persönlich");
+                xalign: 0;
+                ellipsize: end;
 
                 styles [
-                  "title-1",
-                ]
-              }
-
-              // Aktion „Mail schreiben“ (OP #338, öffnet später den Composer, OP #369).
-              Button {
-                halign: center;
-                action-name: "contact.write-mail";
-                tooltip-text: _("Mail an Anna Behrens schreiben");
-
-                child: Adw.ButtonContent {
-                  icon-name: "mail-message-new-symbolic";
-                  label: _("Mail schreiben");
-                };
-
-                styles [
-                  "pill",
-                  "suggested-action",
+                  "dimmed",
                 ]
               }
             }
+          }
 
-            // Zeilen mit Stilklasse „property“: Art klein, Wert groß (libadwaita-CSS).
-            Adw.PreferencesGroup {
-              title: _("E-Mail");
+          // Aktion „Mail schreiben“ (OP #338, öffnet später den Composer, OP #369).
+          // Pille wie „Laden“ im Hinweis der Mail-Ansicht (style.css .mail-notice-button).
+          Button {
+            valign: center;
+            action-name: "contact.write-mail";
+            tooltip-text: _("Mail an Anna Behrens schreiben");
 
-              Adw.ActionRow {
-                title: _("Privat");
-                subtitle: "anna.behrens@example.org";
-                subtitle-selectable: true;
+            child: Adw.ButtonContent {
+              icon-name: "mail-message-new-symbolic";
+              label: _("Mail schreiben");
+            };
 
-                styles [
-                  "property",
-                ]
-              }
+            styles [
+              "mail-notice-button",
+            ]
+          }
+        }
 
-              Adw.ActionRow {
-                title: _("Arbeit");
-                subtitle: "behrens@albrecht-partner.example";
-                subtitle-selectable: true;
+        // Karte wie .html-mail in mail-view.blp (Radius, Kontur, Schatten, Abstände),
+        // Fläche in der Kartenfarbe des Designs (style.css .contact-card).
+        Adw.Bin {
+          vexpand: true;
+          overflow: hidden;
+          margin-start: 12;
+          margin-end: 12;
+          margin-bottom: 12;
 
-                styles [
-                  "property",
-                ]
-              }
-            }
+          styles [
+            "contact-card",
+          ]
 
-            Adw.PreferencesGroup {
-              title: _("Telefon");
+          child: ScrolledWindow {
+            hscrollbar-policy: never;
 
-              Adw.ActionRow {
-                title: _("Mobil");
-                subtitle: "+49 170 0000123";
-                subtitle-selectable: true;
+            child: Adw.Clamp {
+              maximum-size: 620;
+              tightening-threshold: 480;
+              margin-start: 28;
+              margin-end: 28;
+              margin-top: 28;
+              margin-bottom: 36;
 
-                styles [
-                  "property",
-                ]
-              }
-            }
+              // Je Feld: kleines graues Symbol, Art klein und grau, Wert normal.
+              child: Box {
+                orientation: vertical;
+                spacing: 18;
 
-            Adw.PreferencesGroup {
-              title: _("Adresse");
+                Box {
+                  spacing: 12;
 
-              Adw.ActionRow {
-                title: _("Privat");
-                subtitle: _("Am Mühlbach 7\n12345 Musterstadt");
-                subtitle-selectable: true;
-                subtitle-lines: 0;
+                  Image {
+                    icon-name: "mail-unread-symbolic";
+                    valign: start;
+                    margin-top: 2;
+                    tooltip-text: _("E-Mail");
 
-                styles [
-                  "property",
-                ]
-              }
-            }
+                    accessibility {
+                      label: _("E-Mail");
+                    }
 
-            Adw.PreferencesGroup {
-              title: _("Organisation");
+                    styles [
+                      "dimmed",
+                    ]
+                  }
 
-              Adw.ActionRow {
-                title: _("Projektleiterin");
-                subtitle: _("Albrecht und Partner Architekten");
-                subtitle-selectable: true;
+                  Box {
+                    orientation: vertical;
+                    hexpand: true;
+                    spacing: 12;
 
-                styles [
-                  "property",
-                ]
-              }
-            }
+                    Box {
+                      orientation: vertical;
+
+                      Label {
+                        label: _("Privat");
+                        xalign: 0;
+
+                        styles [
+                          "caption",
+                          "dimmed",
+                        ]
+                      }
+
+                      Label {
+                        label: "anna.behrens@example.org";
+                        xalign: 0;
+                        wrap: true;
+                        wrap-mode: word_char;
+                        selectable: true;
+                      }
+                    }
+
+                    Box {
+                      orientation: vertical;
+
+                      Label {
+                        label: _("Arbeit");
+                        xalign: 0;
+
+                        styles [
+                          "caption",
+                          "dimmed",
+                        ]
+                      }
+
+                      Label {
+                        label: "behrens@albrecht-partner.example";
+                        xalign: 0;
+                        wrap: true;
+                        wrap-mode: word_char;
+                        selectable: true;
+                      }
+                    }
+                  }
+                }
+
+                Box {
+                  spacing: 12;
+
+                  Image {
+                    icon-name: "phone-symbolic";
+                    valign: start;
+                    margin-top: 2;
+                    tooltip-text: _("Telefon");
+
+                    accessibility {
+                      label: _("Telefon");
+                    }
+
+                    styles [
+                      "dimmed",
+                    ]
+                  }
+
+                  Box {
+                    orientation: vertical;
+                    hexpand: true;
+
+                    Label {
+                      label: _("Mobil");
+                      xalign: 0;
+
+                      styles [
+                        "caption",
+                        "dimmed",
+                      ]
+                    }
+
+                    Label {
+                      label: "+49 170 0000123";
+                      xalign: 0;
+                      selectable: true;
+
+                      styles [
+                        "numeric",
+                      ]
+                    }
+                  }
+                }
+
+                Box {
+                  spacing: 12;
+
+                  Image {
+                    icon-name: "mark-location-symbolic";
+                    valign: start;
+                    margin-top: 2;
+                    tooltip-text: _("Adresse");
+
+                    accessibility {
+                      label: _("Adresse");
+                    }
+
+                    styles [
+                      "dimmed",
+                    ]
+                  }
+
+                  Box {
+                    orientation: vertical;
+                    hexpand: true;
+
+                    Label {
+                      label: _("Privat");
+                      xalign: 0;
+
+                      styles [
+                        "caption",
+                        "dimmed",
+                      ]
+                    }
+
+                    Label {
+                      label: _("Am Mühlbach 7\n12345 Musterstadt");
+                      xalign: 0;
+                      wrap: true;
+                      selectable: true;
+                    }
+                  }
+                }
+
+                Box {
+                  spacing: 12;
+
+                  Image {
+                    icon-name: "system-users-symbolic";
+                    valign: start;
+                    margin-top: 2;
+                    tooltip-text: _("Organisation");
+
+                    accessibility {
+                      label: _("Organisation");
+                    }
+
+                    styles [
+                      "dimmed",
+                    ]
+                  }
+
+                  Box {
+                    orientation: vertical;
+                    hexpand: true;
+
+                    Label {
+                      label: _("Projektleiterin");
+                      xalign: 0;
+
+                      styles [
+                        "caption",
+                        "dimmed",
+                      ]
+                    }
+
+                    Label {
+                      label: _("Albrecht und Partner Architekten");
+                      xalign: 0;
+                      wrap: true;
+                      selectable: true;
+                    }
+                  }
+                }
+              };
+            };
           };
-        };
+        }
       };
     }
 
-    // Ansichtsumschalter Mail/Kontakte/Kalender (Briefing 0), wie mail-view.blp.
+    // Ansichtsumschalter wie mail-view.blp (#400/#401): schwebt über der
+    // Adressbuchliste, nur Symbole, Seitentitel als Tooltip (contacts-view.c).
+    // valign end auf dem Slot: sonst deckt der Slot die ganze Liste ab und schluckt Klicks.
     [switcher]
-    Adw.ViewSwitcherBar {
-      stack: bind template.stack;
-      reveal: true;
+    Adw.Bin switcher {
+      valign: end;
+      margin-start: 8;
+      margin-end: 8;
+      margin-top: 8;
+      margin-bottom: 8;
+
+      styles [
+        "floating-switcher",
+      ]
+
+      child: Adw.ViewSwitcher {
+        policy: narrow;
+        stack: bind template.stack;
+        has-tooltip: true;
+        query-tooltip => $on_switcher_query_tooltip() swapped;
+      };
     }
 
     // Breit: Seitenleiste | Liste | Kontakt (stamp-contact-view.blp:57-96).
     // Schmal (≤ 1000 sp): Seitenleiste als Überlagerung, Werte per Breakpoint oben.
+    // Klasse mail-split und schwebende Seitenleiste wie mail-view.blp (style.css).
     Adw.Layout {
       name: "desktop";
 
       content: Adw.OverlaySplitView split {
         sidebar-width-fraction: 0.22;
-        min-sidebar-width: 220;
-        max-sidebar-width: 280;
+        min-sidebar-width: 236;
+        max-sidebar-width: 296;
 
-        sidebar: Adw.ToolbarView {
-          bottom-bar-style: raised;
+        styles [
+          "mail-split",
+        ]
 
-          content: Adw.LayoutSlot {
+        sidebar: Overlay {
+          overflow: hidden;
+          margin-start: 8;
+          margin-end: 8;
+          margin-top: 8;
+          margin-bottom: 8;
+
+          styles [
+            "floating-sidebar",
+          ]
+
+          child: Adw.LayoutSlot {
             id: "sidebar";
           };
 
-          [bottom]
+          [overlay]
           Adw.LayoutSlot {
             id: "switcher";
+            valign: end;
           }
         };
 
@@ -506,4 +828,51 @@ template $RevolutionContactsView: Adw.BreakpointBin {
       };
     }
   };
+}
+
+// #402: Primärmenü wie mail-view.blp (Gruppen als Abschnitte, Kürzel rechts über
+// das accel-Attribut). Erster Eintrag Neuer Kontakt statt Neue E-Mail, da Strg+N
+// hier einen Kontakt anlegt (GNOME Contacts).
+menu primary_menu {
+  section {
+    item {
+      label: _("_Neuer Kontakt");
+      action: "contact.new";
+      accel: "<primary>n";
+    }
+
+    item {
+      label: _("_Suchen");
+      action: "contacts.search";
+      accel: "<primary>f";
+    }
+  }
+
+  // Ohne Haken wie mail-view.blp: zustandslose Aktion contacts.toggle-sidebar.
+  section {
+    item {
+      label: _("Seiten_leiste ein-/ausblenden");
+      action: "contacts.toggle-sidebar";
+      accel: "F9";
+    }
+  }
+
+  section {
+    item {
+      label: _("_Einstellungen");
+      action: "contacts.preferences";
+      accel: "<primary>comma";
+    }
+
+    item {
+      label: _("_Tastenkürzel");
+      action: "contacts.shortcuts";
+      accel: "<primary>question";
+    }
+
+    item {
+      label: _("_Info zu Revolution");
+      action: "contacts.about";
+    }
+  }
 }

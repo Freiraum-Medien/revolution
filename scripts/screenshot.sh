@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Headless-Screenshot des Prototyps, hell und dunkel.
+# Headless-Screenshot des Prototyps.
+# Aufruf: scripts/screenshot.sh NAME SCHEMA [BREITExHÖHE]
+#   NAME    Dateiname ohne .png, z. B. mail-hell
+#   SCHEMA  prefer-light oder prefer-dark (ADW_DEBUG_COLOR_SCHEME)
+#   GRÖSSE  Fenstergröße in Pixeln, Standard 1200x760 (Fenster-Standard, window.blp)
 # Läuft ausschließlich in einem eigenen Xvfb (xvfb-run -a) und einer eigenen
 # D-Bus-Sitzung (dbus-run-session). Es erscheint nie ein Fenster auf dem Desktop.
 set -euo pipefail
@@ -7,11 +11,21 @@ set -euo pipefail
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BIN="$APP_DIR/build/src/revolution"
 OUT_DIR="${OUT_DIR:-$APP_DIR/../Design/Prototyp}"
-WIDTH=1200
-HEIGHT=760
+
+if [ $# -lt 2 ] || [ $# -gt 3 ]; then
+  sed -n '3,7p' "$0" >&2
+  exit 1
+fi
+NAME="$1"
+SCHEME="$2"
+SIZE="${3:-1200x760}"
+case "$SCHEME" in prefer-light|prefer-dark) ;; *) echo "Unbekanntes Schema: $SCHEME" >&2; exit 1 ;; esac
+[[ "$SIZE" =~ ^[0-9]+x[0-9]+$ ]] || { echo "Größe als BREITExHÖHE angeben, z. B. 900x700" >&2; exit 1; }
+WIDTH="${SIZE%x*}"
+HEIGHT="${SIZE#*x}"
 
 [ -x "$BIN" ] || { echo "Fehlt: $BIN (erst meson compile -C build)" >&2; exit 1; }
-for tool in xvfb-run dbus-run-session import xwininfo; do
+for tool in xvfb-run dbus-run-session import xwininfo python3; do
   command -v "$tool" >/dev/null || { echo "Fehlt: $tool" >&2; exit 1; }
 done
 mkdir -p "$OUT_DIR"
@@ -26,7 +40,7 @@ shoot () {
   # X11-Backend erzwingen.
   env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
     XDG_RUNTIME_DIR="$rundir" \
-    REAL_DISPLAY="$REAL_DISPLAY" BIN="$BIN" OUT="$out" \
+    REAL_DISPLAY="$REAL_DISPLAY" BIN="$BIN" OUT="$out" WIDTH="$WIDTH" HEIGHT="$HEIGHT" \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo GTK_A11Y=none NO_AT_BRIDGE=1 \
     ADW_DEBUG_COLOR_SCHEME="$scheme" \
     xvfb-run -a -s "-screen 0 ${WIDTH}x${HEIGHT}x24" \
@@ -40,12 +54,18 @@ shoot () {
       "$BIN" & pid=$!
       sleep 3
       win=$(xwininfo -root -tree | awk "/\"Revolution\"/ {print \$1; exit}")
-      if [ -n "$win" ]; then import -window "$win" "$OUT"; else import -window root "$OUT"; fi
+      if [ -n "$win" ]; then
+        # Ohne Fenstermanager setzt XConfigureWindow die Größe direkt (python3-xlib).
+        WIN="$win" python3 -c "import os; from Xlib import display; d = display.Display(); d.create_resource_object(\"window\", int(os.environ[\"WIN\"], 16)).configure(width=int(os.environ[\"WIDTH\"]), height=int(os.environ[\"HEIGHT\"])); d.sync()"
+        sleep 2
+        import -window "$win" "$OUT"
+      else
+        import -window root "$OUT"
+      fi
       kill "$pid"; wait "$pid" 2>/dev/null || true
     '
   rm -rf "$rundir"
   echo "Geschrieben: $out"
 }
 
-shoot prefer-light "$OUT_DIR/geruest-hell.png"
-shoot prefer-dark  "$OUT_DIR/geruest-dunkel.png"
+shoot "$SCHEME" "$OUT_DIR/$NAME.png"

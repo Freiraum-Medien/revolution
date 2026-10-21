@@ -10,6 +10,8 @@
 #include <glib/gi18n.h>
 #include <adwaita.h>
 
+#include "mail/mail-view.h"
+
 static void
 on_activate (GtkApplication *app)
 {
@@ -19,6 +21,7 @@ on_activate (GtkApplication *app)
   window = gtk_application_get_active_window (app);
   if (window == NULL)
     {
+      g_type_ensure (REVOLUTION_TYPE_MAIL_VIEW);
       builder = gtk_builder_new_from_resource ("/org/revolution/Mail/window.ui");
       window = GTK_WINDOW (gtk_builder_get_object (builder, "window"));
       gtk_window_set_application (window, app);

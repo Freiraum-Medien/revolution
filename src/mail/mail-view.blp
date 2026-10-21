@@ -1,0 +1,812 @@
+// Mail-Ansicht dreispaltig, Prototyp #336. Ohne Logik, Beispieldaten aus mail-sample.c.
+// Aufbau nach quelltext/stamp/src/views/mail/stamp-mail-view.blp:4-193 (Briefing 1.1, 1.2).
+using Gtk 4.0;
+using Adw 1;
+
+template $RevolutionMailView: Adw.BreakpointBin {
+  width-request: 360;
+  height-request: 294;
+
+  // Briefing 1.2: ≤ 1000 sp „tablet“, ≤ 600 sp „mobile“ (stamp-mail-view.blp:8-26).
+  Adw.Breakpoint {
+    condition ("max-width: 1000sp")
+
+    setters {
+      mail_layout.layout-name: "tablet";
+      sidebar_button.visible: true;
+    }
+  }
+
+  Adw.Breakpoint {
+    condition ("max-width: 600sp")
+
+    setters {
+      mail_layout.layout-name: "mobile";
+      sidebar_button.visible: true;
+      list_header.show-end-title-buttons: true;
+    }
+  }
+
+  child: Adw.MultiLayoutView mail_layout {
+    // Seitenleiste: Ordnerbaum als GtkListView + GtkTreeListModel (CR #397),
+    // Vorlage stamp-folder-list.blp:5-8.
+    [sidebar]
+    Adw.ToolbarView {
+      [top]
+      Adw.HeaderBar {
+        title-widget: Adw.WindowTitle {
+          title: _("Revolution");
+        };
+      }
+
+      content: ScrolledWindow {
+        hscrollbar-policy: never;
+
+        // Viewport: sonst blendet GtkListView beim Start den ersten
+        // Abschnittskopf („Favoriten“) aus, erst Hochscrollen zeigt ihn.
+        child: Viewport {
+          child: ListView folder_list {
+            tab-behavior: item;
+
+            styles [
+              "navigation-sidebar",
+            ]
+
+            accessibility {
+              label: _("Ordner");
+            }
+
+            model: SingleSelection folder_selection {};
+
+            header-factory: BuilderListItemFactory {
+              template ListHeader {
+                child: Label {
+                  label: bind template.item as <TreeListRow>.item as <$RevolutionSampleFolder>.group;
+                  xalign: 0;
+                  margin-start: 14;
+                  margin-end: 14;
+                  margin-top: 12;
+                  margin-bottom: 6;
+                  ellipsize: end;
+
+                  styles [
+                    "caption-heading",
+                    "dimmed",
+                  ]
+                };
+              }
+            };
+
+            factory: BuilderListItemFactory {
+              template ListItem {
+                child: TreeExpander {
+                  list-row: bind template.item as <TreeListRow>;
+
+                  child: Box {
+                    spacing: 12;
+
+                    Image {
+                      icon-name: bind template.item as <TreeListRow>.item as <$RevolutionSampleFolder>.icon-name;
+                      accessible-role: presentation;
+                    }
+
+                    Label {
+                      label: bind template.item as <TreeListRow>.item as <$RevolutionSampleFolder>.title;
+                      hexpand: true;
+                      xalign: 0;
+                      ellipsize: end;
+                    }
+
+                    Label {
+                      label: bind template.item as <TreeListRow>.item as <$RevolutionSampleFolder>.unread;
+                      tooltip-text: _("Ungelesene Nachrichten");
+
+                      styles [
+                        "dimmed",
+                        "numeric",
+                      ]
+                    }
+                  };
+                };
+              }
+            };
+          };
+        };
+      };
+    }
+
+    // Nachrichtenliste, Zeile nach stamp-conversation-row.blp:72-224.
+    [list]
+    Adw.ToolbarView list_pane {
+      width-request: 300;
+
+      [top]
+      Adw.HeaderBar list_header {
+        show-end-title-buttons: false;
+
+        title-widget: Adw.WindowTitle {
+          title: _("Alle Eingänge");
+          subtitle: _("128 E-Mails, 9 ungelesen");
+        };
+
+        [start]
+        ToggleButton sidebar_button {
+          visible: false;
+          icon-name: "sidebar-show-symbolic";
+          tooltip-text: _("Seitenleiste anzeigen");
+          active: bind tablet_osv.show-sidebar bidirectional;
+
+          accessibility {
+            label: _("Seitenleiste anzeigen");
+          }
+        }
+
+        [start]
+        Button {
+          icon-name: "mail-message-new-symbolic";
+          tooltip-text: _("Neue E-Mail");
+
+          accessibility {
+            label: _("Neue E-Mail");
+          }
+        }
+
+        [end]
+        MenuButton {
+          icon-name: "sort-order-symbolic";
+          tooltip-text: _("Filter");
+          menu-model: filter_menu;
+
+          accessibility {
+            label: _("Filter");
+          }
+        }
+
+        [end]
+        ToggleButton {
+          icon-name: "edit-find-symbolic";
+          tooltip-text: _("Suchen");
+          active: bind search_bar.search-mode-enabled bidirectional;
+
+          accessibility {
+            label: _("Suchen");
+          }
+
+          // Strg+F (HIG-SE): schaltet diesen Knopf und damit die Suchleiste.
+          ShortcutController {
+            scope: global;
+
+            Shortcut {
+              trigger: "<primary>f";
+              action: "activate";
+            }
+          }
+        }
+      }
+
+      [top]
+      SearchBar search_bar {
+        key-capture-widget: list_pane;
+
+        // Direktes Kind, damit GtkSearchBar das Feld selbst verbindet (Tippen startet Suche).
+        child: SearchEntry {
+          hexpand: true;
+          placeholder-text: _("E-Mails durchsuchen");
+
+          accessibility {
+            label: _("E-Mails durchsuchen");
+          }
+        };
+      }
+
+      content: ScrolledWindow {
+        hscrollbar-policy: never;
+
+        child: ListView message_list {
+          show-separators: true;
+          tab-behavior: item;
+
+          styles [
+            "rich-list",
+          ]
+
+          accessibility {
+            label: _("Nachrichten");
+          }
+
+          model: SingleSelection message_selection {};
+
+          factory: BuilderListItemFactory {
+            template ListItem {
+              child: Box {
+                spacing: 6;
+
+                // Platz für den Ungelesen-Punkt bleibt auch ohne Punkt frei.
+                Box {
+                  width-request: 10;
+                  valign: start;
+                  margin-top: 4;
+
+                  Image {
+                    icon-name: "media-record-symbolic";
+                    pixel-size: 10;
+                    visible: bind template.item as <$RevolutionSampleMessage>.unread;
+                    tooltip-text: _("Ungelesen");
+
+                    accessibility {
+                      label: _("Ungelesen");
+                    }
+
+                    styles [
+                      "accent",
+                    ]
+                  }
+                }
+
+                Adw.Avatar {
+                  size: 40;
+                  valign: start;
+                  show-initials: true;
+                  text: bind template.item as <$RevolutionSampleMessage>.sender;
+                  margin-end: 6;
+                }
+
+                Box {
+                  orientation: vertical;
+                  hexpand: true;
+                  spacing: 2;
+
+                  Box {
+                    spacing: 6;
+
+                    Label sender_unread {
+                      label: bind template.item as <$RevolutionSampleMessage>.sender;
+                      visible: bind template.item as <$RevolutionSampleMessage>.unread;
+                      hexpand: true;
+                      xalign: 0;
+                      ellipsize: end;
+
+                      styles [
+                        "heading",
+                      ]
+                    }
+
+                    Label {
+                      label: bind template.item as <$RevolutionSampleMessage>.sender;
+                      visible: bind sender_unread.visible inverted;
+                      hexpand: true;
+                      xalign: 0;
+                      ellipsize: end;
+                    }
+
+                    Label {
+                      label: bind template.item as <$RevolutionSampleMessage>.date;
+
+                      styles [
+                        "caption",
+                        "numeric",
+                        "dimmed",
+                      ]
+                    }
+                  }
+
+                  Box {
+                    spacing: 6;
+
+                    Label {
+                      label: bind template.item as <$RevolutionSampleMessage>.subject;
+                      hexpand: true;
+                      xalign: 0;
+                      ellipsize: end;
+                    }
+
+                    Image {
+                      icon-name: "mail-attachment-symbolic";
+                      visible: bind template.item as <$RevolutionSampleMessage>.attachment;
+                      tooltip-text: _("Mit Anhang");
+
+                      accessibility {
+                        label: _("Mit Anhang");
+                      }
+
+                      styles [
+                        "dimmed",
+                      ]
+                    }
+
+                    Image {
+                      icon-name: "starred-symbolic";
+                      visible: bind template.item as <$RevolutionSampleMessage>.starred;
+                      tooltip-text: _("Markiert");
+
+                      accessibility {
+                        label: _("Markiert");
+                      }
+
+                      styles [
+                        "accent",
+                      ]
+                    }
+                  }
+
+                  Label {
+                    label: bind template.item as <$RevolutionSampleMessage>.preview;
+                    xalign: 0;
+                    wrap: true;
+                    wrap-mode: word_char;
+                    lines: 2;
+                    ellipsize: end;
+                    width-chars: 10;
+
+                    styles [
+                      "dimmed",
+                    ]
+                  }
+                }
+              };
+            }
+          };
+        };
+      };
+    }
+
+    // Nachricht: Kopfleiste mit Aktionen (Briefing 1.1), Banner, Kopf, Inhalt.
+    [content]
+    Adw.ToolbarView {
+      width-request: 360;
+
+      [top]
+      Adw.HeaderBar {
+        show-title: false;
+        show-start-title-buttons: false;
+
+        [start]
+        Button {
+          icon-name: "mail-reply-sender-symbolic";
+          tooltip-text: _("Antworten");
+
+          accessibility {
+            label: _("Antworten");
+          }
+        }
+
+        [start]
+        Button {
+          icon-name: "mail-reply-all-symbolic";
+          tooltip-text: _("Allen antworten");
+
+          accessibility {
+            label: _("Allen antworten");
+          }
+        }
+
+        [start]
+        Button {
+          icon-name: "mail-forward-symbolic";
+          tooltip-text: _("Weiterleiten");
+
+          accessibility {
+            label: _("Weiterleiten");
+          }
+        }
+
+        [end]
+        MenuButton {
+          icon-name: "view-more-symbolic";
+          tooltip-text: _("Weitere Aktionen");
+          menu-model: message_menu;
+
+          accessibility {
+            label: _("Weitere Aktionen");
+          }
+        }
+
+        [end]
+        ToggleButton {
+          icon-name: "starred-symbolic";
+          active: true;
+          tooltip-text: _("Markieren");
+
+          accessibility {
+            label: _("Markieren");
+          }
+        }
+
+        [end]
+        MenuButton {
+          icon-name: "folder-symbolic";
+          always-show-arrow: true;
+          tooltip-text: _("Verschieben");
+          menu-model: move_menu;
+
+          accessibility {
+            label: _("Verschieben");
+          }
+        }
+
+        [end]
+        Button {
+          icon-name: "mail-mark-junk-symbolic";
+          tooltip-text: _("Als Spam markieren");
+
+          accessibility {
+            label: _("Als Spam markieren");
+          }
+        }
+
+        [end]
+        Button {
+          icon-name: "user-trash-symbolic";
+          tooltip-text: _("Löschen");
+
+          accessibility {
+            label: _("Löschen");
+          }
+        }
+
+        [end]
+        Button {
+          icon-name: "archive-symbolic";
+          tooltip-text: _("Archivieren");
+
+          accessibility {
+            label: _("Archivieren");
+          }
+        }
+      }
+
+      // HIG-BN: Banner für einen anhaltenden Zustand (adw-banner.h:31-42).
+      [top]
+      Adw.Banner {
+        title: _("Entfernte Inhalte gesperrt");
+        button-label: _("Laden");
+        revealed: true;
+      }
+
+      content: ScrolledWindow {
+        hscrollbar-policy: never;
+
+        child: Box {
+          orientation: vertical;
+
+          // Nachrichtenkopf, Vorlage stamp-message-header.blp:4-150.
+          Grid {
+            column-spacing: 12;
+            row-spacing: 2;
+            margin-start: 18;
+            margin-end: 18;
+            margin-top: 18;
+            margin-bottom: 12;
+
+            Adw.Avatar {
+              size: 48;
+              valign: start;
+              show-initials: true;
+              text: _("Jana Albrecht");
+
+              layout {
+                column: 0;
+                row: 0;
+                row-span: 3;
+              }
+            }
+
+            Box {
+              spacing: 6;
+
+              layout {
+                column: 1;
+                row: 0;
+              }
+
+              Label {
+                label: _("Jana Albrecht");
+                hexpand: true;
+                xalign: 0;
+                ellipsize: end;
+                selectable: true;
+
+                styles [
+                  "heading",
+                ]
+              }
+
+              Image {
+                icon-name: "inbox-symbolic";
+                tooltip-text: _("Ordner");
+
+                accessibility {
+                  label: _("Ordner");
+                }
+
+                styles [
+                  "dimmed",
+                ]
+              }
+
+              Label {
+                label: _("Eingang — Privat");
+
+                styles [
+                  "dimmed",
+                ]
+              }
+
+              Label {
+                label: _("Heute, 09:14");
+                margin-start: 6;
+
+                styles [
+                  "numeric",
+                  "dimmed",
+                ]
+              }
+            }
+
+            Label {
+              label: _("Unterlagen für das Projekt Nordlicht");
+              xalign: 0;
+              wrap: true;
+              selectable: true;
+
+              layout {
+                column: 1;
+                row: 1;
+              }
+
+              styles [
+                "title-4",
+              ]
+            }
+
+            Box {
+              spacing: 6;
+
+              layout {
+                column: 1;
+                row: 2;
+              }
+
+              Label {
+                label: _("An:");
+
+                styles [
+                  "dimmed",
+                ]
+              }
+
+              Label {
+                label: _("Lena Vogt");
+                hexpand: true;
+                xalign: 0;
+                ellipsize: end;
+
+                styles [
+                  "dimmed",
+                ]
+              }
+
+              Button {
+                label: _("Details");
+                tooltip-text: _("Alle Kopfzeilen anzeigen");
+                valign: center;
+
+                styles [
+                  "flat",
+                ]
+              }
+            }
+          }
+
+          Separator {}
+
+          // Platzhalter für den Inhalt (WebKitGTK folgt in #354).
+          Label {
+            label: _("Hallo Lena,\n\nanbei die überarbeiteten Pläne für das Projekt Nordlicht und die aktuelle Kostenschätzung. Gegenüber dem letzten Stand haben sich vor allem die Positionen für die Fassade und die Außenanlagen geändert.\n\nKannst du bis Freitag einen Blick darauf werfen? Die Abstimmung mit dem Bauamt ist für nächste Woche angesetzt, und ich würde die Unterlagen gern vorher mit dir durchgehen.\n\nViele Grüße\nJana");
+            xalign: 0;
+            yalign: 0;
+            wrap: true;
+            selectable: true;
+            margin-start: 18;
+            margin-end: 18;
+            margin-top: 18;
+            margin-bottom: 18;
+          }
+        };
+      };
+    }
+
+    // Ansichtsumschalter Mail/Kontakte/Kalender (Briefing 0, stamp-mail-view.blp:187-191).
+    [switcher]
+    Adw.ViewSwitcherBar {
+      stack: bind template.stack;
+      reveal: true;
+    }
+
+    // Breit: Seitenleiste | Liste | Nachricht, Listenbreite ziehbar (stamp-mail-view.blp:57-96).
+    Adw.Layout {
+      name: "desktop";
+
+      content: Adw.OverlaySplitView {
+        sidebar-width-fraction: 0.22;
+        min-sidebar-width: 220;
+        max-sidebar-width: 280;
+
+        sidebar: Adw.ToolbarView {
+          bottom-bar-style: raised;
+
+          content: Adw.LayoutSlot {
+            id: "sidebar";
+          };
+
+          [bottom]
+          Adw.LayoutSlot {
+            id: "switcher";
+          }
+        };
+
+        content: Paned {
+          position: 380;
+          shrink-start-child: false;
+          shrink-end-child: false;
+          resize-start-child: false;
+          resize-end-child: true;
+
+          start-child: Adw.LayoutSlot {
+            id: "list";
+          };
+
+          end-child: Adw.LayoutSlot {
+            id: "content";
+          };
+        };
+      };
+    }
+
+    // Schmal: Seitenleiste eingeklappt als Überlagerung (stamp-mail-view.blp:98-137).
+    Adw.Layout {
+      name: "tablet";
+
+      content: Adw.OverlaySplitView tablet_osv {
+        collapsed: true;
+        show-sidebar: false;
+        sidebar-width-fraction: 0.28;
+        min-sidebar-width: 260;
+        max-sidebar-width: 320;
+
+        sidebar: Adw.ToolbarView {
+          bottom-bar-style: raised;
+
+          content: Adw.LayoutSlot {
+            id: "sidebar";
+          };
+
+          [bottom]
+          Adw.LayoutSlot {
+            id: "switcher";
+          }
+        };
+
+        content: Paned {
+          position: 340;
+          shrink-start-child: false;
+          shrink-end-child: false;
+          resize-start-child: false;
+          resize-end-child: true;
+
+          start-child: Adw.LayoutSlot {
+            id: "list";
+          };
+
+          end-child: Adw.LayoutSlot {
+            id: "content";
+          };
+        };
+      };
+    }
+
+    // Telefon: Liste → Nachricht (stamp-mail-view.blp:139-185).
+    Adw.Layout {
+      name: "mobile";
+
+      content: Adw.NavigationView {
+        Adw.NavigationPage {
+          title: _("Mail");
+          tag: "list";
+
+          child: Adw.OverlaySplitView {
+            collapsed: true;
+            show-sidebar: bind tablet_osv.show-sidebar bidirectional;
+            sidebar-width-fraction: 0.75;
+            min-sidebar-width: 260;
+            max-sidebar-width: 320;
+
+            sidebar: Adw.LayoutSlot {
+              id: "sidebar";
+            };
+
+            content: Adw.ToolbarView {
+              content: Adw.LayoutSlot {
+                id: "list";
+              };
+
+              [bottom]
+              Adw.LayoutSlot {
+                id: "switcher";
+              }
+            };
+          };
+        }
+
+        Adw.NavigationPage {
+          title: _("Nachricht");
+          tag: "message";
+
+          child: Adw.LayoutSlot {
+            id: "content";
+          };
+        }
+      };
+    }
+  };
+}
+
+menu filter_menu {
+  section {
+    item {
+      label: _("Alle");
+      action: "list.filter";
+      target: "all";
+    }
+
+    item {
+      label: _("Ungelesen");
+      action: "list.filter";
+      target: "unread";
+    }
+
+    item {
+      label: _("Markiert");
+      action: "list.filter";
+      target: "starred";
+    }
+
+    item {
+      label: _("Mit Anhang");
+      action: "list.filter";
+      target: "attachment";
+    }
+  }
+}
+
+menu move_menu {
+  section {
+    label: _("Privat");
+
+    item {
+      label: _("Archiv");
+      action: "message.move";
+      target: "privat/archiv";
+    }
+
+    item {
+      label: _("Reisen");
+      action: "message.move";
+      target: "privat/reisen";
+    }
+  }
+}
+
+menu message_menu {
+  section {
+    item {
+      label: _("Als ungelesen markieren");
+      action: "message.mark-unread";
+    }
+
+    item {
+      label: _("Drucken…");
+      action: "message.print";
+    }
+  }
+}

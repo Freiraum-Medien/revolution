@@ -8,12 +8,53 @@ Adw.ApplicationWindow window {
   width-request: 360;
   height-request: 294;
 
-  content: Adw.ToolbarView {
-    [top]
-    Adw.HeaderBar {
-      title-widget: Adw.WindowTitle {
-        title: _("Revolution");
+  // Briefing 0: Strg+1/2/3 je Ansicht (Vorlage stamp-window.blp:11-25).
+  // Die Aktionen win.show-* entstehen erst mit Logik; im Prototyp nur hinterlegt.
+  ShortcutController {
+    Shortcut {
+      trigger: "<primary>1";
+      action: "action(win.show-mail)";
+    }
+
+    Shortcut {
+      trigger: "<primary>2";
+      action: "action(win.show-contacts)";
+    }
+
+    Shortcut {
+      trigger: "<primary>3";
+      action: "action(win.show-calendar)";
+    }
+  }
+
+  // Briefing 0: AdwViewStack Mail/Kontakte/Kalender (stamp-window.blp:88-118).
+  content: Adw.ViewStack app_stack {
+    Adw.ViewStackPage {
+      name: "mail";
+      title: _("Mail");
+      icon-name: "mail-unread-symbolic";
+
+      child: $RevolutionMailView {
+        stack: app_stack;
       };
+    }
+
+    // Kontakte: #338
+    Adw.ViewStackPage {
+      name: "contacts";
+      title: _("Kontakte");
+      icon-name: "system-users-symbolic";
+
+      child: Adw.Bin {};
+    }
+
+    // Kalender: #339
+    Adw.ViewStackPage {
+      name: "calendar";
+      title: _("Kalender");
+      icon-name: "x-office-calendar-symbolic";
+
+      child: Adw.Bin {};
     }
   };
 }

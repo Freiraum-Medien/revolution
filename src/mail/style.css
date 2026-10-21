@@ -28,26 +28,27 @@
 
 /* Platz unter dem letzten Ordner: Höhe des Umschalters samt Abstand (#400 Punkt 2). */
 .folder-list {
-  padding-bottom: 60px;
+  padding-bottom: 50px;
 }
 
 /* #400 Punkt 2: Umschalter schwebt über der Ordnerliste. Fläche leicht transparent,
  * darunter weichgezeichnet (backdrop-filter, GTK 4.22).
- * #401: Key-Feature, präsent: Pille (Vorbild 15), 44px hoch, Symbole 20px, nur Symbole
- * (Name als Tooltip und a11y-Label, mail-view.c). Kontur und Trenner hauchdünn im Ton
- * der Seitenleiste: hell --shade-color mit Deckkraft ×1,8 (0,14), dunkel 70 %
- * --sidebar-bg-color + 30 % --dark-4. Abstand zum Rand der Seitenleiste 8px. */
+ * #401: Kontur hauchdünn dunkel statt Akzent. Hell: --shade-color mit Deckkraft ×1,8
+ * (0,14) ergibt einen dezent dunkleren Ton der Seitenleiste. Knöpfe bündig an der
+ * Kontur, nur Symbole (Arnd); Name bleibt als Tooltip und a11y-Label.
+ * Radius 10px, Abstand zum Rand 8px, Knöpfe innen 9px = 10px minus 1px Kontur. */
 .floating-switcher {
-  --switcher-line-color: RGB(from var(--shade-color) r g b / calc(alpha * 1.8));
-  border: 1px solid var(--switcher-line-color);
-  border-radius: 999px;
+  border: 1px solid RGB(from var(--shade-color) r g b / calc(alpha * 1.8));
+  border-radius: 10px;
   background-color: color-mix(in srgb, var(--sidebar-bg-color) 62%, transparent);
   backdrop-filter: blur(4px);
   box-shadow: 0 1px 4px var(--shade-color);
 }
 
+/* Dunkel: gleiche Logik, Kontur als etwas dunklerer Ton der Seitenleiste
+ * (70 % --sidebar-bg-color, 30 % --dark-4); --shade-color wirkte hier zu hart. */
 .dark .floating-switcher {
-  --switcher-line-color: color-mix(in srgb, var(--sidebar-bg-color) 70%, var(--dark-4));
+  border-color: color-mix(in srgb, var(--sidebar-bg-color) 70%, var(--dark-4));
 }
 
 /* libadwaita: viewswitcher.narrow margin -3px oben/unten, border-spacing 3px. */
@@ -56,39 +57,15 @@
   border-spacing: 0;
 }
 
-/* Aktiver Knopf füllt bis an die Kontur: außen rund (Pille), zum Trenner hin eckig. */
 .floating-switcher viewswitcher button.toggle {
-  border-radius: 0;
-  box-shadow: none;
+  border-radius: 9px;
 }
 
-.floating-switcher viewswitcher button.toggle:first-child {
-  border-radius: 999px 0 0 999px;
-}
-
-.floating-switcher viewswitcher button.toggle:last-child {
-  border-radius: 0 999px 999px 0;
-}
-
-/* Trenner: feine senkrechte Linie am linken Rand jedes weiteren Knopfs, nicht ganz bis
- * oben/unten (Vorbild 15); neben dem aktiven Knopf entfällt sie. */
-.floating-switcher viewswitcher button.toggle:not(:first-child) {
-  background-image: linear-gradient(to bottom, transparent 27%, var(--switcher-line-color) 27%, var(--switcher-line-color) 73%, transparent 73%);
-  background-size: 1px 100%;
-  background-position: left center;
-  background-repeat: no-repeat;
-}
-
-.floating-switcher viewswitcher button.toggle:checked,
-.floating-switcher viewswitcher button.toggle:checked + button.toggle {
-  background-image: none;
-}
-
-/* 44px Höhe = 1px Kontur + 11px + 20px Symbol + 11px + 1px Kontur. */
 .floating-switcher viewswitcher button.toggle > stack > box.narrow {
-  padding-top: 11px;
-  padding-bottom: 11px;
-  -gtk-icon-size: 20px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  /* 18px: einen Tick größer als die Ordnersymbole (16px, gemessen im Screenshot). */
+  -gtk-icon-size: 18px;
 }
 
 /* Nur Symbole: Beschriftung ohne Größe; sie bleibt im Widget-Baum (a11y-Name). */

@@ -59,7 +59,9 @@ Adw.ApplicationWindow window {
       title: _("Kalender");
       icon-name: "x-office-calendar-symbolic";
 
-      child: Adw.Bin {};
+      child: $RevolutionCalendarView {
+        stack: app_stack;
+      };
     }
   };
 }

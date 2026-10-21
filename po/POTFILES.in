@@ -2,6 +2,9 @@ data/org.revolution.Mail.desktop.in
 src/main.c
 src/window.blp
 src/composer/composer.blp
+src/calendar/calendar-sample.c
+src/calendar/calendar-view.blp
+src/calendar/calendar-view.c
 src/mail/mail-sample.c
 src/mail/mail-view.blp
 src/contacts/contacts-sample.c

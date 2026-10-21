@@ -1,0 +1,7 @@
+#!/bin/sh
+# pre-merge-commit: baut und testet das Merge-Ergebnis, bricht den Merge bei Fehler ab.
+# Aktivierung (je Klon): git config core.hooksPath hooks && git config merge.ff false
+set -e
+[ -f build-hook/build.ninja ] || meson setup build-hook
+meson compile -C build-hook
+meson test -C build-hook

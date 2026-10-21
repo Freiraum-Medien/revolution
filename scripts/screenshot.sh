@@ -7,6 +7,10 @@
 #   CLICK=X,Y (optional, Umgebung): vor der Aufnahme ein Linksklick per XTest, z. B. Menü öffnen;
 #     mehrere Klicks nacheinander als „X,Y X,Y“
 #   KEYS="Control_L+3 …" (optional, Umgebung): vor CLICK Tastendrücke per XTest (X-Keysym-Namen)
+#   ROUND=15 (optional, Umgebung): Fensterecken nachträglich mit ImageMagick abrunden (Radius in px,
+#     transparente Ecken). Grund: Xvfb hat keinen Compositor, libadwaita setzt dann window.solid-csd
+#     mit --window-radius: 0px; auf dem Desktop gilt --window-radius: 15px (libadwaita-Stylesheet
+#     default-light-yaru-default.css Zeilen 159, 3050, 3070). Nur Nachbearbeitung des Bildes.
 # Läuft ausschließlich in einem eigenen Xvfb (xvfb-run -a) und einer eigenen
 # D-Bus-Sitzung (dbus-run-session). Es erscheint nie ein Fenster auf dem Desktop.
 set -euo pipefail
@@ -16,7 +20,7 @@ BIN="$APP_DIR/build/src/revolution"
 OUT_DIR="${OUT_DIR:-$APP_DIR/../Design/Prototyp}"
 
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
-  sed -n '3,9p' "$0" >&2
+  sed -n '3,13p' "$0" >&2
   exit 1
 fi
 NAME="$1"
@@ -31,9 +35,11 @@ CLICK="${CLICK:-}"
 [ -z "$CLICK" ] || [[ "$CLICK" =~ ^[0-9]+,[0-9]+(\ [0-9]+,[0-9]+)*$ ]] || { echo "CLICK als X,Y angeben, z. B. 640,27" >&2; exit 1; }
 KEYS="${KEYS:-}"
 [ -z "$KEYS" ] || [[ "$KEYS" =~ ^[A-Za-z0-9_+\ ]+$ ]] || { echo "KEYS als Keysym-Namen angeben, z. B. Control_L+3" >&2; exit 1; }
+ROUND="${ROUND:-}"
+[ -z "$ROUND" ] || [[ "$ROUND" =~ ^[0-9]+$ ]] || { echo "ROUND als Radius in Pixeln angeben, z. B. 15" >&2; exit 1; }
 
 [ -x "$BIN" ] || { echo "Fehlt: $BIN (erst meson compile -C build)" >&2; exit 1; }
-for tool in xvfb-run dbus-run-session import xwininfo python3; do
+for tool in xvfb-run dbus-run-session import xwininfo python3 ${ROUND:+magick}; do
   command -v "$tool" >/dev/null || { echo "Fehlt: $tool" >&2; exit 1; }
 done
 python3 -c 'import Xlib' 2>/dev/null || { echo "Fehlt: python3-xlib" >&2; exit 1; }
@@ -105,6 +111,12 @@ for combo in os.environ[\"KEYS\"].split():
       kill "$pid"; wait "$pid" 2>/dev/null || true
     '
   rm -rf "$rundir"
+  if [ -n "$ROUND" ]; then
+    # Maske: weißes abgerundetes Rechteck auf Schwarz, als Alphakanal übernehmen.
+    magick "$out" \( +clone -alpha off -fill black -colorize 100 -fill white \
+      -draw "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] $ROUND,$ROUND" \) \
+      -alpha off -compose CopyOpacity -composite "$out"
+  fi
   echo "Geschrieben: $out"
 }
 

@@ -7,6 +7,15 @@ template $RevolutionMailView: Adw.BreakpointBin {
   width-request: 360;
   height-request: 294;
 
+  // #399: Strg+F öffnet die Suche in der Kopfleiste der Nachricht (HIG-SE „Ctrl+F“).
+  // Scope local wie calendar-view.blp: wirkt nur auf der Mail-Seite.
+  ShortcutController {
+    Shortcut {
+      trigger: "<primary>f";
+      action: "action(mail.search)";
+    }
+  }
+
   // Briefing 1.2: ≤ 1000 sp Seitenleiste eingeklappt, ≤ 600 sp „mobile“ (stamp-mail-view.blp:8-26).
   // Es gilt nur der zuletzt passende Breakpoint, daher setzt „mobile“ show-sidebar erneut.
   Adw.Breakpoint {
@@ -18,7 +27,11 @@ template $RevolutionMailView: Adw.BreakpointBin {
       split.sidebar-width-fraction: 0.28;
       split.min-sidebar-width: 260;
       split.max-sidebar-width: 320;
-      sidebar_button.visible: true;
+      // Neu wandert in die Listenspalte: alle Knöpfe der Nachricht passen sonst
+      // nicht neben die Liste (900 px, mail-schmal.png).
+      list_compose_button.visible: true;
+      compose_button.visible: false;
+      compose_spacer.visible: false;
     }
   }
 
@@ -28,8 +41,9 @@ template $RevolutionMailView: Adw.BreakpointBin {
     setters {
       mail_layout.layout-name: "mobile";
       split.show-sidebar: false;
-      sidebar_button.visible: true;
       list_header.show-end-title-buttons: true;
+      // Es gilt nur der zuletzt passende Breakpoint (s. o.): Neu bleibt in der Liste.
+      list_compose_button.visible: true;
     }
   }
 
@@ -43,6 +57,21 @@ template $RevolutionMailView: Adw.BreakpointBin {
         title-widget: Adw.WindowTitle {
           title: _("Revolution");
         };
+
+        // #399 Punkt 3: Primärmenü in der Seitenleisten-Kopfleiste wie Nautilus (Briefing N).
+        // HIG Menus: „The button for primary menus should use the open-menu-symbolic icon“.
+        // primary: F10 öffnet das Menü (GtkMenuButton:primary).
+        [end]
+        MenuButton {
+          primary: true;
+          icon-name: "open-menu-symbolic";
+          tooltip-text: _("Hauptmenü");
+          menu-model: primary_menu;
+
+          accessibility {
+            label: _("Hauptmenü");
+          }
+        }
       }
 
       content: ScrolledWindow {
@@ -54,6 +83,8 @@ template $RevolutionMailView: Adw.BreakpointBin {
         child: Viewport {
           child: ListView folder_list {
             tab-behavior: item;
+            // Platz unter dem letzten Ordner für den schwebenden Umschalter (#399).
+            margin-bottom: 72;
 
             styles [
               "navigation-sidebar",
@@ -136,25 +167,32 @@ template $RevolutionMailView: Adw.BreakpointBin {
       Adw.HeaderBar list_header {
         show-end-title-buttons: false;
 
-        title-widget: Adw.WindowTitle {
-          title: _("Alle Eingänge");
-          subtitle: _("10 E-Mails, 4 ungelesen");
-        };
-
+        // #399 Punkt 4: Knopf immer sichtbar, F9 wie GNOME Calendar
+        // (quelltext/gnome-calendar/src/gui/gcal-window.blp:176-189).
         [start]
         ToggleButton sidebar_button {
-          visible: false;
           icon-name: "sidebar-show-symbolic";
-          tooltip-text: _("Seitenleiste anzeigen");
+          tooltip-text: _("Seitenleiste ein-/ausblenden");
           active: bind split.show-sidebar bidirectional;
 
           accessibility {
-            label: _("Seitenleiste anzeigen");
+            label: _("Seitenleiste ein-/ausblenden");
+          }
+
+          ShortcutController {
+            scope: managed;
+
+            Shortcut {
+              trigger: "F9";
+              action: "activate";
+            }
           }
         }
 
+        // Nur schmal (Breakpoints oben); breit steht Neu in der Kopfleiste der Nachricht.
         [start]
-        Button {
+        Button list_compose_button {
+          visible: false;
           icon-name: "mail-message-new-symbolic";
           tooltip-text: _("Neue E-Mail");
           action-name: "list.compose";
@@ -163,6 +201,35 @@ template $RevolutionMailView: Adw.BreakpointBin {
             label: _("Neue E-Mail");
           }
         }
+
+        // #399 Punkt 7: Titel linksbündig wie Apple (Briefing V7). Adw.WindowTitle
+        // zentriert, daher zwei Labels mit den Stilklassen aus HIG-TY.
+        title-widget: Box {
+          orientation: vertical;
+          valign: center;
+          hexpand: true;
+
+          Label {
+            label: _("Alle Eingänge");
+            xalign: 0;
+            ellipsize: end;
+
+            styles [
+              "heading",
+            ]
+          }
+
+          Label {
+            label: _("10 E-Mails, 4 ungelesen");
+            xalign: 0;
+            ellipsize: end;
+
+            styles [
+              "caption",
+              "dimmed",
+            ]
+          }
+        };
 
         [end]
         MenuButton {
@@ -174,42 +241,6 @@ template $RevolutionMailView: Adw.BreakpointBin {
             label: _("Filter");
           }
         }
-
-        [end]
-        ToggleButton {
-          icon-name: "edit-find-symbolic";
-          tooltip-text: _("Suchen");
-          active: bind search_bar.search-mode-enabled bidirectional;
-
-          accessibility {
-            label: _("Suchen");
-          }
-
-          // Strg+F (HIG-SE): schaltet diesen Knopf und damit die Suchleiste.
-          ShortcutController {
-            scope: global;
-
-            Shortcut {
-              trigger: "<primary>f";
-              action: "activate";
-            }
-          }
-        }
-      }
-
-      [top]
-      SearchBar search_bar {
-        key-capture-widget: list_pane;
-
-        // Direktes Kind, damit GtkSearchBar das Feld selbst verbindet (Tippen startet Suche).
-        child: SearchEntry {
-          hexpand: true;
-          placeholder-text: _("E-Mails durchsuchen");
-
-          accessibility {
-            label: _("E-Mails durchsuchen");
-          }
-        };
       }
 
       content: ScrolledWindow {
@@ -368,102 +399,162 @@ template $RevolutionMailView: Adw.BreakpointBin {
     Adw.ToolbarView {
       width-request: 360;
 
+      // #399 Punkt 5/6: Neu an erster Stelle, Suche rechts neben den Fensterknöpfen.
+      // „Lights off“: Gtk.Stack wechselt von den Aktionen zum Suchfeld, das dann die
+      // ganze Breite bis zum Suchknopf einnimmt. Umschalten in mail-view.c.
+      // Abweichung HIG-SE („a search bar which slides down from beneath the header bar“):
+      // Suchfeld in der Kopfleiste statt Gtk.SearchBar darunter (Vorgabe Arnd, #399).
       [top]
       Adw.HeaderBar {
         show-title: false;
         show-start-title-buttons: false;
 
+        // [start] statt title-widget: AdwHeaderBar gibt dem Titel nur seine natürliche
+        // Breite, ein Kind am Anfang mit hexpand bekommt den ganzen Platz.
         [start]
-        Button {
-          icon-name: "mail-reply-sender-symbolic";
-          tooltip-text: _("Antworten");
+        Stack header_stack {
+          hexpand: true;
+          transition-type: over_left_right;
+          transition-duration: 250;
 
-          accessibility {
-            label: _("Antworten");
+          StackPage {
+            name: "actions";
+
+            child: Box {
+              spacing: 6;
+
+              Button compose_button {
+                icon-name: "mail-message-new-symbolic";
+                tooltip-text: _("Neue E-Mail");
+                action-name: "list.compose";
+
+                accessibility {
+                  label: _("Neue E-Mail");
+                }
+              }
+
+              Separator compose_spacer {
+                styles [
+                  "spacer",
+                ]
+              }
+
+              Button {
+                icon-name: "mail-reply-sender-symbolic";
+                tooltip-text: _("Antworten");
+
+                accessibility {
+                  label: _("Antworten");
+                }
+              }
+
+              Button {
+                icon-name: "mail-reply-all-symbolic";
+                tooltip-text: _("Allen antworten");
+
+                accessibility {
+                  label: _("Allen antworten");
+                }
+              }
+
+              Button {
+                icon-name: "mail-forward-symbolic";
+                tooltip-text: _("Weiterleiten");
+
+                accessibility {
+                  label: _("Weiterleiten");
+                }
+              }
+
+              Box {
+                hexpand: true;
+              }
+
+              Button {
+                icon-name: "archive-symbolic";
+                tooltip-text: _("Archivieren");
+
+                accessibility {
+                  label: _("Archivieren");
+                }
+              }
+
+              Button {
+                icon-name: "user-trash-symbolic";
+                tooltip-text: _("Löschen");
+
+                accessibility {
+                  label: _("Löschen");
+                }
+              }
+
+              Button {
+                icon-name: "mail-mark-junk-symbolic";
+                tooltip-text: _("Als Spam markieren");
+
+                accessibility {
+                  label: _("Als Spam markieren");
+                }
+              }
+
+              MenuButton {
+                icon-name: "folder-symbolic";
+                always-show-arrow: true;
+                tooltip-text: _("Verschieben");
+                menu-model: move_menu;
+
+                accessibility {
+                  label: _("Verschieben");
+                }
+              }
+
+              ToggleButton {
+                icon-name: "starred-symbolic";
+                active: true;
+                tooltip-text: _("Markieren");
+
+                accessibility {
+                  label: _("Markieren");
+                }
+              }
+
+              // Sekundärmenü der Nachricht (HIG Menus), bleibt neben dem Primärmenü.
+              MenuButton {
+                icon-name: "view-more-symbolic";
+                tooltip-text: _("Weitere Aktionen");
+                menu-model: message_menu;
+
+                accessibility {
+                  label: _("Weitere Aktionen");
+                }
+              }
+            };
           }
-        }
 
-        [start]
-        Button {
-          icon-name: "mail-reply-all-symbolic";
-          tooltip-text: _("Allen antworten");
+          StackPage {
+            name: "search";
 
-          accessibility {
-            label: _("Allen antworten");
-          }
-        }
+            // Escape (GtkSearchEntry::stop-search) schließt die Suche.
+            child: SearchEntry search_entry {
+              hexpand: true;
+              placeholder-text: _("E-Mails durchsuchen");
+              stop-search => $on_search_stop() swapped;
 
-        [start]
-        Button {
-          icon-name: "mail-forward-symbolic";
-          tooltip-text: _("Weiterleiten");
-
-          accessibility {
-            label: _("Weiterleiten");
+              accessibility {
+                label: _("E-Mails durchsuchen");
+              }
+            };
           }
         }
 
         [end]
-        MenuButton {
-          icon-name: "view-more-symbolic";
-          tooltip-text: _("Weitere Aktionen");
-          menu-model: message_menu;
+        ToggleButton search_button {
+          icon-name: "edit-find-symbolic";
+          tooltip-text: _("Suchen");
+          notify::active => $on_search_toggled() swapped;
 
           accessibility {
-            label: _("Weitere Aktionen");
-          }
-        }
-
-        [end]
-        ToggleButton {
-          icon-name: "starred-symbolic";
-          active: true;
-          tooltip-text: _("Markieren");
-
-          accessibility {
-            label: _("Markieren");
-          }
-        }
-
-        [end]
-        MenuButton {
-          icon-name: "folder-symbolic";
-          always-show-arrow: true;
-          tooltip-text: _("Verschieben");
-          menu-model: move_menu;
-
-          accessibility {
-            label: _("Verschieben");
-          }
-        }
-
-        [end]
-        Button {
-          icon-name: "mail-mark-junk-symbolic";
-          tooltip-text: _("Als Spam markieren");
-
-          accessibility {
-            label: _("Als Spam markieren");
-          }
-        }
-
-        [end]
-        Button {
-          icon-name: "user-trash-symbolic";
-          tooltip-text: _("Löschen");
-
-          accessibility {
-            label: _("Löschen");
-          }
-        }
-
-        [end]
-        Button {
-          icon-name: "archive-symbolic";
-          tooltip-text: _("Archivieren");
-
-          accessibility {
-            label: _("Archivieren");
+            label: _("Suchen");
           }
         }
       }
@@ -479,8 +570,19 @@ template $RevolutionMailView: Adw.BreakpointBin {
       content: ScrolledWindow {
         hscrollbar-policy: never;
 
+        // #399 Punkt 1: die Mail als Karte mit runden Ecken und Abstand zum Rand
+        // (Stilklasse .card, libadwaita-Stylesheet).
         child: Box {
           orientation: vertical;
+          valign: start;
+          margin-start: 18;
+          margin-end: 18;
+          margin-top: 18;
+          margin-bottom: 18;
+
+          styles [
+            "card",
+          ]
 
           // Nachrichtenkopf, Vorlage stamp-message-header.blp:4-150.
           Grid {
@@ -630,10 +732,37 @@ template $RevolutionMailView: Adw.BreakpointBin {
     }
 
     // Ansichtsumschalter Mail/Kontakte/Kalender (Briefing 0, stamp-mail-view.blp:187-191).
+    // #399 Punkt 2: schwebend wie HIG „Overlaid Controls“ (Stilklasse .osd).
+    // Außen die Kontur im Akzent-Verlauf, innen die halb transparente .osd-Fläche
+    // (mail/style.css). Zwei Ebenen, weil .osd --accent-bg-color auf Weiß setzt
+    // (libadwaita-Stylesheet default-light-yaru-default.css Zeile 171).
     [switcher]
-    Adw.ViewSwitcherBar {
-      stack: bind template.stack;
-      reveal: true;
+    Adw.Bin {
+      valign: end;
+      margin-start: 12;
+      margin-end: 12;
+      margin-top: 12;
+      margin-bottom: 12;
+
+      styles [
+        "floating-switcher",
+      ]
+
+      child: Box {
+        styles [
+          "osd",
+        ]
+
+        Adw.ViewSwitcher {
+          policy: narrow;
+          hexpand: true;
+          margin-start: 6;
+          margin-end: 6;
+          margin-top: 9;
+          margin-bottom: 6;
+          stack: bind template.stack;
+        }
+      };
     }
 
     // Breit: Seitenleiste | Liste | Nachricht, Listenbreite ziehbar (stamp-mail-view.blp:57-96).
@@ -647,16 +776,16 @@ template $RevolutionMailView: Adw.BreakpointBin {
         min-sidebar-width: 220;
         max-sidebar-width: 280;
 
-        sidebar: Adw.ToolbarView {
-          bottom-bar-style: raised;
-
-          content: Adw.LayoutSlot {
+        // #399: Umschalter schwebt über der Seitenleiste (HIG „Overlaid Controls“).
+        sidebar: Overlay {
+          child: Adw.LayoutSlot {
             id: "sidebar";
           };
 
-          [bottom]
+          [overlay]
           Adw.LayoutSlot {
             id: "switcher";
+            valign: end;
           }
         };
 
@@ -780,6 +909,26 @@ menu message_menu {
     item {
       label: _("Drucken…");
       action: "message.print";
+    }
+  }
+}
+
+// #399 Punkt 3: Inhalt Platzhalter, Aktionen ohne Logik (mail-view.c).
+menu primary_menu {
+  section {
+    item {
+      label: _("_Einstellungen");
+      action: "mail.preferences";
+    }
+
+    item {
+      label: _("_Tastenkürzel");
+      action: "mail.shortcuts";
+    }
+
+    item {
+      label: _("_Info zu Revolution");
+      action: "mail.about";
     }
   }
 }

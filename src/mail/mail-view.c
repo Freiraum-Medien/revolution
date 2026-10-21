@@ -21,6 +21,9 @@ struct _RevolutionMailView
   AdwViewStack       *stack;
   GtkSingleSelection *folder_selection;
   GtkSingleSelection *message_selection;
+  GtkStack           *header_stack;
+  GtkSearchEntry     *search_entry;
+  GtkToggleButton    *search_button;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionMailView, revolution_mail_view, ADW_TYPE_BREAKPOINT_BIN)
@@ -42,6 +45,50 @@ on_compose (GSimpleAction *action G_GNUC_UNUSED,
 static const GActionEntry list_actions[] = {
   { "filter", NULL, "s", "'all'", NULL, { 0 } },
   { "compose", on_compose, NULL, NULL, NULL, { 0 } },
+};
+
+/* #399 Punkt 5: Suchknopf schaltet die Kopfleiste der Nachricht zwischen den
+ * Aktionen und dem Suchfeld um („Lights off“), Fokus wandert mit. */
+static void
+on_search_toggled (RevolutionMailView *self)
+{
+  if (gtk_toggle_button_get_active (self->search_button))
+    {
+      gtk_stack_set_visible_child_name (self->header_stack, "search");
+      gtk_widget_grab_focus (GTK_WIDGET (self->search_entry));
+    }
+  else
+    {
+      gtk_stack_set_visible_child_name (self->header_stack, "actions");
+      gtk_editable_set_text (GTK_EDITABLE (self->search_entry), "");
+      gtk_widget_grab_focus (GTK_WIDGET (self->search_button));
+    }
+}
+
+/* Escape im Suchfeld (GtkSearchEntry::stop-search). */
+static void
+on_search_stop (RevolutionMailView *self)
+{
+  gtk_toggle_button_set_active (self->search_button, FALSE);
+}
+
+/* mail.search für Strg+F: öffnet nur, schließt nicht (Schließen: Escape, Suchknopf). */
+static void
+on_search (GSimpleAction *action G_GNUC_UNUSED,
+           GVariant      *parameter G_GNUC_UNUSED,
+           gpointer       user_data)
+{
+  RevolutionMailView *self = user_data;
+
+  gtk_toggle_button_set_active (self->search_button, TRUE);
+}
+
+/* preferences, shortcuts, about: Platzhalter des Primärmenüs (#399 Punkt 3). */
+static const GActionEntry mail_actions[] = {
+  { "search", on_search, NULL, NULL, NULL, { 0 } },
+  { "preferences", NULL, NULL, NULL, NULL, { 0 } },
+  { "shortcuts", NULL, NULL, NULL, NULL, { 0 } },
+  { "about", NULL, NULL, NULL, NULL, { 0 } },
 };
 
 static const GActionEntry message_actions[] = {
@@ -111,6 +158,11 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   gtk_widget_class_set_template_from_resource (widget_class, "/org/revolution/Mail/mail-view.ui");
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, folder_selection);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, message_selection);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, header_stack);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, search_entry);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, search_button);
+  gtk_widget_class_bind_template_callback (widget_class, on_search_toggled);
+  gtk_widget_class_bind_template_callback (widget_class, on_search_stop);
 }
 
 static void
@@ -120,6 +172,7 @@ revolution_mail_view_init (RevolutionMailView *self)
   g_autoptr (GListModel) messages = revolution_mail_sample_messages ();
   g_autoptr (GSimpleActionGroup) list_group = g_simple_action_group_new ();
   g_autoptr (GSimpleActionGroup) message_group = g_simple_action_group_new ();
+  g_autoptr (GSimpleActionGroup) mail_group = g_simple_action_group_new ();
 
   gtk_widget_init_template (GTK_WIDGET (self));
 
@@ -130,4 +183,6 @@ revolution_mail_view_init (RevolutionMailView *self)
   g_action_map_add_action_entries (G_ACTION_MAP (message_group), message_actions, G_N_ELEMENTS (message_actions), NULL);
   gtk_widget_insert_action_group (GTK_WIDGET (self), "list", G_ACTION_GROUP (list_group));
   gtk_widget_insert_action_group (GTK_WIDGET (self), "message", G_ACTION_GROUP (message_group));
+  g_action_map_add_action_entries (G_ACTION_MAP (mail_group), mail_actions, G_N_ELEMENTS (mail_actions), self);
+  gtk_widget_insert_action_group (GTK_WIDGET (self), "mail", G_ACTION_GROUP (mail_group));
 }

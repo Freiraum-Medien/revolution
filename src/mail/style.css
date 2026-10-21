@@ -1,0 +1,25 @@
+/* style.css – eigenes CSS der App (#399), lädt AdwApplication automatisch aus
+ * der GResource (/org/revolution/Mail/style.css).
+ *
+ * Einziger Eintrag: Kontur des schwebenden Umschalters Mail | Kontakte | Kalender
+ * (mail-view.blp). libadwaita hat keine Stilklasse für eine Verlaufskontur;
+ * HIG-ST: „keep the amount of this custom styling to a minimum“.
+ * Nur Variablen, keine festen Farbwerte. Radius 15px = --window-radius
+ * (libadwaita-Stylesheet Zeile 159), fest, weil window.solid-csd ihn auf 0 setzt.
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/* Außen: 2px Kontur im Verlauf der Akzentfarbe. */
+.floating-switcher {
+  padding: 2px;
+  border-radius: 15px;
+  background-image: linear-gradient(135deg, var(--accent-bg-color), color-mix(in srgb, var(--accent-color) 25%, transparent), var(--accent-color));
+}
+
+/* Innen: .osd halb transparent (.osd setzt rgba(29, 29, 29, 0.975), Zeile 171):
+ * die helle OSD-Schriftfarbe umgekehrt, 80 % deckend. */
+.floating-switcher > .osd {
+  border-radius: 13px;
+  background-color: oklab(from currentColor calc(1 - l) a b / 80%);
+}

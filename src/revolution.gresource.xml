@@ -6,6 +6,7 @@
     <file>composer.ui</file>
     <file>contacts-view.ui</file>
     <file>calendar-view.ui</file>
+    <file alias="style.css">mail/style.css</file>
     <file>icons/scalable/actions/archive-symbolic.svg</file>
     <file>icons/scalable/actions/calendar-month-symbolic.svg</file>
     <file>icons/scalable/actions/calendar-today-symbolic.svg</file>

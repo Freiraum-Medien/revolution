@@ -4,7 +4,9 @@
 #   NAME    Dateiname ohne .png, z. B. mail-hell
 #   SCHEMA  prefer-light oder prefer-dark (ADW_DEBUG_COLOR_SCHEME)
 #   GRÖSSE  Fenstergröße in Pixeln, Standard 1200x760 (Fenster-Standard, window.blp)
-#   CLICK=X,Y (optional, Umgebung): vor der Aufnahme ein Linksklick per XTest, z. B. Menü öffnen
+#   CLICK=X,Y (optional, Umgebung): vor der Aufnahme ein Linksklick per XTest, z. B. Menü öffnen;
+#     mehrere Klicks nacheinander als „X,Y X,Y“
+#   KEYS="Control_L+3 …" (optional, Umgebung): vor CLICK Tastendrücke per XTest (X-Keysym-Namen)
 # Läuft ausschließlich in einem eigenen Xvfb (xvfb-run -a) und einer eigenen
 # D-Bus-Sitzung (dbus-run-session). Es erscheint nie ein Fenster auf dem Desktop.
 set -euo pipefail
@@ -14,7 +16,7 @@ BIN="$APP_DIR/build/src/revolution"
 OUT_DIR="${OUT_DIR:-$APP_DIR/../Design/Prototyp}"
 
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
-  sed -n '3,7p' "$0" >&2
+  sed -n '3,9p' "$0" >&2
   exit 1
 fi
 NAME="$1"
@@ -26,7 +28,9 @@ case "$SCHEME" in prefer-light|prefer-dark) ;; *) echo "Unbekanntes Schema: $SCH
 WIDTH="${SIZE%x*}"
 HEIGHT="${SIZE#*x}"
 CLICK="${CLICK:-}"
-[ -z "$CLICK" ] || [[ "$CLICK" =~ ^[0-9]+,[0-9]+$ ]] || { echo "CLICK als X,Y angeben, z. B. 640,27" >&2; exit 1; }
+[ -z "$CLICK" ] || [[ "$CLICK" =~ ^[0-9]+,[0-9]+(\ [0-9]+,[0-9]+)*$ ]] || { echo "CLICK als X,Y angeben, z. B. 640,27" >&2; exit 1; }
+KEYS="${KEYS:-}"
+[ -z "$KEYS" ] || [[ "$KEYS" =~ ^[A-Za-z0-9_+\ ]+$ ]] || { echo "KEYS als Keysym-Namen angeben, z. B. Control_L+3" >&2; exit 1; }
 
 [ -x "$BIN" ] || { echo "Fehlt: $BIN (erst meson compile -C build)" >&2; exit 1; }
 for tool in xvfb-run dbus-run-session import xwininfo python3; do
@@ -45,7 +49,7 @@ shoot () {
   # X11-Backend erzwingen.
   env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
     XDG_RUNTIME_DIR="$rundir" \
-    REAL_DISPLAY="$REAL_DISPLAY" BIN="$BIN" OUT="$out" WIDTH="$WIDTH" HEIGHT="$HEIGHT" CLICK="$CLICK" \
+    REAL_DISPLAY="$REAL_DISPLAY" BIN="$BIN" OUT="$out" WIDTH="$WIDTH" HEIGHT="$HEIGHT" CLICK="$CLICK" KEYS="$KEYS" \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo GTK_A11Y=none NO_AT_BRIDGE=1 \
     ADW_DEBUG_COLOR_SCHEME="$scheme" \
     xvfb-run -a -s "-screen 0 ${WIDTH}x${HEIGHT}x24" \
@@ -63,8 +67,30 @@ shoot () {
         # Ohne Fenstermanager setzt XConfigureWindow die Größe direkt (python3-xlib).
         WIN="$win" python3 -c "import os; from Xlib import display; d = display.Display(); d.create_resource_object(\"window\", int(os.environ[\"WIN\"], 16)).configure(width=int(os.environ[\"WIDTH\"]), height=int(os.environ[\"HEIGHT\"])); d.sync()"
         sleep 2
+        if [ -n "$KEYS" ]; then
+          # Je Eintrag in KEYS: Tasten nacheinander drücken, rückwärts loslassen.
+          python3 -c "
+import os, sys
+from Xlib import display, X, XK
+from Xlib.ext import xtest
+d = display.Display()
+for combo in os.environ[\"KEYS\"].split():
+    codes = [d.keysym_to_keycode(XK.string_to_keysym(k)) for k in combo.split(\"+\")]
+    if 0 in codes:
+        sys.exit(\"Unbekannte Taste in: \" + combo)
+    for c in codes:
+        xtest.fake_input(d, X.KeyPress, c)
+    for c in reversed(codes):
+        xtest.fake_input(d, X.KeyRelease, c)
+    d.sync()
+"
+          sleep 1
+        fi
         if [ -n "$CLICK" ]; then
-          python3 -c "import os; from Xlib import display, X; from Xlib.ext import xtest; d = display.Display(); x, y = map(int, os.environ[\"CLICK\"].split(\",\")); xtest.fake_input(d, X.MotionNotify, x=x, y=y); xtest.fake_input(d, X.ButtonPress, 1); xtest.fake_input(d, X.ButtonRelease, 1); d.sync()"
+          for point in $CLICK; do
+            POINT="$point" python3 -c "import os; from Xlib import display, X; from Xlib.ext import xtest; d = display.Display(); x, y = map(int, os.environ[\"POINT\"].split(\",\")); xtest.fake_input(d, X.MotionNotify, x=x, y=y); xtest.fake_input(d, X.ButtonPress, 1); xtest.fake_input(d, X.ButtonRelease, 1); d.sync()"
+            sleep 1
+          done
           # Zeiger nach 0,0: ein unter ihm geöffnetes Fenster zeigte sonst einen Tooltip (#337).
           python3 -c "from Xlib import display, X; from Xlib.ext import xtest; d = display.Display(); xtest.fake_input(d, X.MotionNotify, x=0, y=0); d.sync()"
           sleep 1

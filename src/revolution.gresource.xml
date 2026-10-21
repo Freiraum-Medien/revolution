@@ -5,7 +5,11 @@
     <file>mail-view.ui</file>
     <file>composer.ui</file>
     <file>contacts-view.ui</file>
+    <file>calendar-view.ui</file>
     <file>icons/scalable/actions/archive-symbolic.svg</file>
+    <file>icons/scalable/actions/calendar-month-symbolic.svg</file>
+    <file>icons/scalable/actions/calendar-today-symbolic.svg</file>
+    <file>icons/scalable/actions/calendar-week-symbolic.svg</file>
     <file>icons/scalable/actions/drafts-symbolic.svg</file>
     <file>icons/scalable/actions/inbox-symbolic.svg</file>
     <file>icons/scalable/actions/sort-order-symbolic.svg</file>

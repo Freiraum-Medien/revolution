@@ -1,5 +1,5 @@
 blueprints = []
-foreach blp : ['window.blp', 'mail/mail-view.blp', 'composer/composer.blp', 'contacts/contacts-view.blp']
+foreach blp : ['window.blp', 'mail/mail-view.blp', 'composer/composer.blp', 'contacts/contacts-view.blp', 'calendar/calendar-view.blp']
   blueprints += custom_target(
     input: blp,
     output: '@BASENAME@.ui',
@@ -21,6 +21,8 @@ executable('revolution',
   'mail/mail-view.c',
   'contacts/contacts-sample.c',
   'contacts/contacts-view.c',
+  'calendar/calendar-sample.c',
+  'calendar/calendar-view.c',
   resources,
   dependencies: [
     dependency('gtk4', version: '>= 4.22'),

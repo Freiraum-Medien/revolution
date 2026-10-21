@@ -1,0 +1,568 @@
+// Kalender-Ansicht, Prototyp #339. Ohne Logik, Beispieldaten aus calendar-sample.c.
+// Aufbau nach quelltext/gnome-calendar/src/gui/gcal-window.blp:135-348 (GNOME Calendar 50.0,
+// Briefing 1.5); Seitenleiste und Umschalter wie mail/mail-view.blp.
+// Monatsraster, Wochenkopf und Wochenraster sind in GNOME Calendar eigene C-Widgets
+// (GcalMonthView, GcalWeekHeader, GcalWeekGrid); hier leere Gtk.Grid, die calendar-view.c
+// mit Standard-Widgets füllt.
+using Gtk 4.0;
+using Adw 1;
+
+template $RevolutionCalendarView: Adw.BreakpointBin {
+  width-request: 360;
+  height-request: 294;
+
+  // Kürzel wie GNOME Calendar (gcal-window.blp:11-75, F9 :181-188), Aktionen in
+  // calendar-view.c. Scope local: wirken nur auf der Kalender-Seite.
+  ShortcutController {
+    Shortcut {
+      trigger: "<Control>t";
+      action: "action(calendar.today)";
+    }
+
+    Shortcut {
+      trigger: "Home";
+      action: "action(calendar.today)";
+    }
+
+    Shortcut {
+      trigger: "<Alt>Left";
+      action: "action(calendar.previous)";
+    }
+
+    Shortcut {
+      trigger: "Page_Up";
+      action: "action(calendar.previous)";
+    }
+
+    Shortcut {
+      trigger: "<Alt>Right";
+      action: "action(calendar.next)";
+    }
+
+    Shortcut {
+      trigger: "Page_Down";
+      action: "action(calendar.next)";
+    }
+
+    Shortcut {
+      trigger: "<Alt>1";
+      action: "action(calendar.view)";
+      arguments: "'month'";
+    }
+
+    Shortcut {
+      trigger: "<Alt>2";
+      action: "action(calendar.view)";
+      arguments: "'week'";
+    }
+
+    Shortcut {
+      trigger: "<Control>n";
+      action: "action(calendar.new-event)";
+    }
+
+    Shortcut {
+      trigger: "<Control>f";
+      action: "action(calendar.search)";
+    }
+
+    Shortcut {
+      trigger: "F9";
+      action: "action(calendar.sidebar)";
+    }
+  }
+
+  // Wie Mail (mail-view.blp:10-23) und GNOME Calendar (gcal-window.blp:323-330):
+  // ≤ 1000 sp Seitenleiste als Überlagerung.
+  Adw.Breakpoint {
+    condition ("max-width: 1000sp")
+
+    setters {
+      split.collapsed: true;
+      split.show-sidebar: false;
+      split.sidebar-width-fraction: 0.28;
+      split.min-sidebar-width: 260;
+      split.max-sidebar-width: 320;
+      sidebar_button.visible: true;
+      view_switcher.policy: narrow;
+    }
+  }
+
+  child: Adw.OverlaySplitView split {
+    sidebar-width-fraction: 0.22;
+    min-sidebar-width: 220;
+    max-sidebar-width: 280;
+
+    // Seitenleiste: Monatsauswahl + Kalenderliste (gcal-window.blp:150-166).
+    sidebar: Adw.ToolbarView {
+      bottom-bar-style: raised;
+
+      [top]
+      Adw.HeaderBar {
+        title-widget: Adw.WindowTitle {
+          title: _("Revolution");
+        };
+      }
+
+      content: ScrolledWindow {
+        hscrollbar-policy: never;
+
+        child: Box {
+          orientation: vertical;
+
+          // GcalDateChooser ist ein eigenes C-Widget; hier Gtk.Calendar.
+          Calendar date_chooser {
+            year: 2026;
+            month: 9;
+            day: 21;
+            margin-start: 12;
+            margin-end: 12;
+            margin-top: 6;
+            margin-bottom: 6;
+
+            accessibility {
+              label: _("Datum wählen");
+            }
+          }
+
+          // Kalenderliste (gcal-calendar-list.blp:14-23), je Konto ein Abschnitt wie die
+          // Ordnerliste in mail-view.blp. Farbe und Ein/Aus im Ankreuzfeld.
+          ListView calendar_list {
+            tab-behavior: item;
+
+            styles [
+              "navigation-sidebar",
+            ]
+
+            accessibility {
+              label: _("Kalender");
+            }
+
+            model: NoSelection calendar_model {};
+
+            header-factory: BuilderListItemFactory {
+              template ListHeader {
+                child: Label {
+                  label: bind template.item as <$RevolutionSampleCalendar>.group;
+                  xalign: 0;
+                  margin-start: 14;
+                  margin-end: 14;
+                  margin-top: 12;
+                  margin-bottom: 6;
+                  ellipsize: end;
+
+                  styles [
+                    "caption-heading",
+                    "dimmed",
+                  ]
+                };
+              }
+            };
+
+            factory: BuilderListItemFactory {
+              template ListItem {
+                activatable: false;
+
+                child: CheckButton {
+                  label: bind template.item as <$RevolutionSampleCalendar>.title;
+                  // Anfangszustand aus den Beispieldaten; Umschalten ändert nur das Ankreuzfeld.
+                  active: bind template.item as <$RevolutionSampleCalendar>.visible;
+                  css-classes: bind template.item as <$RevolutionSampleCalendar>.css-classes;
+                  tooltip-text: _("Kalender ein- oder ausblenden");
+                };
+              }
+            };
+          }
+        };
+      };
+
+      // Ansichtsumschalter Mail/Kontakte/Kalender (Briefing 0, wie mail-view.blp).
+      [bottom]
+      Adw.ViewSwitcherBar {
+        stack: bind template.stack;
+        reveal: true;
+      }
+    };
+
+    content: Adw.ToolbarView {
+      styles [
+        "view",
+      ]
+
+      // Kopfleiste (gcal-window.blp:174-211). Titel = Monat und Jahr
+      // (gcal-calendar-navigation-button.c:106, „%B %Y“).
+      [top]
+      Adw.HeaderBar {
+        [start]
+        ToggleButton sidebar_button {
+          visible: false;
+          icon-name: "sidebar-show-symbolic";
+          tooltip-text: _("Seitenleiste anzeigen");
+          active: bind split.show-sidebar bidirectional;
+
+          accessibility {
+            label: _("Seitenleiste anzeigen");
+          }
+        }
+
+        title-widget: Adw.WindowTitle {
+          title: _("Oktober 2026");
+        };
+      }
+
+      // Monat und Woche (gcal-window.blp:213-247); Tag folgt in #374.
+      content: Adw.ViewStack views {
+        hexpand: true;
+        vexpand: true;
+
+        Adw.ViewStackPage {
+          name: "month";
+          title: _("_Monat");
+          use-underline: true;
+          icon-name: "calendar-month-symbolic";
+
+          child: Box {
+            orientation: vertical;
+
+            // Wochentage (gcal-month-view.blp:40-92).
+            Box {
+              homogeneous: true;
+              margin-top: 6;
+              margin-bottom: 6;
+
+              Label {
+                label: _("MO");
+                xalign: 0;
+                margin-start: 12;
+
+                styles [
+                  "heading",
+                  "dimmed",
+                ]
+              }
+
+              Label {
+                label: _("DI");
+                xalign: 0;
+                margin-start: 12;
+
+                styles [
+                  "heading",
+                  "dimmed",
+                ]
+              }
+
+              Label {
+                label: _("MI");
+                xalign: 0;
+                margin-start: 12;
+
+                styles [
+                  "heading",
+                  "dimmed",
+                ]
+              }
+
+              Label {
+                label: _("DO");
+                xalign: 0;
+                margin-start: 12;
+
+                styles [
+                  "heading",
+                  "dimmed",
+                ]
+              }
+
+              Label {
+                label: _("FR");
+                xalign: 0;
+                margin-start: 12;
+
+                styles [
+                  "heading",
+                  "dimmed",
+                ]
+              }
+
+              Label {
+                label: _("SA");
+                xalign: 0;
+                margin-start: 12;
+
+                styles [
+                  "heading",
+                  "dimmed",
+                ]
+              }
+
+              Label {
+                label: _("SO");
+                xalign: 0;
+                margin-start: 12;
+
+                styles [
+                  "heading",
+                  "dimmed",
+                ]
+              }
+            }
+
+            Separator {}
+
+            // 5 Wochen × 7 Tage (gcal-month-view.c:39), je Woche ein Gtk.Grid aus
+            // calendar-view.c; homogeneous: alle Wochen gleich hoch. Bei wenig Platz
+            // abgeschnitten statt Mindestgröße zu erzwingen (GcalMonthView: overflow hidden,
+            // gcal-month-view.blp:4).
+            ScrolledWindow {
+              hscrollbar-policy: external;
+              vscrollbar-policy: external;
+              vexpand: true;
+
+              child: Box month_weeks {
+                orientation: vertical;
+                homogeneous: true;
+                accessible-role: group;
+
+                accessibility {
+                  label: _("Monat");
+                }
+              };
+            }
+          };
+        }
+
+        Adw.ViewStackPage {
+          name: "week";
+          title: _("_Woche");
+          use-underline: true;
+          icon-name: "calendar-week-symbolic";
+
+          // Aufbau nach gcal-week-view.blp:3-108.
+          child: Box {
+            orientation: vertical;
+
+            Box {
+              Adw.Bin week_header_spacer {}
+
+              // Wochentage und ganztägige Termine (GcalWeekHeader).
+              Grid week_header {
+                accessible-role: group;
+                hexpand: true;
+                column-homogeneous: true;
+                margin-top: 4;
+
+                accessibility {
+                  label: _("Ganztägige Termine");
+                }
+              }
+            }
+
+            Separator {}
+
+            // Fest 07–21 Uhr; bei wenig Platz abgeschnitten wie der Monat.
+            ScrolledWindow {
+              hscrollbar-policy: external;
+              vscrollbar-policy: external;
+              vexpand: true;
+
+              child: Viewport {
+                child: Box {
+                  // Stundenleiste (GcalWeekHourBar).
+                  Box hour_bar {
+                    orientation: vertical;
+                    homogeneous: true;
+                  }
+
+                  // Stundenraster mit Terminen (GcalWeekGrid), 07–21 Uhr in halben Stunden.
+                  Grid week_grid {
+                    accessible-role: group;
+                    hexpand: true;
+                    column-homogeneous: true;
+                    row-homogeneous: true;
+
+                    accessibility {
+                      label: _("Woche");
+                    }
+                  }
+                };
+              };
+            }
+          };
+        }
+      };
+
+      // Untere Leiste (gcal-window.blp:265-315).
+      [bottom]
+      ActionBar {
+        [start]
+        Button {
+          icon-name: "go-previous-symbolic";
+          tooltip-text: _("Zurück");
+          action-name: "calendar.previous";
+
+          accessibility {
+            label: _("Zurück");
+          }
+        }
+
+        [start]
+        Button {
+          icon-name: "go-next-symbolic";
+          tooltip-text: _("Vor");
+          action-name: "calendar.next";
+
+          accessibility {
+            label: _("Vor");
+          }
+        }
+
+        [start]
+        Button {
+          action-name: "calendar.today";
+          tooltip-text: _("Zu heute springen");
+
+          child: Adw.ButtonContent {
+            label: _("_Heute");
+            use-underline: true;
+            icon-name: "calendar-today-symbolic";
+            can-shrink: true;
+          };
+        }
+
+        [center]
+        Adw.ViewSwitcher view_switcher {
+          stack: views;
+          policy: wide;
+        }
+
+        [end]
+        Button {
+          icon-name: "list-add-symbolic";
+          tooltip-text: _("Termin hinzufügen");
+          action-name: "calendar.new-event";
+
+          accessibility {
+            label: _("Termin hinzufügen");
+          }
+        }
+      }
+    };
+  };
+}
+
+SizeGroup {
+  mode: horizontal;
+
+  widgets [
+    week_header_spacer,
+    hour_bar,
+  ]
+}
+
+// Termin-Detail (gcal-event-popover.blp:3-158), Inhalt setzt calendar-view.c.
+Popover event_popover {
+  default-widget: edit_button;
+  position: top;
+  width-request: 250;
+
+  child: Box {
+    orientation: vertical;
+
+    Box {
+      spacing: 18;
+      margin-top: 18;
+      margin-bottom: 12;
+      margin-start: 18;
+      margin-end: 18;
+
+      Box {
+        hexpand: true;
+        orientation: vertical;
+        spacing: 6;
+
+        // Nicht wählbar: sonst erhält der Titel beim Öffnen den Fokus und erscheint markiert.
+        Label event_summary {
+          wrap: true;
+          wrap-mode: word_char;
+          xalign: 0;
+          max-width-chars: 23;
+          lines: 6;
+          ellipsize: end;
+
+          styles [
+            "title-4",
+          ]
+        }
+
+        Label event_when {
+          xalign: 0;
+          wrap: true;
+
+          styles [
+            "dimmed",
+          ]
+        }
+      }
+
+      Button edit_button {
+        valign: start;
+        icon-name: "document-edit-symbolic";
+        tooltip-text: _("Termin bearbeiten");
+        action-name: "calendar.edit-event";
+
+        accessibility {
+          label: _("Termin bearbeiten");
+        }
+
+        styles [
+          "circular",
+        ]
+      }
+    }
+
+    Separator {}
+
+    Label event_notes {
+      xalign: 0;
+      wrap: true;
+      wrap-mode: word_char;
+      max-width-chars: 35;
+      selectable: true;
+      margin-top: 12;
+      margin-bottom: 12;
+      margin-start: 18;
+      margin-end: 18;
+    }
+
+    Box event_location_box {
+      orientation: vertical;
+
+      Separator {}
+
+      Box {
+        orientation: vertical;
+        margin-top: 12;
+        margin-bottom: 12;
+        margin-start: 18;
+        margin-end: 18;
+
+        Label {
+          halign: start;
+          label: _("Ort");
+
+          styles [
+            "heading",
+          ]
+        }
+
+        Label event_location {
+          halign: start;
+          selectable: true;
+          ellipsize: end;
+          max-width-chars: 35;
+        }
+      }
+    }
+  };
+}

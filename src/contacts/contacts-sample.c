@@ -20,32 +20,36 @@
 typedef struct {
   const char *group;
   const char *title;
+  const char *icon_name;
 } SampleRow;
 
 /* „Auf diesem Rechner“ / „Persönlich“: Namen des lokalen Adressbuchs in EDS
  * (evolution-data-server-3.56.2/po/de.po:9313, 9320). */
+/* #402 Punkt 5: Gruppen/Verteilerlisten als eigener Abschnitt (Beispieldaten). */
 static const SampleRow books[] = {
-  { N_("Auf diesem Rechner"), N_("Persönlich") },
-  { N_("Privat"),             N_("Kontakte") },
-  { N_("Arbeit"),             N_("Kontakte") },
-  { N_("Arbeit"),             N_("Globale Adressliste") },
+  { N_("Auf diesem Rechner"), N_("Persönlich"),             "x-office-address-book-symbolic" },
+  { N_("Privat"),             N_("Kontakte"),               "x-office-address-book-symbolic" },
+  { N_("Arbeit"),             N_("Kontakte"),               "x-office-address-book-symbolic" },
+  { N_("Arbeit"),             N_("Globale Adressliste"),    "x-office-address-book-symbolic" },
+  { N_("Gruppen"),            N_("Projekt Nordlicht"),      "system-users-symbolic" },
+  { N_("Gruppen"),            N_("Vorstand Gartenfreunde"), "system-users-symbolic" },
 };
 
 /* Sortiert nach Vorname wie GNOME Contacts (sort-on-surname = false,
  * /usr/share/glib-2.0/schemas/org.gnome.Contacts.gschema.xml). */
 static const SampleRow contacts[] = {
-  { "A", N_("Anna Behrens") },
-  { "A", N_("Aylin Demir") },
-  { "B", N_("Bernd Hoffmann") },
-  { "C", N_("Clara Neumann") },
-  { "F", N_("Felix Brandt") },
-  { "H", N_("Hausverwaltung Kerner") },
-  { "J", N_("Jana Albrecht") },
-  { "L", N_("Lukas Weber") },
-  { "M", N_("Miriam Okafor") },
-  { "S", N_("Sophie Lange") },
-  { "T", N_("Tobias Krämer") },
-  { "T", N_("Theresa Wolff") },
+  { "A", N_("Anna Behrens"), NULL },
+  { "A", N_("Aylin Demir"), NULL },
+  { "B", N_("Bernd Hoffmann"), NULL },
+  { "C", N_("Clara Neumann"), NULL },
+  { "F", N_("Felix Brandt"), NULL },
+  { "H", N_("Hausverwaltung Kerner"), NULL },
+  { "J", N_("Jana Albrecht"), NULL },
+  { "L", N_("Lukas Weber"), NULL },
+  { "M", N_("Miriam Okafor"), NULL },
+  { "S", N_("Sophie Lange"), NULL },
+  { "T", N_("Tobias Krämer"), NULL },
+  { "T", N_("Theresa Wolff"), NULL },
 };
 
 struct _RevolutionContactsSampleEntry
@@ -53,11 +57,12 @@ struct _RevolutionContactsSampleEntry
   GObject     parent_instance;
   const char *title;
   const char *group;
+  const char *icon_name;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionContactsSampleEntry, revolution_contacts_sample_entry, G_TYPE_OBJECT)
 
-enum { PROP_0, PROP_TITLE, PROP_GROUP, N_PROPS };
+enum { PROP_0, PROP_TITLE, PROP_GROUP, PROP_ICON_NAME, N_PROPS };
 
 static void
 revolution_contacts_sample_entry_get_property (GObject    *object,
@@ -71,6 +76,7 @@ revolution_contacts_sample_entry_get_property (GObject    *object,
     {
     case PROP_TITLE: g_value_set_static_string (value, self->title); break;
     case PROP_GROUP: g_value_set_static_string (value, self->group); break;
+    case PROP_ICON_NAME: g_value_set_static_string (value, self->icon_name); break;
     default: G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
 }
@@ -86,6 +92,7 @@ revolution_contacts_sample_entry_class_init (RevolutionContactsSampleEntryClass 
 
   props[PROP_TITLE] = g_param_spec_string ("title", NULL, NULL, NULL, flags);
   props[PROP_GROUP] = g_param_spec_string ("group", NULL, NULL, NULL, flags);
+  props[PROP_ICON_NAME] = g_param_spec_string ("icon-name", NULL, NULL, NULL, flags);
   g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -117,6 +124,7 @@ sectioned (const SampleRow *rows,
 
       entry->title = _(rows[i].title);
       entry->group = _(rows[i].group);
+      entry->icon_name = rows[i].icon_name;
       g_list_store_append (section, entry);
     }
 

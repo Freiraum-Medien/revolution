@@ -5,6 +5,10 @@ using Adw 1;
 // quelltext/stamp/src/views/mail/composer/stamp-composer.blp, Apple V5.
 // Nur Oberfläche mit fiktiven Beispieldaten, keine Logik.
 template $RevolutionComposer: Adw.ApplicationWindow {
+  styles [
+    "composer",
+  ]
+
   title: _("Neue E-Mail");
   default-width: 960;
   default-height: 720;
@@ -12,8 +16,8 @@ template $RevolutionComposer: Adw.ApplicationWindow {
   height-request: 294;
   focus-widget: body_view;
 
-  // Kürzel wie Stamp (stamp-composer.c:2376-2389): Strg+Enter Senden,
-  // Escape schließt; Fangphase, damit das Textfeld sie nicht verschluckt.
+  // Kürzel wie Stamp (stamp-composer.c:2376-2389): Strg+Enter Senden;
+  // Fangphase, damit das Textfeld sie nicht verschluckt.
   // Strg+B/I/U für die Formatierungsleiste.
   ShortcutController {
     propagation-phase: capture;
@@ -21,11 +25,6 @@ template $RevolutionComposer: Adw.ApplicationWindow {
     Shortcut {
       trigger: "<primary>Return";
       action: "action(composer.send)";
-    }
-
-    Shortcut {
-      trigger: "Escape";
-      action: "action(window.close)";
     }
 
     Shortcut {
@@ -44,8 +43,18 @@ template $RevolutionComposer: Adw.ApplicationWindow {
     }
   }
 
+  // Escape schließt den Composer, in der Standardphase (bubble): Ein offenes
+  // Popover (Von, Signatur) verbraucht Escape zuerst und schließt nur sich.
+  ShortcutController {
+    Shortcut {
+      trigger: "Escape";
+      action: "action(window.close)";
+    }
+  }
+
   content: Adw.ToolbarView {
-    bottom-bar-style: raised;
+    // #402: Formatierungsleiste flach auf dem Fensterhintergrund wie die Mail-Ansicht.
+    bottom-bar-style: flat;
     reveal-bottom-bars: bind format_button.active;
 
     [top]
@@ -54,6 +63,24 @@ template $RevolutionComposer: Adw.ApplicationWindow {
       title-widget: Adw.WindowTitle {
         title: _("Neue E-Mail");
       };
+
+      // #402 (Arnd 22.10.): Hauptmenü oben links, ausdrücklich abweichend von HIG
+      // („Ende“). Klasse primary-menu: Nautilus-Optik aus style.css (#401 Punkt 2).
+      [start]
+      MenuButton {
+        icon-name: "open-menu-symbolic";
+        tooltip-text: _("Hauptmenü");
+        menu-model: composer_menu;
+        primary: true;
+
+        accessibility {
+          label: _("Hauptmenü");
+        }
+
+        styles [
+          "primary-menu",
+        ]
+      }
 
       // Briefing 1.3 (Vorschlag): Anhang und Formatierung ein/aus am Anfang.
       [start]
@@ -80,10 +107,15 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
       // Senden mit suggested-action (stamp-composer.blp:37-49).
       [end]
+      // #402: Symbolknopf auf Akzentfläche statt Textknopf (Arnd 22.10.).
       Button {
-        label: _("Senden");
-        tooltip-text: _("Senden (Strg+Eingabe)");
+        icon-name: "sent-symbolic";
+        tooltip-text: _("Senden (Strg+Enter)");
         action-name: "composer.send";
+
+        accessibility {
+          label: _("Senden");
+        }
 
         styles [
           "suggested-action",
@@ -91,23 +123,28 @@ template $RevolutionComposer: Adw.ApplicationWindow {
       }
     }
 
+    // #402: Designsprache der Mail-Ansicht (mail-view.blp): Felder frei auf dem
+    // Fensterhintergrund wie der Mailkopf, darunter der Text als große abgerundete Karte.
     content: Box {
       orientation: vertical;
-
-      styles [
-        "view",
-      ]
 
       // Felder untereinander mit Trennlinien (stamp-composer.blp:61-285),
       // Reihenfolge wie Apple V5: An, Kopie, Betreff, Von + Signatur.
       Grid {
         column-spacing: 12;
         row-spacing: 3;
+        margin-start: 12;
+        margin-end: 12;
+
+        styles [
+          "composer-fields",
+        ]
 
         Label to_label {
           label: _("An");
           halign: start;
-          margin-start: 18;
+          xalign: 0;
+          margin-start: 12;
 
           styles [
             "dimmed",
@@ -133,35 +170,15 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
           layout {
             column: 1;
+            column-span: 2;
             row: 0;
           }
         }
 
-        // Kopie/Blindkopie per Knopf einblenden (stamp-composer.blp:131-147).
-        ToggleButton cc_button {
-          icon-name: "view-more-symbolic";
-          tooltip-text: _("Kopie und Blindkopie anzeigen");
-          halign: end;
-          valign: center;
-          margin-end: 12;
-          active: true;
-
-          accessibility {
-            label: _("Kopie und Blindkopie anzeigen");
-          }
-
-          styles [
-            "flat",
-          ]
-
-          layout {
-            column: 2;
-            row: 0;
-          }
-        }
-
+        // #402: Kopie und Blindkopie getrennt über das Hauptmenü (composer.show-cc,
+        // composer.show-bcc schalten die Sichtbarkeit der Felder, composer.c).
         Separator {
-          visible: bind cc_button.active;
+          visible: bind cc_entry.visible;
 
           layout {
             column: 0;
@@ -173,8 +190,9 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         Label cc_label {
           label: _("Kopie");
           halign: start;
-          margin-start: 18;
-          visible: bind cc_button.active;
+          xalign: 0;
+          margin-start: 12;
+          visible: bind cc_entry.visible;
 
           styles [
             "dimmed",
@@ -188,7 +206,6 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
         Entry cc_entry {
           text: _("Mara Schulz <mara.schulz@example.net>");
-          visible: bind cc_button.active;
 
           accessibility {
             labelled-by: cc_label;
@@ -206,7 +223,7 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         }
 
         Separator {
-          visible: bind cc_button.active;
+          visible: bind bcc_entry.visible;
 
           layout {
             column: 0;
@@ -218,8 +235,9 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         Label bcc_label {
           label: _("Blindkopie");
           halign: start;
-          margin-start: 18;
-          visible: bind cc_button.active;
+          xalign: 0;
+          margin-start: 12;
+          visible: bind bcc_entry.visible;
 
           styles [
             "dimmed",
@@ -232,8 +250,6 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         }
 
         Entry bcc_entry {
-          visible: bind cc_button.active;
-
           accessibility {
             labelled-by: bcc_label;
           }
@@ -260,7 +276,8 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         Label subject_label {
           label: _("Betreff");
           halign: start;
-          margin-start: 18;
+          xalign: 0;
+          margin-start: 12;
 
           styles [
             "dimmed",
@@ -301,7 +318,8 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         Label from_label {
           label: _("Von");
           halign: start;
-          margin-start: 18;
+          xalign: 0;
+          margin-start: 12;
 
           styles [
             "dimmed",
@@ -317,6 +335,10 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         DropDown from_dropdown {
           halign: start;
           valign: center;
+
+          styles [
+            "composer-dropdown",
+          ]
 
           model: StringList {
             strings [
@@ -337,9 +359,10 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
         // Signatur rechts in der Von-Zeile wie Apple V5 („Signatur: Ohne“).
         Box {
-          spacing: 12;
+          spacing: 6;
+          halign: end;
           valign: center;
-          margin-end: 12;
+          margin-end: 6;
 
           Label signature_label {
             label: _("Signatur");
@@ -350,6 +373,10 @@ template $RevolutionComposer: Adw.ApplicationWindow {
           }
 
           DropDown {
+            styles [
+              "composer-dropdown",
+            ]
+
             model: StringList {
               strings [
                 _("Ohne"),
@@ -382,17 +409,19 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
       // Anhangbereich als WrapBox (stamp-composer.blp:270-284), Anhang-Knopf
       // wie Stamp stamp-attachment-button.blp (Symbol, Name, Größe gedimmt).
+      // #402: Anhänge als ruhige, abgerundete Pillen wie der Hinweis in der Mail-Ansicht
+      // (style.css .mail-notice); kleines gedimmtes Symbol, Name, Größe gedimmt.
       Adw.WrapBox {
-        child-spacing: 12;
-        line-spacing: 12;
-        margin-top: 12;
+        child-spacing: 8;
+        line-spacing: 8;
+        margin-top: 10;
         margin-bottom: 12;
-        margin-start: 18;
-        margin-end: 18;
+        margin-start: 12;
+        margin-end: 12;
 
         Box {
           styles [
-            "linked",
+            "composer-attachment",
           ]
 
           Button {
@@ -404,17 +433,24 @@ template $RevolutionComposer: Adw.ApplicationWindow {
               label: _("Lageplan-Hoffest.pdf, 1,2 MB");
             }
 
+            styles [
+              "flat",
+            ]
+
             child: Box {
-              spacing: 6;
+              spacing: 8;
 
               Image {
                 icon-name: "x-office-document-symbolic";
-                icon-size: large;
                 accessible-role: presentation;
+
+                styles [
+                  "dimmed",
+                ]
               }
 
               Box {
-                orientation: vertical;
+                spacing: 8;
                 valign: center;
 
                 Label {
@@ -428,7 +464,6 @@ template $RevolutionComposer: Adw.ApplicationWindow {
                   halign: start;
 
                   styles [
-                    "caption",
                     "dimmed",
                     "numeric",
                   ]
@@ -440,6 +475,13 @@ template $RevolutionComposer: Adw.ApplicationWindow {
           Button {
             icon-name: "window-close-symbolic";
             tooltip-text: _("Anhang entfernen");
+            valign: center;
+
+            styles [
+              "flat",
+              "circular",
+            ]
+
             action-name: "composer.remove-attachment";
             action-target: "'lageplan'";
 
@@ -451,7 +493,7 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
         Box {
           styles [
-            "linked",
+            "composer-attachment",
           ]
 
           Button {
@@ -463,17 +505,24 @@ template $RevolutionComposer: Adw.ApplicationWindow {
               label: _("Marktstand.jpg, 3,4 MB");
             }
 
+            styles [
+              "flat",
+            ]
+
             child: Box {
-              spacing: 6;
+              spacing: 8;
 
               Image {
                 icon-name: "image-x-generic-symbolic";
-                icon-size: large;
                 accessible-role: presentation;
+
+                styles [
+                  "dimmed",
+                ]
               }
 
               Box {
-                orientation: vertical;
+                spacing: 8;
                 valign: center;
 
                 Label {
@@ -487,7 +536,6 @@ template $RevolutionComposer: Adw.ApplicationWindow {
                   halign: start;
 
                   styles [
-                    "caption",
                     "dimmed",
                     "numeric",
                   ]
@@ -499,6 +547,13 @@ template $RevolutionComposer: Adw.ApplicationWindow {
           Button {
             icon-name: "window-close-symbolic";
             tooltip-text: _("Anhang entfernen");
+            valign: center;
+
+            styles [
+              "flat",
+              "circular",
+            ]
+
             action-name: "composer.remove-attachment";
             action-target: "'stand'";
 
@@ -509,26 +564,36 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         }
       }
 
-      Separator {}
-
       // Nachrichtentext: Platzhalter (Stamp: WebView, stamp-composer.blp:287-297).
-      ScrolledWindow {
-        hscrollbar-policy: never;
+      // #402: große abgerundete Karte mit Abstand wie die Mail-Karte (style.css .html-mail).
+      Adw.Bin {
         vexpand: true;
+        overflow: hidden;
+        margin-start: 12;
+        margin-end: 12;
+        margin-bottom: 12;
 
-        child: TextView body_view {
-          wrap-mode: word_char;
-          top-margin: 18;
-          bottom-margin: 18;
-          left-margin: 18;
-          right-margin: 18;
+        styles [
+          "composer-card",
+        ]
 
-          accessibility {
-            label: _("Nachrichtentext");
-          }
+        child: ScrolledWindow {
+          hscrollbar-policy: never;
 
-          buffer: TextBuffer {
-            text: _("Hallo Jonas,\n\nfür das Hoffest am Samstag habe ich den Lageplan angehängt. Der Marktstand steht wie im letzten Jahr neben der Scheune, Aufbau ab 8 Uhr.\n\nKannst du bis Donnerstag Bescheid geben, ob ihr die Bänke mitbringt?\n\nViele Grüße\nLena\n\n-- \nLena Hoffmann\nHofladen Hoffmann · Lindenweg 4 · 12345 Musterstadt");
+          child: TextView body_view {
+            wrap-mode: word_char;
+            top-margin: 24;
+            bottom-margin: 24;
+            left-margin: 28;
+            right-margin: 28;
+
+            accessibility {
+              label: _("Nachrichtentext");
+            }
+
+            buffer: TextBuffer {
+              text: _("Hallo Jonas,\n\nfür das Hoffest am Samstag habe ich den Lageplan angehängt. Der Marktstand steht wie im letzten Jahr neben der Scheune, Aufbau ab 8 Uhr.\n\nKannst du bis Donnerstag Bescheid geben, ob ihr die Bänke mitbringt?\n\nViele Grüße\nLena\n\n-- \nLena Hoffmann\nHofladen Hoffmann · Lindenweg 4 · 12345 Musterstadt");
+            };
           };
         };
       }
@@ -537,13 +602,43 @@ template $RevolutionComposer: Adw.ApplicationWindow {
     // Formatierungsleiste unten wie Stamp ([bottom] Adw.WrapBox button_bar,
     // stamp-composer.blp:300-420); Auswahl laut Briefing 1.3.
     [bottom]
-    Adw.WrapBox {
+    Adw.WrapBox format_bar {
       child-spacing: 6;
       line-spacing: 6;
-      margin-top: 6;
+      margin-top: 0;
       margin-bottom: 6;
       margin-start: 12;
       margin-end: 12;
+
+      // #402: Absatzformat (Arnd 22.10.), Auswahlliste in Nautilus-Optik wie Von/Signatur;
+      // Platzhalter-Aktion composer.heading (composer.c).
+      DropDown heading_dropdown {
+        tooltip-text: _("Absatzformat");
+        valign: center;
+
+        styles [
+          "composer-dropdown",
+        ]
+
+        model: StringList {
+          strings [
+            _("Text"),
+            _("Überschrift 1"),
+            _("Überschrift 2"),
+            _("Überschrift 3"),
+          ]
+        };
+
+        accessibility {
+          label: _("Absatzformat");
+        }
+      }
+
+      Separator {
+        orientation: vertical;
+        margin-top: 6;
+        margin-bottom: 6;
+      }
 
       ToggleButton {
         icon-name: "format-text-bold-symbolic";
@@ -668,5 +763,57 @@ SizeGroup {
     bcc_entry,
     subject_entry,
     from_dropdown,
+  ]
+}
+
+// #402: Hauptmenü des Composers (Arnd 22.10.). Emoji-Kürzel Strg+. ist die
+// eingebaute Belegung von GtkTextView::insert-emoji (Gtk-4.0.gir).
+menu composer_menu {
+  section {
+    item {
+      label: _("_Kopie anzeigen");
+      action: "composer.show-cc";
+    }
+
+    item {
+      label: _("_Blindkopie anzeigen");
+      action: "composer.show-bcc";
+    }
+  }
+
+  section {
+    item {
+      label: _("_Text-Mail");
+      action: "composer.mail-format";
+      target: "text";
+    }
+
+    item {
+      label: _("_HTML-Mail");
+      action: "composer.mail-format";
+      target: "html";
+    }
+  }
+
+  section {
+    item {
+      label: _("_Emoji einfügen…");
+      action: "composer.insert-emoji";
+      accel: "<primary>period";
+    }
+  }
+}
+
+// #402: Beschriftungsspalte bleibt gleich breit, auch wenn Kopie/Blindkopie
+// ausgeblendet sind (sonst springen die Werte nach links).
+SizeGroup {
+  mode: horizontal;
+
+  widgets [
+    to_label,
+    cc_label,
+    bcc_label,
+    subject_label,
+    from_label,
   ]
 }

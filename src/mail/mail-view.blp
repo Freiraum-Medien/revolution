@@ -7,6 +7,43 @@ template $RevolutionMailView: Adw.BreakpointBin {
   width-request: 360;
   height-request: 294;
 
+  // #399: Strg+F öffnet die Suche in der Kopfleiste der Nachricht (HIG-SE „Ctrl+F“),
+  // F9 schaltet die Seitenleiste wie GNOME Calendar (gcal-window.blp:181-188).
+  // Scope local wie calendar-view.blp:14-72: wirkt nur auf der Mail-Seite. Aktionen in mail-view.c.
+  ShortcutController {
+    Shortcut {
+      trigger: "<primary>f";
+      action: "action(mail.search)";
+    }
+
+    Shortcut {
+      trigger: "F9";
+      action: "action(mail.sidebar)";
+    }
+
+    // #400 Punkt 3/8: Kürzel der Menüeinträge (HIG Keyboard, Standardkürzel
+    // Strg+N, Strg+P, Strg+Komma, Strg+?), im Menü rechts angezeigt (accel-Attribut).
+    Shortcut {
+      trigger: "<primary>n";
+      action: "action(list.compose)";
+    }
+
+    Shortcut {
+      trigger: "<primary>p";
+      action: "action(message.print)";
+    }
+
+    Shortcut {
+      trigger: "<primary>comma";
+      action: "action(mail.preferences)";
+    }
+
+    Shortcut {
+      trigger: "<primary>question";
+      action: "action(mail.shortcuts)";
+    }
+  }
+
   // Briefing 1.2: ≤ 1000 sp Seitenleiste eingeklappt, ≤ 600 sp „mobile“ (stamp-mail-view.blp:8-26).
   // Es gilt nur der zuletzt passende Breakpoint, daher setzt „mobile“ show-sidebar erneut.
   Adw.Breakpoint {
@@ -16,9 +53,12 @@ template $RevolutionMailView: Adw.BreakpointBin {
       split.collapsed: true;
       split.show-sidebar: false;
       split.sidebar-width-fraction: 0.28;
-      split.min-sidebar-width: 260;
-      split.max-sidebar-width: 320;
-      sidebar_button.visible: true;
+      split.min-sidebar-width: 276;
+      split.max-sidebar-width: 336;
+      // #400 Punkt 6: Neu bleibt in der Kopfleiste der Nachricht (Arnd). Damit alle
+      // Knöpfe bei 900 px neben die Liste passen: ohne Abstandhalter, Liste mind. 280.
+      compose_spacer.visible: false;
+      list_pane.width-request: 280;
     }
   }
 
@@ -28,8 +68,11 @@ template $RevolutionMailView: Adw.BreakpointBin {
     setters {
       mail_layout.layout-name: "mobile";
       split.show-sidebar: false;
-      sidebar_button.visible: true;
       list_header.show-end-title-buttons: true;
+      // Es gilt nur der zuletzt passende Breakpoint (s. o.): Neu bleibt in der Liste.
+      list_compose_button.visible: true;
+      compose_button.visible: false;
+      compose_spacer.visible: false;
     }
   }
 
@@ -43,6 +86,27 @@ template $RevolutionMailView: Adw.BreakpointBin {
         title-widget: Adw.WindowTitle {
           title: _("Revolution");
         };
+
+        // #399 Punkt 3: Primärmenü in der Seitenleisten-Kopfleiste wie Nautilus (Briefing N).
+        // HIG Menus: „The button for primary menus should use the open-menu-symbolic icon“.
+        // primary: F10 öffnet das Menü (GtkMenuButton:primary).
+        [end]
+        MenuButton {
+          primary: true;
+          icon-name: "open-menu-symbolic";
+
+          // #401 Punkt 2: kompaktes Menü ohne Einzug (style.css .primary-menu).
+          styles [
+            "primary-menu",
+          ]
+
+          tooltip-text: _("Hauptmenü");
+          menu-model: primary_menu;
+
+          accessibility {
+            label: _("Hauptmenü");
+          }
+        }
       }
 
       content: ScrolledWindow {
@@ -51,12 +115,17 @@ template $RevolutionMailView: Adw.BreakpointBin {
         // Viewport: sonst blendet GtkListView beim Start den ersten
         // Abschnittskopf („Favoriten“) aus, erst Hochscrollen zeigt ihn.
         // Ursache klären in #350, Virtualisierung geht verloren.
-        child: Viewport {
+        // #400: Scrollen zum Fokus übernimmt mail-view.c (Umschalter liegt darüber).
+        child: Viewport folder_viewport {
+          scroll-to-focus: false;
+
           child: ListView folder_list {
             tab-behavior: item;
 
+            // folder-list: unterer Innenabstand = Höhe des Umschalters (style.css).
             styles [
               "navigation-sidebar",
+              "folder-list",
             ]
 
             accessibility {
@@ -136,25 +205,23 @@ template $RevolutionMailView: Adw.BreakpointBin {
       Adw.HeaderBar list_header {
         show-end-title-buttons: false;
 
-        title-widget: Adw.WindowTitle {
-          title: _("Alle Eingänge");
-          subtitle: _("10 E-Mails, 4 ungelesen");
-        };
-
+        // #399 Punkt 4: Knopf immer sichtbar wie GNOME Calendar
+        // (quelltext/gnome-calendar/src/gui/gcal-window.blp:176-189); F9 oben im Controller.
         [start]
         ToggleButton sidebar_button {
-          visible: false;
           icon-name: "sidebar-show-symbolic";
-          tooltip-text: _("Seitenleiste anzeigen");
+          tooltip-text: _("Seitenleiste ein-/ausblenden");
           active: bind split.show-sidebar bidirectional;
 
           accessibility {
-            label: _("Seitenleiste anzeigen");
+            label: _("Seitenleiste ein-/ausblenden");
           }
         }
 
+        // Nur schmal (Breakpoints oben); breit steht Neu in der Kopfleiste der Nachricht.
         [start]
-        Button {
+        Button list_compose_button {
+          visible: false;
           icon-name: "mail-message-new-symbolic";
           tooltip-text: _("Neue E-Mail");
           action-name: "list.compose";
@@ -163,6 +230,35 @@ template $RevolutionMailView: Adw.BreakpointBin {
             label: _("Neue E-Mail");
           }
         }
+
+        // #399 Punkt 7: Titel linksbündig wie Apple (Briefing V7). Adw.WindowTitle
+        // zentriert, daher zwei Labels mit den Stilklassen aus HIG-TY.
+        title-widget: Box {
+          orientation: vertical;
+          valign: center;
+          hexpand: true;
+
+          Label {
+            label: _("Alle Eingänge");
+            xalign: 0;
+            ellipsize: end;
+
+            styles [
+              "heading",
+            ]
+          }
+
+          Label {
+            label: _("10 E-Mails, 4 ungelesen");
+            xalign: 0;
+            ellipsize: end;
+
+            styles [
+              "caption",
+              "dimmed",
+            ]
+          }
+        };
 
         [end]
         MenuButton {
@@ -174,53 +270,18 @@ template $RevolutionMailView: Adw.BreakpointBin {
             label: _("Filter");
           }
         }
-
-        [end]
-        ToggleButton {
-          icon-name: "edit-find-symbolic";
-          tooltip-text: _("Suchen");
-          active: bind search_bar.search-mode-enabled bidirectional;
-
-          accessibility {
-            label: _("Suchen");
-          }
-
-          // Strg+F (HIG-SE): schaltet diesen Knopf und damit die Suchleiste.
-          ShortcutController {
-            scope: global;
-
-            Shortcut {
-              trigger: "<primary>f";
-              action: "activate";
-            }
-          }
-        }
-      }
-
-      [top]
-      SearchBar search_bar {
-        key-capture-widget: list_pane;
-
-        // Direktes Kind, damit GtkSearchBar das Feld selbst verbindet (Tippen startet Suche).
-        child: SearchEntry {
-          hexpand: true;
-          placeholder-text: _("E-Mails durchsuchen");
-
-          accessibility {
-            label: _("E-Mails durchsuchen");
-          }
-        };
       }
 
       content: ScrolledWindow {
         hscrollbar-policy: never;
 
+        // #400 Punkt 4: Auswahl als abgerundete Akzentfläche mit Abstand zum Rand,
+        // ohne Trennlinien (Vorbild 04/05, style.css).
         child: ListView message_list {
-          show-separators: true;
           tab-behavior: item;
 
           styles [
-            "rich-list",
+            "message-list",
           ]
 
           accessibility {
@@ -313,8 +374,10 @@ template $RevolutionMailView: Adw.BreakpointBin {
                       ellipsize: end;
                     }
 
+                    // #401: Symbole dezent wie Apple Mail (Vorbild 17): 12px, grau (style.css).
                     Image {
                       icon-name: "mail-attachment-symbolic";
+                      pixel-size: 12;
                       visible: bind template.item as <$RevolutionSampleMessage>.attachment;
                       tooltip-text: _("Mit Anhang");
 
@@ -324,11 +387,13 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                       styles [
                         "dimmed",
+                        "list-icon",
                       ]
                     }
 
                     Image {
                       icon-name: "starred-symbolic";
+                      pixel-size: 12;
                       visible: bind template.item as <$RevolutionSampleMessage>.starred;
                       tooltip-text: _("Markiert");
 
@@ -338,6 +403,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                       styles [
                         "accent",
+                        "list-icon",
                       ]
                     }
                   }
@@ -368,272 +434,594 @@ template $RevolutionMailView: Adw.BreakpointBin {
     Adw.ToolbarView {
       width-request: 360;
 
+      // #399 Punkt 5/6: Neu an erster Stelle, Suche rechts neben den Fensterknöpfen.
+      // „Lights off“: Gtk.Stack wechselt von den Aktionen zum Suchfeld, das dann die
+      // ganze Breite bis zum Suchknopf einnimmt. Umschalten in mail-view.c.
+      // Abweichung HIG-SE („a search bar which slides down from beneath the header bar“):
+      // Suchfeld in der Kopfleiste statt Gtk.SearchBar darunter (Vorgabe Arnd, #399).
       [top]
       Adw.HeaderBar {
-        show-title: false;
         show-start-title-buttons: false;
+        show-end-title-buttons: false;
 
-        [start]
-        Button {
-          icon-name: "mail-reply-sender-symbolic";
-          tooltip-text: _("Antworten");
+        // Alles im Titel: AdwHeaderBar zentriert den Titel, ein Titel mit hexpand füllt
+        // nur den Platz, der neben gleich breiten Rändern bleibt; [start]-Kinder erhalten
+        // nur ihre natürliche Breite (Messung Verifier #399). Ohne Kinder links/rechts
+        // reicht der Titel über die ganze Breite; die Fensterknöpfe stehen daher als
+        // Gtk.WindowControls im Titel.
+        title-widget: Box {
+          hexpand: true;
+          spacing: 6;
 
-          accessibility {
-            label: _("Antworten");
-          }
-        }
+          Stack header_stack {
+            hexpand: true;
+            transition-type: over_left_right;
+            transition-duration: 250;
 
-        [start]
-        Button {
-          icon-name: "mail-reply-all-symbolic";
-          tooltip-text: _("Allen antworten");
+            StackPage {
+              name: "actions";
 
-          accessibility {
-            label: _("Allen antworten");
-          }
-        }
+              child: Box {
+                spacing: 6;
 
-        [start]
-        Button {
-          icon-name: "mail-forward-symbolic";
-          tooltip-text: _("Weiterleiten");
+                Button compose_button {
+                  icon-name: "mail-message-new-symbolic";
+                  tooltip-text: _("Neue E-Mail");
+                  action-name: "list.compose";
 
-          accessibility {
-            label: _("Weiterleiten");
-          }
-        }
-
-        [end]
-        MenuButton {
-          icon-name: "view-more-symbolic";
-          tooltip-text: _("Weitere Aktionen");
-          menu-model: message_menu;
-
-          accessibility {
-            label: _("Weitere Aktionen");
-          }
-        }
-
-        [end]
-        ToggleButton {
-          icon-name: "starred-symbolic";
-          active: true;
-          tooltip-text: _("Markieren");
-
-          accessibility {
-            label: _("Markieren");
-          }
-        }
-
-        [end]
-        MenuButton {
-          icon-name: "folder-symbolic";
-          always-show-arrow: true;
-          tooltip-text: _("Verschieben");
-          menu-model: move_menu;
-
-          accessibility {
-            label: _("Verschieben");
-          }
-        }
-
-        [end]
-        Button {
-          icon-name: "mail-mark-junk-symbolic";
-          tooltip-text: _("Als Spam markieren");
-
-          accessibility {
-            label: _("Als Spam markieren");
-          }
-        }
-
-        [end]
-        Button {
-          icon-name: "user-trash-symbolic";
-          tooltip-text: _("Löschen");
-
-          accessibility {
-            label: _("Löschen");
-          }
-        }
-
-        [end]
-        Button {
-          icon-name: "archive-symbolic";
-          tooltip-text: _("Archivieren");
-
-          accessibility {
-            label: _("Archivieren");
-          }
-        }
-      }
-
-      // HIG-BN: Banner für einen anhaltenden Zustand (adw-banner.h:31-42).
-      [top]
-      Adw.Banner {
-        title: _("Entfernte Inhalte gesperrt");
-        button-label: _("Laden");
-        revealed: true;
-      }
-
-      content: ScrolledWindow {
-        hscrollbar-policy: never;
-
-        child: Box {
-          orientation: vertical;
-
-          // Nachrichtenkopf, Vorlage stamp-message-header.blp:4-150.
-          Grid {
-            column-spacing: 12;
-            row-spacing: 2;
-            margin-start: 18;
-            margin-end: 18;
-            margin-top: 18;
-            margin-bottom: 12;
-
-            Adw.Avatar {
-              size: 48;
-              valign: start;
-              show-initials: true;
-              text: _("Jana Albrecht");
-
-              layout {
-                column: 0;
-                row: 0;
-                row-span: 3;
-              }
-            }
-
-            Box {
-              spacing: 6;
-
-              layout {
-                column: 1;
-                row: 0;
-              }
-
-              Label {
-                label: _("Jana Albrecht");
-                hexpand: true;
-                xalign: 0;
-                ellipsize: end;
-                selectable: true;
-
-                styles [
-                  "heading",
-                ]
-              }
-
-              Image {
-                icon-name: "inbox-symbolic";
-                tooltip-text: _("Ordner");
-
-                accessibility {
-                  label: _("Ordner");
+                  accessibility {
+                    label: _("Neue E-Mail");
+                  }
                 }
 
-                styles [
-                  "dimmed",
-                ]
-              }
+                Separator compose_spacer {
+                  styles [
+                    "spacer",
+                  ]
+                }
 
-              Label {
-                label: _("Eingang — Privat");
+                Button {
+                  icon-name: "mail-reply-sender-symbolic";
+                  tooltip-text: _("Antworten");
 
-                styles [
-                  "dimmed",
-                ]
-              }
+                  accessibility {
+                    label: _("Antworten");
+                  }
+                }
 
-              Label {
-                label: _("Heute, 09:14");
-                margin-start: 6;
+                Button {
+                  icon-name: "mail-reply-all-symbolic";
+                  tooltip-text: _("Allen antworten");
 
-                styles [
-                  "numeric",
-                  "dimmed",
-                ]
-              }
+                  accessibility {
+                    label: _("Allen antworten");
+                  }
+                }
+
+                Button {
+                  icon-name: "mail-forward-symbolic";
+                  tooltip-text: _("Weiterleiten");
+
+                  accessibility {
+                    label: _("Weiterleiten");
+                  }
+                }
+
+                Box {
+                  hexpand: true;
+                }
+
+                Button {
+                  icon-name: "archive-symbolic";
+                  tooltip-text: _("Archivieren");
+
+                  accessibility {
+                    label: _("Archivieren");
+                  }
+                }
+
+                Button {
+                  icon-name: "user-trash-symbolic";
+                  tooltip-text: _("Löschen");
+
+                  accessibility {
+                    label: _("Löschen");
+                  }
+                }
+
+                Button {
+                  icon-name: "mail-mark-junk-symbolic";
+                  tooltip-text: _("Als Spam markieren");
+
+                  accessibility {
+                    label: _("Als Spam markieren");
+                  }
+                }
+
+                MenuButton {
+                  icon-name: "folder-symbolic";
+                  always-show-arrow: true;
+                  tooltip-text: _("Verschieben");
+                  menu-model: move_menu;
+
+                  accessibility {
+                    label: _("Verschieben");
+                  }
+                }
+
+                ToggleButton {
+                  icon-name: "starred-symbolic";
+                  tooltip-text: _("Markieren");
+
+                  accessibility {
+                    label: _("Markieren");
+                  }
+                }
+
+                // #400 Punkt 8: Sekundärmenü der Nachricht als Mail-Symbol mit Pfeil
+                // wie der Ordner-Knopf daneben (statt view-more, Arnd: verwirrend).
+                MenuButton {
+                  icon-name: "mail-unread-symbolic";
+                  always-show-arrow: true;
+                  tooltip-text: _("Weitere Aktionen");
+                  menu-model: message_menu;
+
+                  accessibility {
+                    label: _("Weitere Aktionen");
+                  }
+                }
+              };
+            }
+
+            StackPage {
+              name: "search";
+
+              // Escape (GtkSearchEntry::stop-search) schließt die Suche.
+              child: SearchEntry search_entry {
+                hexpand: true;
+                placeholder-text: _("E-Mails durchsuchen");
+                // Tippen in der Liste startet die Suche (HIG-SE „type to search“, wie main).
+                key-capture-widget: list_pane;
+                search-started => $on_search_started() swapped;
+                stop-search => $on_search_stop() swapped;
+
+                accessibility {
+                  label: _("E-Mails durchsuchen");
+                }
+              };
+            }
+          }
+
+          ToggleButton search_button {
+            icon-name: "edit-find-symbolic";
+            tooltip-text: _("Suchen");
+            notify::active => $on_search_toggled() swapped;
+
+            accessibility {
+              label: _("Suchen");
+            }
+          }
+
+          WindowControls {
+            side: end;
+          }
+        };
+      }
+
+      // #400 Punkt 7: Kopf frei auf dem Hintergrund, darunter der Mailtext als große
+      // abgerundete Karte bis zum unteren Rand (Vorbild 03). Nur der Inhalt scrollt.
+      content: Box {
+        orientation: vertical;
+
+        // #401 Punkt 4: Hinweis im Apple-Stil (Vorbild 12) statt Adw.Banner über die
+        // volle Breite: abgerundete Pille mit Abstand, Symbol links, Knopf in Akzentfarbe.
+        Box {
+          spacing: 12;
+          margin-start: 12;
+          margin-end: 12;
+          margin-top: 6;
+
+          styles [
+            "mail-notice",
+          ]
+
+          Image {
+            icon-name: "preferences-system-privacy-symbolic";
+            accessible-role: presentation;
+          }
+
+          Label {
+            label: _("Entfernte Inhalte gesperrt");
+            hexpand: true;
+            xalign: 0;
+            ellipsize: end;
+          }
+
+          Button {
+            label: _("Laden");
+            tooltip-text: _("Entfernte Inhalte dieser E-Mail laden");
+            valign: center;
+
+            styles [
+              "mail-notice-button",
+            ]
+          }
+        }
+
+        // Nachrichtenkopf, Vorlage stamp-message-header.blp:4-150.
+        // #401 Punkt 5: graziler (Vorbild 13): nur der Absender halbfett, Betreff gleich groß.
+        Grid {
+          column-spacing: 12;
+          row-spacing: 2;
+          margin-start: 24;
+          margin-end: 18;
+          margin-top: 14;
+          margin-bottom: 14;
+
+          Adw.Avatar {
+            size: 48;
+            valign: start;
+            show-initials: true;
+            text: _("Stadtwerke Lindenau");
+
+            layout {
+              column: 0;
+              row: 0;
+              row-span: 3;
+            }
+          }
+
+          Box {
+            spacing: 6;
+
+            layout {
+              column: 1;
+              row: 0;
             }
 
             Label {
-              label: _("Unterlagen für das Projekt Nordlicht");
+              label: _("Stadtwerke Lindenau");
+              hexpand: true;
               xalign: 0;
-              wrap: true;
+              ellipsize: end;
               selectable: true;
 
-              layout {
-                column: 1;
-                row: 1;
-              }
-
               styles [
-                "title-4",
+                "mail-sender",
               ]
             }
 
-            Box {
-              spacing: 6;
+            Image {
+              icon-name: "inbox-symbolic";
+              tooltip-text: _("Ordner");
 
-              layout {
-                column: 1;
-                row: 2;
+              accessibility {
+                label: _("Ordner");
               }
 
-              Label {
-                label: _("An:");
+              styles [
+                "dimmed",
+              ]
+            }
 
-                styles [
-                  "dimmed",
-                ]
-              }
+            Label {
+              label: _("Eingang — Privat");
 
-              Label {
-                label: _("Lena Vogt");
-                hexpand: true;
-                xalign: 0;
-                ellipsize: end;
+              styles [
+                "dimmed",
+              ]
+            }
 
-                styles [
-                  "dimmed",
-                ]
-              }
+            Label {
+              label: _("Heute, 07:30");
+              margin-start: 6;
 
-              Button {
-                label: _("Details");
-                tooltip-text: _("Alle Kopfzeilen anzeigen");
-                valign: center;
-
-                styles [
-                  "flat",
-                ]
-              }
+              styles [
+                "numeric",
+                "dimmed",
+              ]
             }
           }
 
-          Separator {}
-
-          // Platzhalter für den Inhalt (WebKitGTK folgt in #354).
           Label {
-            label: _("Hallo Lena,\n\nanbei die überarbeiteten Pläne für das Projekt Nordlicht und die aktuelle Kostenschätzung. Gegenüber dem letzten Stand haben sich vor allem die Positionen für die Fassade und die Außenanlagen geändert.\n\nKannst du bis Freitag einen Blick darauf werfen? Die Abstimmung mit dem Bauamt ist für nächste Woche angesetzt, und ich würde die Unterlagen gern vorher mit dir durchgehen.\n\nViele Grüße\nJana");
+            label: _("Ihre Jahresabrechnung 2026");
             xalign: 0;
-            yalign: 0;
             wrap: true;
             selectable: true;
-            margin-start: 18;
-            margin-end: 18;
-            margin-top: 18;
-            margin-bottom: 18;
+
+            layout {
+              column: 1;
+              row: 1;
+            }
+
+            styles [
+              "mail-subject",
+            ]
           }
-        };
+
+          Box {
+            spacing: 6;
+
+            layout {
+              column: 1;
+              row: 2;
+            }
+
+            Label {
+              label: _("An:");
+
+              styles [
+                "dimmed",
+              ]
+            }
+
+            Label {
+              label: _("Lena Vogt");
+              hexpand: true;
+              xalign: 0;
+              ellipsize: end;
+
+              styles [
+                "dimmed",
+              ]
+            }
+
+            Button {
+              label: _("Details");
+              tooltip-text: _("Alle Kopfzeilen anzeigen");
+              valign: center;
+
+              styles [
+                "flat",
+                "mail-details",
+              ]
+            }
+          }
+        }
+
+        // HTML-Mail: eigener weißer Hintergrund auch im Dunkelmodus (style.css .html-mail).
+        // Platzhalter für WebKitGTK (#354), Inhalt nachgebildet mit Labels.
+        Adw.Bin {
+          vexpand: true;
+          overflow: hidden;
+          margin-start: 12;
+          margin-end: 12;
+          margin-bottom: 12;
+
+          styles [
+            "html-mail",
+          ]
+
+          child: ScrolledWindow {
+            hscrollbar-policy: never;
+
+            child: Adw.Clamp {
+              maximum-size: 620;
+              tightening-threshold: 480;
+              margin-start: 28;
+              margin-end: 28;
+              margin-top: 28;
+              margin-bottom: 36;
+
+              child: Box {
+                orientation: vertical;
+                spacing: 18;
+
+                Box {
+                  spacing: 12;
+
+                  Label {
+                    label: _("Stadtwerke Lindenau");
+                    hexpand: true;
+                    xalign: 0;
+
+                    styles [
+                      "html-brand",
+                    ]
+                  }
+
+                  Label {
+                    label: _("Kundennummer 104 227 1");
+                    xalign: 1;
+
+                    styles [
+                      "html-small",
+                    ]
+                  }
+                }
+
+                Separator {
+                  styles [
+                    "html-rule",
+                  ]
+                }
+
+                Label {
+                  label: _("Ihre Jahresabrechnung 2026 ist da");
+                  xalign: 0;
+                  wrap: true;
+                  selectable: true;
+
+                  styles [
+                    "html-title",
+                  ]
+                }
+
+                Label {
+                  label: _("Sehr geehrte Frau Vogt,\n\nvielen Dank, dass Sie Ihre Energie von uns beziehen. Ihre <b>Jahresabrechnung für 2026</b> steht ab sofort in Ihrem Kundenportal bereit. Die gute Nachricht vorweg: Sie haben weniger verbraucht als im Vorjahr und erhalten ein <b>Guthaben</b>.");
+                  use-markup: true;
+                  xalign: 0;
+                  wrap: true;
+                  selectable: true;
+                }
+
+                Grid {
+                  column-spacing: 24;
+                  row-spacing: 8;
+
+                  styles [
+                    "html-box",
+                  ]
+
+                  Label {
+                    label: _("Abrechnungszeitraum");
+                    xalign: 0;
+                    hexpand: true;
+
+                    layout {
+                      column: 0;
+                      row: 0;
+                    }
+                  }
+
+                  Label {
+                    label: _("01.01. – 31.12.2026");
+                    xalign: 1;
+
+                    layout {
+                      column: 1;
+                      row: 0;
+                    }
+                  }
+
+                  Label {
+                    label: _("Verbrauch Strom");
+                    xalign: 0;
+
+                    layout {
+                      column: 0;
+                      row: 1;
+                    }
+                  }
+
+                  Label {
+                    label: _("2.418 kWh");
+                    xalign: 1;
+
+                    layout {
+                      column: 1;
+                      row: 1;
+                    }
+                  }
+
+                  Label {
+                    label: _("Neuer Abschlag ab Januar");
+                    xalign: 0;
+
+                    layout {
+                      column: 0;
+                      row: 2;
+                    }
+                  }
+
+                  Label {
+                    label: _("72,00 € monatlich");
+                    xalign: 1;
+
+                    layout {
+                      column: 1;
+                      row: 2;
+                    }
+                  }
+
+                  Label {
+                    label: _("<b>Ihr Guthaben</b>");
+                    use-markup: true;
+                    xalign: 0;
+
+                    layout {
+                      column: 0;
+                      row: 3;
+                    }
+                  }
+
+                  Label {
+                    label: _("<b>84,20 €</b>");
+                    use-markup: true;
+                    xalign: 1;
+
+                    layout {
+                      column: 1;
+                      row: 3;
+                    }
+
+                    styles [
+                      "html-credit",
+                    ]
+                  }
+                }
+
+                Label {
+                  label: _("Das Guthaben überweisen wir in den nächsten Tagen auf Ihr Konto. Den neuen Abschlag haben wir an Ihren Verbrauch angepasst.");
+                  xalign: 0;
+                  wrap: true;
+                  selectable: true;
+                }
+
+                Label {
+                  label: _("Zur Rechnung im Kundenportal");
+                  halign: start;
+
+                  styles [
+                    "html-button",
+                  ]
+                }
+
+                Label {
+                  label: _("Freundliche Grüße\nIhr Kundenservice der Stadtwerke Lindenau");
+                  xalign: 0;
+                  wrap: true;
+                  selectable: true;
+                }
+
+                Separator {
+                  margin-top: 12;
+
+                  styles [
+                    "html-rule-thin",
+                  ]
+                }
+
+                Label {
+                  label: _("Stadtwerke Lindenau GmbH · Am Wasserturm 4 · 04179 Lindenau\nSie erhalten diese E-Mail, weil Sie Kundin der Stadtwerke Lindenau sind.");
+                  xalign: 0;
+                  wrap: true;
+
+                  styles [
+                    "html-small",
+                  ]
+                }
+              };
+            };
+          };
+        }
       };
     }
 
     // Ansichtsumschalter Mail/Kontakte/Kalender (Briefing 0, stamp-mail-view.blp:187-191).
+    // #400 Punkt 2: schwebt über der Ordnerliste (Gtk.Overlay unten), ohne eigene Leiste
+    // und ohne Trennstrich; Kontur 1 px Akzent, Fläche leicht transparent mit Blur (style.css).
+    // valign end auf dem Slot: sonst deckt der Slot die ganze Liste ab und schluckt Klicks.
     [switcher]
-    Adw.ViewSwitcherBar {
-      stack: bind template.stack;
-      reveal: true;
+    Adw.Bin switcher {
+      valign: end;
+      margin-start: 8;
+      margin-end: 8;
+      margin-top: 8;
+      margin-bottom: 8;
+
+      styles [
+        "floating-switcher",
+      ]
+
+      // #401: äußere Knöpfe bündig an der Kontur, daher ohne Innenabstand (style.css).
+      // Nur Symbole (Arnd): der Seitentitel erscheint als Tooltip (mail-view.c).
+      child: Adw.ViewSwitcher {
+        policy: narrow;
+        stack: bind template.stack;
+        has-tooltip: true;
+        query-tooltip => $on_switcher_query_tooltip() swapped;
+      };
     }
 
     // Breit: Seitenleiste | Liste | Nachricht, Listenbreite ziehbar (stamp-mail-view.blp:57-96).
@@ -644,19 +1032,35 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
       content: Adw.OverlaySplitView split {
         sidebar-width-fraction: 0.22;
-        min-sidebar-width: 220;
-        max-sidebar-width: 280;
+        min-sidebar-width: 236;
+        max-sidebar-width: 296;
 
-        sidebar: Adw.ToolbarView {
-          bottom-bar-style: raised;
+        styles [
+          "mail-split",
+        ]
 
-          content: Adw.LayoutSlot {
+        // #400 Punkt 1: Seitenleiste als schwebende, abgerundete Fläche mit Abstand
+        // zum Fensterrand rundum (Vorbild 06/07, style.css .floating-sidebar).
+        // Punkt 2: Umschalter als Überlagerung über der Ordnerliste.
+        sidebar: Overlay {
+          overflow: hidden;
+          margin-start: 8;
+          margin-end: 8;
+          margin-top: 8;
+          margin-bottom: 8;
+
+          styles [
+            "floating-sidebar",
+          ]
+
+          child: Adw.LayoutSlot {
             id: "sidebar";
           };
 
-          [bottom]
+          [overlay]
           Adw.LayoutSlot {
             id: "switcher";
+            valign: end;
           }
         };
 
@@ -724,6 +1128,9 @@ template $RevolutionMailView: Adw.BreakpointBin {
   };
 }
 
+// #400 Punkt 3/5/8: Menüs wie GNOME Dateien (Vorbild 08): Gruppen als Abschnitte,
+// die GtkPopoverMenu mit Trennlinien zeichnet; Tastenkürzel rechts über das
+// accel-Attribut (nur Anzeige, ausgelöst durch den ShortcutController oben).
 menu filter_menu {
   section {
     item {
@@ -731,7 +1138,9 @@ menu filter_menu {
       action: "list.filter";
       target: "all";
     }
+  }
 
+  section {
     item {
       label: _("Ungelesen");
       action: "list.filter";
@@ -776,10 +1185,59 @@ menu message_menu {
       label: _("Als ungelesen markieren");
       action: "message.mark-unread";
     }
+  }
 
+  section {
     item {
       label: _("Drucken…");
       action: "message.print";
+      accel: "<primary>p";
+    }
+  }
+}
+
+// Inhalt Platzhalter, Aktionen ohne Logik (mail-view.c).
+menu primary_menu {
+  section {
+    item {
+      label: _("_Neue E-Mail");
+      action: "list.compose";
+      accel: "<primary>n";
+    }
+
+    item {
+      label: _("_Suchen");
+      action: "mail.search";
+      accel: "<primary>f";
+    }
+  }
+
+  // #401 Punkt 2: ohne Haken (eine Haken-Spalte rückt alle Einträge ein),
+  // daher die zustandslose Aktion mail.toggle-sidebar statt mail.sidebar.
+  section {
+    item {
+      label: _("Seiten_leiste ein-/ausblenden");
+      action: "mail.toggle-sidebar";
+      accel: "F9";
+    }
+  }
+
+  section {
+    item {
+      label: _("_Einstellungen");
+      action: "mail.preferences";
+      accel: "<primary>comma";
+    }
+
+    item {
+      label: _("_Tastenkürzel");
+      action: "mail.shortcuts";
+      accel: "<primary>question";
+    }
+
+    item {
+      label: _("_Info zu Revolution");
+      action: "mail.about";
     }
   }
 }

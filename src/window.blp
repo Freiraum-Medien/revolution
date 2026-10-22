@@ -8,6 +8,7 @@ Adw.ApplicationWindow window {
   width-request: 360;
   height-request: 294;
 
+  // #401: Reihenfolge Mail | Kalender | Kontakte (Arnd, wie Outlook), Kürzel nach Position.
   // Briefing 0: Strg+1/2/3 je Ansicht (Vorlage stamp-window.blp:11-25).
   // win.view: GPropertyAction auf app_stack.visible-child-name (main.c).
   ShortcutController {
@@ -20,13 +21,13 @@ Adw.ApplicationWindow window {
     Shortcut {
       trigger: "<primary>2";
       action: "action(win.view)";
-      arguments: "'contacts'";
+      arguments: "'calendar'";
     }
 
     Shortcut {
       trigger: "<primary>3";
       action: "action(win.view)";
-      arguments: "'calendar'";
+      arguments: "'contacts'";
     }
   }
 
@@ -42,17 +43,6 @@ Adw.ApplicationWindow window {
       };
     }
 
-    // Kontakte: #338
-    Adw.ViewStackPage {
-      name: "contacts";
-      title: _("Kontakte");
-      icon-name: "system-users-symbolic";
-
-      child: $RevolutionContactsView {
-        stack: app_stack;
-      };
-    }
-
     // Kalender: #339
     Adw.ViewStackPage {
       name: "calendar";
@@ -60,6 +50,17 @@ Adw.ApplicationWindow window {
       icon-name: "x-office-calendar-symbolic";
 
       child: $RevolutionCalendarView {
+        stack: app_stack;
+      };
+    }
+
+    // Kontakte: #338
+    Adw.ViewStackPage {
+      name: "contacts";
+      title: _("Kontakte");
+      icon-name: "system-users-symbolic";
+
+      child: $RevolutionContactsView {
         stack: app_stack;
       };
     }

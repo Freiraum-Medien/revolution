@@ -7,6 +7,19 @@
 #   CLICK=X,Y (optional, Umgebung): vor der Aufnahme ein Linksklick per XTest, z. B. Menü öffnen;
 #     mehrere Klicks nacheinander als „X,Y X,Y“
 #   KEYS="Control_L+3 …" (optional, Umgebung): vor CLICK Tastendrücke per XTest (X-Keysym-Namen)
+#   ROUND=15 (optional, Umgebung): Fensterecken nachträglich mit ImageMagick abrunden (Radius in px,
+#     transparente Ecken). Seit #400 zeichnet GTK die Ecken selbst (siehe Compositor), ROUND
+#     bleibt als Absicherung; auf dem Desktop gilt --window-radius: 15px (libadwaita-Stylesheet
+#     default-light-yaru-default.css Zeile 159).
+#   SCALE=1.5 (optional, Umgebung): Ausgabe-PNG 1,5-fach bei gleicher logischer Größe und gleichem
+#     Layout. GTK rendert mit GDK_SCALE=2 (X11-Backend, Xvfb und Fenster doppelt so groß),
+#     ImageMagick verkleinert danach auf SCALE/2 (1,5 → 75 %). CLICK, KEYS und ROUND bleiben
+#     logisch (wie ohne SCALE), das Skript rechnet sie um. Werte über 2 wären hochskaliert.
+# Compositor (#400): Xvfb hat keinen. Ohne ihn zeichnet GTK Fenster und Popover eckig ohne
+#   Schatten (window.solid-csd), Menüs sähen anders aus als auf dem Desktop. Ein Python-Helfer
+#   meldet sich als Compositing-Manager (Besitzer der Auswahl _NET_WM_CM_S0, ICCCM/EWMH);
+#   GTK nutzt dann RGBA-Fenster. Die Aufnahme setzt alle Fenster mit Alphakanal in
+#   Stapelreihenfolge zusammen (python3-pil) und schneidet auf das App-Fenster zu.
 # Läuft ausschließlich in einem eigenen Xvfb (xvfb-run -a) und einer eigenen
 # D-Bus-Sitzung (dbus-run-session). Es erscheint nie ein Fenster auf dem Desktop.
 set -euo pipefail
@@ -16,7 +29,7 @@ BIN="$APP_DIR/build/src/revolution"
 OUT_DIR="${OUT_DIR:-$APP_DIR/../Design/Prototyp}"
 
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
-  sed -n '3,9p' "$0" >&2
+  sed -n '3,17p' "$0" >&2
   exit 1
 fi
 NAME="$1"
@@ -31,28 +44,42 @@ CLICK="${CLICK:-}"
 [ -z "$CLICK" ] || [[ "$CLICK" =~ ^[0-9]+,[0-9]+(\ [0-9]+,[0-9]+)*$ ]] || { echo "CLICK als X,Y angeben, z. B. 640,27" >&2; exit 1; }
 KEYS="${KEYS:-}"
 [ -z "$KEYS" ] || [[ "$KEYS" =~ ^[A-Za-z0-9_+\ ]+$ ]] || { echo "KEYS als Keysym-Namen angeben, z. B. Control_L+3" >&2; exit 1; }
+ROUND="${ROUND:-}"
+[ -z "$ROUND" ] || [[ "$ROUND" =~ ^[0-9]+$ ]] || { echo "ROUND als Radius in Pixeln angeben, z. B. 15" >&2; exit 1; }
+SCALE="${SCALE:-}"
+RENDER=1
+if [ -n "$SCALE" ]; then
+  [[ "$SCALE" =~ ^[0-9]+(\.[0-9]+)?$ ]] && LC_ALL=C awk -v s="$SCALE" 'BEGIN { exit !(s > 0 && s <= 2) }' \
+    || { echo "SCALE als Faktor über 0 bis 2 angeben, z. B. 1.5" >&2; exit 1; }
+  RENDER=2
+fi
 
 [ -x "$BIN" ] || { echo "Fehlt: $BIN (erst meson compile -C build)" >&2; exit 1; }
-for tool in xvfb-run dbus-run-session import xwininfo python3; do
+for tool in xvfb-run dbus-run-session import xwininfo python3 ${ROUND:+magick} ${SCALE:+magick}; do
   command -v "$tool" >/dev/null || { echo "Fehlt: $tool" >&2; exit 1; }
 done
 python3 -c 'import Xlib' 2>/dev/null || { echo "Fehlt: python3-xlib" >&2; exit 1; }
+python3 -c 'import PIL' 2>/dev/null || { echo "Fehlt: python3-pil" >&2; exit 1; }
 mkdir -p "$OUT_DIR"
 
 REAL_DISPLAY="${DISPLAY:-}"
+# Laufzeitverzeichnis auch bei Abbruch (set -e, Strg+C) entfernen.
+RUNDIR=""
+trap 'rm -rf "${RUNDIR:-}"' EXIT
 
 shoot () {
-  local scheme="$1" out="$2" rundir
-  rundir="$(mktemp -d)"
+  local scheme="$1" out="$2"
+  RUNDIR="$(mktemp -d)"
   # Wayland/Keyring der echten Sitzung abschneiden, eigenes Laufzeitverzeichnis,
   # keine Portale (sonst startet die Test-D-Bus-Sitzung xdg-desktop-portal),
   # X11-Backend erzwingen.
   env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
-    XDG_RUNTIME_DIR="$rundir" \
-    REAL_DISPLAY="$REAL_DISPLAY" BIN="$BIN" OUT="$out" WIDTH="$WIDTH" HEIGHT="$HEIGHT" CLICK="$CLICK" KEYS="$KEYS" \
+    XDG_RUNTIME_DIR="$RUNDIR" \
+    REAL_DISPLAY="$REAL_DISPLAY" BIN="$BIN" OUT="$out" WIDTH="$((WIDTH * RENDER))" HEIGHT="$((HEIGHT * RENDER))" \
+    CLICK="$CLICK" KEYS="$KEYS" RENDER="$RENDER" ${SCALE:+GDK_SCALE=$RENDER} \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo GTK_A11Y=none NO_AT_BRIDGE=1 \
     ADW_DEBUG_COLOR_SCHEME="$scheme" \
-    xvfb-run -a -s "-screen 0 ${WIDTH}x${HEIGHT}x24" \
+    xvfb-run -a -s "-screen 0 $((WIDTH * RENDER))x$((HEIGHT * RENDER))x24 +extension Composite" \
     dbus-run-session -- bash -c '
       set -euo pipefail
       if [ -z "${DISPLAY:-}" ] || [ "$DISPLAY" = "$REAL_DISPLAY" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
@@ -60,6 +87,20 @@ shoot () {
         exit 2
       fi
       echo "Xvfb-Anzeige: $DISPLAY (echte Sitzung: ${REAL_DISPLAY:-keine})"
+      # Attrappe und App bei jedem Ende beenden, auch nach Fehlern (keine Waisen).
+      pid=""; cm=""
+      trap "kill \$pid \$cm 2>/dev/null || true" EXIT
+      # Compositing-Manager-Attrappe (siehe Kopf): besitzt _NET_WM_CM_S0, solange sie läuft.
+      python3 -c "
+import time
+from Xlib import display, X
+d = display.Display()
+w = d.screen().root.create_window(-10, -10, 1, 1, 0, X.CopyFromParent)
+w.set_selection_owner(d.intern_atom(\"_NET_WM_CM_S0\"), X.CurrentTime)
+d.sync()
+time.sleep(600)
+" & cm=$!
+      sleep 1
       "$BIN" & pid=$!
       sleep 3
       win=$(xwininfo -root -tree | awk "/\"Revolution\"/ {print \$1; exit}")
@@ -88,23 +129,54 @@ for combo in os.environ[\"KEYS\"].split():
         fi
         if [ -n "$CLICK" ]; then
           for point in $CLICK; do
-            POINT="$point" python3 -c "import os; from Xlib import display, X; from Xlib.ext import xtest; d = display.Display(); x, y = map(int, os.environ[\"POINT\"].split(\",\")); xtest.fake_input(d, X.MotionNotify, x=x, y=y); xtest.fake_input(d, X.ButtonPress, 1); xtest.fake_input(d, X.ButtonRelease, 1); d.sync()"
+            POINT="$point" python3 -c "import os; from Xlib import display, X; from Xlib.ext import xtest; d = display.Display(); r = int(os.environ[\"RENDER\"]); x, y = (int(v) * r for v in os.environ[\"POINT\"].split(\",\")); xtest.fake_input(d, X.MotionNotify, x=x, y=y); xtest.fake_input(d, X.ButtonPress, 1); xtest.fake_input(d, X.ButtonRelease, 1); d.sync()"
             sleep 1
           done
           # Zeiger nach 0,0: ein unter ihm geöffnetes Fenster zeigte sonst einen Tooltip (#337).
           python3 -c "from Xlib import display, X; from Xlib.ext import xtest; d = display.Display(); xtest.fake_input(d, X.MotionNotify, x=0, y=0); d.sync()"
           sleep 1
-          # Popover ist eine eigene X-Oberfläche: ganze Xvfb-Anzeige (= Fenstergröße) aufnehmen.
-          import -window root "$OUT"
-        else
-          import -window "$win" "$OUT"
         fi
+        # Alle sichtbaren Fenster (App, Popover) mit Alphakanal in Stapelreihenfolge
+        # zusammensetzen und auf das App-Fenster zuschneiden.
+        WIN="$win" python3 -c "
+import os
+from Xlib import display, X
+from PIL import Image
+d = display.Display()
+root = d.screen().root
+size = (d.screen().width_in_pixels, d.screen().height_in_pixels)
+out = Image.new(\"RGBA\", size, (0, 0, 0, 0))
+for w in root.query_tree().children:
+    if w.get_attributes().map_state != X.IsViewable:
+        continue
+    g = w.get_geometry()
+    raw = w.get_image(0, 0, g.width, g.height, X.ZPixmap, 0xffffffff).data
+    if g.depth == 32:
+        im = Image.frombytes(\"RGBa\", (g.width, g.height), raw, \"raw\", \"BGRa\").convert(\"RGBA\")
+    else:
+        im = Image.frombytes(\"RGB\", (g.width, g.height), raw, \"raw\", \"BGRX\").convert(\"RGBA\")
+    out.alpha_composite(im, (g.x, g.y))
+g = d.create_resource_object(\"window\", int(os.environ[\"WIN\"], 16)).get_geometry()
+out.crop((g.x, g.y, g.x + g.width, g.y + g.height)).save(os.environ[\"OUT\"])
+"
       else
         import -window root "$OUT"
       fi
-      kill "$pid"; wait "$pid" 2>/dev/null || true
+      kill "$pid" "$cm" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
     '
-  rm -rf "$rundir"
+  rm -rf "$RUNDIR"
+  if [ -n "$SCALE" ]; then
+    # Doppelt gerendert, auf SCALE verkleinern (1,5 → 75 %); -filter Lanczos für scharfe Kanten.
+    magick "$out" -filter Lanczos -resize "$(LC_ALL=C awk -v s="$SCALE" -v r="$RENDER" 'BEGIN { printf "%.4f", s / r * 100 }')%" "$out"
+  fi
+  if [ -n "$ROUND" ]; then
+    local radius="$ROUND"
+    [ -z "$SCALE" ] || radius="$(LC_ALL=C awk -v r="$ROUND" -v s="$SCALE" 'BEGIN { printf "%.0f", r * s }')"
+    # Maske: weißes abgerundetes Rechteck auf Schwarz, als Alphakanal übernehmen.
+    magick "$out" \( +clone -alpha off -fill black -colorize 100 -fill white \
+      -draw "roundrectangle 0,0 %[fx:w-1],%[fx:h-1] $radius,$radius" \) \
+      -alpha off -compose CopyOpacity -composite "$out"
+  fi
   echo "Geschrieben: $out"
 }
 

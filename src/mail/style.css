@@ -1,0 +1,566 @@
+/* style.css – eigenes CSS der App (#399, #400), lädt AdwApplication automatisch aus
+ * der GResource (/org/revolution/Mail/style.css, Adw-1.gir Zeile 7362).
+ *
+ * Custom-CSS ausdrücklich gewünscht (Arnd, #400), Farben nur aus libadwaita-Variablen
+ * (Palette --light-1 … --dark-4 und --blue-4 aus dem libadwaita-Stylesheet).
+ * Ausnahme: avatar.color1 … color14 (Abschnitt „Flach, ohne Verläufe (#336)“) nutzt
+ * feste Farbwerte aus libadwaita 1.9.1, da libadwaita dafür keine Variable bereitstellt.
+ * Bei jedem libadwaita-Update gegen das neue Stylesheet prüfen.
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/* #400 Punkt 1: Seitenleiste als schwebende Fläche (Vorbild 06/07). Der Bereich der
+ * Seitenleiste selbst bleibt ohne eigene Farbe und ohne Trennlinie, dort zeigt sich
+ * der Fensterhintergrund; darauf liegt die abgerundete Fläche mit Abstand rundum. */
+.mail-split > .sidebar-pane {
+  background: none;
+  box-shadow: none;
+}
+
+.mail-split,
+.mail-split > .content-pane {
+  background-color: var(--window-bg-color);
+}
+
+.floating-sidebar {
+  border-radius: 16px;
+  background-color: var(--sidebar-bg-color);
+  box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
+}
+
+/* Platz unter dem letzten Ordner: Höhe des Umschalters samt Abstand (#400 Punkt 2). */
+.folder-list {
+  padding-bottom: 56px;
+}
+
+/* #400 Punkt 2: Umschalter schwebt über der Ordnerliste. Fläche leicht transparent,
+ * darunter weichgezeichnet (backdrop-filter, GTK 4.22).
+ * #401: Kontur hauchdünn dunkel statt Akzent. Hell: --shade-color mit Deckkraft ×1,8
+ * (0,14) ergibt einen dezent dunkleren Ton der Seitenleiste. Knöpfe bündig an der
+ * Kontur, nur Symbole (Arnd); Name bleibt als Tooltip und a11y-Label.
+ * Radius 10px, Abstand zum Rand 8px, Knöpfe innen 9px = 10px minus 1px Kontur. */
+.floating-switcher {
+  border: 1px solid RGB(from var(--shade-color) r g b / calc(alpha * 1.8));
+  border-radius: 10px;
+  background-color: color-mix(in srgb, var(--sidebar-bg-color) 62%, transparent);
+  backdrop-filter: blur(4px);
+  box-shadow: 0 1px 4px var(--shade-color);
+}
+
+/* Dunkel: gleiche Logik, Kontur als etwas dunklerer Ton der Seitenleiste
+ * (70 % --sidebar-bg-color, 30 % --dark-4); --shade-color wirkte hier zu hart. */
+.dark .floating-switcher {
+  border-color: color-mix(in srgb, var(--sidebar-bg-color) 70%, var(--dark-4));
+}
+
+/* libadwaita: viewswitcher.narrow margin -3px oben/unten, border-spacing 3px. */
+.floating-switcher viewswitcher {
+  margin: 0;
+  border-spacing: 0;
+}
+
+/* #401: aktiver Knopf außen rund (9px = 10px minus 1px Kontur), zum Trenner hin eckig. */
+.floating-switcher viewswitcher button.toggle {
+  border-radius: 0;
+}
+
+.floating-switcher viewswitcher button.toggle:first-child {
+  border-radius: 9px 0 0 9px;
+}
+
+.floating-switcher viewswitcher button.toggle:last-child {
+  border-radius: 0 9px 9px 0;
+}
+
+/* #401: feine senkrechte Trenner zwischen allen Knöpfen (Vorbild 15), im Ton der
+ * Kontur, halbe Höhe; als 1px-Hintergrundbild am linken Rand jedes weiteren Knopfs. */
+.floating-switcher viewswitcher button.toggle:not(:first-child) {
+  background-image: image(RGB(from var(--shade-color) r g b / calc(alpha * 1.8)));
+  background-size: 1px 50%;
+  background-position: left center;
+  background-repeat: no-repeat;
+}
+
+.dark .floating-switcher viewswitcher button.toggle:not(:first-child) {
+  background-image: image(color-mix(in srgb, var(--sidebar-bg-color) 70%, var(--dark-4)));
+}
+
+.floating-switcher viewswitcher button.toggle > stack > box.narrow {
+  /* #401: 40px Höhe = 1px Kontur + 9px + 20px Symbol + 9px + 1px Kontur. */
+  padding-top: 9px;
+  padding-bottom: 9px;
+  -gtk-icon-size: 20px;
+}
+
+/* Nur Symbole: Beschriftung ohne Größe; sie bleibt im Widget-Baum (a11y-Name). */
+.floating-switcher viewswitcher button.toggle > stack > box.narrow > label {
+  font-size: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+}
+
+/* #400 Punkt 4: Nachrichtenliste wie 04/05 – ohne Trennlinien, ruhige Zeilen,
+ * Auswahl als abgerundete, kräftige Akzentfläche mit Abstand zum Rand. */
+.message-list {
+  background: none;
+  padding: 4px 8px 8px;
+}
+
+.message-list > row {
+  margin: 1px 0;
+  padding: 10px 12px 10px 4px;
+  border-radius: 12px;
+}
+
+.message-list > row:selected,
+.message-list > row:selected:hover,
+.message-list > row:selected:focus-within {
+  background-color: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+}
+
+.message-list > row:selected .accent {
+  color: inherit;
+}
+
+/* #401: Büroklammer und Stern dezent wie Apple Mail (Vorbild 17): 12px statt 16px
+ * (pixel-size in mail-view.blp), Büroklammer grauer als .dimmed, Stern etwas zurück. */
+.message-list .list-icon.dimmed {
+  opacity: 0.4;
+}
+
+.message-list .list-icon.accent {
+  opacity: 0.8;
+}
+
+/* #400 Punkt 7: HTML-Mail behält ihren eigenen weißen Hintergrund, auch im
+ * Dunkelmodus (Vorbild 03). Nachbildung einer typischen HTML-Mail. */
+.html-mail {
+  border-radius: 12px;
+  background-color: var(--light-1);
+  color: var(--dark-4);
+  box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
+}
+
+.html-mail selection {
+  background-color: color-mix(in srgb, var(--blue-4) 25%, transparent);
+}
+
+.html-brand {
+  font-weight: 800;
+  font-size: 18px;
+  color: var(--blue-4);
+}
+
+.html-title {
+  font-weight: 700;
+  font-size: 24px;
+}
+
+.html-small {
+  font-size: 12px;
+  color: var(--dark-1);
+}
+
+.html-rule {
+  min-height: 2px;
+  background-color: var(--blue-4);
+}
+
+.html-rule-thin {
+  background-color: var(--light-3);
+}
+
+.html-box {
+  padding: 16px 18px;
+  border-radius: 8px;
+  background-color: color-mix(in srgb, var(--blue-4) 7%, var(--light-1));
+}
+
+.html-credit {
+  color: var(--blue-4);
+}
+
+.html-button {
+  padding: 10px 20px;
+  border-radius: 6px;
+  background-color: var(--blue-4);
+  color: var(--light-1);
+  font-weight: 700;
+}
+
+/* #401 Punkt 1: nur dunkel – Trennstrich zwischen Liste und Nachricht dunkler als
+ * der Hintergrund (Vorbild 11). libadwaita zeichnet die Linie als box-shadow mit
+ * currentColor (hell); hier --shade-color (dunkel, rgba(16,16,16,0.35) im Dunkel-Stylesheet).
+ * Klasse .dark setzt mail-view.c nach AdwStyleManager:dark: die Media-Query
+ * prefers-color-scheme griff im Test (ADW_DEBUG_COLOR_SCHEME=prefer-dark) nicht. */
+.dark .mail-split paned.horizontal > separator {
+  box-shadow: inset 1px 0 var(--shade-color);
+}
+
+/* #401 Punkt 2: Hauptmenü kompakter und edler. Trennlinien dunkel und über die volle
+ * Breite, Einträge ohne Einzug nah am Rand (libadwaita: Innenabstand 6px, Zeile 32px). */
+menubutton.primary-menu popover.menu > contents > stack > box {
+  padding: 4px 0;
+}
+
+menubutton.primary-menu popover.menu modelbutton {
+  min-height: 28px;
+  margin: 0 4px;
+  padding: 0 10px;
+  border-radius: 7px;
+}
+
+menubutton.primary-menu popover.menu separator {
+  margin: 4px 0;
+  background-color: var(--shade-color);
+}
+
+/* #401 Punkt 4: Hinweis als abgerundete Pille (Vorbild 12). */
+.mail-notice {
+  padding: 5px 5px 5px 14px;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, currentColor 6%, transparent);
+  font-size: 0.93em;
+}
+
+.mail-notice > image {
+  color: var(--accent-color);
+}
+
+.mail-notice-button {
+  min-height: 26px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--accent-bg-color) 16%, transparent);
+  color: var(--accent-color);
+}
+
+.mail-notice-button:hover {
+  background-color: color-mix(in srgb, var(--accent-bg-color) 24%, transparent);
+}
+
+/* #401 Punkt 5: Mailkopf graziler (Vorbild 13). */
+.mail-sender {
+  font-weight: 600;
+}
+
+.mail-subject {
+  font-weight: 400;
+}
+
+.mail-details {
+  font-weight: 400;
+}
+
+/* Composer (#402) */
+/* Designsprache der Mail-Ansicht (#400, #401) auf das Fenster „Neue E-Mail“ übertragen.
+ * Klasse .composer am Fenster (composer.blp), .dark setzt composer.c wie mail-view.c. */
+
+/* Trennlinien der Felder: dunkel dunkler als der Hintergrund (wie #401 Punkt 1). */
+.composer.dark .composer-fields > separator {
+  background-color: var(--shade-color);
+}
+
+/* Werte normal, kaum Fett (Mailkopf #401 Punkt 5): Auswahlfelder Von/Signatur flach
+ * ohne Fettschrift (libadwaita setzt Knopfbeschriftungen fett), Pfeil gedimmt. */
+.composer-dropdown > button {
+  background: none;
+  font-weight: 400;
+}
+
+.composer-dropdown > button:hover {
+  background-color: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.composer-dropdown > button:active,
+.composer-dropdown > button:checked {
+  background-color: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.composer-dropdown > button arrow {
+  opacity: 0.55;
+}
+
+/* Auswahllisten von Von/Signatur in Nautilus-Optik wie das Hauptmenü (#401 Punkt 2,
+ * Vorbild 08): kompakte Zeilen nah am Rand, abgerundete Hervorhebung. */
+.composer-dropdown popover > contents {
+  padding: 4px 0;
+}
+
+.composer-dropdown popover listview {
+  background: none;
+}
+
+.composer-dropdown popover listview > row {
+  min-height: 28px;
+  margin: 0 4px;
+  padding: 0 10px;
+  border-radius: 7px;
+}
+
+/* Anhänge als ruhige Pille wie der Hinweis (.mail-notice, #401 Punkt 4, Vorbild 12). */
+.composer-attachment {
+  padding: 3px;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.composer-attachment > button {
+  min-height: 26px;
+  border-radius: 999px;
+  font-weight: 400;
+}
+
+.composer-attachment > button:first-child {
+  padding: 0 10px 0 9px;
+}
+
+.composer-attachment > button.circular {
+  min-width: 26px;
+  padding: 0;
+  opacity: 0.55;
+}
+
+.composer-attachment > button.circular:hover {
+  opacity: 1;
+}
+
+/* Schreibfläche als große abgerundete Karte mit Abstand wie die Mail-Karte (.html-mail,
+ * #400 Punkt 7); Farbe aus --card-bg-color, folgt dem Farbschema. */
+.composer-card {
+  border-radius: 12px;
+  background-color: var(--card-bg-color);
+  box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
+}
+
+.composer-card textview,
+.composer-card textview > text {
+  background-color: transparent;
+}
+
+/* Kontakte (#402) */
+
+/* Kontaktliste wie .message-list (#400 Punkt 4): ohne Trennlinien, Auswahl als
+ * abgerundete Akzentfläche mit Abstand zum Rand. Links ohne Platz für den
+ * Ungelesen-Punkt, daher Zeile innen 12px wie rechts. */
+.contact-list {
+  background: none;
+  padding: 4px 8px 8px;
+}
+
+.contact-list > row {
+  margin: 1px 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+}
+
+.contact-list > row:selected,
+.contact-list > row:selected:hover,
+.contact-list > row:selected:focus-within {
+  background-color: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+}
+
+/* Karte wie .html-mail (Radius, Kontur, Schatten), Fläche in der Kartenfarbe
+ * des Designs: ein Kontakt hat keinen eigenen weißen Hintergrund. */
+.contact-card {
+  border-radius: 12px;
+  background-color: var(--card-bg-color);
+  color: var(--card-fg-color);
+  box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
+}
+
+/* #402 Runde 2: Name im Kopf groß (title-1) und halbfett wie .mail-sender. */
+.contact-name {
+  font-weight: 600;
+}
+
+/* Runde Schnellaktionen, Tönung wie .mail-notice-button. */
+button.contact-action,
+menubutton.contact-action > button {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--accent-bg-color) 16%, transparent);
+  color: var(--accent-color);
+}
+
+button.contact-action:hover,
+menubutton.contact-action > button:hover {
+  background-color: color-mix(in srgb, var(--accent-bg-color) 24%, transparent);
+}
+
+/* Eine Karte je Angabe, Verlauf als ruhige Liste in einer Karte. */
+.contact-field {
+  padding: 10px 10px 10px 16px;
+  min-height: 40px;
+}
+
+.contact-history {
+  padding: 14px 16px;
+}
+
+/* Kollegen: Zeilen ohne Trennlinien, Hover wie die Seitenleiste. */
+.contact-colleagues {
+  padding: 6px;
+}
+
+.contact-colleagues > row {
+  padding: 6px 10px;
+  border-radius: 9px;
+}
+
+/* Buchstabenleiste A–Z: klein, Akzentfarbe, ohne Knopfabstand. */
+.letter-bar button {
+  min-height: 0;
+  min-width: 0;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--accent-color);
+}
+
+/* #402: mehrere Angaben gleichen Typs in einer Karte, feiner Trenner wie boxed-list. */
+.contact-separator {
+  margin: 0 16px;
+}
+
+/* Kalender (#402) – Designsprache der Mail auf die Kalender-Ansicht übertragen.
+ * Seitenleiste, Umschalter und Hauptmenü nutzen die Klassen oben (.mail-split,
+ * .floating-sidebar, .floating-switcher, .primary-menu); hier nur Ergänzungen. */
+
+/* Monatsauswahl ohne eigenen Rahmen und Hintergrund auf der Seitenleisten-Fläche. */
+calendar.date-chooser {
+  border: none;
+  background: none;
+}
+
+/* Kalenderliste: Abstand Ankreuzfeld–Name wie Symbol–Name der Ordnerliste (12px,
+ * mail-view.blp Box spacing); libadwaita lässt hier etwa 6px. */
+.calendar-list checkbutton > label {
+  margin-left: 6px;
+}
+
+/* Nur Wichtiges halbfett wie der Mailkopf (.mail-sender 600): Monatsanfang, heute. */
+.calendar-emphasis {
+  font-weight: 600;
+}
+
+/* Tagesnummer der Woche groß (.title-2), aber nicht fett. */
+.calendar-day-number {
+  font-weight: 400;
+}
+
+.calendar-day-number.calendar-emphasis {
+  font-weight: 600;
+}
+
+/* Termine schlank wie Vorbild 19 (Runde 2, Arnd 22.10.): geringe Höhe, normale Schrift,
+ * kleiner Radius. Farbe, Tönung und Streifen setzt calendar-view.c (load_colors). */
+button.calendar-event {
+  min-height: 0;
+  padding: 2px 8px 2px 10px;
+  border-radius: 6px;
+  font-weight: 400;
+}
+
+/* Dunkel: Trennlinien dunkler als der Hintergrund wie der Trennstrich der Mail
+ * (.dark .mail-split paned.horizontal > separator). */
+.dark .calendar-main separator {
+  background-color: var(--shade-color);
+}
+
+/* Termin-Detail in Nautilus-Optik wie das Hauptmenü: Trennlinien dunkel und über
+ * die volle Breite, Titel halbfett wie .mail-sender. */
+popover.event-popover > contents {
+  padding: 0;
+}
+
+popover.event-popover separator {
+  background-color: var(--shade-color);
+}
+
+.event-title {
+  font-size: 1.1em;
+  font-weight: 600;
+}
+
+/* Flach, ohne Verläufe (#336) – Arnd 22.10.2026: „alles flach“, Form unverändert.
+ * Einziger sichtbarer Verlauf in der App: AdwAvatar. libadwaita 1.9.1 setzt
+ * avatar.color1 … color14 { background-image: linear-gradient(hell, dunkel) }
+ * (Stylesheet default-{light,dark}-yaru-default.css, Zeilen 197–223, beide gleich).
+ * Ersatz: flache Mitte des bisherigen Verlaufs (color-mix 50 %): Farbton bleibt wie
+ * gewohnt, die hellen Initialen (color, unverändert) lagen bisher auf beiden Enden. */
+avatar.color1 {
+  background-image: none;
+  background-color: color-mix(in srgb, #83b6ec, #337fdc);
+}
+
+avatar.color2 {
+  background-image: none;
+  background-color: color-mix(in srgb, #7ad9f1, #0f9ac8);
+}
+
+avatar.color3 {
+  background-image: none;
+  background-color: color-mix(in srgb, #8de6b1, #29ae74);
+}
+
+avatar.color4 {
+  background-image: none;
+  background-color: color-mix(in srgb, #b5e98a, #6ab85b);
+}
+
+avatar.color5 {
+  background-image: none;
+  background-color: color-mix(in srgb, #f8e359, #d29d09);
+}
+
+avatar.color6 {
+  background-image: none;
+  background-color: color-mix(in srgb, #ffcb62, #d68400);
+}
+
+avatar.color7 {
+  background-image: none;
+  background-color: color-mix(in srgb, #ffa95a, #ed5b00);
+}
+
+avatar.color8 {
+  background-image: none;
+  background-color: color-mix(in srgb, #f78773, #e62d42);
+}
+
+avatar.color9 {
+  background-image: none;
+  background-color: color-mix(in srgb, #e973ab, #e33b6a);
+}
+
+avatar.color10 {
+  background-image: none;
+  background-color: color-mix(in srgb, #cb78d4, #9945b5);
+}
+
+avatar.color11 {
+  background-image: none;
+  background-color: color-mix(in srgb, #9e91e8, #7a59ca);
+}
+
+avatar.color12 {
+  background-image: none;
+  background-color: color-mix(in srgb, #e3cf9c, #b08952);
+}
+
+avatar.color13 {
+  background-image: none;
+  background-color: color-mix(in srgb, #be916d, #785336);
+}
+
+avatar.color14 {
+  background-image: none;
+  background-color: color-mix(in srgb, #c0bfbc, #6e6d71);
+}

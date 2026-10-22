@@ -43,19 +43,158 @@ struct _RevolutionCalendarView
   GtkWidget           *event_location_box;
   GtkLabel            *event_location;
   GtkCssProvider      *colors;
+  GtkStack            *header_stack;
+  GtkSearchEntry      *search_entry;
+  GtkToggleButton     *search_button;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionCalendarView, revolution_calendar_view, ADW_TYPE_BREAKPOINT_BIN)
 
-/* Platzhalter ohne Logik, nur damit Knöpfe und Kürzel nicht ausgegraut sind. */
+/* calendar.toggle-sidebar fürs Hauptmenü (#402) wie mail.toggle-sidebar
+ * (mail-view.c on_toggle_sidebar): wie calendar.sidebar (F9), aber zustandslos,
+ * damit GtkPopoverMenu keine Haken-Spalte einrückt. */
+static void
+on_toggle_sidebar (GSimpleAction *action G_GNUC_UNUSED,
+                   GVariant      *parameter G_GNUC_UNUSED,
+                   gpointer       user_data)
+{
+  RevolutionCalendarView *self = user_data;
+
+  adw_overlay_split_view_set_show_sidebar (self->split, !adw_overlay_split_view_get_show_sidebar (self->split));
+}
+
+/* #402 Runde 2: Suche übernommen aus mail-view.c (focus_search_entry, on_search_toggled,
+ * on_search_started, on_search_stop, on_search). Gefiltert wird noch nichts. */
+
+/* Fokus ins Suchfeld ohne alles zu markieren: sonst ersetzt beim Tippen im
+ * Hauptbereich (key-capture-widget) der zweite Buchstabe den ersten. */
+static void
+focus_search_entry (RevolutionCalendarView *self)
+{
+  GtkEditable *text = gtk_editable_get_delegate (GTK_EDITABLE (self->search_entry));
+
+  gtk_text_grab_focus_without_selecting (GTK_TEXT (text));
+}
+
+/* Suchknopf schaltet die Kopfleiste zwischen Titel und Suchfeld um („Lights off“). */
+static void
+on_search_toggled (RevolutionCalendarView *self)
+{
+  if (gtk_toggle_button_get_active (self->search_button))
+    {
+      gtk_stack_set_visible_child_name (self->header_stack, "search");
+      focus_search_entry (self);
+    }
+  else
+    {
+      gtk_stack_set_visible_child_name (self->header_stack, "actions");
+      gtk_editable_set_text (GTK_EDITABLE (self->search_entry), "");
+      gtk_widget_grab_focus (GTK_WIDGET (self->search_button));
+    }
+}
+
+/* Tippen im Hauptbereich (GtkSearchEntry::search-started) öffnet die Suche. */
+static void
+on_search_started (RevolutionCalendarView *self)
+{
+  gtk_toggle_button_set_active (self->search_button, TRUE);
+}
+
+/* Escape im Suchfeld (GtkSearchEntry::stop-search). */
+static void
+on_search_stop (RevolutionCalendarView *self)
+{
+  gtk_toggle_button_set_active (self->search_button, FALSE);
+}
+
+/* calendar.search für Strg+F: öffnet nur, schließt nicht (Schließen: Escape, Suchknopf).
+ * Ist die Suche schon offen, holt es den Fokus zurück ins Suchfeld. */
+static void
+on_search (GSimpleAction *action G_GNUC_UNUSED,
+           GVariant      *parameter G_GNUC_UNUSED,
+           gpointer       user_data)
+{
+  RevolutionCalendarView *self = user_data;
+
+  if (gtk_toggle_button_get_active (self->search_button))
+    focus_search_entry (self);
+  else
+    gtk_toggle_button_set_active (self->search_button, TRUE);
+}
+
+/* Platzhalter ohne Logik, nur damit Knöpfe und Kürzel nicht ausgegraut sind.
+ * preferences, shortcuts, about: Platzhalter des Hauptmenüs wie in mail-view.c. */
 static const GActionEntry calendar_actions[] = {
   { "today", NULL, NULL, NULL, NULL, { 0 } },
   { "previous", NULL, NULL, NULL, NULL, { 0 } },
   { "next", NULL, NULL, NULL, NULL, { 0 } },
   { "new-event", NULL, NULL, NULL, NULL, { 0 } },
   { "edit-event", NULL, NULL, NULL, NULL, { 0 } },
-  { "search", NULL, NULL, NULL, NULL, { 0 } },
+  { "invite-email", NULL, NULL, NULL, NULL, { 0 } },
+  { "share-ics", NULL, NULL, NULL, NULL, { 0 } },
+  { "search", on_search, NULL, NULL, NULL, { 0 } },
+  { "toggle-sidebar", on_toggle_sidebar, NULL, NULL, NULL, { 0 } },
+  { "preferences", NULL, NULL, NULL, NULL, { 0 } },
+  { "shortcuts", NULL, NULL, NULL, NULL, { 0 } },
+  { "about", NULL, NULL, NULL, NULL, { 0 } },
 };
+
+/* #402: Umschalter nur mit Symbolen, Tooltip = Titel der n-ten Stack-Seite.
+ * Übernommen aus mail-view.c on_switcher_query_tooltip (src/mail/ ist für diesen
+ * Task gesperrt, daher Kopie statt gemeinsamer Funktion). */
+static gboolean
+on_switcher_query_tooltip (RevolutionCalendarView *self,
+                           int                     x,
+                           int                     y,
+                           gboolean                keyboard,
+                           GtkTooltip             *tooltip,
+                           GtkWidget              *switcher)
+{
+  g_autoptr (GtkSelectionModel) pages = NULL;
+  g_autoptr (AdwViewStackPage) page = NULL;
+  GtkWidget *button;
+  GtkWidget *child;
+  guint index = 0;
+
+  if (keyboard)
+    button = gtk_root_get_focus (gtk_widget_get_root (switcher));
+  else
+    button = gtk_widget_pick (switcher, x, y, GTK_PICK_DEFAULT);
+
+  while (button != NULL && button != switcher && !GTK_IS_TOGGLE_BUTTON (button))
+    button = gtk_widget_get_parent (button);
+
+  if (button == NULL || button == switcher || self->stack == NULL)
+    return FALSE;
+
+  for (child = gtk_widget_get_first_child (switcher); child != NULL && child != button;
+       child = gtk_widget_get_next_sibling (child))
+    if (GTK_IS_TOGGLE_BUTTON (child))
+      index++;
+
+  if (child == NULL)
+    return FALSE;
+
+  pages = adw_view_stack_get_pages (self->stack);
+  page = g_list_model_get_item (G_LIST_MODEL (pages), index);
+  if (page == NULL)
+    return FALSE;
+
+  gtk_tooltip_set_text (tooltip, adw_view_stack_page_get_title (page));
+  return TRUE;
+}
+
+/* #402: Klasse .dark für Regeln nur im dunklen Design (style.css), wie mail-view.c on_dark_changed. */
+static void
+on_dark_changed (AdwStyleManager        *manager,
+                 GParamSpec             *pspec G_GNUC_UNUSED,
+                 RevolutionCalendarView *self)
+{
+  if (adw_style_manager_get_dark (manager))
+    gtk_widget_add_css_class (GTK_WIDGET (self), "dark");
+  else
+    gtk_widget_remove_css_class (GTK_WIDGET (self), "dark");
+}
 
 enum { PROP_0, PROP_STACK, N_PROPS };
 
@@ -122,6 +261,8 @@ event_button (RevolutionCalendarView      *self,
 
   a11y = g_strdup_printf ("%s, %s", _(event->summary), _(event->when));
   gtk_button_set_child (GTK_BUTTON (button), box);
+  /* #402: ruhig, abgerundet, Schrift leichter (style.css .calendar-event). */
+  gtk_widget_add_css_class (button, "calendar-event");
   gtk_widget_add_css_class (button, color_class);
   gtk_accessible_update_property (GTK_ACCESSIBLE (button),
                                   GTK_ACCESSIBLE_PROPERTY_LABEL, a11y,
@@ -187,8 +328,9 @@ fill_month (RevolutionCalendarView *self)
           gtk_widget_set_margin_top (label, 6);
           gtk_widget_set_margin_bottom (label, 4);
           gtk_widget_add_css_class (label, "numeric");
+          /* #402: nur halbfett statt .heading (style.css .calendar-emphasis). */
           if (day_of_month == 1 || day == REVOLUTION_SAMPLE_TODAY)
-            gtk_widget_add_css_class (label, "heading");
+            gtk_widget_add_css_class (label, "calendar-emphasis");
           if (day == REVOLUTION_SAMPLE_TODAY)
             gtk_widget_add_css_class (label, "accent");
           gtk_grid_attach (weeks[week], label, column, 0, 1, 1);
@@ -239,11 +381,16 @@ fill_week (RevolutionCalendarView *self)
       gtk_widget_set_margin_start (box, 6);
       gtk_label_set_xalign (GTK_LABEL (name), 0);
       gtk_label_set_xalign (GTK_LABEL (day), 0);
-      gtk_widget_add_css_class (name, "heading");
+      /* #402: leichte Typografie, Wochentag wie der Monatskopf (caption-heading),
+       * Tagesnummer groß, aber nicht fett; nur heute halbfett (style.css). */
+      gtk_widget_add_css_class (name, "caption-heading");
       gtk_widget_add_css_class (name, emphasis);
       gtk_widget_add_css_class (day, "title-2");
+      gtk_widget_add_css_class (day, "calendar-day-number");
       gtk_widget_add_css_class (day, "numeric");
       gtk_widget_add_css_class (day, emphasis);
+      if (REVOLUTION_SAMPLE_WEEK + column == REVOLUTION_SAMPLE_TODAY)
+        gtk_widget_add_css_class (day, "calendar-emphasis");
       gtk_box_append (GTK_BOX (box), name);
       gtk_box_append (GTK_BOX (box), day);
       gtk_grid_attach (self->week_header, box, column, 0, 1, 1);
@@ -261,6 +408,8 @@ fill_week (RevolutionCalendarView *self)
       gtk_widget_set_margin_top (label, 4);
       gtk_widget_set_margin_start (label, 6);
       gtk_widget_set_margin_end (label, 6);
+      /* #402: Uhrzeit wie die Zeit in der Mail-Liste (caption, numeric, dimmed). */
+      gtk_widget_add_css_class (label, "caption");
       gtk_widget_add_css_class (label, "dimmed");
       gtk_widget_add_css_class (label, "numeric");
       gtk_box_append (self->hour_bar, label);
@@ -301,7 +450,9 @@ fill_week (RevolutionCalendarView *self)
 /* Kalenderfarben sind Nutzerdaten (Briefing 3, Punkt 2): je Kalender eine
  * Farbklasse, erzeugt aus der Farbe des Kalenders, wie GNOME Calendar
  * recalculate_calendar_colors_css (gcal-window.c:345-372). Termine getönt mit
- * farbiger Kante (events.css:5-43), Ankreuzfeld in Kalenderfarbe. */
+ * farbiger Kante (events.css:5-43), Ankreuzfeld in Kalenderfarbe.
+ * #402: Tönung auf dem Fensterhintergrund (Hauptbereich wie Mail ohne .view),
+ * dezent getönt (14 %, Runde 2 nach Vorbild 19), Kante 3 px. */
 static void
 load_colors (RevolutionCalendarView *self)
 {
@@ -317,8 +468,8 @@ load_colors (RevolutionCalendarView *self)
       g_object_get (calendar, "color", &color, "css-classes", &classes, NULL);
       g_string_append_printf (css,
                               "checkbutton.%1$s > check { box-shadow: inset 0 0 0 2px %2$s; }\n"
-                              "checkbutton.%1$s > check:checked { background-color: %2$s; color: white; box-shadow: none; }\n"
-                              "button.%1$s { background-color: color-mix(in srgb, %2$s 25%%, var(--view-bg-color)); box-shadow: inset 4px 0 %2$s; }\n",
+                              "checkbutton.%1$s > check:checked { background-color: %2$s; color: var(--accent-fg-color); box-shadow: none; }\n"
+                              "button.%1$s { background-color: color-mix(in srgb, %2$s 14%%, var(--window-bg-color)); box-shadow: inset 3px 0 %2$s; }\n",
                               classes[0], color);
     }
 
@@ -405,6 +556,13 @@ revolution_calendar_view_class_init (RevolutionCalendarViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, event_notes);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, event_location_box);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, event_location);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, header_stack);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, search_entry);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, search_button);
+  gtk_widget_class_bind_template_callback (widget_class, on_switcher_query_tooltip);
+  gtk_widget_class_bind_template_callback (widget_class, on_search_toggled);
+  gtk_widget_class_bind_template_callback (widget_class, on_search_started);
+  gtk_widget_class_bind_template_callback (widget_class, on_search_stop);
 }
 
 static void
@@ -414,6 +572,7 @@ revolution_calendar_view_init (RevolutionCalendarView *self)
   g_autoptr (GSimpleActionGroup) group = g_simple_action_group_new ();
   g_autoptr (GPropertyAction) view_action = NULL;
   g_autoptr (GPropertyAction) sidebar_action = NULL;
+  AdwStyleManager *style_manager = adw_style_manager_get_default ();
 
   gtk_widget_init_template (GTK_WIDGET (self));
 
@@ -426,8 +585,11 @@ revolution_calendar_view_init (RevolutionCalendarView *self)
    * calendar.sidebar für F9 (gcal-window.blp:181-188). */
   view_action = g_property_action_new ("view", self->views, "visible-child-name");
   sidebar_action = g_property_action_new ("sidebar", self->split, "show-sidebar");
-  g_action_map_add_action_entries (G_ACTION_MAP (group), calendar_actions, G_N_ELEMENTS (calendar_actions), NULL);
+  g_action_map_add_action_entries (G_ACTION_MAP (group), calendar_actions, G_N_ELEMENTS (calendar_actions), self);
   g_action_map_add_action (G_ACTION_MAP (group), G_ACTION (view_action));
   g_action_map_add_action (G_ACTION_MAP (group), G_ACTION (sidebar_action));
   gtk_widget_insert_action_group (GTK_WIDGET (self), "calendar", G_ACTION_GROUP (group));
+
+  g_signal_connect_object (style_manager, "notify::dark", G_CALLBACK (on_dark_changed), self, G_CONNECT_DEFAULT);
+  on_dark_changed (style_manager, NULL, self);
 }

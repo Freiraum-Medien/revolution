@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Übernommen aus adwaita-icon-theme 50.0 (Ubuntu-Paket 50.0-1), Symbol x-office-calendar-symbolic, GNOME Project; Plus wie Adwaita mail-message-new-symbolic. Abgewandelt für Revolution. Lizenz der Vorlage laut /usr/share/doc/adwaita-icon-theme/copyright Zeile 47: „CC-BY-SA-3.0 or LGPL-3, and CC-BY-SA-4.0“ (GNU LGPL v3 oder Creative Commons Attribution-Share Alike 3.0 United States), zusätzlich CC-BY-SA-4.0; Namensnennung laut copyright: „GNOME Project“. Wahl im Oder-Teil: LGPL-3. Revolution insgesamt GPL-3.0-or-later. -->
+<svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 0 16 16" width="16px">
+  <g fill="#222222">
+    <path d="m 4 1 h 2 v 1 h 4 v -1 h 2 v 1 c 1.644531 0 3 1.355469 3 3 v 1 c 0 0.550781 -0.449219 1 -1 1 s -1 -0.449219 -1 -1 h -9 c -0.554688 0 -1 0.445312 -1 1 v 5 c 0 0.570312 0.429688 1 1 1 h 1 c 0.550781 0 1 0.449219 1 1 s -0.449219 1 -1 1 h -1 c -1.644531 0 -3 -1.355469 -3 -3 v -7 c 0 -1.644531 1.355469 -3 3 -3 z"/>
+    <path d="m 7 7 v 1 h 2 v -1 z m -3 2 v 1 h 2 v -1 z m 0 2 v 1 h 2 v -1 z"/>
+    <path d="m 11 8 v 3 h -3 v 2 h 3 v 3 h 2 v -3 h 3 v -2 h -3 v -3 z"/>
+  </g>
+</svg>

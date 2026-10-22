@@ -16,6 +16,7 @@
     <file>icons/scalable/actions/drafts-symbolic.svg</file>
     <file>icons/scalable/actions/inbox-symbolic.svg</file>
     <file>icons/scalable/actions/sent-symbolic.svg</file>
+    <file>icons/scalable/actions/share-nodes-symbolic.svg</file>
     <file>icons/scalable/actions/sort-order-symbolic.svg</file>
   </gresource>
 </gresources>

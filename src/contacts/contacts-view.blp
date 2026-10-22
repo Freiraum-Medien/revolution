@@ -602,251 +602,277 @@ template $RevolutionContactsView: Adw.BreakpointBin {
                     orientation: vertical;
                     spacing: 12;
 
+                    // #402: gleiche Angaben in einer Karte wie GNOME Contacts, feiner Trenner (style.css).
                     Box {
-                      spacing: 12;
+                      orientation: vertical;
 
                       styles [
                         "contact-card",
-                        "contact-field",
                       ]
 
-                      Image {
-                        icon-name: "mail-unread-symbolic";
-                        tooltip-text: _("E-Mail");
-
-                        accessibility {
-                          label: _("E-Mail");
-                        }
+                      Box {
+                        spacing: 12;
 
                         styles [
-                          "dimmed",
+                          "contact-field",
                         ]
-                      }
 
-                      Box {
-                        orientation: vertical;
-                        hexpand: true;
+                        Image {
+                          icon-name: "mail-unread-symbolic";
+                          tooltip-text: _("E-Mail");
 
-                        Label {
-                          label: _("Arbeit");
-                          xalign: 0;
+                          accessibility {
+                            label: _("E-Mail");
+                          }
 
                           styles [
-                            "caption",
                             "dimmed",
                           ]
                         }
 
-                        Label {
-                          label: "jana.albrecht@albrecht-partner.example";
-                          xalign: 0;
-                          wrap: true;
-                          wrap-mode: word_char;
-                          selectable: true;
+                        Box {
+                          orientation: vertical;
+                          hexpand: true;
+
+                          Label {
+                            label: _("Arbeit");
+                            xalign: 0;
+
+                            styles [
+                              "caption",
+                              "dimmed",
+                            ]
+                          }
+
+                          Label {
+                            label: "jana.albrecht@albrecht-partner.example";
+                            xalign: 0;
+                            wrap: true;
+                            wrap-mode: word_char;
+                            selectable: true;
+                          }
+                        }
+
+                        Button {
+                          icon-name: "sent-symbolic";
+                          tooltip-text: _("E-Mail an diese Adresse schreiben");
+                          action-name: "contact.write-mail";
+                          valign: center;
+
+                          accessibility {
+                            label: _("E-Mail an diese Adresse schreiben");
+                          }
+
+                          styles [
+                            "flat",
+                            "circular",
+                          ]
                         }
                       }
 
-                      Button {
-                        icon-name: "sent-symbolic";
-                        tooltip-text: _("E-Mail an diese Adresse schreiben");
-                        action-name: "contact.write-mail";
-                        valign: center;
+                      Separator {
+                        styles [
+                          "contact-separator",
+                        ]
+                      }
 
-                        accessibility {
-                          label: _("E-Mail an diese Adresse schreiben");
-                        }
+                      Box {
+                        spacing: 12;
 
                         styles [
-                          "flat",
-                          "circular",
+                          "contact-field",
                         ]
+
+                        Image {
+                          icon-name: "mail-unread-symbolic";
+                          tooltip-text: _("E-Mail");
+
+                          accessibility {
+                            label: _("E-Mail");
+                          }
+
+                          styles [
+                            "dimmed",
+                          ]
+                        }
+
+                        Box {
+                          orientation: vertical;
+                          hexpand: true;
+
+                          Label {
+                            label: _("Privat");
+                            xalign: 0;
+
+                            styles [
+                              "caption",
+                              "dimmed",
+                            ]
+                          }
+
+                          Label {
+                            label: "jana.albrecht@example.org";
+                            xalign: 0;
+                            wrap: true;
+                            wrap-mode: word_char;
+                            selectable: true;
+                          }
+                        }
+
+                        Button {
+                          icon-name: "sent-symbolic";
+                          tooltip-text: _("E-Mail an diese Adresse schreiben");
+                          action-name: "contact.write-mail";
+                          valign: center;
+
+                          accessibility {
+                            label: _("E-Mail an diese Adresse schreiben");
+                          }
+
+                          styles [
+                            "flat",
+                            "circular",
+                          ]
+                        }
                       }
                     }
 
+                    // Telefonnummern in einer Karte.
                     Box {
-                      spacing: 12;
+                      orientation: vertical;
 
                       styles [
                         "contact-card",
-                        "contact-field",
                       ]
 
-                      Image {
-                        icon-name: "mail-unread-symbolic";
-                        tooltip-text: _("E-Mail");
-
-                        accessibility {
-                          label: _("E-Mail");
-                        }
+                      Box {
+                        spacing: 12;
 
                         styles [
-                          "dimmed",
+                          "contact-field",
                         ]
-                      }
 
-                      Box {
-                        orientation: vertical;
-                        hexpand: true;
+                        Image {
+                          icon-name: "phone-symbolic";
+                          tooltip-text: _("Telefon");
 
-                        Label {
-                          label: _("Privat");
-                          xalign: 0;
+                          accessibility {
+                            label: _("Telefon");
+                          }
 
                           styles [
-                            "caption",
                             "dimmed",
                           ]
                         }
 
-                        Label {
-                          label: "jana.albrecht@example.org";
-                          xalign: 0;
-                          wrap: true;
-                          wrap-mode: word_char;
-                          selectable: true;
+                        Box {
+                          orientation: vertical;
+                          hexpand: true;
+
+                          Label {
+                            label: _("Mobil");
+                            xalign: 0;
+
+                            styles [
+                              "caption",
+                              "dimmed",
+                            ]
+                          }
+
+                          Label {
+                            label: "+49 171 0000456";
+                            xalign: 0;
+                            selectable: true;
+
+                            styles [
+                              "numeric",
+                            ]
+                          }
+                        }
+
+                        Button {
+                          icon-name: "call-start-symbolic";
+                          tooltip-text: _("Diese Nummer anrufen");
+                          action-name: "contact.call";
+                          valign: center;
+
+                          accessibility {
+                            label: _("Diese Nummer anrufen");
+                          }
+
+                          styles [
+                            "flat",
+                            "circular",
+                          ]
                         }
                       }
 
-                      Button {
-                        icon-name: "sent-symbolic";
-                        tooltip-text: _("E-Mail an diese Adresse schreiben");
-                        action-name: "contact.write-mail";
-                        valign: center;
-
-                        accessibility {
-                          label: _("E-Mail an diese Adresse schreiben");
-                        }
-
+                      Separator {
                         styles [
-                          "flat",
-                          "circular",
-                        ]
-                      }
-                    }
-
-                    Box {
-                      spacing: 12;
-
-                      styles [
-                        "contact-card",
-                        "contact-field",
-                      ]
-
-                      Image {
-                        icon-name: "phone-symbolic";
-                        tooltip-text: _("Telefon");
-
-                        accessibility {
-                          label: _("Telefon");
-                        }
-
-                        styles [
-                          "dimmed",
+                          "contact-separator",
                         ]
                       }
 
                       Box {
-                        orientation: vertical;
-                        hexpand: true;
+                        spacing: 12;
 
-                        Label {
-                          label: _("Mobil");
-                          xalign: 0;
+                        styles [
+                          "contact-field",
+                        ]
+
+                        Image {
+                          icon-name: "phone-symbolic";
+                          tooltip-text: _("Telefon");
+
+                          accessibility {
+                            label: _("Telefon");
+                          }
 
                           styles [
-                            "caption",
                             "dimmed",
                           ]
                         }
 
-                        Label {
-                          label: "+49 171 0000456";
-                          xalign: 0;
-                          selectable: true;
+                        Box {
+                          orientation: vertical;
+                          hexpand: true;
+
+                          Label {
+                            label: _("Büro");
+                            xalign: 0;
+
+                            styles [
+                              "caption",
+                              "dimmed",
+                            ]
+                          }
+
+                          Label {
+                            label: "+49 341 0000789";
+                            xalign: 0;
+                            selectable: true;
+
+                            styles [
+                              "numeric",
+                            ]
+                          }
+                        }
+
+                        Button {
+                          icon-name: "call-start-symbolic";
+                          tooltip-text: _("Diese Nummer anrufen");
+                          action-name: "contact.call";
+                          valign: center;
+
+                          accessibility {
+                            label: _("Diese Nummer anrufen");
+                          }
 
                           styles [
-                            "numeric",
+                            "flat",
+                            "circular",
                           ]
                         }
-                      }
-
-                      Button {
-                        icon-name: "call-start-symbolic";
-                        tooltip-text: _("Diese Nummer anrufen");
-                        action-name: "contact.call";
-                        valign: center;
-
-                        accessibility {
-                          label: _("Diese Nummer anrufen");
-                        }
-
-                        styles [
-                          "flat",
-                          "circular",
-                        ]
-                      }
-                    }
-
-                    Box {
-                      spacing: 12;
-
-                      styles [
-                        "contact-card",
-                        "contact-field",
-                      ]
-
-                      Image {
-                        icon-name: "phone-symbolic";
-                        tooltip-text: _("Telefon");
-
-                        accessibility {
-                          label: _("Telefon");
-                        }
-
-                        styles [
-                          "dimmed",
-                        ]
-                      }
-
-                      Box {
-                        orientation: vertical;
-                        hexpand: true;
-
-                        Label {
-                          label: _("Büro");
-                          xalign: 0;
-
-                          styles [
-                            "caption",
-                            "dimmed",
-                          ]
-                        }
-
-                        Label {
-                          label: "+49 341 0000789";
-                          xalign: 0;
-                          selectable: true;
-
-                          styles [
-                            "numeric",
-                          ]
-                        }
-                      }
-
-                      Button {
-                        icon-name: "call-start-symbolic";
-                        tooltip-text: _("Diese Nummer anrufen");
-                        action-name: "contact.call";
-                        valign: center;
-
-                        accessibility {
-                          label: _("Diese Nummer anrufen");
-                        }
-
-                        styles [
-                          "flat",
-                          "circular",
-                        ]
                       }
                     }
 

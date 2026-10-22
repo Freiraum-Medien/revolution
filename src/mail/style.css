@@ -334,3 +334,8 @@ menubutton.contact-action > button:hover {
   font-weight: 400;
   color: var(--accent-color);
 }
+
+/* #402: mehrere Angaben gleichen Typs in einer Karte, feiner Trenner wie boxed-list. */
+.contact-separator {
+  margin: 0 16px;
+}

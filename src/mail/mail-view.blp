@@ -84,15 +84,12 @@ template $RevolutionMailView: Adw.BreakpointBin {
       [top]
       Adw.HeaderBar {
         // Umschalter Mail | Kalender | Kontakte oben in der Kopfleiste der Seitenleiste
-        // (Arnd 22.10.2026, #340, Vorbild 22/23): Standard-libadwaita, flache Symbolknöpfe;
-        // AdwInlineViewSwitcher setzt den Seitentitel als Tooltip (geprüft headless).
+        // (Arnd 22.10.2026, #340, Vorbild 22/24): Segment-Umschalter, Standard-libadwaita
+        // (AdwInlineViewSwitcher = AdwToggleGroup am ViewStack, nur Symbole);
+        // Seitentitel als Tooltip setzt libadwaita (geprüft headless).
         title-widget: Adw.InlineViewSwitcher {
           stack: bind template.stack;
           display-mode: icons;
-
-          styles [
-            "flat",
-          ]
         };
 
         // #399 Punkt 3: Primärmenü in der Seitenleisten-Kopfleiste wie Nautilus (Briefing N).

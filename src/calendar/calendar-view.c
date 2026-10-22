@@ -43,6 +43,9 @@ struct _RevolutionCalendarView
   GtkWidget           *event_location_box;
   GtkLabel            *event_location;
   GtkCssProvider      *colors;
+  GtkStack            *header_stack;
+  GtkSearchEntry      *search_entry;
+  GtkToggleButton     *search_button;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionCalendarView, revolution_calendar_view, ADW_TYPE_BREAKPOINT_BIN)
@@ -60,6 +63,65 @@ on_toggle_sidebar (GSimpleAction *action G_GNUC_UNUSED,
   adw_overlay_split_view_set_show_sidebar (self->split, !adw_overlay_split_view_get_show_sidebar (self->split));
 }
 
+/* #402 Runde 2: Suche übernommen aus mail-view.c (focus_search_entry, on_search_toggled,
+ * on_search_started, on_search_stop, on_search). Gefiltert wird noch nichts. */
+
+/* Fokus ins Suchfeld ohne alles zu markieren: sonst ersetzt beim Tippen im
+ * Hauptbereich (key-capture-widget) der zweite Buchstabe den ersten. */
+static void
+focus_search_entry (RevolutionCalendarView *self)
+{
+  GtkEditable *text = gtk_editable_get_delegate (GTK_EDITABLE (self->search_entry));
+
+  gtk_text_grab_focus_without_selecting (GTK_TEXT (text));
+}
+
+/* Suchknopf schaltet die Kopfleiste zwischen Titel und Suchfeld um („Lights off“). */
+static void
+on_search_toggled (RevolutionCalendarView *self)
+{
+  if (gtk_toggle_button_get_active (self->search_button))
+    {
+      gtk_stack_set_visible_child_name (self->header_stack, "search");
+      focus_search_entry (self);
+    }
+  else
+    {
+      gtk_stack_set_visible_child_name (self->header_stack, "actions");
+      gtk_editable_set_text (GTK_EDITABLE (self->search_entry), "");
+      gtk_widget_grab_focus (GTK_WIDGET (self->search_button));
+    }
+}
+
+/* Tippen im Hauptbereich (GtkSearchEntry::search-started) öffnet die Suche. */
+static void
+on_search_started (RevolutionCalendarView *self)
+{
+  gtk_toggle_button_set_active (self->search_button, TRUE);
+}
+
+/* Escape im Suchfeld (GtkSearchEntry::stop-search). */
+static void
+on_search_stop (RevolutionCalendarView *self)
+{
+  gtk_toggle_button_set_active (self->search_button, FALSE);
+}
+
+/* calendar.search für Strg+F: öffnet nur, schließt nicht (Schließen: Escape, Suchknopf).
+ * Ist die Suche schon offen, holt es den Fokus zurück ins Suchfeld. */
+static void
+on_search (GSimpleAction *action G_GNUC_UNUSED,
+           GVariant      *parameter G_GNUC_UNUSED,
+           gpointer       user_data)
+{
+  RevolutionCalendarView *self = user_data;
+
+  if (gtk_toggle_button_get_active (self->search_button))
+    focus_search_entry (self);
+  else
+    gtk_toggle_button_set_active (self->search_button, TRUE);
+}
+
 /* Platzhalter ohne Logik, nur damit Knöpfe und Kürzel nicht ausgegraut sind.
  * preferences, shortcuts, about: Platzhalter des Hauptmenüs wie in mail-view.c. */
 static const GActionEntry calendar_actions[] = {
@@ -68,7 +130,9 @@ static const GActionEntry calendar_actions[] = {
   { "next", NULL, NULL, NULL, NULL, { 0 } },
   { "new-event", NULL, NULL, NULL, NULL, { 0 } },
   { "edit-event", NULL, NULL, NULL, NULL, { 0 } },
-  { "search", NULL, NULL, NULL, NULL, { 0 } },
+  { "invite-email", NULL, NULL, NULL, NULL, { 0 } },
+  { "share-ics", NULL, NULL, NULL, NULL, { 0 } },
+  { "search", on_search, NULL, NULL, NULL, { 0 } },
   { "toggle-sidebar", on_toggle_sidebar, NULL, NULL, NULL, { 0 } },
   { "preferences", NULL, NULL, NULL, NULL, { 0 } },
   { "shortcuts", NULL, NULL, NULL, NULL, { 0 } },
@@ -388,7 +452,7 @@ fill_week (RevolutionCalendarView *self)
  * recalculate_calendar_colors_css (gcal-window.c:345-372). Termine getönt mit
  * farbiger Kante (events.css:5-43), Ankreuzfeld in Kalenderfarbe.
  * #402: Tönung auf dem Fensterhintergrund (Hauptbereich wie Mail ohne .view),
- * etwas zurückgenommen (20 %), Kante 3 px. */
+ * dezent getönt (14 %, Runde 2 nach Vorbild 19), Kante 3 px. */
 static void
 load_colors (RevolutionCalendarView *self)
 {
@@ -405,7 +469,7 @@ load_colors (RevolutionCalendarView *self)
       g_string_append_printf (css,
                               "checkbutton.%1$s > check { box-shadow: inset 0 0 0 2px %2$s; }\n"
                               "checkbutton.%1$s > check:checked { background-color: %2$s; color: white; box-shadow: none; }\n"
-                              "button.%1$s { background-color: color-mix(in srgb, %2$s 20%%, var(--window-bg-color)); box-shadow: inset 3px 0 %2$s; }\n",
+                              "button.%1$s { background-color: color-mix(in srgb, %2$s 14%%, var(--window-bg-color)); box-shadow: inset 3px 0 %2$s; }\n",
                               classes[0], color);
     }
 
@@ -492,7 +556,13 @@ revolution_calendar_view_class_init (RevolutionCalendarViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, event_notes);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, event_location_box);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, event_location);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, header_stack);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, search_entry);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, search_button);
   gtk_widget_class_bind_template_callback (widget_class, on_switcher_query_tooltip);
+  gtk_widget_class_bind_template_callback (widget_class, on_search_toggled);
+  gtk_widget_class_bind_template_callback (widget_class, on_search_started);
+  gtk_widget_class_bind_template_callback (widget_class, on_search_stop);
 }
 
 static void

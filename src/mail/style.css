@@ -282,10 +282,12 @@ calendar.date-chooser {
   font-weight: 600;
 }
 
-/* Termine ruhig und abgerundet (Radius wie .html-box), Schrift leicht.
- * Farbe und Kante setzt calendar-view.c (load_colors). */
+/* Termine schlank wie Vorbild 19 (Runde 2, Arnd 22.10.): geringe Höhe, normale Schrift,
+ * kleiner Radius. Farbe, Tönung und Streifen setzt calendar-view.c (load_colors). */
 button.calendar-event {
-  border-radius: 8px;
+  min-height: 0;
+  padding: 2px 8px 2px 10px;
+  border-radius: 6px;
   font-weight: 400;
 }
 

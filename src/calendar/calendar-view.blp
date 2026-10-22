@@ -255,7 +255,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
     };
 
     // #402: Hauptbereich ohne Klasse .view auf dem Fensterhintergrund wie Mail (.mail-split).
-    content: Adw.ToolbarView {
+    content: Adw.ToolbarView content_pane {
       // calendar-main: dunkle Trennlinien im Dunkelmodus (style.css).
       styles [
         "calendar-main",
@@ -276,26 +276,71 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
           hexpand: true;
           spacing: 6;
 
-          // #402: Knopf immer sichtbar wie Mail (mail-view.blp:208-218); F9 oben im Controller.
-          ToggleButton sidebar_button {
-            icon-name: "sidebar-show-symbolic";
-            tooltip-text: _("Seitenleiste ein-/ausblenden");
-            active: bind split.show-sidebar bidirectional;
+          // #402 Runde 2: Suche wie Mail (mail-view.blp:438-604): „Lights off“, Gtk.Stack
+          // wechselt vom Knopf mit Titel zum Suchfeld über die ganze Breite bis zur Lupe.
+          // Umschalten in calendar-view.c.
+          Stack header_stack {
+            hexpand: true;
+            transition-type: over_left_right;
+            transition-duration: 250;
 
-            accessibility {
-              label: _("Seitenleiste ein-/ausblenden");
+            StackPage {
+              name: "actions";
+
+              child: Box {
+                spacing: 6;
+
+                // #402: Knopf immer sichtbar wie Mail (mail-view.blp:208-218); F9 oben im Controller.
+                ToggleButton sidebar_button {
+                  icon-name: "sidebar-show-symbolic";
+                  tooltip-text: _("Seitenleiste ein-/ausblenden");
+                  active: bind split.show-sidebar bidirectional;
+
+                  accessibility {
+                    label: _("Seitenleiste ein-/ausblenden");
+                  }
+                }
+
+                Label {
+                  label: _("Oktober 2026");
+                  hexpand: true;
+                  xalign: 0;
+                  ellipsize: end;
+
+                  styles [
+                    "heading",
+                  ]
+                }
+              };
+            }
+
+            StackPage {
+              name: "search";
+
+              // Escape (GtkSearchEntry::stop-search) schließt die Suche.
+              child: SearchEntry search_entry {
+                hexpand: true;
+                placeholder-text: _("Termine durchsuchen");
+                // Tippen im Hauptbereich startet die Suche (wie Mail, HIG-SE „type to search“).
+                key-capture-widget: content_pane;
+                search-started => $on_search_started() swapped;
+                stop-search => $on_search_stop() swapped;
+
+                accessibility {
+                  label: _("Termine durchsuchen");
+                }
+              };
             }
           }
 
-          Label {
-            label: _("Oktober 2026");
-            hexpand: true;
-            xalign: 0;
-            ellipsize: end;
+          ToggleButton search_button {
+            icon-name: "edit-find-symbolic";
+            tooltip-text: _("Suchen");
+            notify::active => $on_search_toggled() swapped;
 
-            styles [
-              "heading",
-            ]
+            accessibility {
+              label: _("Suchen");
+            }
           }
 
           WindowControls {
@@ -603,19 +648,40 @@ Popover event_popover {
         }
       }
 
-      Button edit_button {
+      // #402 Runde 2: Teilen-Knopf neben dem Stift (Arnd 22.10.), Menü in Nautilus-Optik
+      // über die Klasse .primary-menu wie das Hauptmenü (style.css).
+      Box {
         valign: start;
-        icon-name: "document-edit-symbolic";
-        tooltip-text: _("Termin bearbeiten");
-        action-name: "calendar.edit-event";
+        spacing: 6;
 
-        accessibility {
-          label: _("Termin bearbeiten");
+        MenuButton {
+          icon-name: "send-to-symbolic";
+          tooltip-text: _("Teilen");
+          menu-model: share_menu;
+
+          accessibility {
+            label: _("Teilen");
+          }
+
+          styles [
+            "circular",
+            "primary-menu",
+          ]
         }
 
-        styles [
-          "circular",
-        ]
+        Button edit_button {
+          icon-name: "document-edit-symbolic";
+          tooltip-text: _("Termin bearbeiten");
+          action-name: "calendar.edit-event";
+
+          accessibility {
+            label: _("Termin bearbeiten");
+          }
+
+          styles [
+            "circular",
+          ]
+        }
       }
     }
 
@@ -708,6 +774,21 @@ menu primary_menu {
     item {
       label: _("_Info zu Revolution");
       action: "calendar.about";
+    }
+  }
+}
+
+// #402 Runde 2: Teilen-Menü des Termin-Details, Platzhalter-Aktionen in calendar-view.c.
+menu share_menu {
+  section {
+    item {
+      label: _("Per E-Mail _einladen…");
+      action: "calendar.invite-email";
+    }
+
+    item {
+      label: _("Als _Datei teilen (.ics)");
+      action: "calendar.share-ics";
     }
   }
 }

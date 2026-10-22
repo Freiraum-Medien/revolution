@@ -77,8 +77,13 @@ template $RevolutionContactsView: Adw.BreakpointBin {
     Adw.ToolbarView {
       [top]
       Adw.HeaderBar {
-        title-widget: Adw.WindowTitle {
-          title: _("Revolution");
+        // Umschalter Mail | Kalender | Kontakte oben in der Kopfleiste der Seitenleiste
+        // (Arnd 22.10.2026, #340, Vorbild 22/24): Segment-Umschalter, Standard-libadwaita
+        // (AdwInlineViewSwitcher = AdwToggleGroup am ViewStack, nur Symbole);
+        // Seitentitel als Tooltip setzt libadwaita (geprüft headless).
+        title-widget: Adw.InlineViewSwitcher {
+          stack: bind template.stack;
+          display-mode: icons;
         };
 
         // #402: Primärmenü wie mail-view.blp (Nautilus-Optik, style.css .primary-menu).
@@ -104,17 +109,12 @@ template $RevolutionContactsView: Adw.BreakpointBin {
         hscrollbar-policy: never;
 
         // Viewport wie mail-view.blp: sonst fehlt beim Start der erste Abschnittskopf.
-        // Scrollen zum Fokus übernimmt contacts-view.c (Umschalter liegt darüber).
-        child: Viewport book_viewport {
-          scroll-to-focus: false;
-
+        child: Viewport {
           child: ListView book_list {
             tab-behavior: item;
 
-            // folder-list: unterer Innenabstand = Höhe des Umschalters (style.css).
             styles [
               "navigation-sidebar",
-              "folder-list",
             ]
 
             accessibility {
@@ -130,8 +130,8 @@ template $RevolutionContactsView: Adw.BreakpointBin {
                   xalign: 0;
                   margin-start: 14;
                   margin-end: 14;
-                  margin-top: 12;
-                  margin-bottom: 6;
+                  margin-top: 4;
+                  margin-bottom: 2;
                   ellipsize: end;
 
                   styles [
@@ -422,7 +422,8 @@ template $RevolutionContactsView: Adw.BreakpointBin {
           spacing: 12;
           margin-start: 12;
           margin-end: 12;
-          margin-top: 6;
+          // #340: 13px, Oberkante auf der Linie 63px (style.css „Eine Linie“).
+          margin-top: 13;
 
           styles [
             "mail-notice",
@@ -1452,28 +1453,6 @@ template $RevolutionContactsView: Adw.BreakpointBin {
       };
     }
 
-    // Ansichtsumschalter wie mail-view.blp (#400/#401): schwebt über der
-    // Adressbuchliste, nur Symbole, Seitentitel als Tooltip (contacts-view.c).
-    // valign end auf dem Slot: sonst deckt der Slot die ganze Liste ab und schluckt Klicks.
-    [switcher]
-    Adw.Bin switcher {
-      valign: end;
-      margin-start: 8;
-      margin-end: 8;
-      margin-top: 8;
-      margin-bottom: 8;
-
-      styles [
-        "floating-switcher",
-      ]
-
-      child: Adw.ViewSwitcher {
-        policy: narrow;
-        stack: bind template.stack;
-        has-tooltip: true;
-        query-tooltip => $on_switcher_query_tooltip() swapped;
-      };
-    }
 
     // Breit: Seitenleiste | Liste | Kontakt (stamp-contact-view.blp:57-96).
     // Schmal (≤ 1000 sp): Seitenleiste als Überlagerung, Werte per Breakpoint oben.
@@ -1490,7 +1469,7 @@ template $RevolutionContactsView: Adw.BreakpointBin {
           "mail-split",
         ]
 
-        sidebar: Overlay {
+        sidebar: Adw.Bin {
           overflow: hidden;
           margin-start: 8;
           margin-end: 8;
@@ -1504,12 +1483,6 @@ template $RevolutionContactsView: Adw.BreakpointBin {
           child: Adw.LayoutSlot {
             id: "sidebar";
           };
-
-          [overlay]
-          Adw.LayoutSlot {
-            id: "switcher";
-            valign: end;
-          }
         };
 
         content: Paned {
@@ -1550,15 +1523,8 @@ template $RevolutionContactsView: Adw.BreakpointBin {
               id: "sidebar";
             };
 
-            content: Adw.ToolbarView {
-              content: Adw.LayoutSlot {
-                id: "list";
-              };
-
-              [bottom]
-              Adw.LayoutSlot {
-                id: "switcher";
-              }
+            content: Adw.LayoutSlot {
+              id: "list";
             };
           };
         }
@@ -1600,6 +1566,29 @@ menu primary_menu {
       label: _("Seiten_leiste ein-/ausblenden");
       action: "contacts.toggle-sidebar";
       accel: "F9";
+    }
+  }
+
+  // Drei Themes (Arnd 22.10.2026, #340): Radio-Einträge der Aktion app.theme (main.c).
+  section {
+    label: _("Darstellung");
+
+    item {
+      label: _("_Hell");
+      action: "app.theme";
+      target: "hell";
+    }
+
+    item {
+      label: _("Dunkel _mit hellem Inhalt");
+      action: "app.theme";
+      target: "dunkel-hell";
+    }
+
+    item {
+      label: _("_Dunkel");
+      action: "app.theme";
+      target: "dunkel";
     }
   }
 

@@ -108,9 +108,9 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
       "mail-split",
     ]
 
-    // #402: Seitenleiste als schwebende, abgerundete Fläche mit Abstand zum Fensterrand,
-    // Umschalter als Überlagerung darüber (wie mail-view.blp:1042-1064).
-    sidebar: Overlay {
+    // #402: Seitenleiste als schwebende, abgerundete Fläche mit Abstand zum Fensterrand
+    // (wie mail-view.blp).
+    sidebar: Adw.Bin {
       overflow: hidden;
       margin-start: 8;
       margin-end: 8;
@@ -125,8 +125,13 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
       child: Adw.ToolbarView {
         [top]
         Adw.HeaderBar {
-          title-widget: Adw.WindowTitle {
-            title: _("Revolution");
+          // Umschalter Mail | Kalender | Kontakte oben in der Kopfleiste der Seitenleiste
+          // (Arnd 22.10.2026, #340, Vorbild 22/24): Segment-Umschalter, Standard-libadwaita
+          // (AdwInlineViewSwitcher = AdwToggleGroup am ViewStack, nur Symbole);
+          // Seitentitel als Tooltip setzt libadwaita (geprüft headless).
+          title-widget: Adw.InlineViewSwitcher {
+            stack: bind template.stack;
+            display-mode: icons;
           };
 
           // #402: Hauptmenü wie Mail (mail-view.blp:88-106), Nautilus-Optik über .primary-menu.
@@ -155,6 +160,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
             orientation: vertical;
 
             // GcalDateChooser ist ein eigenes C-Widget; hier Gtk.Calendar.
+            // #340: oben 2px statt 6px, Monatsname auf der Linie 63px (style.css „Eine Linie“).
             // #402: ohne eigenen Rahmen auf der Seitenleisten-Fläche (style.css .date-chooser).
             Calendar date_chooser {
               year: 2026;
@@ -162,7 +168,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
               day: 21;
               margin-start: 12;
               margin-end: 12;
-              margin-top: 6;
+              margin-top: 2;
               margin-bottom: 6;
 
               accessibility {
@@ -176,10 +182,8 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
 
             // Kalenderliste (gcal-calendar-list.blp:14-23), je Konto ein Abschnitt wie die
             // Ordnerliste in mail-view.blp. Farbe und Ein/Aus im Ankreuzfeld.
-            // #402: unterer Abstand = Höhe des Umschalters samt Rand wie .folder-list (style.css).
             ListView calendar_list {
               tab-behavior: item;
-              margin-bottom: 56;
 
               // calendar-list: Abstand Ankreuzfeld–Name wie Symbol–Name der Ordnerliste (style.css).
               styles [
@@ -200,8 +204,8 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
                     xalign: 0;
                     margin-start: 14;
                     margin-end: 14;
-                    margin-top: 12;
-                    margin-bottom: 6;
+                    margin-top: 4;
+                    margin-bottom: 2;
                     ellipsize: end;
 
                     styles [
@@ -230,28 +234,6 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
         };
       };
 
-      // #402: Ansichtsumschalter Mail/Kalender/Kontakte schwebt über der Kalenderliste,
-      // nur Symbole, Klassen und Tooltip wie Mail (mail-view.blp:1000-1025, style.css).
-
-      [overlay]
-      Adw.Bin switcher {
-        valign: end;
-        margin-start: 8;
-        margin-end: 8;
-        margin-top: 8;
-        margin-bottom: 8;
-
-        styles [
-          "floating-switcher",
-        ]
-
-        child: Adw.ViewSwitcher {
-          policy: narrow;
-          stack: bind template.stack;
-          has-tooltip: true;
-          query-tooltip => $on_switcher_query_tooltip() swapped;
-        };
-      }
     };
 
     // #402: Hauptbereich ohne Klasse .view auf dem Fensterhintergrund wie Mail (.mail-split).
@@ -364,9 +346,10 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
             orientation: vertical;
             // Wochentage (gcal-month-view.blp:40-92). #402: leicht wie die Abschnittsköpfe
             // der Mail-Ordnerliste (caption-heading, dimmed; mail-view.blp:144-147).
+            // #340: oben 9px statt 6px, Wochentage auf der Linie 63px (style.css „Eine Linie“).
             Box {
               homogeneous: true;
-              margin-top: 6;
+              margin-top: 9;
               margin-bottom: 6;
 
               Label {
@@ -755,6 +738,29 @@ menu primary_menu {
       label: _("Seiten_leiste ein-/ausblenden");
       action: "calendar.toggle-sidebar";
       accel: "F9";
+    }
+  }
+
+  // Drei Themes (Arnd 22.10.2026, #340): Radio-Einträge der Aktion app.theme (main.c).
+  section {
+    label: _("Darstellung");
+
+    item {
+      label: _("_Hell");
+      action: "app.theme";
+      target: "hell";
+    }
+
+    item {
+      label: _("Dunkel _mit hellem Inhalt");
+      action: "app.theme";
+      target: "dunkel-hell";
+    }
+
+    item {
+      label: _("_Dunkel");
+      action: "app.theme";
+      target: "dunkel";
     }
   }
 

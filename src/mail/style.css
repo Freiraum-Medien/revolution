@@ -29,83 +29,52 @@
   box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
 }
 
-/* Platz unter dem letzten Ordner: Höhe des Umschalters samt Abstand (#400 Punkt 2). */
-.folder-list {
-  padding-bottom: 56px;
+/* Eine Linie im Kopf (Arnd 22.10.2026, #340, Vorbild 25): alle Kopfleisten enden auf
+ * derselben Höhe, 50px unter der Fensteroberkante (Mittelweg: libadwaita 47px, die
+ * Seitenleiste lag mit 8px Abstand bei 55px). Seitenleiste 8px Abstand + 42px,
+ * Liste und Nachricht 50px. Umschalter (34px) in der Seitenleiste mittig. */
+.floating-sidebar headerbar {
+  min-height: 42px;
 }
 
-/* #400 Punkt 2: Umschalter schwebt über der Ordnerliste. Fläche leicht transparent,
- * darunter weichgezeichnet (backdrop-filter, GTK 4.22).
- * #401: Kontur hauchdünn dunkel statt Akzent. Hell: --shade-color mit Deckkraft ×1,8
- * (0,14) ergibt einen dezent dunkleren Ton der Seitenleiste. Knöpfe bündig an der
- * Kontur, nur Symbole (Arnd); Name bleibt als Tooltip und a11y-Label.
- * Radius 10px, Abstand zum Rand 8px, Knöpfe innen 9px = 10px minus 1px Kontur. */
-.floating-switcher {
-  border: 1px solid RGB(from var(--shade-color) r g b / calc(alpha * 1.8));
-  border-radius: 10px;
-  background-color: color-mix(in srgb, var(--sidebar-bg-color) 62%, transparent);
-  backdrop-filter: blur(4px);
-  box-shadow: 0 1px 4px var(--shade-color);
+.floating-sidebar headerbar > windowhandle > box {
+  padding-top: 4px;
+  padding-bottom: 4px;
 }
 
-/* Dunkel: gleiche Logik, Kontur als etwas dunklerer Ton der Seitenleiste
- * (70 % --sidebar-bg-color, 30 % --dark-4); --shade-color wirkte hier zu hart. */
-.dark .floating-switcher {
-  border-color: color-mix(in srgb, var(--sidebar-bg-color) 70%, var(--dark-4));
+.mail-split > .content-pane headerbar {
+  min-height: 50px;
 }
 
-/* libadwaita: viewswitcher.narrow margin -3px oben/unten, border-spacing 3px. */
-.floating-switcher viewswitcher {
-  margin: 0;
-  border-spacing: 0;
+/* Erster Inhalt jeder Spalte auf einer Linie 63px unter der Fensteroberkante
+ * (gemessen, Ausgangswerte: „Favoriten“ 81, Avatar 65, Hinweis-Pille 56):
+ * erster Abschnittskopf ohne den oberen Innenabstand von listview > header (18px,
+ * libadwaita) – nur die Ordner-/Adressbuchliste im Viewport, nicht der Kalender;
+ * Nachrichtenliste oben 2px statt 4px (.message-list), Pille 13px statt 6px (mail-view.blp).
+ * Kontakte analog: erster Buchstabenkopf ohne 18px, Liste oben 3px statt 4px (.contact-list),
+ * Pille 13px statt 6px (contacts-view.blp). */
+.floating-sidebar viewport > .navigation-sidebar > header:first-child,
+.contact-list > header:first-child {
+  padding-top: 0;
 }
 
-/* #401: aktiver Knopf außen rund (9px = 10px minus 1px Kontur), zum Trenner hin eckig. */
-.floating-switcher viewswitcher button.toggle {
-  border-radius: 0;
+/* Seitenleiste kompakt wie Apple Mail (Arnd 22.10.2026, #340, Vorbild 22): Zeilen
+ * 28px + 2px Abstand = 30px statt 36px + 2px (libadwaita .navigation-sidebar > row),
+ * Abschnittsüberschriften etwas kleiner (caption-heading 82 %), Abstände in den
+ * ListHeader-Labels (mail-, contacts-, calendar-view.blp). Symbole und Schrift unverändert. */
+.floating-sidebar .navigation-sidebar > row {
+  min-height: 28px;
 }
 
-.floating-switcher viewswitcher button.toggle:first-child {
-  border-radius: 9px 0 0 9px;
-}
-
-.floating-switcher viewswitcher button.toggle:last-child {
-  border-radius: 0 9px 9px 0;
-}
-
-/* #401: feine senkrechte Trenner zwischen allen Knöpfen (Vorbild 15), im Ton der
- * Kontur, halbe Höhe; als 1px-Hintergrundbild am linken Rand jedes weiteren Knopfs. */
-.floating-switcher viewswitcher button.toggle:not(:first-child) {
-  background-image: image(RGB(from var(--shade-color) r g b / calc(alpha * 1.8)));
-  background-size: 1px 50%;
-  background-position: left center;
-  background-repeat: no-repeat;
-}
-
-.dark .floating-switcher viewswitcher button.toggle:not(:first-child) {
-  background-image: image(color-mix(in srgb, var(--sidebar-bg-color) 70%, var(--dark-4)));
-}
-
-.floating-switcher viewswitcher button.toggle > stack > box.narrow {
-  /* #401: 40px Höhe = 1px Kontur + 9px + 20px Symbol + 9px + 1px Kontur. */
-  padding-top: 9px;
-  padding-bottom: 9px;
-  -gtk-icon-size: 20px;
-}
-
-/* Nur Symbole: Beschriftung ohne Größe; sie bleibt im Widget-Baum (a11y-Name). */
-.floating-switcher viewswitcher button.toggle > stack > box.narrow > label {
-  font-size: 0;
-  min-height: 0;
-  padding: 0;
-  margin: 0;
+.floating-sidebar .navigation-sidebar > header .caption-heading {
+  font-size: 76%;
 }
 
 /* #400 Punkt 4: Nachrichtenliste wie 04/05 – ohne Trennlinien, ruhige Zeilen,
  * Auswahl als abgerundete, kräftige Akzentfläche mit Abstand zum Rand. */
 .message-list {
   background: none;
-  padding: 4px 8px 8px;
+  padding: 2px 8px 8px;
 }
 
 .message-list > row {
@@ -189,6 +158,35 @@
   background-color: var(--blue-4);
   color: var(--light-1);
   font-weight: 700;
+}
+
+/* Theme „Dunkel“ (#340, Arnd 22.10.2026): Klasse .content-dark am Fenster (main.c).
+ * Mail-Karte in der Kartenfarbe des Designs wie .contact-card, Text hell; die
+ * Nachbildung der HTML-Mail entsprechend dunkel, Blau aufgehellt (--blue-3). */
+.content-dark .html-mail {
+  background-color: var(--card-bg-color);
+  color: var(--card-fg-color);
+}
+
+.content-dark .html-brand,
+.content-dark .html-credit {
+  color: var(--blue-3);
+}
+
+.content-dark .html-rule {
+  background-color: var(--blue-3);
+}
+
+.content-dark .html-small {
+  color: var(--light-4);
+}
+
+.content-dark .html-rule-thin {
+  background-color: var(--border-color);
+}
+
+.content-dark .html-box {
+  background-color: color-mix(in srgb, var(--blue-3) 12%, transparent);
 }
 
 /* #401 Punkt 1: nur dunkel – Trennstrich zwischen Liste und Nachricht dunkler als
@@ -329,11 +327,19 @@ menubutton.primary-menu popover.menu separator {
 }
 
 /* Schreibfläche als große abgerundete Karte mit Abstand wie die Mail-Karte (.html-mail,
- * #400 Punkt 7); Farbe aus --card-bg-color, folgt dem Farbschema. */
+ * #400 Punkt 7). Themes (#340): hell auch im Dunkelmodus wie die Mail-Karte, Schrift
+ * --dark-3 (Textfarbe des hellen Stylesheets); nur Theme „Dunkel“ (.content-dark am
+ * Fenster, main.c) in der Kartenfarbe des Designs. */
 .composer-card {
   border-radius: 12px;
   background-color: var(--card-bg-color);
   box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
+}
+
+.composer:not(.content-dark) .composer-card {
+  --view-fg-color: var(--dark-3);
+  background-color: var(--light-1);
+  color: var(--dark-3);
 }
 
 .composer-card textview,
@@ -348,7 +354,7 @@ menubutton.primary-menu popover.menu separator {
  * Ungelesen-Punkt, daher Zeile innen 12px wie rechts. */
 .contact-list {
   background: none;
-  padding: 4px 8px 8px;
+  padding: 3px 8px 8px;
 }
 
 .contact-list > row {
@@ -430,8 +436,8 @@ menubutton.contact-action > button:hover {
 }
 
 /* Kalender (#402) – Designsprache der Mail auf die Kalender-Ansicht übertragen.
- * Seitenleiste, Umschalter und Hauptmenü nutzen die Klassen oben (.mail-split,
- * .floating-sidebar, .floating-switcher, .primary-menu); hier nur Ergänzungen. */
+ * Seitenleiste und Hauptmenü nutzen die Klassen oben (.mail-split,
+ * .floating-sidebar, .primary-menu); hier nur Ergänzungen. */
 
 /* Monatsauswahl ohne eigenen Rahmen und Hintergrund auf der Seitenleisten-Fläche. */
 calendar.date-chooser {

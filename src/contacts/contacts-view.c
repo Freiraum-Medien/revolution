@@ -4,7 +4,7 @@
  * Klasse mit Eigenschaft „stack“ für den Ansichtsumschalter), Muster wie
  * mail-view.c. Oberfläche in contacts-view.blp; hier nur Template-Anbindung
  * und Befüllen mit Beispieldaten.
- * #402: Suche, Seitenleiste, Umschalter-Tooltip, Fokus-Scrollen und Klasse .dark
+ * #402: Suche, Seitenleiste und Klasse .dark
  * übernommen aus mail-view.c (#399–#401).
  *
  * Copyright 2026 Arnd Messer
@@ -29,9 +29,6 @@ struct _RevolutionContactsView
   GtkSearchEntry      *search_entry;
   GtkToggleButton     *search_button;
   AdwOverlaySplitView *split;
-  GtkViewport         *book_viewport;
-  GtkWidget           *book_list;
-  GtkWidget           *switcher;
   GtkWidget           *link_notice;
   GtkWidget           *letter_bar;
   AdwViewStackPage    *firm_page;
@@ -168,99 +165,6 @@ static const GActionEntry contacts_actions[] = {
   { "about", NULL, NULL, NULL, NULL, { 0 } },
 };
 
-/* Wie mail-view.c (#400 Punkt 2): der fokussierte Eintrag scrollt bis über die
- * Oberkante des schwebenden Umschalters statt nur bis zum Rand des Viewports. */
-static void
-on_focus_widget (GtkRoot                *root,
-                 GParamSpec             *pspec G_GNUC_UNUSED,
-                 RevolutionContactsView *self)
-{
-  GtkWidget *focus = gtk_root_get_focus (root);
-  GtkWidget *viewport = GTK_WIDGET (self->book_viewport);
-  GtkAdjustment *adjustment;
-  graphene_rect_t row, switcher;
-  double bottom, value;
-
-  if (focus == NULL || !gtk_widget_is_ancestor (focus, self->book_list) ||
-      !gtk_widget_compute_bounds (focus, viewport, &row))
-    return;
-
-  adjustment = gtk_scrollable_get_vadjustment (GTK_SCROLLABLE (viewport));
-  value = gtk_adjustment_get_value (adjustment);
-  bottom = gtk_widget_get_height (viewport);
-
-  /* Nur wenn der Umschalter über diesem Viewport liegt (Layout „desktop“). */
-  if (gtk_widget_get_mapped (self->switcher) &&
-      gtk_widget_compute_bounds (self->switcher, viewport, &switcher) &&
-      switcher.origin.y > 0 && switcher.origin.y < bottom)
-    bottom = switcher.origin.y - gtk_widget_get_margin_top (self->switcher);
-
-  if (row.origin.y < 0)
-    gtk_adjustment_set_value (adjustment, value + row.origin.y);
-  else if (row.origin.y + row.size.height > bottom)
-    gtk_adjustment_set_value (adjustment, value + row.origin.y + row.size.height - bottom);
-}
-
-static void
-revolution_contacts_view_root (GtkWidget *widget)
-{
-  GTK_WIDGET_CLASS (revolution_contacts_view_parent_class)->root (widget);
-
-  g_signal_connect_object (gtk_widget_get_root (widget), "notify::focus-widget",
-                           G_CALLBACK (on_focus_widget), widget, G_CONNECT_DEFAULT);
-}
-
-static void
-revolution_contacts_view_unroot (GtkWidget *widget)
-{
-  g_signal_handlers_disconnect_by_func (gtk_widget_get_root (widget), on_focus_widget, widget);
-
-  GTK_WIDGET_CLASS (revolution_contacts_view_parent_class)->unroot (widget);
-}
-
-/* Umschalter nur mit Symbolen: Seitentitel als Tooltip (wie mail-view.c, #401). */
-static gboolean
-on_switcher_query_tooltip (RevolutionContactsView *self,
-                           int                     x,
-                           int                     y,
-                           gboolean                keyboard,
-                           GtkTooltip             *tooltip,
-                           GtkWidget              *switcher)
-{
-  g_autoptr (GtkSelectionModel) pages = NULL;
-  g_autoptr (AdwViewStackPage) page = NULL;
-  GtkWidget *button;
-  GtkWidget *child;
-  guint index = 0;
-
-  if (keyboard)
-    button = gtk_root_get_focus (gtk_widget_get_root (switcher));
-  else
-    button = gtk_widget_pick (switcher, x, y, GTK_PICK_DEFAULT);
-
-  while (button != NULL && button != switcher && !GTK_IS_TOGGLE_BUTTON (button))
-    button = gtk_widget_get_parent (button);
-
-  if (button == NULL || button == switcher || self->stack == NULL)
-    return FALSE;
-
-  for (child = gtk_widget_get_first_child (switcher); child != NULL && child != button;
-       child = gtk_widget_get_next_sibling (child))
-    if (GTK_IS_TOGGLE_BUTTON (child))
-      index++;
-
-  if (child == NULL)
-    return FALSE;
-
-  pages = adw_view_stack_get_pages (self->stack);
-  page = g_list_model_get_item (G_LIST_MODEL (pages), index);
-  if (page == NULL)
-    return FALSE;
-
-  gtk_tooltip_set_text (tooltip, adw_view_stack_page_get_title (page));
-  return TRUE;
-}
-
 /* Klasse .dark für Regeln nur im dunklen Design (style.css), wie mail-view.c. */
 static void
 on_dark_changed (AdwStyleManager        *manager,
@@ -323,8 +227,6 @@ revolution_contacts_view_class_init (RevolutionContactsViewClass *klass)
   object_class->get_property = revolution_contacts_view_get_property;
   object_class->set_property = revolution_contacts_view_set_property;
   object_class->dispose = revolution_contacts_view_dispose;
-  widget_class->root = revolution_contacts_view_root;
-  widget_class->unroot = revolution_contacts_view_unroot;
 
   g_object_class_install_property (object_class, PROP_STACK,
                                    g_param_spec_object ("stack", NULL, NULL, ADW_TYPE_VIEW_STACK,
@@ -339,15 +241,11 @@ revolution_contacts_view_class_init (RevolutionContactsViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, search_entry);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, search_button);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, split);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, book_viewport);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, book_list);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, switcher);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, link_notice);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, letter_bar);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, firm_page);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, firm_label);
   gtk_widget_class_bind_template_callback (widget_class, on_search_toggled);
-  gtk_widget_class_bind_template_callback (widget_class, on_switcher_query_tooltip);
   gtk_widget_class_bind_template_callback (widget_class, on_search_started);
   gtk_widget_class_bind_template_callback (widget_class, on_search_stop);
   gtk_widget_class_bind_template_callback (widget_class, on_colleague_activated);

@@ -14,6 +14,8 @@
 
 #include "config.h"
 
+#include <glib/gi18n.h>
+
 #include "contacts-sample.h"
 #include "contacts-view.h"
 
@@ -30,16 +32,64 @@ struct _RevolutionContactsView
   GtkViewport         *book_viewport;
   GtkWidget           *book_list;
   GtkWidget           *switcher;
+  GtkWidget           *link_notice;
+  GtkWidget           *letter_bar;
+  AdwViewStackPage    *firm_page;
+  GtkLabel            *firm_label;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionContactsView, revolution_contacts_view, ADW_TYPE_BREAKPOINT_BIN)
 
-/* Platzhalter ohne Logik, nur damit die Knöpfe nicht ausgegraut sind. */
+/* Platzhalter ohne Logik, nur damit die Knöpfe nicht ausgegraut sind.
+ * #402: call, invite, link, share-vcard, show-qr (Schnellaktionen, Teilen-Menü). */
 static const GActionEntry contact_actions[] = {
   { "new", NULL, NULL, NULL, NULL, { 0 } },
   { "edit", NULL, NULL, NULL, NULL, { 0 } },
   { "write-mail", NULL, NULL, NULL, NULL, { 0 } },
+  { "call", NULL, NULL, NULL, NULL, { 0 } },
+  { "invite", NULL, NULL, NULL, NULL, { 0 } },
+  { "link", NULL, NULL, NULL, NULL, { 0 } },
+  { "share-vcard", NULL, NULL, NULL, NULL, { 0 } },
+  { "show-qr", NULL, NULL, NULL, NULL, { 0 } },
 };
+
+/* Wählt in der Kontaktliste den Eintrag mit diesem Namen (Firma-Reiter, Start). */
+static void
+select_contact (RevolutionContactsView *self,
+                const char             *title)
+{
+  GListModel *model = gtk_single_selection_get_model (self->contact_selection);
+  guint n = g_list_model_get_n_items (model);
+
+  for (guint i = 0; i < n; i++)
+    {
+      g_autoptr (GObject) entry = g_list_model_get_item (model, i);
+      g_autofree char *entry_title = NULL;
+
+      g_object_get (entry, "title", &entry_title, NULL);
+      if (g_strcmp0 (entry_title, title) == 0)
+        {
+          gtk_single_selection_set_selected (self->contact_selection, i);
+          return;
+        }
+    }
+}
+
+/* #402 Punkt 2: Klick auf einen Kollegen wählt ihn in der Liste, kein Dialog.
+ * Der Zeilenname (contacts-view.blp) ist der Kontaktname. */
+static void
+on_colleague_activated (RevolutionContactsView *self,
+                        GtkListBoxRow          *row)
+{
+  select_contact (self, gtk_widget_get_name (GTK_WIDGET (row)));
+}
+
+/* #402 Punkt 3: Schließen-Knopf des Verknüpfungsvorschlags. */
+static void
+on_link_dismiss (RevolutionContactsView *self)
+{
+  gtk_widget_set_visible (self->link_notice, FALSE);
+}
 
 /* Fokus ins Suchfeld ohne alles zu markieren (wie mail-view.c). */
 static void
@@ -110,6 +160,8 @@ on_toggle_sidebar (GSimpleAction *action G_GNUC_UNUSED,
 /* preferences, shortcuts, about: Platzhalter des Primärmenüs wie mail-view.c. */
 static const GActionEntry contacts_actions[] = {
   { "search", on_search, NULL, NULL, NULL, { 0 } },
+  /* #402 Punkt 4: Buchstabenleiste, Platzhalter ohne Sprung. */
+  { "jump", NULL, "s", NULL, NULL, { 0 } },
   { "toggle-sidebar", on_toggle_sidebar, NULL, NULL, NULL, { 0 } },
   { "preferences", NULL, NULL, NULL, NULL, { 0 } },
   { "shortcuts", NULL, NULL, NULL, NULL, { 0 } },
@@ -290,10 +342,16 @@ revolution_contacts_view_class_init (RevolutionContactsViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, book_viewport);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, book_list);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, switcher);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, link_notice);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, letter_bar);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, firm_page);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, firm_label);
   gtk_widget_class_bind_template_callback (widget_class, on_search_toggled);
   gtk_widget_class_bind_template_callback (widget_class, on_switcher_query_tooltip);
   gtk_widget_class_bind_template_callback (widget_class, on_search_started);
   gtk_widget_class_bind_template_callback (widget_class, on_search_stop);
+  gtk_widget_class_bind_template_callback (widget_class, on_colleague_activated);
+  gtk_widget_class_bind_template_callback (widget_class, on_link_dismiss);
 }
 
 static void
@@ -310,6 +368,26 @@ revolution_contacts_view_init (RevolutionContactsView *self)
 
   gtk_single_selection_set_model (self->book_selection, books);
   gtk_single_selection_set_model (self->contact_selection, contacts);
+  /* #402: angezeigt wird Jana Albrecht (Mail- und Kalender-Beispiele). */
+  select_contact (self, _("Jana Albrecht"));
+
+  /* #402 Punkt 2: Reiter „Firma“ nur mit eingetragener Firma. */
+  adw_view_stack_page_set_visible (self->firm_page, *gtk_label_get_text (self->firm_label) != '\0');
+
+  /* #402 Punkt 4: Buchstabenleiste A–Z, je Buchstabe ein Knopf auf contacts.jump. */
+  for (char letter = 'A'; letter <= 'Z'; letter++)
+    {
+      char text[2] = { letter, '\0' };
+      g_autofree char *tooltip = g_strdup_printf (_("Zu „%s“ springen"), text);
+      GtkWidget *button = gtk_button_new_with_label (text);
+
+      gtk_actionable_set_action_target (GTK_ACTIONABLE (button), "s", text);
+      gtk_actionable_set_action_name (GTK_ACTIONABLE (button), "contacts.jump");
+      gtk_widget_set_tooltip_text (button, tooltip);
+      gtk_accessible_update_property (GTK_ACCESSIBLE (button), GTK_ACCESSIBLE_PROPERTY_LABEL, tooltip, -1);
+      gtk_widget_add_css_class (button, "flat");
+      gtk_box_append (GTK_BOX (self->letter_bar), button);
+    }
 
   g_action_map_add_action_entries (G_ACTION_MAP (contact_group), contact_actions, G_N_ELEMENTS (contact_actions), NULL);
   gtk_widget_insert_action_group (GTK_WIDGET (self), "contact", G_ACTION_GROUP (contact_group));

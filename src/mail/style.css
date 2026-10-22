@@ -283,3 +283,54 @@ menubutton.primary-menu popover.menu separator {
   color: var(--card-fg-color);
   box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
 }
+
+/* #402 Runde 2: Name im Kopf groß (title-1) und halbfett wie .mail-sender. */
+.contact-name {
+  font-weight: 600;
+}
+
+/* Runde Schnellaktionen, Tönung wie .mail-notice-button. */
+button.contact-action,
+menubutton.contact-action > button {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--accent-bg-color) 16%, transparent);
+  color: var(--accent-color);
+}
+
+button.contact-action:hover,
+menubutton.contact-action > button:hover {
+  background-color: color-mix(in srgb, var(--accent-bg-color) 24%, transparent);
+}
+
+/* Eine Karte je Angabe, Verlauf als ruhige Liste in einer Karte. */
+.contact-field {
+  padding: 10px 10px 10px 16px;
+  min-height: 40px;
+}
+
+.contact-history {
+  padding: 14px 16px;
+}
+
+/* Kollegen: Zeilen ohne Trennlinien, Hover wie die Seitenleiste. */
+.contact-colleagues {
+  padding: 6px;
+}
+
+.contact-colleagues > row {
+  padding: 6px 10px;
+  border-radius: 9px;
+}
+
+/* Buchstabenleiste A–Z: klein, Akzentfarbe, ohne Knopfabstand. */
+.letter-bar button {
+  min-height: 0;
+  min-width: 0;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--accent-color);
+}

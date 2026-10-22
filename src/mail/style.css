@@ -251,3 +251,79 @@ menubutton.primary-menu popover.menu separator {
 .mail-details {
   font-weight: 400;
 }
+
+/* Flach, ohne Verläufe (#336) – Arnd 22.10.2026: „alles flach“, Form unverändert.
+ * Einziger sichtbarer Verlauf in der App: AdwAvatar. libadwaita 1.9.1 setzt
+ * avatar.color1 … color14 { background-image: linear-gradient(hell, dunkel) }
+ * (Stylesheet default-{light,dark}-yaru-default.css, Zeilen 197–223, beide gleich).
+ * Ersatz: flache Mitte des bisherigen Verlaufs (color-mix 50 %): Farbton bleibt wie
+ * gewohnt, die hellen Initialen (color, unverändert) lagen bisher auf beiden Enden. */
+avatar.color1 {
+  background-image: none;
+  background-color: color-mix(in srgb, #83b6ec, #337fdc);
+}
+
+avatar.color2 {
+  background-image: none;
+  background-color: color-mix(in srgb, #7ad9f1, #0f9ac8);
+}
+
+avatar.color3 {
+  background-image: none;
+  background-color: color-mix(in srgb, #8de6b1, #29ae74);
+}
+
+avatar.color4 {
+  background-image: none;
+  background-color: color-mix(in srgb, #b5e98a, #6ab85b);
+}
+
+avatar.color5 {
+  background-image: none;
+  background-color: color-mix(in srgb, #f8e359, #d29d09);
+}
+
+avatar.color6 {
+  background-image: none;
+  background-color: color-mix(in srgb, #ffcb62, #d68400);
+}
+
+avatar.color7 {
+  background-image: none;
+  background-color: color-mix(in srgb, #ffa95a, #ed5b00);
+}
+
+avatar.color8 {
+  background-image: none;
+  background-color: color-mix(in srgb, #f78773, #e62d42);
+}
+
+avatar.color9 {
+  background-image: none;
+  background-color: color-mix(in srgb, #e973ab, #e33b6a);
+}
+
+avatar.color10 {
+  background-image: none;
+  background-color: color-mix(in srgb, #cb78d4, #9945b5);
+}
+
+avatar.color11 {
+  background-image: none;
+  background-color: color-mix(in srgb, #9e91e8, #7a59ca);
+}
+
+avatar.color12 {
+  background-image: none;
+  background-color: color-mix(in srgb, #e3cf9c, #b08952);
+}
+
+avatar.color13 {
+  background-image: none;
+  background-color: color-mix(in srgb, #be916d, #785336);
+}
+
+avatar.color14 {
+  background-image: none;
+  background-color: color-mix(in srgb, #c0bfbc, #6e6d71);
+}

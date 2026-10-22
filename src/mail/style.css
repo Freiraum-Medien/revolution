@@ -343,6 +343,94 @@ menubutton.primary-menu popover.menu separator {
   background-color: transparent;
 }
 
+/* Kontakte (#402) */
+
+/* Kontaktliste wie .message-list (#400 Punkt 4): ohne Trennlinien, Auswahl als
+ * abgerundete Akzentfläche mit Abstand zum Rand. Links ohne Platz für den
+ * Ungelesen-Punkt, daher Zeile innen 12px wie rechts. */
+.contact-list {
+  background: none;
+  padding: 4px 8px 8px;
+}
+
+.contact-list > row {
+  margin: 1px 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+}
+
+.contact-list > row:selected,
+.contact-list > row:selected:hover,
+.contact-list > row:selected:focus-within {
+  background-color: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+}
+
+/* Karte wie .html-mail (Radius, Kontur, Schatten), Fläche in der Kartenfarbe
+ * des Designs: ein Kontakt hat keinen eigenen weißen Hintergrund. */
+.contact-card {
+  border-radius: 12px;
+  background-color: var(--card-bg-color);
+  color: var(--card-fg-color);
+  box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
+}
+
+/* #402 Runde 2: Name im Kopf groß (title-1) und halbfett wie .mail-sender. */
+.contact-name {
+  font-weight: 600;
+}
+
+/* Runde Schnellaktionen, Tönung wie .mail-notice-button. */
+button.contact-action,
+menubutton.contact-action > button {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--accent-bg-color) 16%, transparent);
+  color: var(--accent-color);
+}
+
+button.contact-action:hover,
+menubutton.contact-action > button:hover {
+  background-color: color-mix(in srgb, var(--accent-bg-color) 24%, transparent);
+}
+
+/* Eine Karte je Angabe, Verlauf als ruhige Liste in einer Karte. */
+.contact-field {
+  padding: 10px 10px 10px 16px;
+  min-height: 40px;
+}
+
+.contact-history {
+  padding: 14px 16px;
+}
+
+/* Kollegen: Zeilen ohne Trennlinien, Hover wie die Seitenleiste. */
+.contact-colleagues {
+  padding: 6px;
+}
+
+.contact-colleagues > row {
+  padding: 6px 10px;
+  border-radius: 9px;
+}
+
+/* Buchstabenleiste A–Z: klein, Akzentfarbe, ohne Knopfabstand. */
+.letter-bar button {
+  min-height: 0;
+  min-width: 0;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--accent-color);
+}
+
+/* #402: mehrere Angaben gleichen Typs in einer Karte, feiner Trenner wie boxed-list. */
+.contact-separator {
+  margin: 0 16px;
+}
+
 /* Flach, ohne Verläufe (#336) – Arnd 22.10.2026: „alles flach“, Form unverändert.
  * Einziger sichtbarer Verlauf in der App: AdwAvatar. libadwaita 1.9.1 setzt
  * avatar.color1 … color14 { background-image: linear-gradient(hell, dunkel) }

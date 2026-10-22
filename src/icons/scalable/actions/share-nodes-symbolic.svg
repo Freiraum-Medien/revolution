@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Eigenes Symbol Revolution, GPL-3.0-or-later -->
+<svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 0 16 16" width="16px">
+  <g fill="#222222">
+    <path d="m 3.868 8.654 l 8 -4.5 l -0.736 -1.308 l -8 4.5 z"/>
+    <path d="m 3.132 8.654 l 8 4.5 l 0.736 -1.308 l -8 -4.5 z"/>
+    <circle cx="12.5" cy="3.5" r="2.5"/>
+    <circle cx="3.5" cy="8" r="2.5"/>
+    <circle cx="12.5" cy="12.5" r="2.5"/>
+  </g>
+</svg>

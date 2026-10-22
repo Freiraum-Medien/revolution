@@ -8,12 +8,16 @@
     <file>calendar-view.ui</file>
     <file alias="style.css">mail/style.css</file>
     <file>icons/scalable/actions/archive-symbolic.svg</file>
+    <file>icons/scalable/actions/birthday-symbolic.svg</file>
+    <file>icons/scalable/actions/building-symbolic.svg</file>
     <file>icons/scalable/actions/calendar-month-symbolic.svg</file>
+    <file>icons/scalable/actions/calendar-new-symbolic.svg</file>
     <file>icons/scalable/actions/calendar-today-symbolic.svg</file>
     <file>icons/scalable/actions/calendar-week-symbolic.svg</file>
     <file>icons/scalable/actions/drafts-symbolic.svg</file>
     <file>icons/scalable/actions/inbox-symbolic.svg</file>
     <file>icons/scalable/actions/sent-symbolic.svg</file>
+    <file>icons/scalable/actions/share-nodes-symbolic.svg</file>
     <file>icons/scalable/actions/sort-order-symbolic.svg</file>
   </gresource>
 </gresources>

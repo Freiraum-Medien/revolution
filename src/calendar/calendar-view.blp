@@ -160,6 +160,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
             orientation: vertical;
 
             // GcalDateChooser ist ein eigenes C-Widget; hier Gtk.Calendar.
+            // #340: oben 2px statt 6px, Monatsname auf der Linie 63px (style.css „Eine Linie“).
             // #402: ohne eigenen Rahmen auf der Seitenleisten-Fläche (style.css .date-chooser).
             Calendar date_chooser {
               year: 2026;
@@ -167,7 +168,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
               day: 21;
               margin-start: 12;
               margin-end: 12;
-              margin-top: 6;
+              margin-top: 2;
               margin-bottom: 6;
 
               accessibility {
@@ -345,9 +346,10 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
             orientation: vertical;
             // Wochentage (gcal-month-view.blp:40-92). #402: leicht wie die Abschnittsköpfe
             // der Mail-Ordnerliste (caption-heading, dimmed; mail-view.blp:144-147).
+            // #340: oben 9px statt 6px, Wochentage auf der Linie 63px (style.css „Eine Linie“).
             Box {
               homogeneous: true;
-              margin-top: 6;
+              margin-top: 9;
               margin-bottom: 6;
 
               Label {

@@ -29,6 +29,35 @@
   box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
 }
 
+/* Eine Linie im Kopf (Arnd 22.10.2026, #340, Vorbild 25): alle Kopfleisten enden auf
+ * derselben Höhe, 50px unter der Fensteroberkante (Mittelweg: libadwaita 47px, die
+ * Seitenleiste lag mit 8px Abstand bei 55px). Seitenleiste 8px Abstand + 42px,
+ * Liste und Nachricht 50px. Umschalter (34px) in der Seitenleiste mittig. */
+.floating-sidebar headerbar {
+  min-height: 42px;
+}
+
+.floating-sidebar headerbar > windowhandle > box {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.mail-split > .content-pane headerbar {
+  min-height: 50px;
+}
+
+/* Erster Inhalt jeder Spalte auf einer Linie 63px unter der Fensteroberkante
+ * (gemessen, Ausgangswerte: „Favoriten“ 81, Avatar 65, Hinweis-Pille 56):
+ * erster Abschnittskopf ohne den oberen Innenabstand von listview > header (18px,
+ * libadwaita) – nur die Ordner-/Adressbuchliste im Viewport, nicht der Kalender;
+ * Nachrichtenliste oben 2px statt 4px (.message-list), Pille 13px statt 6px (mail-view.blp).
+ * Kontakte analog: erster Buchstabenkopf ohne 18px, Liste oben 3px statt 4px (.contact-list),
+ * Pille 13px statt 6px (contacts-view.blp). */
+.floating-sidebar viewport > .navigation-sidebar > header:first-child,
+.contact-list > header:first-child {
+  padding-top: 0;
+}
+
 /* Seitenleiste kompakt wie Apple Mail (Arnd 22.10.2026, #340, Vorbild 22): Zeilen
  * 28px + 2px Abstand = 30px statt 36px + 2px (libadwaita .navigation-sidebar > row),
  * Abschnittsüberschriften etwas kleiner (caption-heading 82 %), Abstände in den
@@ -45,7 +74,7 @@
  * Auswahl als abgerundete, kräftige Akzentfläche mit Abstand zum Rand. */
 .message-list {
   background: none;
-  padding: 4px 8px 8px;
+  padding: 2px 8px 8px;
 }
 
 .message-list > row {
@@ -325,7 +354,7 @@ menubutton.primary-menu popover.menu separator {
  * Ungelesen-Punkt, daher Zeile innen 12px wie rechts. */
 .contact-list {
   background: none;
-  padding: 4px 8px 8px;
+  padding: 3px 8px 8px;
 }
 
 .contact-list > row {

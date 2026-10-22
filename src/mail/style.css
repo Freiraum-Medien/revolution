@@ -431,6 +431,66 @@ menubutton.contact-action > button:hover {
   margin: 0 16px;
 }
 
+/* Kalender (#402) – Designsprache der Mail auf die Kalender-Ansicht übertragen.
+ * Seitenleiste, Umschalter und Hauptmenü nutzen die Klassen oben (.mail-split,
+ * .floating-sidebar, .floating-switcher, .primary-menu); hier nur Ergänzungen. */
+
+/* Monatsauswahl ohne eigenen Rahmen und Hintergrund auf der Seitenleisten-Fläche. */
+calendar.date-chooser {
+  border: none;
+  background: none;
+}
+
+/* Kalenderliste: Abstand Ankreuzfeld–Name wie Symbol–Name der Ordnerliste (12px,
+ * mail-view.blp Box spacing); libadwaita lässt hier etwa 6px. */
+.calendar-list checkbutton > label {
+  margin-left: 6px;
+}
+
+/* Nur Wichtiges halbfett wie der Mailkopf (.mail-sender 600): Monatsanfang, heute. */
+.calendar-emphasis {
+  font-weight: 600;
+}
+
+/* Tagesnummer der Woche groß (.title-2), aber nicht fett. */
+.calendar-day-number {
+  font-weight: 400;
+}
+
+.calendar-day-number.calendar-emphasis {
+  font-weight: 600;
+}
+
+/* Termine schlank wie Vorbild 19 (Runde 2, Arnd 22.10.): geringe Höhe, normale Schrift,
+ * kleiner Radius. Farbe, Tönung und Streifen setzt calendar-view.c (load_colors). */
+button.calendar-event {
+  min-height: 0;
+  padding: 2px 8px 2px 10px;
+  border-radius: 6px;
+  font-weight: 400;
+}
+
+/* Dunkel: Trennlinien dunkler als der Hintergrund wie der Trennstrich der Mail
+ * (.dark .mail-split paned.horizontal > separator). */
+.dark .calendar-main separator {
+  background-color: var(--shade-color);
+}
+
+/* Termin-Detail in Nautilus-Optik wie das Hauptmenü: Trennlinien dunkel und über
+ * die volle Breite, Titel halbfett wie .mail-sender. */
+popover.event-popover > contents {
+  padding: 0;
+}
+
+popover.event-popover separator {
+  background-color: var(--shade-color);
+}
+
+.event-title {
+  font-size: 1.1em;
+  font-weight: 600;
+}
+
 /* Flach, ohne Verläufe (#336) – Arnd 22.10.2026: „alles flach“, Form unverändert.
  * Einziger sichtbarer Verlauf in der App: AdwAvatar. libadwaita 1.9.1 setzt
  * avatar.color1 … color14 { background-image: linear-gradient(hell, dunkel) }

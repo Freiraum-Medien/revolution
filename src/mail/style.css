@@ -29,76 +29,16 @@
   box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
 }
 
-/* Platz unter dem letzten Ordner: Höhe des Umschalters samt Abstand (#400 Punkt 2). */
-.folder-list {
-  padding-bottom: 56px;
+/* Seitenleiste kompakt wie Apple Mail (Arnd 22.10.2026, #340, Vorbild 22): Zeilen
+ * 28px + 2px Abstand = 30px statt 36px + 2px (libadwaita .navigation-sidebar > row),
+ * Abschnittsüberschriften etwas kleiner (caption-heading 82 %), Abstände in den
+ * ListHeader-Labels (mail-, contacts-, calendar-view.blp). Symbole und Schrift unverändert. */
+.floating-sidebar .navigation-sidebar > row {
+  min-height: 28px;
 }
 
-/* #400 Punkt 2: Umschalter schwebt über der Ordnerliste. Fläche leicht transparent,
- * darunter weichgezeichnet (backdrop-filter, GTK 4.22).
- * #401: Kontur hauchdünn dunkel statt Akzent. Hell: --shade-color mit Deckkraft ×1,8
- * (0,14) ergibt einen dezent dunkleren Ton der Seitenleiste. Knöpfe bündig an der
- * Kontur, nur Symbole (Arnd); Name bleibt als Tooltip und a11y-Label.
- * Radius 10px, Abstand zum Rand 8px, Knöpfe innen 9px = 10px minus 1px Kontur. */
-.floating-switcher {
-  border: 1px solid RGB(from var(--shade-color) r g b / calc(alpha * 1.8));
-  border-radius: 10px;
-  background-color: color-mix(in srgb, var(--sidebar-bg-color) 62%, transparent);
-  backdrop-filter: blur(4px);
-  box-shadow: 0 1px 4px var(--shade-color);
-}
-
-/* Dunkel: gleiche Logik, Kontur als etwas dunklerer Ton der Seitenleiste
- * (70 % --sidebar-bg-color, 30 % --dark-4); --shade-color wirkte hier zu hart. */
-.dark .floating-switcher {
-  border-color: color-mix(in srgb, var(--sidebar-bg-color) 70%, var(--dark-4));
-}
-
-/* libadwaita: viewswitcher.narrow margin -3px oben/unten, border-spacing 3px. */
-.floating-switcher viewswitcher {
-  margin: 0;
-  border-spacing: 0;
-}
-
-/* #401: aktiver Knopf außen rund (9px = 10px minus 1px Kontur), zum Trenner hin eckig. */
-.floating-switcher viewswitcher button.toggle {
-  border-radius: 0;
-}
-
-.floating-switcher viewswitcher button.toggle:first-child {
-  border-radius: 9px 0 0 9px;
-}
-
-.floating-switcher viewswitcher button.toggle:last-child {
-  border-radius: 0 9px 9px 0;
-}
-
-/* #401: feine senkrechte Trenner zwischen allen Knöpfen (Vorbild 15), im Ton der
- * Kontur, halbe Höhe; als 1px-Hintergrundbild am linken Rand jedes weiteren Knopfs. */
-.floating-switcher viewswitcher button.toggle:not(:first-child) {
-  background-image: image(RGB(from var(--shade-color) r g b / calc(alpha * 1.8)));
-  background-size: 1px 50%;
-  background-position: left center;
-  background-repeat: no-repeat;
-}
-
-.dark .floating-switcher viewswitcher button.toggle:not(:first-child) {
-  background-image: image(color-mix(in srgb, var(--sidebar-bg-color) 70%, var(--dark-4)));
-}
-
-.floating-switcher viewswitcher button.toggle > stack > box.narrow {
-  /* #401: 40px Höhe = 1px Kontur + 9px + 20px Symbol + 9px + 1px Kontur. */
-  padding-top: 9px;
-  padding-bottom: 9px;
-  -gtk-icon-size: 20px;
-}
-
-/* Nur Symbole: Beschriftung ohne Größe; sie bleibt im Widget-Baum (a11y-Name). */
-.floating-switcher viewswitcher button.toggle > stack > box.narrow > label {
-  font-size: 0;
-  min-height: 0;
-  padding: 0;
-  margin: 0;
+.floating-sidebar .navigation-sidebar > header .caption-heading {
+  font-size: 76%;
 }
 
 /* #400 Punkt 4: Nachrichtenliste wie 04/05 – ohne Trennlinien, ruhige Zeilen,
@@ -467,8 +407,8 @@ menubutton.contact-action > button:hover {
 }
 
 /* Kalender (#402) – Designsprache der Mail auf die Kalender-Ansicht übertragen.
- * Seitenleiste, Umschalter und Hauptmenü nutzen die Klassen oben (.mail-split,
- * .floating-sidebar, .floating-switcher, .primary-menu); hier nur Ergänzungen. */
+ * Seitenleiste und Hauptmenü nutzen die Klassen oben (.mail-split,
+ * .floating-sidebar, .primary-menu); hier nur Ergänzungen. */
 
 /* Monatsauswahl ohne eigenen Rahmen und Hintergrund auf der Seitenleisten-Fläche. */
 calendar.date-chooser {

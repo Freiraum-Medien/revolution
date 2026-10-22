@@ -83,8 +83,16 @@ template $RevolutionMailView: Adw.BreakpointBin {
     Adw.ToolbarView {
       [top]
       Adw.HeaderBar {
-        title-widget: Adw.WindowTitle {
-          title: _("Revolution");
+        // Umschalter Mail | Kalender | Kontakte oben in der Kopfleiste der Seitenleiste
+        // (Arnd 22.10.2026, #340, Vorbild 22/23): Standard-libadwaita, flache Symbolknöpfe;
+        // AdwInlineViewSwitcher setzt den Seitentitel als Tooltip (geprüft headless).
+        title-widget: Adw.InlineViewSwitcher {
+          stack: bind template.stack;
+          display-mode: icons;
+
+          styles [
+            "flat",
+          ]
         };
 
         // #399 Punkt 3: Primärmenü in der Seitenleisten-Kopfleiste wie Nautilus (Briefing N).
@@ -115,17 +123,12 @@ template $RevolutionMailView: Adw.BreakpointBin {
         // Viewport: sonst blendet GtkListView beim Start den ersten
         // Abschnittskopf („Favoriten“) aus, erst Hochscrollen zeigt ihn.
         // Ursache klären in #350, Virtualisierung geht verloren.
-        // #400: Scrollen zum Fokus übernimmt mail-view.c (Umschalter liegt darüber).
-        child: Viewport folder_viewport {
-          scroll-to-focus: false;
-
+        child: Viewport {
           child: ListView folder_list {
             tab-behavior: item;
 
-            // folder-list: unterer Innenabstand = Höhe des Umschalters (style.css).
             styles [
               "navigation-sidebar",
-              "folder-list",
             ]
 
             accessibility {
@@ -141,8 +144,8 @@ template $RevolutionMailView: Adw.BreakpointBin {
                   xalign: 0;
                   margin-start: 14;
                   margin-end: 14;
-                  margin-top: 12;
-                  margin-bottom: 6;
+                  margin-top: 4;
+                  margin-bottom: 2;
                   ellipsize: end;
 
                   styles [
@@ -998,31 +1001,6 @@ template $RevolutionMailView: Adw.BreakpointBin {
       };
     }
 
-    // Ansichtsumschalter Mail/Kontakte/Kalender (Briefing 0, stamp-mail-view.blp:187-191).
-    // #400 Punkt 2: schwebt über der Ordnerliste (Gtk.Overlay unten), ohne eigene Leiste
-    // und ohne Trennstrich; Kontur 1 px Akzent, Fläche leicht transparent mit Blur (style.css).
-    // valign end auf dem Slot: sonst deckt der Slot die ganze Liste ab und schluckt Klicks.
-    [switcher]
-    Adw.Bin switcher {
-      valign: end;
-      margin-start: 8;
-      margin-end: 8;
-      margin-top: 8;
-      margin-bottom: 8;
-
-      styles [
-        "floating-switcher",
-      ]
-
-      // #401: äußere Knöpfe bündig an der Kontur, daher ohne Innenabstand (style.css).
-      // Nur Symbole (Arnd): der Seitentitel erscheint als Tooltip (mail-view.c).
-      child: Adw.ViewSwitcher {
-        policy: narrow;
-        stack: bind template.stack;
-        has-tooltip: true;
-        query-tooltip => $on_switcher_query_tooltip() swapped;
-      };
-    }
 
     // Breit: Seitenleiste | Liste | Nachricht, Listenbreite ziehbar (stamp-mail-view.blp:57-96).
     // Schmal (≤ 1000 sp): dieselbe Ansicht, Seitenleiste eingeklappt als Überlagerung
@@ -1041,8 +1019,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
         // #400 Punkt 1: Seitenleiste als schwebende, abgerundete Fläche mit Abstand
         // zum Fensterrand rundum (Vorbild 06/07, style.css .floating-sidebar).
-        // Punkt 2: Umschalter als Überlagerung über der Ordnerliste.
-        sidebar: Overlay {
+        sidebar: Adw.Bin {
           overflow: hidden;
           margin-start: 8;
           margin-end: 8;
@@ -1056,12 +1033,6 @@ template $RevolutionMailView: Adw.BreakpointBin {
           child: Adw.LayoutSlot {
             id: "sidebar";
           };
-
-          [overlay]
-          Adw.LayoutSlot {
-            id: "switcher";
-            valign: end;
-          }
         };
 
         content: Paned {
@@ -1102,15 +1073,8 @@ template $RevolutionMailView: Adw.BreakpointBin {
               id: "sidebar";
             };
 
-            content: Adw.ToolbarView {
-              content: Adw.LayoutSlot {
-                id: "list";
-              };
-
-              [bottom]
-              Adw.LayoutSlot {
-                id: "switcher";
-              }
+            content: Adw.LayoutSlot {
+              id: "list";
             };
           };
         }

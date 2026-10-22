@@ -3,6 +3,9 @@
  *
  * Custom-CSS ausdrücklich gewünscht (Arnd, #400), Farben nur aus libadwaita-Variablen
  * (Palette --light-1 … --dark-4 und --blue-4 aus dem libadwaita-Stylesheet).
+ * Ausnahme: avatar.color1 … color14 (Abschnitt „Flach, ohne Verläufe (#336)“) nutzt
+ * feste Farbwerte aus libadwaita 1.9.1, da libadwaita dafür keine Variable bereitstellt.
+ * Bei jedem libadwaita-Update gegen das neue Stylesheet prüfen.
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -279,11 +282,6 @@ menubutton.primary-menu popover.menu separator {
 
 .composer-dropdown > button arrow {
   opacity: 0.55;
-}
-
-/* Kleine, dezente Symbole (Vorbild 17). */
-.composer-icon {
-  opacity: 0.7;
 }
 
 /* Auswahllisten von Von/Signatur in Nautilus-Optik wie das Hauptmenü (#401 Punkt 2,

@@ -16,8 +16,8 @@ template $RevolutionComposer: Adw.ApplicationWindow {
   height-request: 294;
   focus-widget: body_view;
 
-  // Kürzel wie Stamp (stamp-composer.c:2376-2389): Strg+Enter Senden,
-  // Escape schließt; Fangphase, damit das Textfeld sie nicht verschluckt.
+  // Kürzel wie Stamp (stamp-composer.c:2376-2389): Strg+Enter Senden;
+  // Fangphase, damit das Textfeld sie nicht verschluckt.
   // Strg+B/I/U für die Formatierungsleiste.
   ShortcutController {
     propagation-phase: capture;
@@ -25,11 +25,6 @@ template $RevolutionComposer: Adw.ApplicationWindow {
     Shortcut {
       trigger: "<primary>Return";
       action: "action(composer.send)";
-    }
-
-    Shortcut {
-      trigger: "Escape";
-      action: "action(window.close)";
     }
 
     Shortcut {
@@ -45,6 +40,15 @@ template $RevolutionComposer: Adw.ApplicationWindow {
     Shortcut {
       trigger: "<primary>u";
       action: "action(composer.underline)";
+    }
+  }
+
+  // Escape schließt den Composer, in der Standardphase (bubble): Ein offenes
+  // Popover (Von, Signatur) verbraucht Escape zuerst und schließt nur sich.
+  ShortcutController {
+    Shortcut {
+      trigger: "Escape";
+      action: "action(window.close)";
     }
   }
 

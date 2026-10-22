@@ -113,10 +113,20 @@ on_dark_changed (AdwStyleManager    *manager,
 }
 
 static void
+revolution_composer_dispose (GObject *object)
+{
+  gtk_widget_dispose_template (GTK_WIDGET (object), REVOLUTION_TYPE_COMPOSER);
+
+  G_OBJECT_CLASS (revolution_composer_parent_class)->dispose (object);
+}
+
+static void
 revolution_composer_class_init (RevolutionComposerClass *klass)
 {
+  GObjectClass *object_class = G_OBJECT_CLASS (klass);
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (klass);
 
+  object_class->dispose = revolution_composer_dispose;
   gtk_widget_class_set_template_from_resource (widget_class, "/org/revolution/Mail/composer.ui");
   gtk_widget_class_bind_template_child (widget_class, RevolutionComposer, format_button);
   gtk_widget_class_bind_template_child (widget_class, RevolutionComposer, cc_entry);

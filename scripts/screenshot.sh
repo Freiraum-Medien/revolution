@@ -63,15 +63,18 @@ python3 -c 'import PIL' 2>/dev/null || { echo "Fehlt: python3-pil" >&2; exit 1; 
 mkdir -p "$OUT_DIR"
 
 REAL_DISPLAY="${DISPLAY:-}"
+# Laufzeitverzeichnis auch bei Abbruch (set -e, Strg+C) entfernen.
+RUNDIR=""
+trap 'rm -rf "${RUNDIR:-}"' EXIT
 
 shoot () {
-  local scheme="$1" out="$2" rundir
-  rundir="$(mktemp -d)"
+  local scheme="$1" out="$2"
+  RUNDIR="$(mktemp -d)"
   # Wayland/Keyring der echten Sitzung abschneiden, eigenes Laufzeitverzeichnis,
   # keine Portale (sonst startet die Test-D-Bus-Sitzung xdg-desktop-portal),
   # X11-Backend erzwingen.
   env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
-    XDG_RUNTIME_DIR="$rundir" \
+    XDG_RUNTIME_DIR="$RUNDIR" \
     REAL_DISPLAY="$REAL_DISPLAY" BIN="$BIN" OUT="$out" WIDTH="$((WIDTH * RENDER))" HEIGHT="$((HEIGHT * RENDER))" \
     CLICK="$CLICK" KEYS="$KEYS" RENDER="$RENDER" ${SCALE:+GDK_SCALE=$RENDER} \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo GTK_A11Y=none NO_AT_BRIDGE=1 \
@@ -84,6 +87,9 @@ shoot () {
         exit 2
       fi
       echo "Xvfb-Anzeige: $DISPLAY (echte Sitzung: ${REAL_DISPLAY:-keine})"
+      # Attrappe und App bei jedem Ende beenden, auch nach Fehlern (keine Waisen).
+      pid=""; cm=""
+      trap "kill \$pid \$cm 2>/dev/null || true" EXIT
       # Compositing-Manager-Attrappe (siehe Kopf): besitzt _NET_WM_CM_S0, solange sie läuft.
       python3 -c "
 import time
@@ -156,9 +162,9 @@ out.crop((g.x, g.y, g.x + g.width, g.y + g.height)).save(os.environ[\"OUT\"])
       else
         import -window root "$OUT"
       fi
-      kill "$pid" "$cm"; wait "$pid" 2>/dev/null || true
+      kill "$pid" "$cm" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
     '
-  rm -rf "$rundir"
+  rm -rf "$RUNDIR"
   if [ -n "$SCALE" ]; then
     # Doppelt gerendert, auf SCALE verkleinern (1,5 → 75 %); -filter Lanczos für scharfe Kanten.
     magick "$out" -filter Lanczos -resize "$(LC_ALL=C awk -v s="$SCALE" -v r="$RENDER" 'BEGIN { printf "%.4f", s / r * 100 }')%" "$out"

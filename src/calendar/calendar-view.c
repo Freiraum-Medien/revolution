@@ -468,7 +468,7 @@ load_colors (RevolutionCalendarView *self)
       g_object_get (calendar, "color", &color, "css-classes", &classes, NULL);
       g_string_append_printf (css,
                               "checkbutton.%1$s > check { box-shadow: inset 0 0 0 2px %2$s; }\n"
-                              "checkbutton.%1$s > check:checked { background-color: %2$s; color: white; box-shadow: none; }\n"
+                              "checkbutton.%1$s > check:checked { background-color: %2$s; color: var(--accent-fg-color); box-shadow: none; }\n"
                               "button.%1$s { background-color: color-mix(in srgb, %2$s 14%%, var(--window-bg-color)); box-shadow: inset 3px 0 %2$s; }\n",
                               classes[0], color);
     }

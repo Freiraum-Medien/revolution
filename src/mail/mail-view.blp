@@ -1222,6 +1222,29 @@ menu primary_menu {
     }
   }
 
+  // Drei Themes (Arnd 22.10.2026, #340): Radio-Einträge der Aktion app.theme (main.c).
+  section {
+    label: _("Darstellung");
+
+    item {
+      label: _("_Hell");
+      action: "app.theme";
+      target: "hell";
+    }
+
+    item {
+      label: _("Dunkel _mit hellem Inhalt");
+      action: "app.theme";
+      target: "dunkel-hell";
+    }
+
+    item {
+      label: _("_Dunkel");
+      action: "app.theme";
+      target: "dunkel";
+    }
+  }
+
   section {
     item {
       label: _("_Einstellungen");

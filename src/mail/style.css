@@ -191,6 +191,35 @@
   font-weight: 700;
 }
 
+/* Theme „Dunkel“ (#340, Arnd 22.10.2026): Klasse .content-dark am Fenster (main.c).
+ * Mail-Karte in der Kartenfarbe des Designs wie .contact-card, Text hell; die
+ * Nachbildung der HTML-Mail entsprechend dunkel, Blau aufgehellt (--blue-3). */
+.content-dark .html-mail {
+  background-color: var(--card-bg-color);
+  color: var(--card-fg-color);
+}
+
+.content-dark .html-brand,
+.content-dark .html-credit {
+  color: var(--blue-3);
+}
+
+.content-dark .html-rule {
+  background-color: var(--blue-3);
+}
+
+.content-dark .html-small {
+  color: var(--light-4);
+}
+
+.content-dark .html-rule-thin {
+  background-color: var(--border-color);
+}
+
+.content-dark .html-box {
+  background-color: color-mix(in srgb, var(--blue-3) 12%, transparent);
+}
+
 /* #401 Punkt 1: nur dunkel – Trennstrich zwischen Liste und Nachricht dunkler als
  * der Hintergrund (Vorbild 11). libadwaita zeichnet die Linie als box-shadow mit
  * currentColor (hell); hier --shade-color (dunkel, rgba(16,16,16,0.35) im Dunkel-Stylesheet).
@@ -329,11 +358,19 @@ menubutton.primary-menu popover.menu separator {
 }
 
 /* Schreibfläche als große abgerundete Karte mit Abstand wie die Mail-Karte (.html-mail,
- * #400 Punkt 7); Farbe aus --card-bg-color, folgt dem Farbschema. */
+ * #400 Punkt 7). Themes (#340): hell auch im Dunkelmodus wie die Mail-Karte, Schrift
+ * --dark-3 (Textfarbe des hellen Stylesheets); nur Theme „Dunkel“ (.content-dark am
+ * Fenster, main.c) in der Kartenfarbe des Designs. */
 .composer-card {
   border-radius: 12px;
   background-color: var(--card-bg-color);
   box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
+}
+
+.composer:not(.content-dark) .composer-card {
+  --view-fg-color: var(--dark-3);
+  background-color: var(--light-1);
+  color: var(--dark-3);
 }
 
 .composer-card textview,

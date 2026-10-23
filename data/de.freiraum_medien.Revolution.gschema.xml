@@ -40,5 +40,11 @@
       <summary>Verzögerung bis „gelesen“</summary>
       <description>Millisekunden, bis eine gewählte E-Mail als gelesen markiert wird.</description>
     </key>
+    <!-- #350: Erstauswahl beim Start (mail-view.c, select_initial_folder). -->
+    <key name="selected-folder" type="s">
+      <default>''</default>
+      <summary>Zuletzt gewählter Ordner</summary>
+      <description>UID des Kontos und voller Name des zuletzt gewählten Mail-Ordners als „UID/Ordner“; leer wählt den Posteingang des ersten Kontos.</description>
+    </key>
   </schema>
 </schemalist>

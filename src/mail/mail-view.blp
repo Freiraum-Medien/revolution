@@ -166,7 +166,11 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                 // Modell (mail-view.c): je Konto ein GtkTreeListModel über seinen Ordnern,
                 // zusammengefügt als Abschnitte (GtkFlattenListModel), #348.
-                model: SingleSelection folder_selection {};
+                // #350: keine automatische Auswahl, die Erstauswahl trifft mail-view.c
+                // (select_initial_folder), sonst würde der erste geladene Ordner geladen.
+                model: SingleSelection folder_selection {
+                  autoselect: false;
+                };
 
                 // Konten als nicht auswählbare Abschnittsköpfe wie der abgenommene Prototyp
                 // (Tag m2-prototyp, mail-view.blp:137-154, Design/Prototyp/mail-hell.png
@@ -190,12 +194,13 @@ template $RevolutionMailView: Adw.BreakpointBin {
                   }
                 };
 
-                // Ordnerzeile wie der Prototyp (mail-view.blp:156-193) ohne Ungelesen-Zähler
-                // (#348: nicht im Umfang); Unterordner mit Ausklapp-Pfeil.
+                // Ordnerzeile wie der Prototyp (mail-view.blp:156-193), Unterordner mit
+                // Ausklapp-Pfeil, #350 mit Ungelesen-Zähler.
                 factory: BuilderListItemFactory {
                   template ListItem {
-                    // Zugänglicher Name der Zeile = Ordnername (Architektur 8).
-                    accessible-label: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.display-name;
+                    // Zugänglicher Name der Zeile = Ordnername, #350 mit Zahl der ungelesenen
+                    // (Architektur 8).
+                    accessible-label: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.accessible-label;
 
                     child: TreeExpander {
                       list-row: bind template.item as <TreeListRow>;
@@ -213,6 +218,19 @@ template $RevolutionMailView: Adw.BreakpointBin {
                           hexpand: true;
                           xalign: 0;
                           ellipsize: end;
+                        }
+
+                        // #350: Ungelesen-Zähler wie der Prototyp (Tag m2-prototyp,
+                        // mail-view.blp:176-189), leer bei 0.
+                        Label {
+                          label: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.unread-label;
+                          tooltip-text: _("Ungelesene Nachrichten");
+                          accessible-role: presentation;
+
+                          styles [
+                            "dimmed",
+                            "numeric",
+                          ]
                         }
                       };
                     };

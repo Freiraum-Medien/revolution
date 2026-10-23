@@ -4,6 +4,8 @@
  * Ordnerbaum (GtkTreeListModel, CR #397). Die Blueprint-Zeilenvorlage (mail-view.blp) bindet
  * an „display-name“ und „icon-name“, der Abschnittskopf an „account“ (Kontoname).
  * Unterordner liegen in „children“ (create_func in mail-view.c), NULL ohne Unterordner.
+ * #350: Spezialordner aus der ESource (revolution_mail_folder_mark_special, im Worker) und
+ * Ungelesen-Zähler („unread-label“, live über CamelFolder::changed, revolution_mail_folder_watch).
  *
  * Copyright 2026 Arnd Messer
  *
@@ -28,11 +30,23 @@ struct _RevolutionMailFolder
   GListStore *children;
   /* Schwach: das Konto hält über den Ordnerbaum (mail-view.c) seine Ordner. */
   GWeakRef    account;
+  /* #350: Ungelesen, -1 = unbekannt (imapx ohne geöffneten Ordner, camel-imapx-store.c:338-339). */
+  int         unread;
+  char       *unread_label;
+  char       *accessible_label;
+  /* #350: beobachteter CamelFolder (schwach wie Evolution mail-folder-cache.c:2349-2363),
+   * beim Posteingang zusätzlich gehalten (held). */
+  GWeakRef    camel_folder;
+  CamelFolder *held;
+  gulong      changed_id;
+  gboolean    counting;
+  gboolean    count_again;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionMailFolder, revolution_mail_folder, G_TYPE_OBJECT)
 
-enum { PROP_0, PROP_FULL_NAME, PROP_DISPLAY_NAME, PROP_ICON_NAME, PROP_ACCOUNT, N_PROPS };
+enum { PROP_0, PROP_FULL_NAME, PROP_DISPLAY_NAME, PROP_ICON_NAME, PROP_ACCOUNT, PROP_UNREAD_LABEL,
+       PROP_ACCESSIBLE_LABEL, N_PROPS };
 
 static GParamSpec *properties[N_PROPS];
 
@@ -50,6 +64,8 @@ revolution_mail_folder_get_property (GObject    *object,
     case PROP_DISPLAY_NAME: g_value_set_string (value, self->display_name); break;
     case PROP_ICON_NAME:    g_value_set_static_string (value, self->icon_name); break;
     case PROP_ACCOUNT:      g_value_take_object (value, g_weak_ref_get (&self->account)); break;
+    case PROP_UNREAD_LABEL: g_value_set_string (value, self->unread_label); break;
+    case PROP_ACCESSIBLE_LABEL: g_value_set_string (value, self->accessible_label); break;
     default: G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
 }
@@ -58,9 +74,16 @@ static void
 revolution_mail_folder_finalize (GObject *object)
 {
   RevolutionMailFolder *self = REVOLUTION_MAIL_FOLDER (object);
+  g_autoptr (CamelFolder) folder = g_weak_ref_get (&self->camel_folder);
 
+  if (folder != NULL && self->changed_id != 0)
+    g_signal_handler_disconnect (folder, self->changed_id);
+  g_weak_ref_clear (&self->camel_folder);
+  g_clear_object (&self->held);
   g_free (self->full_name);
   g_free (self->display_name);
+  g_free (self->unread_label);
+  g_free (self->accessible_label);
   g_clear_object (&self->children);
   g_weak_ref_clear (&self->account);
 
@@ -80,6 +103,10 @@ revolution_mail_folder_class_init (RevolutionMailFolderClass *klass)
   properties[PROP_DISPLAY_NAME] = g_param_spec_string ("display-name", NULL, NULL, NULL, flags);
   properties[PROP_ICON_NAME] = g_param_spec_string ("icon-name", NULL, NULL, NULL, flags);
   properties[PROP_ACCOUNT] = g_param_spec_object ("account", NULL, NULL, REVOLUTION_TYPE_MAIL_ACCOUNT, flags);
+  properties[PROP_UNREAD_LABEL] = g_param_spec_string ("unread-label", NULL, NULL, NULL,
+                                                       flags | G_PARAM_EXPLICIT_NOTIFY);
+  properties[PROP_ACCESSIBLE_LABEL] = g_param_spec_string ("accessible-label", NULL, NULL, NULL,
+                                                           flags | G_PARAM_EXPLICIT_NOTIFY);
   g_object_class_install_properties (object_class, N_PROPS, properties);
 }
 
@@ -87,6 +114,8 @@ static void
 revolution_mail_folder_init (RevolutionMailFolder *self)
 {
   g_weak_ref_init (&self->account, NULL);
+  g_weak_ref_init (&self->camel_folder, NULL);
+  self->unread = -1;
 }
 
 /* Icons nach Ordnertyp wie Stamp (stamp-folder-item.c:56-89). inbox, drafts, sent und
@@ -126,6 +155,9 @@ static const struct
   { CAMEL_FOLDER_TYPE_JUNK,   "Junk",   N_("Spam") },
   { CAMEL_FOLDER_TYPE_SENT,   "Sent",   N_("Gesendet") },
   { CAMEL_FOLDER_TYPE_DRAFTS, "Drafts", N_("Entwürfe") },
+  /* #350: nicht in Evolutions Tabelle; Archiv-Ordner aus der Ersteinrichtung von imapx heißen
+   * „Archive“ (camel-imapx-store.c:2814-2816), Name wie der Prototyp. */
+  { CAMEL_FOLDER_TYPE_ARCHIVE, "Archive", N_("Archiv") },
 };
 
 static const char *
@@ -199,6 +231,40 @@ revolution_mail_folder_get_children (RevolutionMailFolder *self)
   return self->children != NULL ? G_LIST_MODEL (self->children) : NULL;
 }
 
+/* #350: Ungelesen-Zähler rechts in der Ordnerzeile wie der Prototyp (Tag m2-prototyp,
+ * mail-view.blp:176-189), nur ungelesen (Task #350); 0 und unbekannt (-1) ohne Zahl.
+ * Zugänglicher Name der Zeile mit Zahl (Architektur 8). Nur im UI-Thread. */
+static void
+set_unread (RevolutionMailFolder *self,
+            int                   unread)
+{
+  g_autoptr (RevolutionMailAccount) account = g_weak_ref_get (&self->account);
+  g_autofree char *label = NULL;
+  g_autofree char *accessible = NULL;
+
+  if (self->unread == unread && self->accessible_label != NULL)
+    return;
+  self->unread = unread;
+
+  if (unread > 0)
+    {
+      label = g_strdup_printf ("%d", unread);
+      /* Translators: zugänglicher Name einer Ordnerzeile, z. B. „Eingang, 4 ungelesen“. */
+      accessible = g_strdup_printf (ngettext ("%s, %d ungelesen", "%s, %d ungelesen", unread),
+                                    self->display_name, unread);
+    }
+
+  g_free (self->unread_label);
+  self->unread_label = g_steal_pointer (&label);
+  g_free (self->accessible_label);
+  self->accessible_label = accessible != NULL ? g_steal_pointer (&accessible) : g_strdup (self->display_name);
+  g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_UNREAD_LABEL]);
+  g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_ACCESSIBLE_LABEL]);
+
+  if (unread >= 0 && account != NULL)
+    g_debug ("Ungelesen: %s %s %d", revolution_mail_account_get_uid (account), self->full_name, unread);
+}
+
 /* Hängt first und seine Geschwister (mit Unterordnern) sortiert an store an; nur im
  * UI-Thread (README „Datenmodell“). Gibt die Zahl aller Ordner zurück. */
 guint
@@ -218,6 +284,10 @@ revolution_mail_folder_append_tree (GListStore            *store,
       folder->icon_name = icon_for_type (fi->flags);
       g_weak_ref_set (&folder->account, account);
       g_debug ("Ordner: %s %s", revolution_mail_account_get_uid (account), fi->full_name);
+      /* #350: Zahl aus der Ordnerliste, sofern der Store sie kennt (imapx mit LIST-STATUS oder
+       * geöffnetem Ordner, camel-imapx-store.c:1362-1400; microsoft365 aus Graph). Wie
+       * Evolution setup_folder (mail-folder-cache.c:1260). */
+      set_unread (folder, (fi->flags & CAMEL_FOLDER_NOSELECT) != 0 ? -1 : fi->unread);
 
       if (fi->child != NULL)
         {
@@ -232,4 +302,308 @@ revolution_mail_folder_append_tree (GListStore            *store,
   g_list_store_sort (store, compare_folders, NULL);
 
   return count;
+}
+
+/* #350: Ordner mit diesem vollen Namen in model und seinen Unterordnern (neue Referenz) oder
+ * NULL. */
+RevolutionMailFolder *
+revolution_mail_folder_find (GListModel *model,
+                             const char *full_name)
+{
+  for (guint i = 0; model != NULL && i < g_list_model_get_n_items (model); i++)
+    {
+      g_autoptr (RevolutionMailFolder) folder = g_list_model_get_item (model, i);
+      RevolutionMailFolder *found;
+
+      if (g_strcmp0 (folder->full_name, full_name) == 0)
+        return g_steal_pointer (&folder);
+
+      found = revolution_mail_folder_find (revolution_mail_folder_get_children (folder), full_name);
+      if (found != NULL)
+        return found;
+    }
+
+  return NULL;
+}
+
+/* #350: Ungelesen zählen wie Evolution update_1folder (mail-folder-cache.c:846-933) mit
+ * camel_folder_get_unread_message_count, im Worker wie dort (mail_process_folder_changes).
+ * Die Summary zählt Gelöschte und Spam nicht mit (EDS camel-folder-summary.c:418-421).
+ * Immer nur eine Zählung je Ordner; Änderungen währenddessen lösen eine weitere aus. */
+static void
+count_unread_thread (GTask        *task,
+                     gpointer      source_object G_GNUC_UNUSED,
+                     gpointer      task_data,
+                     GCancellable *cancellable G_GNUC_UNUSED)
+{
+  g_task_return_int (task, camel_folder_get_unread_message_count (task_data));
+}
+
+static void count_unread (RevolutionMailFolder *self);
+
+static void
+on_unread_counted (GObject      *source_object,
+                   GAsyncResult *result,
+                   gpointer      user_data G_GNUC_UNUSED)
+{
+  RevolutionMailFolder *self = REVOLUTION_MAIL_FOLDER (source_object);
+  gssize unread = g_task_propagate_int (G_TASK (result), NULL);
+
+  self->counting = FALSE;
+  if (unread >= 0)
+    set_unread (self, (int) unread);
+
+  if (self->count_again)
+    count_unread (self);
+}
+
+static void
+count_unread (RevolutionMailFolder *self)
+{
+  g_autoptr (CamelFolder) folder = g_weak_ref_get (&self->camel_folder);
+  g_autoptr (GTask) task = NULL;
+
+  if (folder == NULL)
+    return;
+
+  if (self->counting)
+    {
+      self->count_again = TRUE;
+      return;
+    }
+
+  self->counting = TRUE;
+  self->count_again = FALSE;
+  task = g_task_new (self, NULL, on_unread_counted, NULL);
+  g_task_set_source_tag (task, count_unread);
+  g_task_set_task_data (task, g_steal_pointer (&folder), g_object_unref);
+  g_task_run_in_thread (task, count_unread_thread);
+}
+
+static gboolean
+count_unread_idle (gpointer data)
+{
+  count_unread (data);
+
+  return G_SOURCE_REMOVE;
+}
+
+/* CamelFolder::changed kommt über camel_session_idle_add im Hauptkontext, bei eingefrorenem
+ * Ordner aber im aufrufenden Thread (EDS camel-folder.c:2860-2899); daher über eine schwache
+ * Referenz in den UI-Thread. */
+static void
+on_camel_folder_changed (CamelFolder           *folder G_GNUC_UNUSED,
+                         CamelFolderChangeInfo *changes G_GNUC_UNUSED,
+                         GWeakRef              *item)
+{
+  RevolutionMailFolder *self = g_weak_ref_get (item);
+
+  if (self != NULL)
+    g_main_context_invoke_full (NULL, G_PRIORITY_DEFAULT_IDLE, count_unread_idle, self, g_object_unref);
+}
+
+static void
+weak_ref_free (gpointer data,
+               GClosure *closure G_GNUC_UNUSED)
+{
+  g_weak_ref_clear (data);
+  g_free (data);
+}
+
+/* #350: Zähler dieses Ordners live aus folder („changed“) wie Evolution
+ * mail_folder_cache_note_folder (mail-folder-cache.c:2290-2381), nur im UI-Thread. hold: den
+ * Ordner zusätzlich halten (Posteingang, main.c); sonst lebt er nur, solange ihn jemand anderes
+ * hält (Nachrichtenliste). refreshed: folder ist in dieser Sitzung mit dem Server abgeglichen,
+ * jetzt zählen. */
+void
+revolution_mail_folder_watch (RevolutionMailFolder *self,
+                              CamelFolder          *folder,
+                              gboolean              hold,
+                              gboolean              refreshed)
+{
+  g_autoptr (CamelFolder) old = NULL;
+  GWeakRef *item;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_FOLDER (self));
+  g_return_if_fail (CAMEL_IS_FOLDER (folder));
+
+  if (hold)
+    g_set_object (&self->held, folder);
+
+  old = g_weak_ref_get (&self->camel_folder);
+  if (old != folder)
+    {
+      if (old != NULL && self->changed_id != 0)
+        g_signal_handler_disconnect (old, self->changed_id);
+
+      item = g_new0 (GWeakRef, 1);
+      g_weak_ref_init (item, self);
+      g_weak_ref_set (&self->camel_folder, folder);
+      self->changed_id = g_signal_connect_data (folder, "changed", G_CALLBACK (on_camel_folder_changed),
+                                                item, weak_ref_free, G_CONNECT_DEFAULT);
+    }
+
+  /* Ein nur geöffneter Ordner (Signal „folder-opened“) zählt nicht: seine Summary ist der
+   * Cache, beim ersten Öffnen leer (gemessen: microsoft365 0 statt 269 aus Graph), und imapx
+   * öffnet beim Verbinden jeden Ordner (camel-offline-store.c:317, camel-imapx-store.c:
+   * 2904-2925). Gezählt wird nach dem Abgleich (refreshed) und bei jedem „changed“. */
+  if (refreshed)
+    count_unread (self);
+}
+
+/* #350: Nach Vorlage Evolution 3.56.2 libemail-engine/e-mail-folder-utils.c:1862-1900
+ * (e_mail_folder_uri_parse, Zweig „folder://“), nachgebildet statt übernommen (#346-Entscheidung,
+ * die Datei wird nicht übernommen). folder://UID/PFAD (Format e_mail_folder_uri_build, dort
+ * 1808-1835) → voller Name, wenn die URI in den Store mit store_uid zeigt, sonst NULL. Die alten
+ * Formate „email://“ und Store-URIs aus Evolution 2.x (dort 1901-1970) nicht. Vergleich der
+ * Namen wie e_mail_folder_uri_equal (dort 2026-2070) über CamelStoreClass::equal_folder_name
+ * (apply_special). */
+static char *
+folder_uri_to_name (const char *uri,
+                    const char *store_uid)
+{
+  g_autoptr (CamelURL) url = NULL;
+  g_autofree char *uid = NULL;
+
+  if (uri == NULL || *uri == '\0')
+    return NULL;
+
+  url = camel_url_new (uri, NULL);
+  if (url == NULL || g_strcmp0 (url->protocol, "folder") != 0 || url->host == NULL ||
+      url->path == NULL || *url->path != '/')
+    return NULL;
+
+  uid = url->user != NULL && *url->user != '\0' ? g_strconcat (url->user, "@", url->host, NULL)
+                                                : g_strdup (url->host);
+
+  return g_strcmp0 (uid, store_uid) == 0 ? camel_url_decode_path (url->path + 1) : NULL;
+}
+
+typedef struct
+{
+  guint32     type;
+  const char *setup_key;
+  const char *label;
+  char       *name;
+  const char *source;
+} SpecialFolder;
+
+static gboolean
+tree_has_type (CamelFolderInfo *fi,
+               guint32          type)
+{
+  for (; fi != NULL; fi = fi->next)
+    if ((fi->flags & CAMEL_FOLDER_TYPE_MASK) == type || tree_has_type (fi->child, type))
+      return TRUE;
+
+  return FALSE;
+}
+
+static void
+apply_special (CamelStore      *store,
+               CamelFolderInfo *fi,
+               SpecialFolder   *special,
+               gsize            n_special)
+{
+  GEqualFunc equal = CAMEL_STORE_GET_CLASS (store)->equal_folder_name;
+
+  for (; fi != NULL; fi = fi->next)
+    {
+      /* Nur Ordner ohne Typ, wie Evolution (em-folder-tree-model.c:747): Typen vom Server
+       * (Posteingang, microsoft365) haben Vorrang. Reihenfolge Entwürfe, Gesendet, Archiv wie
+       * dort 749-776. */
+      for (gsize i = 0; i < n_special && (fi->flags & CAMEL_FOLDER_TYPE_MASK) == 0; i++)
+        if (special[i].name != NULL && equal (fi->full_name, special[i].name))
+          {
+            fi->flags |= special[i].type;
+            g_debug ("Spezialordner: %s %s %s (%s)", camel_service_get_uid (CAMEL_SERVICE (store)),
+                     special[i].label, fi->full_name, special[i].source);
+          }
+
+      apply_special (store, fi->child, special, n_special);
+    }
+}
+
+/* #350: Gesendet, Entwürfe und Archiv als Ordnertyp in info eintragen, im Worker. Wie Evolution
+ * (em-folder-tree-model.c:655-791, folder_tree_model_get_special_folders_uri und
+ * e_mail_session_is_archive_folder, e-mail-session.c:3139-3165) aus der Identität des Kontos
+ * (em_utils_ref_mail_identity_for_store, e-mail-utils.c:789-820): Mail Submission
+ * „sent-folder“, Mail Composition „drafts-folder“, Mail Account „archive-folder“.
+ * Zeigt die ESource nicht in diesen Store (bei Konten, die Evolution nie eingerichtet hat,
+ * steht dort folder://local/…), gilt das Ergebnis der Ersteinrichtung des Stores
+ * (camel_store_initial_setup_sync), das Evolution beim ersten Verbinden in die ESource schreibt
+ * (mail-folder-cache.c:1971-2028). Revolution schreibt es nie (#348), es gilt nur im Speicher.
+ * imapx liest dafür nur (LIST, SPECIAL-USE, Namen, camel-imapx-store.c:2795-2890). */
+void
+revolution_mail_folder_mark_special (CamelStore      *store,
+                                     ESourceRegistry *registry,
+                                     CamelFolderInfo *info,
+                                     GCancellable    *cancellable)
+{
+  const char *uid = camel_service_get_uid (CAMEL_SERVICE (store));
+  SpecialFolder special[] = {
+    { CAMEL_FOLDER_TYPE_DRAFTS,  CAMEL_STORE_SETUP_DRAFTS_FOLDER,  "Entwürfe", NULL, "ESource" },
+    { CAMEL_FOLDER_TYPE_SENT,    CAMEL_STORE_SETUP_SENT_FOLDER,    "Gesendet", NULL, "ESource" },
+    { CAMEL_FOLDER_TYPE_ARCHIVE, CAMEL_STORE_SETUP_ARCHIVE_FOLDER, "Archiv",   NULL, "ESource" },
+  };
+  g_autoptr (ESource) account = e_source_registry_ref_source (registry, uid);
+  g_autoptr (ESource) identity = NULL;
+  g_autoptr (GHashTable) setup = NULL;
+  g_autoptr (GError) error = NULL;
+  gboolean need_setup = FALSE;
+
+  if (account != NULL && e_source_has_extension (account, E_SOURCE_EXTENSION_MAIL_ACCOUNT))
+    {
+      ESourceMailAccount *extension = e_source_get_extension (account, E_SOURCE_EXTENSION_MAIL_ACCOUNT);
+      g_autofree char *identity_uid = e_source_mail_account_dup_identity_uid (extension);
+      g_autofree char *archive = e_source_mail_account_dup_archive_folder (extension);
+
+      special[2].name = folder_uri_to_name (archive, uid);
+      if (identity_uid != NULL)
+        identity = e_source_registry_ref_source (registry, identity_uid);
+    }
+
+  if (identity != NULL && e_source_has_extension (identity, E_SOURCE_EXTENSION_MAIL_COMPOSITION))
+    {
+      g_autofree char *drafts = e_source_mail_composition_dup_drafts_folder (
+        e_source_get_extension (identity, E_SOURCE_EXTENSION_MAIL_COMPOSITION));
+
+      special[0].name = folder_uri_to_name (drafts, uid);
+    }
+
+  if (identity != NULL && e_source_has_extension (identity, E_SOURCE_EXTENSION_MAIL_SUBMISSION))
+    {
+      g_autofree char *sent = e_source_mail_submission_dup_sent_folder (
+        e_source_get_extension (identity, E_SOURCE_EXTENSION_MAIL_SUBMISSION));
+
+      special[1].name = folder_uri_to_name (sent, uid);
+    }
+
+  /* Ersteinrichtung nur, wenn ein Typ weder in der ESource noch vom Server (microsoft365,
+   * camel-m365-store.c:157-169) kommt; imapx fragt dafür die Ordnerliste ein zweites Mal ab. */
+  for (gsize i = 0; i < G_N_ELEMENTS (special); i++)
+    need_setup |= special[i].name == NULL && !tree_has_type (info, special[i].type);
+
+  if (need_setup && (camel_store_get_flags (store) & CAMEL_STORE_SUPPORTS_INITIAL_SETUP) != 0)
+    {
+      gint64 started = g_get_monotonic_time ();
+
+      if (!camel_store_initial_setup_sync (store, &setup, cancellable, &error))
+        g_debug ("Spezialordner: %s Ersteinrichtung: %s", uid, error->message);
+      else
+        g_debug ("Spezialordner: %s Ersteinrichtung nach %.0f ms", uid,
+                 (g_get_monotonic_time () - started) / 1000.0);
+
+      for (gsize i = 0; setup != NULL && i < G_N_ELEMENTS (special); i++)
+        if (special[i].name == NULL && g_hash_table_contains (setup, special[i].setup_key))
+          {
+            special[i].name = g_strdup (g_hash_table_lookup (setup, special[i].setup_key));
+            special[i].source = "Ersteinrichtung";
+          }
+    }
+
+  apply_special (store, info, special, G_N_ELEMENTS (special));
+
+  for (gsize i = 0; i < G_N_ELEMENTS (special); i++)
+    g_free (special[i].name);
 }

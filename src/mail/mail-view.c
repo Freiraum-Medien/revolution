@@ -77,6 +77,8 @@ struct _RevolutionMailView
   GCancellable        *cancellable;
   GtkStack            *message_stack;
   RevolutionMailReader *reader;
+  /* #350: Erstauswahl erledigt (select_initial_folder). */
+  gboolean             initial_done;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionMailView, revolution_mail_view, ADW_TYPE_BREAKPOINT_BIN)
@@ -337,6 +339,8 @@ typedef struct
   GMutex        lock;
   GCond         cond;
   guint         consumed;
+  /* #350: Abgleich mit dem Server, nur beim Beenden abgebrochen (load_messages_thread). */
+  GCancellable *refresh_cancellable;
 } LoadMessages;
 
 /* Mit Referenzzähler (g_atomic_rc_box): Blöcke, die nach einem Abbruch noch in der
@@ -345,6 +349,7 @@ static void
 load_messages_clear (LoadMessages *load)
 {
   g_object_unref (load->session);
+  g_clear_object (&load->refresh_cancellable);
   g_free (load->uid);
   g_free (load->full_name);
   g_mutex_clear (&load->lock);
@@ -737,6 +742,47 @@ typedef struct
 static gboolean use_folder (gpointer data);
 static void folder_ready_free (FolderReady *ready);
 
+/* #350: Höchstens ein Server-Abgleich je Ordner gleichzeitig (Prüf-Lauf #350): da ein Wechsel ihn
+ * nicht mehr abbricht, startet ein erneutes Wählen sonst einen zweiten. Läuft schon einer, zeigt
+ * die Liste den Cache; den Server-Stand bringt CamelFolder::changed (#353) und der Zähler
+ * (folder_refreshed) nach dem laufenden Abgleich. Schlüssel „<UID>/<Ordner>“, aus Worker-Threads. */
+static GMutex refreshing_lock;
+static GHashTable *refreshing;
+
+static gboolean
+refresh_begin (const char *key)
+{
+  gboolean begun;
+
+  g_mutex_lock (&refreshing_lock);
+  if (refreshing == NULL)
+    refreshing = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  begun = !g_hash_table_contains (refreshing, key);
+  if (begun)
+    g_hash_table_add (refreshing, g_strdup (key));
+  g_mutex_unlock (&refreshing_lock);
+
+  return begun;
+}
+
+static void
+refresh_end (const char *key)
+{
+  g_mutex_lock (&refreshing_lock);
+  g_hash_table_remove (refreshing, key);
+  g_mutex_unlock (&refreshing_lock);
+}
+
+static gboolean
+folder_refreshed (gpointer data)
+{
+  FolderReady *ready = data;
+
+  revolution_mail_view_watch_folder (ready->self, ready->folder, FALSE, TRUE);
+
+  return G_SOURCE_REMOVE;
+}
+
 static void
 load_messages_thread (GTask        *task,
                       gpointer      source_object G_GNUC_UNUSED,
@@ -746,8 +792,10 @@ load_messages_thread (GTask        *task,
   LoadMessages *load = task_data;
   g_autoptr (CamelService) service = camel_session_ref_service (load->session, load->uid);
   g_autoptr (CamelFolder) folder = NULL;
+  g_autofree char *key = NULL;
   GError *error = NULL;
   guint signature = 0;
+  gboolean refreshed_ok;
 
   if (!CAMEL_IS_STORE (service))
     {
@@ -773,14 +821,52 @@ load_messages_thread (GTask        *task,
     g_main_context_invoke_full (NULL, G_PRIORITY_DEFAULT, use_folder, ready, (GDestroyNotify) folder_ready_free);
   }
 
-  if (!send_messages (task, folder, "Cache", &signature) ||
-      !camel_folder_refresh_info_sync (folder, cancellable, &error) ||
-      !send_messages (task, folder, "Server", &signature))
+  /* #350: Den Abgleich ein Ordnerwechsel nicht abbrechen lassen, wie Evolution
+   * (e_mail_reader_refresh_folder, e-mail-reader-utils.c:861-881: Abbruch nur über die
+   * Aktivität, nicht beim Wechsel). Ein abgebrochener Abgleich hinterlässt den halben Stand als
+   * Zählerstand des Stores (gemessen: 63 statt 100 ungelesen, auch nach Neustart; EDS
+   * camel-imapx-server.c:6590-6600, camel-store-summary.c:1011-1050). Nach dem Wechsel läuft er
+   * zu Ende, die Liste bekommt ihn nicht mehr (send_messages prüft cancellable). */
+  if (!send_messages (task, folder, "Cache", &signature))
+    {
+      g_task_return_error_if_cancelled (task);
+      return;
+    }
+
+  key = g_strdup_printf ("%s/%s", load->uid, load->full_name);
+  if (!refresh_begin (key))
+    {
+      g_debug ("Nachrichten: %s %s Abgleich läuft schon", load->uid, load->full_name);
+      if (!g_task_return_error_if_cancelled (task))
+        g_task_return_boolean (task, TRUE);
+      return;
+    }
+
+  refreshed_ok = camel_folder_refresh_info_sync (folder, load->refresh_cancellable, &error);
+  refresh_end (key);
+  if (!refreshed_ok)
     {
       if (error == NULL)
         g_task_return_error_if_cancelled (task);
       else
         g_task_return_error (task, error);
+      return;
+    }
+
+  /* #350: abgeglichen, jetzt den Ungelesen-Zähler der Seitenleiste setzen (auch nach Wechsel). */
+  {
+    FolderReady *refreshed = g_new0 (FolderReady, 1);
+
+    refreshed->self = g_object_ref (g_task_get_source_object (task));
+    refreshed->folder = g_object_ref (folder);
+    g_main_context_invoke_full (NULL, G_PRIORITY_DEFAULT, folder_refreshed, refreshed,
+                                (GDestroyNotify) folder_ready_free);
+  }
+
+  if (g_cancellable_is_cancelled (cancellable) ||
+      !send_messages (task, folder, "Server", &signature))
+    {
+      g_task_return_error_if_cancelled (task);
       return;
     }
 
@@ -1728,6 +1814,18 @@ on_folder_selected (RevolutionMailView *self)
   if (folder != NULL)
     g_object_get (folder, "account", &account, "display-name", &display_name, NULL);
 
+  /* #350: Wahl merken wie Evolution den zuletzt gewählten Ordner (e-mail-shell-view.c, Zustand
+   * „SelectedFolder“); nicht bei REVOLUTION_FOLDER (Test-Hook wie REVOLUTION_THEME, main.c). */
+  if (folder != NULL)
+    self->initial_done = TRUE;
+  if (account != NULL && g_getenv ("REVOLUTION_FOLDER") == NULL)
+    {
+      g_autofree char *key = g_strdup_printf ("%s/%s", revolution_mail_account_get_uid (account),
+                                              revolution_mail_folder_get_full_name (folder));
+
+      g_settings_set_string (self->settings, "selected-folder", key);
+    }
+
   gtk_label_set_label (self->list_title, display_name != NULL ? display_name : _("Mail"));
 
   /* Ohne Konto bzw. Ordner ohne Inhalt (NOSELECT, z. B. Gmail „[Gmail]“): leere Liste wie
@@ -1748,6 +1846,7 @@ on_folder_selected (RevolutionMailView *self)
   load->uid = g_strdup (revolution_mail_account_get_uid (account));
   load->full_name = g_strdup (revolution_mail_folder_get_full_name (folder));
   load->generation = self->load_generation;
+  load->refresh_cancellable = self->cancellable != NULL ? g_object_ref (self->cancellable) : NULL;
 
   g_free (self->loading);
   self->loading = g_strdup_printf ("%s %s", load->uid, load->full_name);
@@ -2123,38 +2222,122 @@ revolution_mail_view_show_error (RevolutionMailView *self,
   adw_banner_set_revealed (self->banner, TRUE);
 }
 
-/* #352: Nur für Testläufe (tests/nachrichtenliste.sh) wie REVOLUTION_THEME (main.c): die
- * Umgebungsvariable REVOLUTION_FOLDER=<UID des Kontos>/<voller Ordnername> wählt diesen Ordner,
- * sobald er in der Seitenleiste steht. Die Erstauswahl beim Start ist #350. */
+/* #350: Ordner der Seitenleiste auswählen (Position im flachen Modell der Auswahl). */
 static void
-select_folder_from_env (RevolutionMailView *self)
+select_folder (RevolutionMailView   *self,
+               RevolutionMailFolder *target)
 {
-  const char *wanted = g_getenv ("REVOLUTION_FOLDER");
   GListModel *model = G_LIST_MODEL (self->folder_selection);
-
-  if (wanted == NULL)
-    return;
 
   for (guint i = 0; i < g_list_model_get_n_items (model); i++)
     {
       g_autoptr (GtkTreeListRow) row = g_list_model_get_item (model, i);
       g_autoptr (RevolutionMailFolder) folder = gtk_tree_list_row_get_item (row);
-      g_autoptr (RevolutionMailAccount) account = NULL;
-      g_autofree char *key = NULL;
 
-      g_object_get (folder, "account", &account, NULL);
-      if (account == NULL)
-        continue;
-
-      key = g_strdup_printf ("%s/%s", revolution_mail_account_get_uid (account),
-                             revolution_mail_folder_get_full_name (folder));
-      if (g_str_equal (key, wanted))
+      if (folder == target)
         {
-          if (gtk_single_selection_get_selected (self->folder_selection) != i)
-            gtk_single_selection_set_selected (self->folder_selection, i);
+          gtk_single_selection_set_selected (self->folder_selection, i);
           return;
         }
     }
+}
+
+static GListModel *
+account_folder_store (RevolutionMailAccount *account)
+{
+  return gtk_tree_list_model_get_model (account_tree (account));
+}
+
+/* #350: Erstauswahl beim Start, sobald die nötigen Ordner geladen sind: der Ordner aus
+ * REVOLUTION_FOLDER (#352, nur für Testläufe, Vorrang), sonst der zuletzt gewählte (GSettings
+ * „selected-folder“, „<UID des Kontos>/<voller Ordnername>“), sonst der Posteingang des ersten
+ * Kontos der Seitenleiste. Fehlt der gewünschte Ordner oder sein Konto, gilt der Posteingang.
+ * Ein Konto, dessen Ordner noch nicht da sind, wird abgewartet („folders-noted“,
+ * revolution_mail_view_set_folders). Bis dahin ist nichts gewählt (autoselect aus,
+ * mail-view.blp), es wird also kein anderer Ordner geladen. */
+static void
+select_initial_folder (RevolutionMailView *self)
+{
+  GListModel *accounts = G_LIST_MODEL (self->accounts);
+  g_autofree char *saved = NULL;
+  const char *wanted = g_getenv ("REVOLUTION_FOLDER");
+
+  if (self->initial_done)
+    return;
+
+  if (wanted == NULL)
+    {
+      saved = g_settings_get_string (self->settings, "selected-folder");
+      wanted = *saved != '\0' ? saved : NULL;
+    }
+
+  if (wanted != NULL && strchr (wanted, '/') != NULL)
+    {
+      g_autofree char *uid = g_strndup (wanted, strchr (wanted, '/') - wanted);
+      g_autoptr (RevolutionMailAccount) account = find_account (self, uid);
+      g_autoptr (RevolutionMailFolder) folder = NULL;
+
+      if (account != NULL && g_object_get_data (G_OBJECT (account), "folders-noted") == NULL)
+        return;
+
+      if (account != NULL)
+        folder = revolution_mail_folder_find (account_folder_store (account), strchr (wanted, '/') + 1);
+      if (folder != NULL && (revolution_mail_folder_get_flags (folder) & CAMEL_FOLDER_NOSELECT) == 0)
+        {
+          g_debug ("Erstauswahl: %s", wanted);
+          select_folder (self, folder);
+          return;
+        }
+    }
+
+  for (guint i = 0; i < g_list_model_get_n_items (accounts); i++)
+    {
+      g_autoptr (RevolutionMailAccount) account = g_list_model_get_item (accounts, i);
+      GListModel *folders = account_folder_store (account);
+
+      if (g_object_get_data (G_OBJECT (account), "folders-noted") == NULL)
+        return;
+
+      for (guint j = 0; j < g_list_model_get_n_items (folders); j++)
+        {
+          g_autoptr (RevolutionMailFolder) folder = g_list_model_get_item (folders, j);
+
+          if ((revolution_mail_folder_get_flags (folder) & CAMEL_FOLDER_TYPE_MASK) == CAMEL_FOLDER_TYPE_INBOX)
+            {
+              g_debug ("Erstauswahl: %s/%s (Posteingang des ersten Kontos)",
+                       revolution_mail_account_get_uid (account), revolution_mail_folder_get_full_name (folder));
+              select_folder (self, folder);
+              return;
+            }
+        }
+    }
+}
+
+/* #350: Aufruf aus main.c im UI-Thread: Ungelesen-Zähler des Eintrags zu folder live halten
+ * (revolution_mail_folder_watch). */
+void
+revolution_mail_view_watch_folder (RevolutionMailView *self,
+                                   CamelFolder        *folder,
+                                   gboolean            hold,
+                                   gboolean            refreshed)
+{
+  CamelStore *store;
+  g_autoptr (RevolutionMailAccount) account = NULL;
+  g_autoptr (RevolutionMailFolder) item = NULL;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
+  g_return_if_fail (CAMEL_IS_FOLDER (folder));
+
+  /* Nach dispose (Abgleich endet beim Beenden). */
+  if (self->accounts == NULL)
+    return;
+
+  store = camel_folder_get_parent_store (folder);
+  account = store != NULL ? find_account (self, camel_service_get_uid (CAMEL_SERVICE (store))) : NULL;
+  if (account != NULL)
+    item = revolution_mail_folder_find (account_folder_store (account), camel_folder_get_full_name (folder));
+  if (item != NULL)
+    revolution_mail_folder_watch (item, folder, hold, refreshed);
 }
 
 /* #348: Ordner eines Kontos aus dem Worker (main.c, camel_store_get_folder_info_sync), im
@@ -2182,5 +2365,6 @@ revolution_mail_view_set_folders (RevolutionMailView *self,
   g_list_store_remove_all (store);
   count = revolution_mail_folder_append_tree (store, info, account);
   g_debug ("Ordner: %s %u geladen", uid, count);
-  select_folder_from_env (self);
+  g_object_set_data (G_OBJECT (account), "folders-noted", GINT_TO_POINTER (TRUE));
+  select_initial_folder (self);
 }

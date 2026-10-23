@@ -22,5 +22,15 @@ guint32     revolution_mail_folder_get_flags     (RevolutionMailFolder  *self);
 guint       revolution_mail_folder_append_tree   (GListStore            *store,
                                                   CamelFolderInfo       *first,
                                                   RevolutionMailAccount *account);
+RevolutionMailFolder *revolution_mail_folder_find (GListModel            *model,
+                                                  const char            *full_name);
+void        revolution_mail_folder_watch         (RevolutionMailFolder  *self,
+                                                  CamelFolder           *folder,
+                                                  gboolean               hold,
+                                                  gboolean               refreshed);
+void        revolution_mail_folder_mark_special  (CamelStore            *store,
+                                                  ESourceRegistry       *registry,
+                                                  CamelFolderInfo       *info,
+                                                  GCancellable          *cancellable);
 
 G_END_DECLS

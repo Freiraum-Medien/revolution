@@ -27,5 +27,9 @@ void revolution_mail_view_show_error   (RevolutionMailView *self,
 void revolution_mail_view_set_folders  (RevolutionMailView *self,
                                         const char         *uid,
                                         CamelFolderInfo    *info);
+void revolution_mail_view_watch_folder (RevolutionMailView *self,
+                                        CamelFolder        *folder,
+                                        gboolean            hold,
+                                        gboolean            refreshed);
 
 G_END_DECLS

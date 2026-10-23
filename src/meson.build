@@ -16,6 +16,7 @@ resources = gnome.compile_resources('revolution-resources',
 
 executable('revolution',
   'main.c',
+  'eds-compat.c',
   'composer/composer.c',
   'mail/mail-sample.c',
   'mail/mail-view.c',

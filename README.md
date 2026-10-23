@@ -26,12 +26,14 @@ Starten aus dem Build-Ordner: Das Schema liegt kompiliert in `build/data`.
 GSETTINGS_SCHEMA_DIR=build/data build/src/revolution
 ```
 
-Headless-Start ohne Fenster auf dem Desktop:
+Headless-Start ohne Fenster auf dem Desktop (Anzeige nur Xvfb, X11 erzwungen):
 
 ```sh
-GSETTINGS_SCHEMA_DIR=build/data GSETTINGS_BACKEND=memory \
-  xvfb-run -a dbus-run-session -- build/src/revolution
+env -u WAYLAND_DISPLAY GDK_BACKEND=x11 GSETTINGS_SCHEMA_DIR=build/data GSETTINGS_BACKEND=memory \
+  xvfb-run -a build/src/revolution
 ```
+
+Der Start nutzt den echten Session-Bus, keine eigene `dbus-run-session`. Eine eigene Sitzung startete eine zweite `evolution-source-registry` und einen zweiten `goa-daemon` gegen das echte `~/.config`; die zweite Registry schrieb Dateien in `~/.config/evolution/sources` neu (#343). Vorher prüfen, dass Revolution nicht schon läuft, sonst öffnet der Start ein Fenster in der laufenden Instanz auf dem Desktop: `gdbus call --session -d org.freedesktop.DBus -o /org/freedesktop/DBus -m org.freedesktop.DBus.NameHasOwner de.freiraum_medien.Revolution` muss `(false,)` liefern.
 
 ## Architektur
 
@@ -71,7 +73,7 @@ Die `ESourceRegistry` wird beim Start so geladen und an der Anwendung gehalten (
 
 ## Screenshots (headless)
 
-`scripts/screenshot.sh NAME SCHEMA [BREITExHÖHE]`. Das Skript läuft in eigenem Xvfb und eigener D-Bus-Sitzung. Einstellungen bleiben dabei im Speicher (`GSETTINGS_BACKEND=memory`). Wichtige Umgebungsvariablen: `BUILD` (Build-Ordner, Standard `build/`), `OUT_DIR` (Zielordner), `KEYS` (Tastendrücke vorab).
+`scripts/screenshot.sh NAME SCHEMA [BREITExHÖHE]`. Das Skript läuft in eigenem Xvfb am echten Session-Bus (Grund oben unter Headless-Start) und bricht ab, wenn Revolution dort schon läuft. Einstellungen bleiben dabei im Speicher (`GSETTINGS_BACKEND=memory`). Wichtige Umgebungsvariablen: `BUILD` (Build-Ordner, Standard `build/`), `OUT_DIR` (Zielordner), `KEYS` (Tastendrücke vorab).
 
 ```sh
 scripts/screenshot.sh mail-hell prefer-light

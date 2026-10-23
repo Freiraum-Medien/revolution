@@ -22,8 +22,12 @@
 #   meldet sich als Compositing-Manager (Besitzer der Auswahl _NET_WM_CM_S0, ICCCM/EWMH);
 #   GTK nutzt dann RGBA-Fenster. Die Aufnahme setzt alle Fenster mit Alphakanal in
 #   Stapelreihenfolge zusammen (python3-pil) und schneidet auf das App-Fenster zu.
-# Läuft ausschließlich in einem eigenen Xvfb (xvfb-run -a) und einer eigenen
-# D-Bus-Sitzung (dbus-run-session). Es erscheint nie ein Fenster auf dem Desktop.
+# Läuft ausschließlich in einem eigenen Xvfb (xvfb-run -a); es erscheint nie ein Fenster auf
+# dem Desktop. D-Bus: der echte Session-Bus, keine eigene Sitzung (PM #343). Eine eigene
+# dbus-run-session startete eine zweite evolution-source-registry und einen zweiten goa-daemon
+# gegen das echte ~/.config; die zweite Registry schrieb Dateien in ~/.config/evolution/sources
+# neu. So schreibt nur die vorhandene Registry. Läuft Revolution schon auf dem Bus, bricht das
+# Skript ab: der Start würde sonst die laufende Instanz aktivieren (Fenster auf dem Desktop).
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -59,12 +63,21 @@ fi
 
 [ -x "$BIN" ] || { echo "Fehlt: $BIN (erst meson compile -C build)" >&2; exit 1; }
 [ -f "$BUILD/data/gschemas.compiled" ] || { echo "Fehlt: $BUILD/data/gschemas.compiled (erst meson compile)" >&2; exit 1; }
-for tool in xvfb-run dbus-run-session import xwininfo python3 ${ROUND:+magick} ${SCALE:+magick}; do
+for tool in xvfb-run gdbus import xwininfo python3 ${ROUND:+magick} ${SCALE:+magick}; do
   command -v "$tool" >/dev/null || { echo "Fehlt: $tool" >&2; exit 1; }
 done
 python3 -c 'import Xlib' 2>/dev/null || { echo "Fehlt: python3-xlib" >&2; exit 1; }
 python3 -c 'import PIL' 2>/dev/null || { echo "Fehlt: python3-pil" >&2; exit 1; }
 mkdir -p "$OUT_DIR"
+
+APP_ID="$(sed -n 's/.*<id>\(.*\)<\/id>.*/\1/p' "$BUILD/data/"*.metainfo.xml | head -1)"
+[ -n "$APP_ID" ] || { echo "App-ID nicht gefunden in $BUILD/data/*.metainfo.xml" >&2; exit 1; }
+[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] || { echo "Kein Session-Bus (DBUS_SESSION_BUS_ADDRESS leer)" >&2; exit 1; }
+if gdbus call --session -d org.freedesktop.DBus -o /org/freedesktop/DBus \
+     -m org.freedesktop.DBus.NameHasOwner "$APP_ID" | grep -q true; then
+  echo "Abbruch: $APP_ID läuft schon auf dem Session-Bus" >&2
+  exit 1
+fi
 
 REAL_DISPLAY="${DISPLAY:-}"
 # Laufzeitverzeichnis auch bei Abbruch (set -e, Strg+C) entfernen.
@@ -74,9 +87,9 @@ trap 'rm -rf "${RUNDIR:-}"' EXIT
 shoot () {
   local scheme="$1" out="$2"
   RUNDIR="$(mktemp -d)"
-  # Wayland/Keyring der echten Sitzung abschneiden, eigenes Laufzeitverzeichnis,
-  # keine Portale (sonst startet die Test-D-Bus-Sitzung xdg-desktop-portal),
-  # X11-Backend erzwingen.
+  # Wayland/Keyring der echten Sitzung abschneiden, eigenes Laufzeitverzeichnis (der echte
+  # Session-Bus bleibt über DBUS_SESSION_BUS_ADDRESS erreichbar), keine Portale, X11-Backend
+  # erzwingen.
   env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
     XDG_RUNTIME_DIR="$RUNDIR" GSETTINGS_SCHEMA_DIR="$BUILD/data" GSETTINGS_BACKEND=memory \
     REAL_DISPLAY="$REAL_DISPLAY" BIN="$BIN" OUT="$out" WIDTH="$((WIDTH * RENDER))" HEIGHT="$((HEIGHT * RENDER))" \
@@ -84,7 +97,7 @@ shoot () {
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo GTK_A11Y=none NO_AT_BRIDGE=1 \
     ADW_DEBUG_COLOR_SCHEME="$scheme" \
     xvfb-run -a -s "-screen 0 $((WIDTH * RENDER))x$((HEIGHT * RENDER))x24 +extension Composite" \
-    dbus-run-session -- bash -c '
+    bash -c '
       set -euo pipefail
       if [ -z "${DISPLAY:-}" ] || [ "$DISPLAY" = "$REAL_DISPLAY" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
         echo "Abbruch: Anzeige der echten Sitzung wäre betroffen (DISPLAY=${DISPLAY:-} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-})" >&2
@@ -109,6 +122,7 @@ time.sleep(600)
       sleep 3
       win=$(xwininfo -root -tree | awk "/\"Revolution\"/ {print \$1; exit}")
       if [ -n "$win" ]; then
+        echo "Fenster $win auf $DISPLAY"
         # Ohne Fenstermanager setzt XConfigureWindow die Größe direkt (python3-xlib).
         WIN="$win" python3 -c "import os; from Xlib import display; d = display.Display(); d.create_resource_object(\"window\", int(os.environ[\"WIN\"], 16)).configure(width=int(os.environ[\"WIDTH\"]), height=int(os.environ[\"HEIGHT\"])); d.sync()"
         sleep 2

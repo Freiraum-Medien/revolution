@@ -173,7 +173,10 @@ on_registry_loaded (GObject      *source_object,
   registry = g_task_propagate_pointer (G_TASK (result), &error);
   if (registry != NULL)
     {
-      g_debug ("ESourceRegistry: geladen, Rückruf im Thread %p", (gpointer) g_thread_self ());
+      g_autolist (ESource) accounts = e_source_registry_list_sources (registry, E_SOURCE_EXTENSION_MAIL_ACCOUNT);
+
+      g_debug ("ESourceRegistry: geladen, Rückruf im Thread %p, %u Mail-Konten",
+               (gpointer) g_thread_self (), g_list_length (accounts));
       /* An der Anwendung gehalten; #345 liest sie mit g_object_get_data (app, "registry"). */
       g_object_set_data_full (source_object, "registry", registry, g_object_unref);
       return;

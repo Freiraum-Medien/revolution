@@ -1431,8 +1431,8 @@ update_message_actions (RevolutionMailView *self)
 /* Gelesen nach Verzögerung wie Evolution (schedule_timeout_mark_seen, e-mail-reader.c:3747-3777,
  * mail_reader_message_seen 4586-4598; GSettings mark-seen true, mark-seen-timeout 1500 ms,
  * org.gnome.evolution.mail.gschema.xml.in:424-438). Evolution startet den Timer, sobald die
- * Anzeige geladen ist (mail_reader_load_changed_cb, 3784-3801); bis zur Anzeige (#354) beim
- * Auswählen. */
+ * Anzeige geladen ist (mail_reader_load_changed_cb, 3784-3801); hier ebenso über das Signal „shown“
+ * des Lesebereichs (#354, mail-reader.c). */
 static gboolean
 on_mark_seen_timeout (gpointer user_data)
 {
@@ -1450,7 +1450,6 @@ static void
 watch_selected_message (RevolutionMailView *self)
 {
   RevolutionMailMessage *message = selected_message (self);
-  int timeout;
 
   /* GtkSingleSelection meldet dieselbe Auswahl erneut, wenn sich ihre Position ändert. */
   if (message == self->selected)
@@ -1462,8 +1461,17 @@ watch_selected_message (RevolutionMailView *self)
   if (message != NULL)
     self->selected_handler = g_signal_connect_swapped (message, "notify", G_CALLBACK (update_message_actions), self);
   update_message_actions (self);
+}
 
-  if (message == NULL || !revolution_mail_message_get_unread (message) ||
+/* #354: Anzeige der gewählten Nachricht fertig (RevolutionMailReader::shown): Gelesen-Timer starten,
+ * wie Evolution erst nach dem Laden (mail_reader_load_changed_cb, e-mail-reader.c:3784-3801). */
+static void
+on_reader_shown (RevolutionMailView *self)
+{
+  RevolutionMailMessage *message = self->selected;
+  int timeout;
+
+  if (message == NULL || self->seen_id != 0 || !revolution_mail_message_get_unread (message) ||
       !g_settings_get_boolean (self->settings, "mark-seen"))
     return;
 
@@ -1987,6 +1995,7 @@ revolution_mail_view_init (RevolutionMailView *self)
   self->message_actions = G_ACTION_MAP (message_group);
   gtk_widget_insert_action_group (GTK_WIDGET (self), "message", G_ACTION_GROUP (message_group));
   update_message_actions (self);
+  g_signal_connect_object (self->reader, "shown", G_CALLBACK (on_reader_shown), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (self->message_selection, "notify::selected-item", G_CALLBACK (watch_selected_message),
                            self, G_CONNECT_SWAPPED);
   self->row_popover = gtk_popover_menu_new_from_model (self->row_menu);

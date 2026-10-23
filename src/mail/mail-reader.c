@@ -76,8 +76,13 @@ struct _RevolutionMailReader
   GuardState      guard;
   gboolean        dark;
   gboolean        ua_dark;
+  gboolean        showing;
   GtkRoot        *root;
 };
+
+/* „shown“: Inhalt der Nachricht fertig geladen (WEBKIT_LOAD_FINISHED); mail-view.c startet damit den
+ * Gelesen-Timer wie Evolution (e-mail-reader.c:3784-3801). */
+static guint shown_signal;
 
 G_DEFINE_FINAL_TYPE (RevolutionMailReader, revolution_mail_reader, ADW_TYPE_BIN)
 
@@ -657,7 +662,10 @@ show_html (RevolutionMailReader *self)
     }
 
   if (self->guard == GUARD_OK)
-    webkit_web_view_load_html (self->web_view, html, NULL);
+    {
+      self->showing = TRUE;
+      webkit_web_view_load_html (self->web_view, html, NULL);
+    }
   else
     guard_page (self);
 }
@@ -706,6 +714,13 @@ static void
 on_load_changed (RevolutionMailReader *self,
                  WebKitLoadEvent       event)
 {
+  if (event == WEBKIT_LOAD_FINISHED && self->showing)
+    {
+      self->showing = FALSE;
+      g_signal_emit (self, shown_signal, 0);
+      return;
+    }
+
   if (event != WEBKIT_LOAD_FINISHED || self->guard != GUARD_LOADING)
     return;
 
@@ -1131,6 +1146,9 @@ revolution_mail_reader_class_init (RevolutionMailReaderClass *klass)
   widget_class->root = revolution_mail_reader_root;
   widget_class->unroot = revolution_mail_reader_unroot;
 
+  shown_signal = g_signal_new ("shown", G_TYPE_FROM_CLASS (klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
+                               G_TYPE_NONE, 0);
+
   gtk_widget_class_set_template_from_resource (widget_class, "/de/freiraum_medien/Revolution/mail-reader.ui");
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, avatar);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, sender_label);
@@ -1241,6 +1259,7 @@ revolution_mail_reader_clear (RevolutionMailReader *self)
   g_clear_pointer (&self->html, g_free);
   g_clear_pointer (&self->html_light, g_free);
   g_clear_pointer (&self->parts, g_hash_table_unref);
+  self->showing = FALSE;
   gtk_widget_set_visible (GTK_WIDGET (self->spinner), FALSE);
 
   gtk_label_set_label (self->date_label, "");

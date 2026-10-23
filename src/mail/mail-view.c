@@ -38,6 +38,7 @@ struct _RevolutionMailView
   GListStore          *accounts;
   GtkStack            *sidebar_stack;
   AdwBanner           *banner;
+  GtkWidget           *offline_notice;
   GtkSingleSelection  *folder_selection;
   GtkSingleSelection  *message_selection;
   GListStore          *messages;
@@ -989,6 +990,17 @@ load_messages_thread (GTask        *task,
 
   refreshed_ok = camel_folder_refresh_info_sync (folder, load->refresh_cancellable, &error);
   refresh_end (key);
+  /* #408: Offline (Pille „Offline“) bleibt es beim Stand des Caches. imapx überspringt den
+   * Abgleich dann (camel-imapx-folder.c:878-880), microsoft365 meldet „You must be working
+   * online“ (camel-m365-folder.c:961, camel-m365-store.c:1754-1758); das ist kein Fehler. */
+  if (!refreshed_ok && error != NULL && !camel_session_get_online (load->session))
+    {
+      g_debug ("Nachrichten: %s %s offline, Stand des Caches (%s)", load->uid, load->full_name, error->message);
+      g_clear_error (&error);
+      if (!g_task_return_error_if_cancelled (task))
+        g_task_return_boolean (task, TRUE);
+      return;
+    }
   if (!refreshed_ok)
     {
       if (error == NULL)
@@ -1768,9 +1780,18 @@ refresh_thread (GTask        *task,
                 GCancellable *cancellable)
 {
   GError *error = NULL;
+  CamelStore *store = camel_folder_get_parent_store (task_data);
+  g_autoptr (CamelSession) session = store != NULL ? camel_service_ref_session (CAMEL_SERVICE (store)) : NULL;
 
   if (camel_folder_refresh_info_sync (task_data, cancellable, &error))
     g_task_return_boolean (task, TRUE);
+  else if (session != NULL && !camel_session_get_online (session))
+    {
+      /* #408: offline bleibt der Cache (wie load_messages_thread). */
+      g_debug ("Aktualisieren: offline, Stand des Caches (%s)", error->message);
+      g_error_free (error);
+      g_task_return_boolean (task, TRUE);
+    }
   else
     g_task_return_error (task, error);
 }
@@ -2233,6 +2254,7 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, folder_selection);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, sidebar_stack);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, banner);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, offline_notice);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, message_selection);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, list_stack);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, list_title);
@@ -2443,6 +2465,51 @@ revolution_mail_view_show_error (RevolutionMailView *self,
   adw_banner_set_title (self->banner, shown);
   gtk_widget_set_tooltip_text (GTK_WIDGET (self->banner), errors->details->str);
   adw_banner_set_revealed (self->banner, TRUE);
+}
+
+/* #408: Aufruf aus main.c im UI-Thread, wenn die Session nach dem Netzmonitor offline bzw.
+ * wieder online geht: Pille „Offline“ über der Nachrichtenliste (offline_notice, mail-view.blp).
+ * Offline ersetzt die Verbindungsfehler: Besteht das Sammel-Banner nur aus „Keine Verbindung“
+ * (Titel aus main.c, on_store_noted), verschwindet es; neue Verbindungsfehler meldet main.c erst
+ * wieder online. Gemischte Fehlerarten bleiben unverändert stehen. */
+void
+revolution_mail_view_set_offline (RevolutionMailView *self,
+                                  gboolean            offline)
+{
+  BannerErrors *errors;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
+
+  gtk_widget_set_visible (self->offline_notice, offline);
+  g_debug ("Hinweis Offline: %s", offline ? "sichtbar" : "weg");
+  if (!offline)
+    return;
+
+  errors = g_object_get_data (G_OBJECT (self), "banner-errors");
+  if (errors != NULL && errors->kinds->len == 1 &&
+      g_strcmp0 (g_array_index (errors->kinds, BannerKind, 0).title, _("Keine Verbindung")) == 0)
+    {
+      g_object_set_data (G_OBJECT (self), "banner-errors", NULL);
+      adw_banner_set_revealed (self->banner, FALSE);
+    }
+}
+
+/* #408: Aufruf aus main.c, sobald der Store des Kontos uid nach „Netz zurück“ wieder verbunden
+ * ist: die offene Liste, wenn sie zu diesem Konto gehört, vom Server wie F5 (on_refresh). */
+void
+revolution_mail_view_refresh_account (RevolutionMailView *self,
+                                      const char         *uid)
+{
+  g_autoptr (RevolutionMailAccount) account = NULL;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
+
+  if (self->folder == NULL)
+    return;
+
+  g_object_get (self->folder, "account", &account, NULL);
+  if (account != NULL && g_strcmp0 (revolution_mail_account_get_uid (account), uid) == 0)
+    on_refresh (NULL, NULL, self);
 }
 
 /* #350: Ordner der Seitenleiste auswählen (Position im flachen Modell der Auswahl). */

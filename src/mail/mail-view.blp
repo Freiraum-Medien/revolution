@@ -44,8 +44,10 @@ template $RevolutionMailView: Adw.BreakpointBin {
     }
 
     // #353: Gelesen/Ungelesen wie Evolution (e-mail-reader.c:3179-3226: Strg+K, Umschalt+Strg+K),
-    // Markieren wie Stamp (stamp-mail-view.c:628-630: Strg+S, Umschalt+Strg+S; Evolution hat
-    // für „Wichtig“ kein Kürzel), Aktualisieren F5 wie Evolution (e-mail-shell-view-actions.c:1721-1726).
+    // Markieren umschalten mit Umschalt+Strg+L wie Apple Mail ⇧⌘L (Entscheidung PM 23.10.2026;
+    // Evolution hat für „Wichtig“ kein Kürzel, e-mail-reader.c:3137-3149, Strg+S ist dort
+    // „Speichern unter“, 3389-3394; auf der Apple-Seite „Tastaturkurzbefehle in Mail auf dem Mac“
+    // nicht aufgeführt), Aktualisieren F5 wie Evolution (e-mail-shell-view-actions.c:1721-1726).
     Shortcut {
       trigger: "<primary>k";
       action: "action(message.mark-read)";
@@ -57,13 +59,8 @@ template $RevolutionMailView: Adw.BreakpointBin {
     }
 
     Shortcut {
-      trigger: "<primary>s";
-      action: "action(message.star-on)";
-    }
-
-    Shortcut {
-      trigger: "<primary><shift>s";
-      action: "action(message.star-off)";
+      trigger: "<primary><shift>l";
+      action: "action(message.star)";
     }
 
     Shortcut {
@@ -1100,14 +1097,14 @@ menu row_menu {
     item {
       label: _("_Markieren");
       action: "message.star-on";
-      accel: "<primary>s";
+      accel: "<primary><shift>l";
       hidden-when: "action-disabled";
     }
 
     item {
       label: _("Markierung _entfernen");
       action: "message.star-off";
-      accel: "<primary><shift>s";
+      accel: "<primary><shift>l";
       hidden-when: "action-disabled";
     }
   }

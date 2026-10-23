@@ -19,6 +19,9 @@ RevolutionMailMessage *revolution_mail_message_new         (CamelMessageInfo    
 const char            *revolution_mail_message_get_uid     (RevolutionMailMessage *self);
 gboolean               revolution_mail_message_update      (RevolutionMailMessage *self,
                                                             RevolutionMailMessage *from);
+void                   revolution_mail_message_set_flags   (RevolutionMailMessage *self,
+                                                            gboolean               unread,
+                                                            gboolean               starred);
 gboolean               revolution_mail_message_get_unread  (RevolutionMailMessage *self);
 gboolean               revolution_mail_message_get_starred (RevolutionMailMessage *self);
 gint64                 revolution_mail_message_get_timestamp (RevolutionMailMessage *self);

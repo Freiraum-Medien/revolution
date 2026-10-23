@@ -64,6 +64,9 @@ struct _RevolutionMailView
   GSettings           *settings;
   GMenuModel          *row_menu;
   GtkWidget           *row_popover;
+  GQueue               flag_jobs;
+  gboolean             flags_running;
+  GCancellable        *cancellable;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionMailView, revolution_mail_view, ADW_TYPE_BREAKPOINT_BIN)
@@ -684,6 +687,18 @@ send_messages (GTask       *task,
   return TRUE;
 }
 
+/* #353: Ordner für Flags und Live-Änderungen, sobald er geholt ist (vor Cache- und
+ * Server-Durchgang, also auch ohne Netz wie Evolution), im UI-Thread (use_folder). */
+typedef struct
+{
+  RevolutionMailView *self;
+  CamelFolder        *folder;
+  guint               generation;
+} FolderReady;
+
+static gboolean use_folder (gpointer data);
+static void folder_ready_free (FolderReady *ready);
+
 static void
 load_messages_thread (GTask        *task,
                       gpointer      source_object G_GNUC_UNUSED,
@@ -711,6 +726,15 @@ load_messages_thread (GTask        *task,
       return;
     }
 
+  {
+    FolderReady *ready = g_new0 (FolderReady, 1);
+
+    ready->self = g_object_ref (g_task_get_source_object (task));
+    ready->folder = g_object_ref (folder);
+    ready->generation = load->generation;
+    g_main_context_invoke_full (NULL, G_PRIORITY_DEFAULT, use_folder, ready, (GDestroyNotify) folder_ready_free);
+  }
+
   if (!send_messages (task, folder, "Cache", &signature) ||
       !camel_folder_refresh_info_sync (folder, cancellable, &error) ||
       !send_messages (task, folder, "Server", &signature))
@@ -722,8 +746,7 @@ load_messages_thread (GTask        *task,
       return;
     }
 
-  /* #353: den Ordner für Live-Änderungen, Flags und Aktualisieren (on_messages_loaded). */
-  g_task_return_pointer (task, g_steal_pointer (&folder), g_object_unref);
+  g_task_return_boolean (task, TRUE);
 }
 
 /* #353: Live-Aktualisierung der Liste über CamelFolder::changed wie Evolution
@@ -743,6 +766,8 @@ typedef struct
   GPtrArray          *changed;
   GPtrArray          *removed;
   GPtrArray          *items;
+  /* Ordnerwechsel A→B→A: Ergebnis zur alten Liste verwerfen (load_generation). */
+  guint               generation;
 } FolderChanges;
 
 static void
@@ -912,7 +937,19 @@ on_folder_changes_done (GObject      *source_object,
   FolderChanges *changes = g_task_get_task_data (G_TASK (result));
 
   self->changes_running = FALSE;
-  if (changes->folder == self->camel_folder)
+  if (changes->folder != self->camel_folder || changes->generation != self->load_generation)
+    ;
+  else if (self->flags_running)
+    {
+      /* Inzwischen bedient (mark_message): der gelesene Stand kann älter sein als die Zeile.
+       * Später neu lesen, wenn alle Flag-Aufträge durch sind (on_flags_set). */
+      for (guint i = 0; i < changes->changed->len; i++)
+        g_hash_table_add (self->pending_changed, g_strdup (changes->changed->pdata[i]));
+      for (guint i = 0; i < changes->removed->len; i++)
+        if (!g_hash_table_contains (self->pending_changed, changes->removed->pdata[i]))
+          g_hash_table_add (self->pending_removed, g_strdup (changes->removed->pdata[i]));
+    }
+  else
     apply_folder_changes (self, changes->items, changes->removed);
   start_folder_changes (self);
 }
@@ -933,7 +970,8 @@ start_folder_changes (RevolutionMailView *self)
   g_autoptr (GTask) task = NULL;
   FolderChanges *changes;
 
-  if (self->changes_running || self->camel_folder == NULL ||
+  /* Während Flag-Aufträgen nicht: die Zeilen zeigen schon den bedienten Stand (mark_message). */
+  if (self->changes_running || self->flags_running || self->camel_folder == NULL ||
       (g_hash_table_size (self->pending_changed) == 0 && g_hash_table_size (self->pending_removed) == 0))
     return;
 
@@ -942,6 +980,7 @@ start_folder_changes (RevolutionMailView *self)
   changes->folder = g_object_ref (self->camel_folder);
   changes->changed = steal_uids (self->pending_changed);
   changes->removed = steal_uids (self->pending_removed);
+  changes->generation = self->load_generation;
   self->changes_running = TRUE;
 
   task = g_task_new (self, NULL, on_folder_changes_done, NULL);
@@ -1010,7 +1049,14 @@ on_folder_changed (CamelFolder           *folder,
  * camel_folder_synchronize_sync (FALSE), damit der Server die Änderung hat. Evolution überlässt
  * das Camel: „changed“ plant das Speichern nach store-changes-interval Sekunden (Standard 3,
  * EDS camel-folder.c:214-253, camel-store-settings.c:110-115), und beim Ordnerwechsel
- * mail_sync_folder (e-mail-reader.c:4398-4404). Die Liste folgt über „changed“. */
+ * mail_sync_folder (e-mail-reader.c:4398-4404). Die Liste folgt über „changed“.
+ * Ein Auftrag nach dem anderen (Warteschlange wie start_folder_changes), damit der Server die
+ * Änderungen in der Reihenfolge der Bedienung bekommt. Ohne Verbindung bleibt die Änderung wie
+ * bei Evolution in der Summary (imapx überspringt das Synchronisieren offline,
+ * camel-imapx-folder.c:877-880) und geht beim nächsten Abgleich mit (refresh_info schickt
+ * zuerst die Änderungen, camel-imapx-conn-manager.c:1548). Die Zeile zeigt die Bedienung sofort
+ * (revolution_mail_message_set_flags); „changed“ wird erst danach wieder angewendet
+ * (start_folder_changes). */
 typedef struct
 {
   CamelFolder *folder;
@@ -1031,21 +1077,41 @@ set_flags_free (SetFlags *data)
   g_free (data);
 }
 
+enum { FLAGS_SAVED, FLAGS_LOCAL };
+
 static void
 set_flags_thread (GTask        *task,
                   gpointer      source_object G_GNUC_UNUSED,
                   gpointer      task_data,
-                  GCancellable *cancellable)
+                  GCancellable *cancellable G_GNUC_UNUSED)
 {
   SetFlags *data = task_data;
+  CamelStore *store = camel_folder_get_parent_store (data->folder);
+  g_autoptr (CamelSession) session = camel_service_ref_session (CAMEL_SERVICE (store));
   GError *error = NULL;
 
   camel_folder_set_message_flags (data->folder, data->uid, data->mask, data->set);
-  if (!camel_folder_synchronize_sync (data->folder, FALSE, cancellable, &error))
+  if ((CAMEL_IS_OFFLINE_STORE (store) && !camel_offline_store_get_online (CAMEL_OFFLINE_STORE (store))) ||
+      session == NULL || !camel_session_get_online (session))
+    {
+      /* Summary sofort auf die Platte: sie speichert sonst erst beim Freigeben des Ordners
+       * (camel-folder.c:810-811), das Revolution beim Beenden nicht abwartet. Evolution speichert
+       * beim Beenden über camel_store_synchronize (e-mail-backend.c:491, camel-store.c:477-478). */
+      if (!camel_folder_summary_save (camel_folder_get_folder_summary (data->folder), &error))
+        g_task_return_error (task, error);
+      else
+        g_task_return_int (task, FLAGS_LOCAL);
+      return;
+    }
+
+  /* Ohne Cancellable: ein begonnener Auftrag läuft auch beim Beenden zu Ende. */
+  if (!camel_folder_synchronize_sync (data->folder, FALSE, NULL, &error))
     g_task_return_error (task, error);
   else
-    g_task_return_boolean (task, TRUE);
+    g_task_return_int (task, FLAGS_SAVED);
 }
+
+static void start_flags (RevolutionMailView *self);
 
 static void
 on_flags_set (GObject      *source_object,
@@ -1056,17 +1122,41 @@ on_flags_set (GObject      *source_object,
   SetFlags *data = g_task_get_task_data (G_TASK (result));
   g_autoptr (GError) error = NULL;
   g_autofree char *detail = NULL;
+  gssize done = g_task_propagate_int (G_TASK (result), &error);
 
-  if (g_task_propagate_boolean (G_TASK (result), &error))
+  self->flags_running = FALSE;
+  /* Ansicht schon weg (Beenden): nichts mehr anzeigen, wartende Aufträge trotzdem abarbeiten. */
+  if (self->cancellable == NULL || g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+    ;
+  else if (done == FLAGS_SAVED)
+    g_debug ("Flags: %s %s %s gespeichert nach %.0f ms", data->loading, data->uid, data->what,
+             (g_get_monotonic_time () - data->started) / 1000.0);
+  else if (done == FLAGS_LOCAL)
+    g_debug ("Flags: %s %s %s lokal gespeichert (offline)", data->loading, data->uid, data->what);
+  else
     {
-      g_debug ("Flags: %s %s %s gespeichert nach %.0f ms", data->loading, data->uid, data->what,
-               (g_get_monotonic_time () - data->started) / 1000.0);
-      return;
+      g_warning ("Flags %s %s %s: %s", data->loading, data->uid, data->what, error->message);
+      detail = g_strdup_printf ("%s: %s", gtk_label_get_label (self->list_title), error->message);
+      revolution_mail_view_show_error (self, _("Markierung nicht gespeichert"), detail, FALSE);
     }
+  start_flags (self);
+  if (!self->flags_running && self->cancellable != NULL)
+    start_folder_changes (self);
+}
 
-  g_warning ("Flags %s %s %s: %s", data->loading, data->uid, data->what, error->message);
-  detail = g_strdup_printf ("%s: %s", gtk_label_get_label (self->list_title), error->message);
-  revolution_mail_view_show_error (self, _("Markierung nicht gespeichert"), detail, FALSE);
+static void
+start_flags (RevolutionMailView *self)
+{
+  g_autoptr (GTask) task = NULL;
+
+  if (self->flags_running || g_queue_is_empty (&self->flag_jobs))
+    return;
+
+  self->flags_running = TRUE;
+  task = g_task_new (self, self->cancellable, on_flags_set, NULL);
+  g_task_set_source_tag (task, start_flags);
+  g_task_set_task_data (task, g_queue_pop_head (&self->flag_jobs), (GDestroyNotify) set_flags_free);
+  g_task_run_in_thread (task, set_flags_thread);
 }
 
 static void
@@ -1076,7 +1166,6 @@ mark_message (RevolutionMailView    *self,
               guint32                set,
               const char            *what)
 {
-  g_autoptr (GTask) task = NULL;
   SetFlags *data;
 
   if (message == NULL || self->camel_folder == NULL)
@@ -1096,10 +1185,16 @@ mark_message (RevolutionMailView    *self,
   data->started = g_get_monotonic_time ();
   g_debug ("Flags: %s %s %s", data->loading, data->uid, what);
 
-  task = g_task_new (self, NULL, on_flags_set, NULL);
-  g_task_set_source_tag (task, mark_message);
-  g_task_set_task_data (task, data, (GDestroyNotify) set_flags_free);
-  g_task_run_in_thread (task, set_flags_thread);
+  /* Zeile, Aktionen und Zähler sofort; Camel bestätigt über „changed“ (apply_folder_changes). */
+  revolution_mail_message_set_flags (message,
+                                     (mask & CAMEL_MESSAGE_SEEN) != 0 ? (set & CAMEL_MESSAGE_SEEN) == 0
+                                                                      : revolution_mail_message_get_unread (message),
+                                     (mask & CAMEL_MESSAGE_FLAGGED) != 0 ? (set & CAMEL_MESSAGE_FLAGGED) != 0
+                                                                         : revolution_mail_message_get_starred (message));
+  set_list_counts (self);
+
+  g_queue_push_tail (&self->flag_jobs, data);
+  start_flags (self);
 }
 
 /* Gelesen und Ungelesen wie Evolution mail-mark-read/-unread (e-mail-reader.c:1171-1190,
@@ -1393,6 +1488,33 @@ on_row_swipe (GtkListItem     *item,
 }
 
 static void
+folder_ready_free (FolderReady *ready)
+{
+  g_object_unref (ready->self);
+  g_object_unref (ready->folder);
+  g_free (ready);
+}
+
+/* Im UI-Thread: ab jetzt Änderungen des Ordners live in die Liste (on_folder_changed), Flags
+ * und Aktualisieren möglich. Der Server-Durchgang danach gleicht ohnehin ab; Änderungen, die
+ * dabei auch über „changed“ kommen, wirken am bestehenden Eintrag und doppeln nichts. */
+static gboolean
+use_folder (gpointer data)
+{
+  FolderReady *ready = data;
+  RevolutionMailView *self = ready->self;
+
+  if (ready->generation != self->load_generation || self->messages == NULL)
+    return G_SOURCE_REMOVE;
+
+  g_set_object (&self->camel_folder, ready->folder);
+  g_signal_connect_object (ready->folder, "changed", G_CALLBACK (on_folder_changed), self, G_CONNECT_DEFAULT);
+  update_message_actions (self);
+
+  return G_SOURCE_REMOVE;
+}
+
+static void
 on_messages_loaded (GObject      *source_object,
                     GAsyncResult *result,
                     gpointer      user_data G_GNUC_UNUSED)
@@ -1400,11 +1522,11 @@ on_messages_loaded (GObject      *source_object,
   RevolutionMailView *self = REVOLUTION_MAIL_VIEW (source_object);
   LoadMessages *load = g_task_get_task_data (G_TASK (result));
   g_autoptr (GError) error = NULL;
-  g_autoptr (CamelFolder) folder = g_task_propagate_pointer (G_TASK (result), &error);
   g_autofree char *detail = NULL;
   guint n_items;
 
-  if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+  if (!g_task_propagate_boolean (G_TASK (result), &error) &&
+      g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
     {
       g_debug ("Nachrichten: %s %s abgebrochen", load->uid, load->full_name);
       return;
@@ -1412,14 +1534,6 @@ on_messages_loaded (GObject      *source_object,
 
   if (load->generation != self->load_generation)
     return;
-
-  /* #353: ab jetzt Änderungen des Ordners live in die Liste (on_folder_changed). */
-  if (folder != NULL)
-    {
-      g_set_object (&self->camel_folder, folder);
-      g_signal_connect_object (folder, "changed", G_CALLBACK (on_folder_changed), self, G_CONNECT_DEFAULT);
-      update_message_actions (self);
-    }
 
   n_items = g_list_model_get_n_items (G_LIST_MODEL (self->messages));
   if (n_items == 0)
@@ -1586,6 +1700,8 @@ revolution_mail_view_dispose (GObject *object)
   g_cancellable_cancel (self->load_cancellable);
   g_clear_object (&self->load_cancellable);
   /* #353 */
+  g_cancellable_cancel (self->cancellable);
+  g_clear_object (&self->cancellable);
   g_signal_handlers_disconnect_by_data (self->message_selection, self);
   g_clear_handle_id (&self->seen_id, g_source_remove);
   g_clear_signal_handler (&self->selected_handler, self->selected);
@@ -1608,6 +1724,16 @@ revolution_mail_view_dispose (GObject *object)
 }
 
 static void
+revolution_mail_view_finalize (GObject *object)
+{
+  RevolutionMailView *self = REVOLUTION_MAIL_VIEW (object);
+
+  g_queue_clear_full (&self->flag_jobs, (GDestroyNotify) set_flags_free);
+
+  G_OBJECT_CLASS (revolution_mail_view_parent_class)->finalize (object);
+}
+
+static void
 revolution_mail_view_class_init (RevolutionMailViewClass *klass)
 {
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
@@ -1616,6 +1742,7 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   object_class->get_property = revolution_mail_view_get_property;
   object_class->set_property = revolution_mail_view_set_property;
   object_class->dispose = revolution_mail_view_dispose;
+  object_class->finalize = revolution_mail_view_finalize;
 
   g_object_class_install_property (object_class, PROP_STACK,
                                    g_param_spec_object ("stack", NULL, NULL, ADW_TYPE_VIEW_STACK,
@@ -1691,6 +1818,7 @@ revolution_mail_view_init (RevolutionMailView *self)
 
   /* #353: Gelesen, Markieren, Live-Änderungen, Kontextmenü der Zeile. */
   self->settings = g_settings_new ("de.freiraum_medien.Revolution");
+  self->cancellable = g_cancellable_new ();
   self->pending_changed = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
   self->pending_removed = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
   g_action_map_add_action_entries (G_ACTION_MAP (message_group), message_actions, G_N_ELEMENTS (message_actions), self);

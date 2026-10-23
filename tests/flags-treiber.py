@@ -109,14 +109,14 @@ def pruefe_server(schritt, gelesen=None, markiert=None):
 
 # ------------------------------------------------------------------ XTest
 
-def taste(kombi):
+def taste(kombi, pause=0.3):
     codes = [d.keysym_to_keycode(XK.string_to_keysym(k)) for k in kombi.split('+')]
     for c in codes:
         xtest.fake_input(d, X.KeyPress, c)
     for c in reversed(codes):
         xtest.fake_input(d, X.KeyRelease, c)
     d.sync()
-    time.sleep(0.3)
+    time.sleep(pause)
 
 
 def klick(p, knopf=1, mit=None):
@@ -239,9 +239,23 @@ def testkonto():
     flag_schritt('Strg+Umschalt+K', lambda: taste('Control_L+Shift_L+k'), 'ungelesen', gelesen=0)
     bild('2-nachher-ungelesen')
     flag_schritt('Strg+K', lambda: taste('Control_L+k'), 'gelesen', gelesen=1)
-    flag_schritt('Strg+S', lambda: taste('Control_L+s'), 'markiert', markiert=1)
+    flag_schritt('Umschalt+Strg+L', lambda: taste('Control_L+Shift_L+l'), 'markiert', markiert=1)
     bild('3-markiert')
-    flag_schritt('Strg+Umschalt+S', lambda: taste('Control_L+Shift_L+s'), 'nicht markiert', markiert=0)
+    flag_schritt('Umschalt+Strg+L', lambda: taste('Control_L+Shift_L+l'), 'nicht markiert', markiert=0)
+
+    # Schnellfolge: 5 Kürzel im Abstand von 50 ms; die Aufträge laufen nacheinander (Warteschlange),
+    # am Server gilt der letzte (ungelesen).
+    ab = marke()
+    for kombi in ('Control_L+Shift_L+k', 'Control_L+k', 'Control_L+Shift_L+k', 'Control_L+k', 'Control_L+Shift_L+k'):
+        taste(kombi, 0.05)
+    ende = time.monotonic() + 60
+    while time.monotonic() < ende and sum('gespeichert nach' in t and t.startswith('Flags:') for _, t in log_zeilen()[ab:]) < 5:
+        time.sleep(0.2)
+    reihe = [t.split()[4] for _, t in log_zeilen()[ab:] if t.startswith('Flags:') and 'gespeichert nach' in t]
+    (ok if reihe == ['ungelesen', 'gelesen', 'ungelesen', 'gelesen', 'ungelesen'] else falsch)(
+        'Schnellfolge: gespeichert in Reihenfolge %s' % reihe)
+    pruefe_server('Schnellfolge', gelesen=0)
+    flag_schritt('Strg+K', lambda: taste('Control_L+k'), 'gelesen', gelesen=1)
 
     def kontextmenue():
         klick(ZEILE, knopf=3)
@@ -267,8 +281,9 @@ def testkonto():
     flag_schritt('Stern-Knopf', lambda: klick(STERN), 'nicht markiert', markiert=0)
 
     geaendert = r'^Nachrichten: %s Änderung 0 neu, 0 entfernt, 1 geändert' % re.escape(LOGKEY)
-    # imapx hält IDLE nur am Posteingang (camel-imapx-conn-manager.c:1266-1285), Änderungen in
-    # Revolution-Test kommen daher mit F5; IDLE im Lauf -idle (Posteingang von privat@).
+    # imapx startet IDLE bevorzugt am Posteingang; der gewählte Ordner bekommt IDLE nur, wenn der
+    # Posteingang schon auf einer anderen Verbindung idlet (camel-imapx-conn-manager.c:1268-1278).
+    # Änderungen in Revolution-Test daher mit F5; IDLE im Lauf -idle (Posteingang von privat@).
     server_live('Server markiert', 'markiert', geaendert, True)
     time.sleep(0.5)
     bild('7-server-markiert')
@@ -289,14 +304,15 @@ def testkonto():
         flag_schritt('Ausgangszustand', lambda: taste('Control_L+Shift_L+k' if vorher[0] == 0 else 'Control_L+k'),
                      'ungelesen' if vorher[0] == 0 else 'gelesen', gelesen=vorher[0])
     if jetzt[1] != vorher[1]:
-        flag_schritt('Ausgangszustand', lambda: taste('Control_L+s' if vorher[1] else 'Control_L+Shift_L+s'),
+        flag_schritt('Ausgangszustand', lambda: taste('Control_L+Shift_L+l'),
                      'markiert' if vorher[1] else 'nicht markiert', markiert=vorher[1])
     return vorher
 
 
 def lastordner():
-    """Revolution-Last (3.000 Mails): Auswahl und Scrollposition bleiben bei Flag-Änderung."""
-    # Mausrad statt Bild ab: scrollt, ohne die Auswahl zu ändern (sonst liefe der Gelesen-Timer).
+    """Revolution-Last (3.000 Mails): Auswahl und Scrollposition bleiben bei Flag-Änderung.
+    Läuft mit mark-seen=false (tests/flags.sh); Ausgangszustand am Server prüft tests/flags.sh."""
+    # Mausrad: scrollt, ohne die Auswahl zu ändern.
     for _ in range(30):
         klick(ZEILE, knopf=5)
     zeile = (420, 108 + 2 * ZEILE_HOEHE)
@@ -307,13 +323,12 @@ def lastordner():
     # (focus-visible); sonst unterschiede sich nur der Rahmen der gewählten Zeile.
     taste('Escape')
     bild('1-vorher')
-    treffer = warte(r'^Flags: %s (\S+) gelesen \(automatisch\) gespeichert' % re.escape(LOGKEY), ab, 1)
-    if treffer:
-        wert('gewählte Zeile war ungelesen: %s' % treffer[1])
+    (falsch if warte(r'^Gelesen: ', ab, 0.5) else ok)('mark-seen=false: kein Gelesen-Timer beim Auswählen')
     ab = marke()
     taste('Control_L+Shift_L+k')
     t = warte(r'^Flags: %s (\S+) ungelesen gespeichert' % re.escape(LOGKEY), ab)
     (ok if t else falsch)('Strg+Umschalt+K in der Mitte der Liste: %s' % (t[1] if t else 'fehlt'))
+    uid = t[1].split()[3] if t else None
     time.sleep(0.5)
     bild('2-nachher')
     taste('Shift_L+F10')
@@ -340,11 +355,13 @@ def lastordner():
         auswahl = a.getpixel(punkt) == b.getpixel(punkt) != a.getpixel((268, zeile[1]))
         (ok if auswahl else falsch)('Auswahl: gewählte Zeile vorher und %s markiert (Farbe %s bei %s)'
                                     % (text, b.getpixel(punkt), punkt))
-    if treffer:
+    # War die Zeile vorher ungelesen (Server-Stand aus tests/flags.sh), wieder ungelesen setzen.
+    vorher = open(os.environ['UNGELESEN_VORHER']).read().split()[2:]
+    if uid in vorher:
         ab = marke()
         taste('Control_L+Shift_L+k')
         t = warte(r'^Flags: %s (\S+) ungelesen gespeichert' % re.escape(LOGKEY), ab)
-        (ok if t else falsch)('Ausgangszustand (wieder ungelesen): %s' % (t[1] if t else 'fehlt'))
+        (ok if t else falsch)('Ausgangszustand (UID %s wieder ungelesen): %s' % (uid, t[1] if t else 'fehlt'))
 
 
 def idle():
@@ -358,6 +375,29 @@ def idle():
     bild('2-geloescht')
     if marke() and not [t for t in log_zeilen() if t[1].startswith('Aktualisieren:')]:
         ok('ohne F5 (kein „Aktualisieren:“ im Log)')
+
+
+def offline():
+    """Ohne Netz (unshare -n, tests/flags.sh): Liste aus dem Cache, Markieren wirkt sofort an der
+    Zeile und bleibt lokal; den Server prüft tests/flags.sh danach."""
+    ab = marke()
+    klick(ZEILE)
+    time.sleep(0.5)
+    taste('Control_L+Shift_L+l')
+    t = warte(r'^Flags: %s \S+ markiert (gespeichert|lokal)' % re.escape(LOGKEY), ab, 30)
+    # Einzige Zeile im Ordner ist die Einladung (IMAP-UID 1, tests/testdaten.py --flags).
+    n = [z for _, z in log_zeilen() if z.startswith('Nachrichten: %s Cache ' % LOGKEY)]
+    wert('Liste ohne Netz: %s' % (n[-1] if n else '?'))
+    fehler_zeile = [z for z in open(LOG, encoding='utf-8', errors='replace') if 'WARNING' in z and 'Flags ' in z]
+    (ok if t else falsch)('ohne Netz Umschalt+Strg+L: %s' % (t[1] if t else 'fehlt; %s' % fehler_zeile[-1:]))
+    time.sleep(2)
+    (falsch if warte(r'^Gelesen: ', ab, 0.5) else ok)('mark-seen=false: kein Gelesen-Timer beim Auswählen')
+    bild('1-markiert-ohne-netz')
+
+
+def nachholen():
+    """Mit Netz: das Laden des Ordners (refresh_info) schickt die offline gesetzten Flags."""
+    time.sleep(5)
 
 
 def main():
@@ -379,6 +419,10 @@ def main():
             lastordner()
         elif NAME.endswith('-idle'):
             idle()
+        elif NAME.endswith('-offline'):
+            offline()
+        elif NAME.endswith(('-nachholen', '-vorbereiten')):
+            nachholen()
         else:
             vorher = testkonto()
         w.send_event(protocol.event.ClientMessage(
@@ -390,7 +434,7 @@ def main():
             (ok if rc == 0 else falsch)('Beenden: Exit %d' % rc)
         except subprocess.TimeoutExpired:
             falsch('Beenden: nach 30 s nicht beendet')
-        if not NAME.endswith(('-last', '-idle')):
+        if not NAME.endswith(('-last', '-idle', '-offline', '-nachholen', '-vorbereiten')):
             nachher = server_flags()
             (ok if nachher == vorher else falsch)('Server nach dem Lauf gelesen=%d markiert=%d, vorher %d/%d'
                                                   % (nachher + vorher))
@@ -401,8 +445,15 @@ def main():
         log.close()
     rest = [z for z in open(LOG, encoding='utf-8', errors='replace')
             if not z.startswith('(revolution:') and not z.startswith('libEGL warning:')]
-    rest += [z for z in open(LOG, encoding='utf-8', errors='replace')
-             if z.startswith('(revolution:') and 'revolution-DEBUG' not in z]
+    andere = [z for z in open(LOG, encoding='utf-8', errors='replace')
+              if z.startswith('(revolution:') and 'revolution-DEBUG' not in z]
+    if NAME.endswith('-offline'):
+        # Ohne Netz erwartet: Warnungen der App (Anmeldung, Laden), keine Criticals.
+        for z in andere:
+            wert('erwartete Meldung ohne Netz: %s' % z.strip()[:200])
+        andere = [z for z in andere if 'revolution-WARNING' not in z]
+        rest = [z for z in rest if z.strip()]
+    rest += andere
     (falsch if rest else ok)('Log: %s' % ('%d unerwartete Zeilen: %s' % (len(rest), rest[:3]) if rest else 'nur DEBUG-Zeilen'))
     return 1 if fehler else 0
 

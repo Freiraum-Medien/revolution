@@ -26,6 +26,10 @@
 #                                 in Revolution-Test gelesen|ungelesen|markiert|unmarkiert (IMAP UID
 #                                 STORE bzw. Graph PATCH), neu (IMAP APPEND einer Live-Mail) oder
 #                                 weg (Live-Mails löschen: UID STORE \Deleted + EXPUNGE)
+#   tests/testdaten.py --ungelesen KONTO ORDNER [--soll DATEI]
+#                                 #353: Zeile „UNGELESEN <Anzahl> <UID …>“ (IMAP EXAMINE + UID SEARCH
+#                                 UNSEEN, nur lesend); mit --soll (Datei mit einer solchen Zeile)
+#                                 stellt es genau diesen Stand per UID STORE ±\Seen her (Testkonten)
 #
 # Copyright 2026 Arnd Messer
 #
@@ -741,6 +745,27 @@ def flags(k):
     return 0
 
 
+def ungelesen(k, ziel, soll=None):
+    """#353: ungelesene UIDs eines IMAP-Ordners; mit soll (Datei mit einer früheren Ausgabe)
+    diesen Stand wiederherstellen."""
+    c = imap_verbinden(k)
+    name, _ = imap_ordner(c, ziel)
+    c.select('"%s"' % name, readonly=soll is None)
+    ist = set(c.uid('SEARCH', None, 'UNSEEN')[1][0].split())
+    if soll is not None:
+        nur_testkonten([k.adresse])
+        zeile = next(z for z in open(soll) if z.startswith('UNGELESEN '))
+        ziel_uids = {u.encode() for u in zeile.split()[2:]}
+        for uids, aenderung in ((ist - ziel_uids, '+FLAGS'), (ziel_uids - ist, '-FLAGS')):
+            if uids:
+                menge = b','.join(sorted(uids, key=int)).decode()
+                print('%s \\Seen %s: %s' % (aenderung, menge, c.uid('STORE', menge, aenderung, '(\\Seen)')[0]))
+        ist = set(c.uid('SEARCH', None, 'UNSEEN')[1][0].split())
+    c.logout()
+    print('UNGELESEN %d %s' % (len(ist), ' '.join(sorted((u.decode() for u in ist), key=int))))
+    return 0
+
+
 def server(k, aktion, ziel=ORDNER):
     """#353: serverseitige Änderung in einem Testkonto, während die App läuft; neu/weg auch im
     Posteingang (ziel INBOX, Beleg für IDLE)."""
@@ -787,10 +812,18 @@ def main():
     ap.add_argument('--last', type=int, metavar='N',
                     help='N Lastmails per APPEND in %s von %s (#352)' % (LAST_ORDNER, LAST_KONTO))
     ap.add_argument('--flags', metavar='KONTO', help='#353: nur lesend Flags in %s vom Server' % ORDNER)
+    ap.add_argument('--ungelesen', nargs=2, metavar=('KONTO', 'ORDNER'),
+                    help='#353: ungelesene UIDs (nur lesend); mit --soll DATEI wiederherstellen')
+    ap.add_argument('--soll', metavar='DATEI', help='#353: Ausgabe von --ungelesen als Sollstand')
     ap.add_argument('--server', nargs='+', metavar='KONTO AKTION [INBOX]',
                     help='#353: serverseitig gelesen|ungelesen|markiert|unmarkiert|neu|weg [im Posteingang]')
     args = ap.parse_args()
 
+    if args.ungelesen:
+        adresse = args.ungelesen[0].lower()
+        nur_testkonten([adresse])
+        k = konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse]
+        return ungelesen(k, args.ungelesen[1], args.soll)
     if args.flags or args.server:
         adresse = (args.flags or args.server[0]).lower()
         nur_testkonten([adresse])

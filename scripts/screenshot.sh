@@ -21,6 +21,8 @@
 #     AFTER_KEYS (wie Tastenwiederholung), Standard 0
 #   WAIT=40 (optional, Umgebung): Sekunden zusätzlich warten vor KEYS/CLICK und Aufnahme,
 #     z. B. bis die Ordner aller Konten geladen sind (#348); Standard 0
+#   SCHEMA_DIR=Pfad (optional, Umgebung, #353): kompiliertes GSettings-Schema, Standard BUILD/data;
+#     Tests setzen damit Vorgaben per .gschema.override (z. B. mark-seen=false)
 #   BUILD=Pfad (optional, Umgebung): Build-Ordner, Standard build/ im Repo. GSettings-Schema
 #     aus BUILD/data, Einstellungen nur im Speicher (GSETTINGS_BACKEND=memory, #342).
 #   LOG=Datei (optional, Umgebung, #349): Ausgabe der App (stdout und stderr) in diese Datei
@@ -112,7 +114,7 @@ shoot () {
   # Session-Bus bleibt über DBUS_SESSION_BUS_ADDRESS erreichbar), keine Portale, X11-Backend
   # erzwingen.
   env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
-    XDG_RUNTIME_DIR="$RUNDIR" GSETTINGS_SCHEMA_DIR="$BUILD/data" GSETTINGS_BACKEND=memory \
+    XDG_RUNTIME_DIR="$RUNDIR" GSETTINGS_SCHEMA_DIR="${SCHEMA_DIR:-$BUILD/data}" GSETTINGS_BACKEND=memory \
     REAL_DISPLAY="$REAL_DISPLAY" BIN="$BIN" OUT="$out" WIDTH="$((WIDTH * RENDER))" HEIGHT="$((HEIGHT * RENDER))" \
     CLICK="$CLICK" KEYS="$KEYS" AFTER_KEYS="$AFTER_KEYS" KEY_DELAY="$KEY_DELAY" WAIT="$WAIT" RENDER="$RENDER" ${SCALE:+GDK_SCALE=$RENDER} \
     LOG="$LOG" READY="$READY" QUIT="$QUIT" \

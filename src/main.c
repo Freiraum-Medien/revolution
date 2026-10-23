@@ -16,6 +16,7 @@
 
 #include "contacts/contacts-view.h"
 #include "calendar/calendar-view.h"
+#include "mail/mail-session.h"
 #include "mail/mail-view.h"
 
 /* Drei Themes (Arnd 22.10.2026, #340): stateful Aktion app.theme (Typ „s“) für den
@@ -159,6 +160,35 @@ load_registry_thread (GTask        *task,
     g_task_return_pointer (task, registry, g_object_unref);
 }
 
+/* #346: CamelSession im Worker (README „Worker“); revolution_mail_session_new registriert
+ * die Stores der Konten. Danach online wie Evolution nach dem Start (e-mail-backend.c:323)
+ * und Stamp (stamp-session.c:326); es baut noch keine Verbindung auf. */
+static void
+load_session_thread (GTask        *task,
+                     gpointer      source_object G_GNUC_UNUSED,
+                     gpointer      task_data,
+                     GCancellable *cancellable G_GNUC_UNUSED)
+{
+  RevolutionMailSession *session = revolution_mail_session_new (task_data);
+
+  camel_session_set_online (CAMEL_SESSION (session), TRUE);
+  g_task_return_pointer (task, session, g_object_unref);
+}
+
+static void
+on_session_loaded (GObject      *source_object,
+                   GAsyncResult *result,
+                   gpointer      user_data G_GNUC_UNUSED)
+{
+  RevolutionMailSession *session = g_task_propagate_pointer (G_TASK (result), NULL);
+  g_autolist (CamelService) services = camel_session_list_services (CAMEL_SESSION (session));
+
+  g_debug ("CamelSession: bereit, Rückruf im Thread %p, %u Stores",
+           (gpointer) g_thread_self (), g_list_length (services));
+  /* An der Anwendung gehalten wie die Registry (g_object_get_data (app, "session")). */
+  g_object_set_data_full (source_object, "session", session, g_object_unref);
+}
+
 static void
 on_registry_loaded (GObject      *source_object,
                     GAsyncResult *result,
@@ -167,6 +197,7 @@ on_registry_loaded (GObject      *source_object,
   g_autoptr (RevolutionMailView) mail_view = user_data;
   g_autoptr (GError) error = NULL;
   g_autofree char *message = NULL;
+  g_autoptr (GTask) task = NULL;
   ESourceRegistry *registry;
 
   registry = g_task_propagate_pointer (G_TASK (result), &error);
@@ -180,6 +211,11 @@ on_registry_loaded (GObject      *source_object,
        * zeigt daraus die Konten (#345). */
       g_object_set_data_full (source_object, "registry", registry, g_object_unref);
       revolution_mail_view_set_registry (mail_view, registry);
+
+      task = g_task_new (source_object, NULL, on_session_loaded, NULL);
+      g_task_set_source_tag (task, on_registry_loaded);
+      g_task_set_task_data (task, g_object_ref (registry), g_object_unref);
+      g_task_run_in_thread (task, load_session_thread);
       return;
     }
 

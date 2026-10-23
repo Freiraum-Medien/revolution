@@ -127,45 +127,6 @@ static const GActionEntry mail_actions[] = {
   { "toggle-sidebar", on_toggle_sidebar, NULL, NULL, NULL, { 0 } },
 };
 
-/* #345: Eingebaute Speicher, die Evolution neben den Konten im Ordnerbaum zeigt:
- * „Auf diesem Rechner“ (local) und „Suchordner“ (vfolder), Evolution e-mail-session.h:58-59
- * (E_MAIL_SESSION_LOCAL_UID, E_MAIL_SESSION_VFOLDER_UID), sowie „Nachrichten und Blogs“
- * (rss, Evolution-Modul rss, e-rss-folder-tree-model-extension.c:66). Revolution hat für
- * keinen davon Funktionen; sie erscheinen erst mit einem eigenen Task. */
-static const char * const builtin_uids[] = { "local", "vfolder", "rss", NULL };
-
-/* #345: Welche Mail-Konten Evolution 3.56.2 im Ordnerbaum zeigt. NULL = angezeigt,
- * sonst der Grund fürs Log.
- * 1. Konto unter GNOME/Ubuntu Online Accounts, dessen Mail-Teil aus ist (die Quelle selbst
- *    „disabled“): erscheint nirgends (e-mail-session.c:515-555, 595-600).
- * 2. Sonst entscheidet „enabled“ der umgebenden Collection, ohne Collection die Quelle
- *    selbst (e-mail-account-store.c:1220-1255); der Ordnerbaum zeigt nur aktivierte
- *    (em-folder-tree-model.c:559-574).
- * Die Registry-Aufrufe lesen nur die Quellen im Speicher (EDS e-source-registry.c:459-472,
- * 2576-2604), kein D-Bus; wie on_registry_loaded in main.c im UI-Thread. */
-static const char *
-account_hidden_reason (ESourceRegistry *registry,
-                       ESource         *source)
-{
-  g_autoptr (ESource) goa = NULL;
-  g_autoptr (ESource) uoa = NULL;
-  g_autoptr (ESource) collection = NULL;
-
-  if (g_strv_contains (builtin_uids, e_source_get_uid (source)))
-    return "eingebauter Speicher";
-
-  goa = e_source_registry_find_extension (registry, source, E_SOURCE_EXTENSION_GOA);
-  uoa = e_source_registry_find_extension (registry, source, E_SOURCE_EXTENSION_UOA);
-  if ((goa != NULL || uoa != NULL) && !e_source_get_enabled (source))
-    return "Online-Konto, Mail aus";
-
-  collection = e_source_registry_find_extension (registry, source, E_SOURCE_EXTENSION_COLLECTION);
-  if (!e_source_get_enabled (collection != NULL ? collection : source))
-    return collection != NULL ? "Collection deaktiviert" : "deaktiviert";
-
-  return NULL;
-}
-
 /* #345: Konten aus der Registry in den Store, nur im UI-Thread (Registry-Signale kommen
  * dort an, README „Worker“). Reihenfolge alphabetisch nach Anzeigename wie Evolutions
  * Standard (e-mail-account-store.c:119-153, g_utf8_collate); e_source_registry_list_sources
@@ -184,7 +145,7 @@ sync_accounts (RevolutionMailView *self)
 
   for (GList *l = sources; l != NULL; l = l->next)
     {
-      const char *reason = account_hidden_reason (self->registry, l->data);
+      const char *reason = revolution_mail_account_hidden_reason (self->registry, l->data);
       g_autofree char *name = e_source_dup_display_name (l->data);
 
       g_debug ("Mail-Konto %s „%s“: %s", e_source_get_uid (l->data), name, reason ? reason : "angezeigt");

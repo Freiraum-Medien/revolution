@@ -77,6 +77,8 @@ struct _RevolutionMailReader
   gboolean        dark;
   gboolean        ua_dark;
   gboolean        showing;
+  char           *load_uri;
+  guint           load_serial;
   GtkRoot        *root;
 };
 
@@ -664,9 +666,15 @@ show_html (RevolutionMailReader *self)
 
   if (self->guard == GUARD_OK)
     {
-      /* Sichtbar erst mit dem neuen Dokument (on_load_changed, WEBKIT_LOAD_COMMITTED). */
+      /* Sichtbar erst mit dem neuen Dokument (on_load_changed). Eigene Adresse je Ladung, damit
+       * nur Ereignisse dieser Ladung zählen; Abfrage statt Fragment, sonst behandelt WebKit den
+       * Wechsel von about:blank als Sprung im selben Dokument und lädt nichts (gemessen: keine
+       * load-changed-Ereignisse nach „about:blank#…“). */
       self->showing = TRUE;
-      webkit_web_view_load_html (self->web_view, html, NULL);
+      g_free (self->load_uri);
+      self->load_uri = g_strdup_printf ("about:blank?revolution-%u", ++self->load_serial);
+      g_debug ("Nachricht: zeigt %s", self->load_uri);
+      webkit_web_view_load_html (self->web_view, html, self->load_uri);
     }
   else
     guard_page (self);
@@ -712,17 +720,25 @@ guard_page (RevolutionMailReader *self)
   webkit_web_view_load_html (self->web_view, "<!DOCTYPE html><html></html>", NULL);
 }
 
+/* Unterbricht load_html eine laufende Ladung, meldet WebKitGTK 2.52.6 für die neue weder STARTED noch
+ * COMMITTED, nur FINISHED (Prüf-Lauf #354 R3, p354/ladefolge3.py: „committed uri=…#A“, danach nur
+ * „finished uri=…#B“). Daher sichtbar bei COMMITTED oder FINISHED, sofern die Adresse die der
+ * aktuellen Ladung ist (load_uri); Ereignisse älterer Ladungen bleiben so ohne Wirkung. */
 static void
 on_load_changed (RevolutionMailReader *self,
                  WebKitLoadEvent       event)
 {
-  if (event == WEBKIT_LOAD_COMMITTED && self->showing)
-    gtk_widget_set_visible (GTK_WIDGET (self->web_view), TRUE);
-
-  if (event == WEBKIT_LOAD_FINISHED && self->showing)
+  if (self->showing && (event == WEBKIT_LOAD_COMMITTED || event == WEBKIT_LOAD_FINISHED) &&
+      g_strcmp0 (webkit_web_view_get_uri (self->web_view), self->load_uri) == 0)
     {
-      self->showing = FALSE;
-      g_signal_emit (self, shown_signal, 0);
+      if (!gtk_widget_get_visible (GTK_WIDGET (self->web_view)))
+        g_debug ("Nachricht: sichtbar %s (%s)", self->load_uri, event == WEBKIT_LOAD_FINISHED ? "finished" : "committed");
+      gtk_widget_set_visible (GTK_WIDGET (self->web_view), TRUE);
+      if (event == WEBKIT_LOAD_FINISHED)
+        {
+          self->showing = FALSE;
+          g_signal_emit (self, shown_signal, 0);
+        }
       return;
     }
 
@@ -732,6 +748,23 @@ on_load_changed (RevolutionMailReader *self,
   self->guard = GUARD_ASKING;
   webkit_web_view_send_message_to_page (self->web_view, webkit_user_message_new ("revolution-guard", NULL),
                                         NULL, on_guard_reply, g_object_ref (self));
+}
+
+/* Fehlgeschlagenes Laden: kein Fehlerdokument von WebKit (TRUE). Abbruch durch eine neuere Ladung
+ * ist normal (WEBKIT_NETWORK_ERROR_CANCELLED); schlägt die aktuelle Ladung fehl, Banner. */
+static gboolean
+on_load_failed (RevolutionMailReader *self,
+                WebKitLoadEvent       event G_GNUC_UNUSED,
+                const char           *uri,
+                GError               *error)
+{
+  if (g_error_matches (error, WEBKIT_NETWORK_ERROR, WEBKIT_NETWORK_ERROR_CANCELLED) ||
+      !self->showing || g_strcmp0 (uri, self->load_uri) != 0)
+    return TRUE;
+
+  self->showing = FALSE;
+  show_error (self, _("Nachricht nicht angezeigt"), error->message);
+  return TRUE;
 }
 
 /* Neuer Webprozess: Erweiterung erneut bestätigen lassen, Inhalt neu laden. Beim Beenden der
@@ -994,6 +1027,7 @@ create_web_view (RevolutionMailReader *self)
   g_signal_connect_object (web_view, "decide-policy", G_CALLBACK (on_decide_policy), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (web_view, "context-menu", G_CALLBACK (on_context_menu), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (web_view, "load-changed", G_CALLBACK (on_load_changed), self, G_CONNECT_SWAPPED);
+  g_signal_connect_object (web_view, "load-failed", G_CALLBACK (on_load_failed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (web_view, "web-process-terminated", G_CALLBACK (on_web_process_terminated), self,
                            G_CONNECT_SWAPPED);
 
@@ -1141,6 +1175,7 @@ revolution_mail_reader_dispose (GObject *object)
   g_clear_pointer (&self->parts, g_hash_table_unref);
   g_clear_pointer (&self->html, g_free);
   g_clear_pointer (&self->html_light, g_free);
+  g_clear_pointer (&self->load_uri, g_free);
 
   G_OBJECT_CLASS (revolution_mail_reader_parent_class)->dispose (object);
 }

@@ -16,8 +16,9 @@
  * about: sperrt die Web-Process-Extension (src/web-extension/web-extension.c). Begründung der
  * Wahl: Stamp (extension.c:157-186) und Evolution (e-web-extension.c:98-143) sperren bzw. leiten
  * je Anfrage im Webprozess über WebKitWebPage::send-request um; nur dort kennt man jede Anfrage
- * einzeln und kann #355 die Freigabe je Mail und den Hinweis „Entfernte Inhalte gesperrt“
- * ergänzen (Nachricht an die App wie Stamp „image-load-blocked“). Ein Inhaltsfilter
+ * einzeln; #355 ergänzt dort die Freigabe je Mail und Absender und meldet Gesperrtes für den
+ * Hinweis „Entfernte Inhalte gesperrt“ (Nachricht an die App wie Stamp „image-load-blocked“,
+ * Abschnitt „#355: Hinweis und Freigabe“). Ein Inhaltsfilter
  * (WebKitUserContentFilter) sperrt zwar ohne Erweiterung, meldet aber nicht, was gesperrt wurde.
  * Fehlt die Erweiterung, zeigt die App nichts an (guard_page), statt ungeschützt zu laden.
  *
@@ -63,6 +64,9 @@ struct _RevolutionMailReader
   GtkLabel       *to_full;
   GtkLabel       *cc_full;
   GtkLabel       *date_full;
+  GtkWidget      *notice;
+  GMenu          *notice_menu;
+  GtkWidget      *notice_button;
   GtkOverlay     *content_overlay;
   AdwSpinner     *spinner;
   RevolutionMailAttachmentBar *attachments;
@@ -82,6 +86,10 @@ struct _RevolutionMailReader
   char           *load_uri;
   guint           load_serial;
   GtkRoot        *root;
+  /* #355: entfernte Inhalte der angezeigten Nachricht freigegeben (Nachricht oder Absender) */
+  gboolean        remote_allowed;
+  char           *sender;
+  GSimpleActionGroup *actions;
 };
 
 /* „shown“: Inhalt der Nachricht fertig geladen (WEBKIT_LOAD_FINISHED); mail-view.c startet damit den
@@ -128,6 +136,8 @@ typedef struct _LoadMessage
   char         *cc_full;
   char         *from_full;
   gint64        date;
+  char         *sender;
+  gboolean      sender_allowed;
 } LoadMessage;
 
 static void
@@ -145,6 +155,7 @@ load_message_free (LoadMessage *load)
   g_free (load->to_full);
   g_free (load->cc_full);
   g_free (load->from_full);
+  g_free (load->sender);
   g_free (load);
 }
 
@@ -568,6 +579,110 @@ prepare_schemes (LoadMessage *load)
   load->own_dark = count.dark > 0 && g_regex_match (scheme_regex (2), load->html, 0, NULL);
 }
 
+/* ------------------------------------------------------------------ #355: Freigabeliste */
+
+/* Absender und Domains mit Freigabe für entfernte Inhalte, wie Evolution e-mail-remote-content.c
+ * (Tabelle „mails“: Adresse oder „@domain“, klein geschrieben, :300-312, 446-468) und
+ * e-mail-display.c:247-269 (geprüft werden die Adressen aus From). Eigene Datei statt Evolutions
+ * remote-content.db (e-mail-backend.c:1413, CamelDB): eine Zeile je Eintrag in
+ * ~/.local/share/revolution/remote-content.txt (Architektur 4). Lesen und Schreiben nur im Worker;
+ * der Mutex ordnet Lesen und Schreiben aus mehreren Worker-Threads. */
+static GMutex remote_list_lock;
+
+static char *
+remote_list_path (void)
+{
+  return g_build_filename (g_get_user_data_dir (), "revolution", "remote-content.txt", NULL);
+}
+
+/* Im Worker: Liste lesen (fehlt die Datei, ist sie leer). */
+static char **
+remote_list_read (void)
+{
+  g_autofree char *path = remote_list_path ();
+  g_autofree char *text = NULL;
+  g_autoptr (GError) error = NULL;
+
+  g_mutex_lock (&remote_list_lock);
+  if (!g_file_get_contents (path, &text, NULL, &error) && !g_error_matches (error, G_FILE_ERROR, G_FILE_ERROR_NOENT))
+    g_warning ("Entfernte Inhalte: %s nicht gelesen: %s", path, error->message);
+  g_mutex_unlock (&remote_list_lock);
+
+  return g_strsplit (text != NULL ? text : "", "\n", -1);
+}
+
+/* Freigabe wie e_mail_remote_content_has_mail (e-mail-remote-content.c:563-583): Adresse oder ihre
+ * Domain ab „@“, ohne Rücksicht auf Groß-/Kleinschreibung. */
+static gboolean
+remote_list_has (char       **list,
+                 const char  *address)
+{
+  const char *at = strchr (address, '@');
+
+  for (char **entry = list; *entry != NULL; entry++)
+    if (**entry != '\0' && (g_ascii_strcasecmp (*entry, address) == 0 || (at != NULL && g_ascii_strcasecmp (*entry, at) == 0)))
+      return TRUE;
+
+  return FALSE;
+}
+
+/* Im Worker: Absender (erste Adresse aus From) und ob eine Adresse aus From freigegeben ist. */
+static void
+check_sender (LoadMessage          *load,
+              CamelInternetAddress *from)
+{
+  g_auto (GStrv) list = remote_list_read ();
+
+  for (int i = 0; from != NULL && i < camel_address_length (CAMEL_ADDRESS (from)); i++)
+    {
+      const char *email = NULL;
+
+      if (!camel_internet_address_get (from, i, NULL, &email) || email == NULL || *email == '\0')
+        continue;
+      if (load->sender == NULL)
+        load->sender = g_ascii_strdown (email, -1);
+      load->sender_allowed |= remote_list_has (list, email);
+    }
+}
+
+/* Im Worker: Eintrag (Adresse oder „@domain“) klein geschrieben anhängen, wenn er fehlt. */
+static void
+remote_list_add_thread (GTask        *task,
+                        gpointer      source_object G_GNUC_UNUSED,
+                        gpointer      task_data,
+                        GCancellable *cancellable G_GNUC_UNUSED)
+{
+  g_autofree char *path = remote_list_path ();
+  g_autofree char *text = NULL;
+  g_autofree char *entry = g_ascii_strdown (task_data, -1);
+  g_auto (GStrv) list = NULL;
+  GError *error = NULL;
+  gboolean saved = TRUE;
+
+  /* Ein Eintrag ist eine Zeile: Zeilenumbrüche würden weitere Einträge anlegen. */
+  if (*entry == '\0' || strpbrk (entry, "\r\n") != NULL)
+    {
+      g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, _("Ungültiger Eintrag „%s“"), entry);
+      return;
+    }
+
+  g_mutex_lock (&remote_list_lock);
+  g_file_get_contents (path, &text, NULL, NULL);
+  list = g_strsplit (text != NULL ? text : "", "\n", -1);
+  if (!g_strv_contains ((const char * const *) list, entry))
+    {
+      g_autofree char *updated = g_strconcat (text != NULL ? text : "", entry, "\n", NULL);
+
+      saved = g_file_set_contents_full (path, updated, -1, G_FILE_SET_CONTENTS_CONSISTENT, 0600, &error);
+    }
+  g_mutex_unlock (&remote_list_lock);
+
+  if (saved)
+    g_task_return_boolean (task, TRUE);
+  else
+    g_task_return_error (task, error);
+}
+
 static void
 load_message_thread (GTask        *task,
                      gpointer      source_object G_GNUC_UNUSED,
@@ -600,6 +715,7 @@ load_message_thread (GTask        *task,
     }
 
   load->from_full = format_address (camel_mime_message_get_from (message));
+  check_sender (load, camel_mime_message_get_from (message));
   load->to_short = names_for (camel_mime_message_get_recipients (message, CAMEL_RECIPIENT_TYPE_TO));
   load->to_full = format_address (camel_mime_message_get_recipients (message, CAMEL_RECIPIENT_TYPE_TO));
   load->cc_full = format_address (camel_mime_message_get_recipients (message, CAMEL_RECIPIENT_TYPE_CC));
@@ -716,16 +832,56 @@ static void guard_page (RevolutionMailReader *self);
 
 /* Fassung je Theme (PM #354): Theme 1 (Oberfläche hell) die Mail unverändert; Themes 2/3 die helle
  * Fassung (prepare_schemes), außer Theme 3 bei eigener Dunkel-Fassung der Mail. */
+static const char *
+current_html (RevolutionMailReader *self)
+{
+  if (self->ua_dark && self->html_light != NULL && !(self->dark && self->own_dark))
+    return self->html_light;
+
+  return self->html;
+}
+
+/* #355: Die Erweiterung hat die Freigabe für die Ladung mit dieser Adresse bestätigt (Antwort trägt
+ * die Adresse); erst jetzt laden. Antworten zu älteren Ladungen bleiben ohne Wirkung. */
+static void
+on_remote_allow_reply (GObject      *source,
+                       GAsyncResult *result,
+                       gpointer      user_data)
+{
+  g_autoptr (RevolutionMailReader) self = user_data;
+  g_autoptr (WebKitUserMessage) reply = NULL;
+  g_autoptr (GError) error = NULL;
+  GVariant *parameters;
+
+  reply = webkit_web_view_send_message_to_page_finish (WEBKIT_WEB_VIEW (source), result, &error);
+  parameters = reply != NULL ? webkit_user_message_get_parameters (reply) : NULL;
+
+  if (reply == NULL)
+    {
+      if (self->showing && self->html != NULL)
+        {
+          self->showing = FALSE;
+          show_error (self, _("Entfernte Inhalte nicht geladen"), error->message);
+        }
+      return;
+    }
+
+  if (!self->showing || self->html == NULL || parameters == NULL ||
+      !g_variant_is_of_type (parameters, G_VARIANT_TYPE_STRING) ||
+      g_strcmp0 (g_variant_get_string (parameters, NULL), self->load_uri) != 0)
+    return;
+
+  g_debug ("Nachricht: zeigt %s mit entfernten Inhalten", self->load_uri);
+  webkit_web_view_load_html (self->web_view, current_html (self), self->load_uri);
+}
+
 static void
 show_html (RevolutionMailReader *self)
 {
-  const char *html = self->html;
+  const char *html = current_html (self);
 
   if (html == NULL)
     return;
-
-  if (self->ua_dark && self->html_light != NULL && !(self->dark && self->own_dark))
-    html = self->html_light;
 
   /* Nach fehlgeschlagener Bestätigung neu versuchen, mit neuem Webprozess. */
   if (self->guard == GUARD_FAILED)
@@ -743,6 +899,15 @@ show_html (RevolutionMailReader *self)
       self->showing = TRUE;
       g_free (self->load_uri);
       self->load_uri = g_strdup_printf ("about:blank?revolution-%u", ++self->load_serial);
+      /* #355: freigegeben: die Erweiterung erlaubt http/https nur für diese Adresse. */
+      if (self->remote_allowed)
+        {
+          webkit_web_view_send_message_to_page (self->web_view,
+                                                webkit_user_message_new ("revolution-remote-allow",
+                                                                         g_variant_new_string (self->load_uri)),
+                                                NULL, on_remote_allow_reply, g_object_ref (self));
+          return;
+        }
       g_debug ("Nachricht: zeigt %s", self->load_uri);
       webkit_web_view_load_html (self->web_view, html, self->load_uri);
     }
@@ -849,6 +1014,143 @@ on_web_process_terminated (RevolutionMailReader             *self,
   g_warning ("Nachricht: Webprozess beendet (%d)", reason);
   self->guard = GUARD_NONE;
   show_html (self);
+}
+
+/* ------------------------------------------------------------------ #355: Hinweis und Freigabe */
+
+static void
+set_notice (RevolutionMailReader *self,
+            gboolean              visible)
+{
+  gtk_widget_set_visible (self->notice, visible);
+  g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (G_ACTION_MAP (self->actions), "load-remote")),
+                               visible);
+  g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (G_ACTION_MAP (self->actions), "allow-remote")),
+                               visible);
+}
+
+/* Meldung der Erweiterung: im Dokument dieser Ladung wurden http-/https-Inhalte gesperrt. */
+static gboolean
+on_user_message (RevolutionMailReader *self,
+                 WebKitUserMessage    *message)
+{
+  GVariant *parameters = webkit_user_message_get_parameters (message);
+
+  if (g_strcmp0 (webkit_user_message_get_name (message), "revolution-remote-blocked") != 0)
+    return FALSE;
+
+  if (self->html != NULL && !self->remote_allowed && parameters != NULL &&
+      g_variant_is_of_type (parameters, G_VARIANT_TYPE_STRING) &&
+      g_strcmp0 (g_variant_get_string (parameters, NULL), self->load_uri) == 0)
+    {
+      if (!gtk_widget_get_visible (self->notice))
+        g_debug ("Entfernte Inhalte: gesperrt in %s (Absender %s), Hinweis sichtbar", self->load_uri,
+                 self->sender != NULL ? self->sender : "-");
+      set_notice (self, TRUE);
+    }
+
+  return TRUE;
+}
+
+/* reader.load-remote (Strg+I wie Evolution „mail-load-images“, e-mail-reader.c:3116-3121): nur
+ * diese Nachricht, wie e_mail_display_load_images (e-mail-display.c:3641-3647); die nächste
+ * Nachricht ist wieder gesperrt (e_mail_display_load setzt zurück, :3469-3473). */
+static void
+on_load_remote (GSimpleAction *action G_GNUC_UNUSED,
+                GVariant      *parameter G_GNUC_UNUSED,
+                gpointer       user_data)
+{
+  RevolutionMailReader *self = user_data;
+
+  if (self->html == NULL)
+    return;
+
+  g_debug ("Entfernte Inhalte: für diese Nachricht freigegeben");
+  self->remote_allowed = TRUE;
+  set_notice (self, FALSE);
+  show_html (self);
+}
+
+static void
+on_remote_list_saved (GObject      *source_object,
+                      GAsyncResult *result,
+                      gpointer      user_data)
+{
+  RevolutionMailReader *self = REVOLUTION_MAIL_READER (source_object);
+  g_autoptr (GError) error = NULL;
+  guint generation = GPOINTER_TO_UINT (user_data);
+
+  if (!g_task_propagate_boolean (G_TASK (result), &error))
+    {
+      show_error (self, _("Freigabe nicht gespeichert"), error->message);
+      return;
+    }
+
+  g_debug ("Entfernte Inhalte: Freigabe gespeichert");
+  /* Inzwischen andere Nachricht gewählt: die zeigt der nächste Ladevorgang ohnehin mit Liste. */
+  if (generation != self->generation || self->html == NULL)
+    return;
+
+  self->remote_allowed = TRUE;
+  show_html (self);
+}
+
+/* reader.allow-remote (Adresse oder „@domain“): dauerhaft wie Evolution „Allow remote content for
+ * …“ (e-mail-remote-content-popover.c:140-160, 225-240), danach diese Nachricht neu laden. */
+static void
+on_allow_remote (GSimpleAction *action G_GNUC_UNUSED,
+                 GVariant      *parameter,
+                 gpointer       user_data)
+{
+  RevolutionMailReader *self = user_data;
+  g_autoptr (GTask) task = NULL;
+  const char *entry = g_variant_get_string (parameter, NULL);
+
+  if (*entry == '\0')
+    return;
+
+  g_debug ("Entfernte Inhalte: immer für %s freigeben", entry);
+  set_notice (self, FALSE);
+  task = g_task_new (self, NULL, on_remote_list_saved, GUINT_TO_POINTER (self->generation));
+  g_task_set_source_tag (task, on_allow_remote);
+  g_task_set_task_data (task, g_strdup (entry), g_free);
+  g_task_run_in_thread (task, remote_list_add_thread);
+}
+
+static const GActionEntry reader_actions[] = {
+  { "load-remote", on_load_remote, NULL, NULL, NULL, { 0 } },
+  { "allow-remote", on_allow_remote, "s", NULL, NULL, { 0 } },
+};
+
+/* Menü des Hinweises: Absender und seine Domain wie Evolution (e-mail-remote-content-popover.c:
+ * 60-106, 225-240). */
+static void
+fill_notice_menu (RevolutionMailReader *self)
+{
+  const char *at = self->sender != NULL ? strchr (self->sender, '@') : NULL;
+
+  g_menu_remove_all (self->notice_menu);
+  if (self->sender == NULL)
+    return;
+
+  {
+    /* Translators: Menü des Hinweises „Entfernte Inhalte gesperrt“, %s ist die Absenderadresse. */
+    g_autofree char *label = g_strdup_printf (_("Immer für %s laden"), self->sender);
+    g_autoptr (GMenuItem) item = g_menu_item_new (label, NULL);
+
+    g_menu_item_set_action_and_target_value (item, "reader.allow-remote", g_variant_new_string (self->sender));
+    g_menu_append_item (self->notice_menu, item);
+  }
+
+  if (at != NULL && at != self->sender && at[1] != '\0')
+    {
+      /* Translators: Menü des Hinweises, %s ist die Domain mit „@“, z. B. „@example.org“. */
+      g_autofree char *label = g_strdup_printf (_("Immer für alle von %s laden"), at);
+      g_autoptr (GMenuItem) item = g_menu_item_new (label, NULL);
+
+      g_menu_item_set_action_and_target_value (item, "reader.allow-remote", g_variant_new_string (at));
+      g_menu_append_item (self->notice_menu, item);
+    }
 }
 
 static gboolean
@@ -1098,6 +1400,7 @@ create_web_view (RevolutionMailReader *self)
   g_signal_connect_object (web_view, "context-menu", G_CALLBACK (on_context_menu), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (web_view, "load-changed", G_CALLBACK (on_load_changed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (web_view, "load-failed", G_CALLBACK (on_load_failed), self, G_CONNECT_SWAPPED);
+  g_signal_connect_object (web_view, "user-message-received", G_CALLBACK (on_user_message), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (web_view, "web-process-terminated", G_CALLBACK (on_web_process_terminated), self,
                            G_CONNECT_SWAPPED);
 
@@ -1183,6 +1486,13 @@ on_message_loaded (GObject      *source_object,
 
   set_header (self, load);
   revolution_mail_attachment_bar_set (self->attachments, load->attachments);
+  /* #355: Absender freigegeben (Liste im Worker gelesen): gleich mit entfernten Inhalten laden. */
+  g_free (self->sender);
+  self->sender = g_steal_pointer (&load->sender);
+  self->remote_allowed = load->sender_allowed;
+  if (load->sender_allowed)
+    g_debug ("Entfernte Inhalte: Absender %s freigegeben", self->sender);
+  fill_notice_menu (self);
   g_clear_pointer (&self->parts, g_hash_table_unref);
   self->parts = g_steal_pointer (&load->parts);
   g_free (self->html);
@@ -1247,6 +1557,8 @@ revolution_mail_reader_dispose (GObject *object)
   g_clear_pointer (&self->html, g_free);
   g_clear_pointer (&self->html_light, g_free);
   g_clear_pointer (&self->load_uri, g_free);
+  g_clear_pointer (&self->sender, g_free);
+  g_clear_object (&self->actions);
 
   G_OBJECT_CLASS (revolution_mail_reader_parent_class)->dispose (object);
 }
@@ -1279,6 +1591,9 @@ revolution_mail_reader_class_init (RevolutionMailReaderClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, to_full);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, cc_full);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, date_full);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, notice);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, notice_menu);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, notice_button);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, content_overlay);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, spinner);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, attachments);
@@ -1288,6 +1603,20 @@ static void
 revolution_mail_reader_init (RevolutionMailReader *self)
 {
   gtk_widget_init_template (GTK_WIDGET (self));
+
+  /* #355: Aktionen des Hinweises, Kürzel in mail-reader.blp. */
+  self->actions = g_simple_action_group_new ();
+  g_action_map_add_action_entries (G_ACTION_MAP (self->actions), reader_actions, G_N_ELEMENTS (reader_actions), self);
+  gtk_widget_insert_action_group (GTK_WIDGET (self), "reader", G_ACTION_GROUP (self->actions));
+  set_notice (self, FALSE);
+  {
+    /* Kürzel aus dem Accelerator (mail-reader.blp, Strg+I), nicht als fester Text in der Übersetzung. */
+    g_autofree char *accel = gtk_accelerator_get_label (GDK_KEY_i, GDK_CONTROL_MASK);
+    /* Translators: Tooltip des Knopfs „Laden“ im Hinweis, %s ist das Tastenkürzel, z. B. „Strg+I“. */
+    g_autofree char *tooltip = g_strdup_printf (_("Entfernte Inhalte dieser E-Mail laden (%s)"), accel);
+
+    gtk_widget_set_tooltip_text (self->notice_button, tooltip);
+  }
 
   self->web_view = create_web_view (self);
   gtk_overlay_set_child (self->content_overlay, GTK_WIDGET (self->web_view));
@@ -1378,6 +1707,9 @@ revolution_mail_reader_clear (RevolutionMailReader *self)
   g_clear_pointer (&self->html_light, g_free);
   g_clear_pointer (&self->parts, g_hash_table_unref);
   self->showing = FALSE;
+  self->remote_allowed = FALSE;
+  g_clear_pointer (&self->sender, g_free);
+  set_notice (self, FALSE);
   gtk_widget_set_visible (GTK_WIDGET (self->spinner), FALSE);
   revolution_mail_attachment_bar_set (self->attachments, NULL);
 

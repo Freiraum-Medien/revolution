@@ -5,12 +5,26 @@ using Gtk 4.0;
 using Adw 1;
 
 template $RevolutionMailReader: Adw.Bin {
+  // #355: Strg+I wie Evolution „Bilder laden“ (e-mail-reader.c:3116-3121). Scope managed: das
+  // Fenster wertet das Kürzel aus, auch wenn die Nachrichtenliste den Fokus hat; die Aktion ist nur
+  // bei sichtbarem Hinweis aktiv (mail-reader.c set_notice).
+  ShortcutController {
+    scope: managed;
+
+    Shortcut {
+      trigger: "<primary>i";
+      action: "action(reader.load-remote)";
+    }
+  }
+
   child: Box {
     orientation: vertical;
 
     // #401 Punkt 4: Hinweis im Apple-Stil (Vorbild 12) statt Adw.Banner über die
     // volle Breite: abgerundete Pille mit Abstand, Symbol links, Knopf in Akzentfarbe.
-    // Sichtbar erst mit #355 (Remote-Bilder-Sperre).
+    // #355: sichtbar, sobald die Web-Process-Extension entfernte Inhalte gesperrt hat
+    // (mail-reader.c on_user_message). Knopf wie Evolution „Load remote content“ mit Menü
+    // für Absender und Domain (e-mail-remote-content-popover.c:225-240, 309-335).
     Box notice {
       visible: false;
       spacing: 12;
@@ -35,10 +49,17 @@ template $RevolutionMailReader: Adw.Bin {
         ellipsize: end;
       }
 
-      Button {
+      // Tooltip mit Kürzel setzt mail-reader.c (revolution_mail_reader_init).
+      Adw.SplitButton notice_button {
         label: _("Laden");
-        tooltip-text: _("Entfernte Inhalte dieser E-Mail laden");
+        action-name: "reader.load-remote";
+        dropdown-tooltip: _("Entfernte Inhalte immer laden");
+        menu-model: notice_menu;
         valign: center;
+
+        accessibility {
+          description: _("Entfernte Inhalte dieser E-Mail laden");
+        }
 
         styles [
           "mail-notice-button",
@@ -346,3 +367,6 @@ template $RevolutionMailReader: Adw.Bin {
     }
   };
 }
+
+// #355: Einträge setzt mail-reader.c fill_notice_menu (Absender, Domain).
+menu notice_menu {}

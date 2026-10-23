@@ -163,15 +163,26 @@ menubutton.primary-menu popover.menu separator {
   color: var(--accent-color);
 }
 
-.mail-notice-button {
+/* #355: Knopf mit Menü (Adw.SplitButton): beide Hälften als eine Pille in Akzentfarbe. */
+.mail-notice-button > button,
+.mail-notice-button > menubutton > button {
   min-height: 26px;
-  padding: 0 14px;
-  border-radius: 999px;
   background-color: color-mix(in srgb, var(--accent-bg-color) 16%, transparent);
   color: var(--accent-color);
 }
 
-.mail-notice-button:hover {
+.mail-notice-button > button {
+  padding: 0 10px 0 14px;
+  border-radius: 999px 0 0 999px;
+}
+
+.mail-notice-button > menubutton > button {
+  padding: 0 8px 0 6px;
+  border-radius: 0 999px 999px 0;
+}
+
+.mail-notice-button > button:hover,
+.mail-notice-button > menubutton > button:hover {
   background-color: color-mix(in srgb, var(--accent-bg-color) 24%, transparent);
 }
 

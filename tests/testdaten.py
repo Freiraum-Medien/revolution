@@ -42,7 +42,8 @@
 #                                 der Nachrichten eines IMAP-Ordners (EXAMINE, UID SEARCH UNDELETED
 #                                 ohne Junk); Zeile „ANZAHL <UID>/<Ordner> <sichtbar> EXISTS <n>“
 #   tests/testdaten.py --anzeige  #354: nur die Anzeige-Mails (HTML, Text ISO-8859-1, Inline-Bild
-#                                 cid:, Remote-Inhalte) per APPEND in den Posteingang der vier
+#                                 cid:, Remote-Inhalte; #355: zweite Remote-Mail und Remote-Mail eines
+#                                 anderen Absenders) per APPEND in den Posteingang der vier
 #                                 Testkonten (fehlende ergänzen, kein Versand); im Standardlauf
 #                                 enthalten
 #   tests/testdaten.py --anhang   #356: Anhang-Mail (PDF, PNG, ZIP, Text mit „../“ im Dateinamen,
@@ -210,7 +211,12 @@ ANZEIGE = [
     ('anzeige-cid', PREFIX + ' Anzeige Inline-Bild (cid)'),
     ('anzeige-remote', PREFIX + ' Anzeige Remote-Inhalte (Tracking-Pixel)'),
     ('anzeige-dunkel', PREFIX + ' Anzeige HTML mit Dunkel-Fassung'),
+    # #355: zweite Mail desselben Absenders und eine von einem anderen Absender, je mit Remote-Bild
+    ('anzeige-remote2', PREFIX + ' Anzeige Remote zweite Mail'),
+    ('anzeige-remote-fremd', PREFIX + ' Anzeige Remote anderer Absender'),
 ]
+# #355: abweichender Absender je Schlüssel (sonst ANZEIGE_ABSENDER)
+ANZEIGE_ANDERE = {'anzeige-remote-fremd': 'KONTO_IMAP_2@example.invalid'}
 REMOTE_HOST = 'https://upload.wikimedia.org'
 
 
@@ -305,8 +311,14 @@ def anzeige_nachricht(key, betreff):
             '<video src="%s/revolution.webm" width="10" height="10"></video>'
             '<iframe src="%s/revolution-frame.html" width="10" height="10"></iframe>'
             '<p>Ende.</p></body></html>\n' % (h, h, h, h, h, REMOTE_BILD, h, h, h), subtype='html')
+    elif key in ('anzeige-remote2', 'anzeige-remote-fremd'):
+        m.set_content('Remote-Bild nur in der HTML-Fassung (#355).\n')
+        m.add_alternative('<html><body><p>Remote-Bild (%s, #355):</p><p><img src="%s?%s" alt="Remote-Bild" '
+                          'width="172" height="178"></p><p>Ende.</p></body></html>\n'
+                          % (key, REMOTE_BILD, key), subtype='html')
+    absender = ANZEIGE_ANDERE.get(key, ANZEIGE_ABSENDER)
     m['Subject'] = betreff
-    m['From'] = email.utils.formataddr(('Revolution Testdaten', ANZEIGE_ABSENDER))
+    m['From'] = email.utils.formataddr(('Revolution Testdaten', absender))
     m['To'] = ANZEIGE_ABSENDER
     m['Cc'] = 'KONTO_IMAP_2@example.invalid'
     m['Date'] = email.utils.formatdate(localtime=True)
@@ -324,7 +336,7 @@ def anzeige(konten, dry):
         vorhanden = testmails(k.inbox)
         neu = 0
         for key, betreff in ANZEIGE:
-            if (betreff, ANZEIGE_ABSENDER) in vorhanden:
+            if (betreff, ANZEIGE_ANDERE.get(key, ANZEIGE_ABSENDER)) in vorhanden:
                 continue
             print('  %s: %s per APPEND' % (a, betreff))
             neu += 1

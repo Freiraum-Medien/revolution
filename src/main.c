@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <glib/gi18n.h>
 #include <adwaita.h>
+#include <camel/camel.h>
 #include <libedataserver/libedataserver.h>
 
 #include "contacts/contacts-view.h"
@@ -111,6 +112,82 @@ on_startup (GtkApplication *app,
     g_action_change_state (action, g_variant_new_string (theme));
 }
 
+/* #347: Ein Banner für alle Fehler (Architektur-Festlegung 3), gesammelt an der
+ * Mail-Ansicht: Titel nach der häufigsten Fehlerart (bei Gleichstand die erste), je
+ * Fehler eine Zeile im Tooltip. Frühere Fehler (z. B. „Datenordner fehlt“) bleiben im
+ * Tooltip erhalten, statt überschrieben zu werden. */
+typedef struct
+{
+  const char *title;
+  guint count;
+  gboolean per_account;
+} BannerKind;
+
+typedef struct
+{
+  GString *details;
+  GArray *kinds;
+} BannerErrors;
+
+static void
+banner_errors_free (BannerErrors *errors)
+{
+  g_string_free (errors->details, TRUE);
+  g_array_unref (errors->kinds);
+  g_free (errors);
+}
+
+/* title: statische Zeichenkette (Ergebnis von _()); per_account: Fehler zählen als Konten. */
+static void
+show_banner_error (RevolutionMailView *mail_view,
+                   const char         *title,
+                   const char         *detail,
+                   gboolean            per_account)
+{
+  BannerErrors *errors = g_object_get_data (G_OBJECT (mail_view), "banner-errors");
+  g_autofree char *shown = NULL;
+  BannerKind *best = NULL;
+  guint i;
+
+  if (errors == NULL)
+    {
+      errors = g_new0 (BannerErrors, 1);
+      errors->details = g_string_new (NULL);
+      errors->kinds = g_array_new (FALSE, TRUE, sizeof (BannerKind));
+      g_object_set_data_full (G_OBJECT (mail_view), "banner-errors", errors,
+                              (GDestroyNotify) banner_errors_free);
+    }
+  else
+    g_string_append_c (errors->details, '\n');
+
+  g_string_append (errors->details, detail);
+
+  for (i = 0; i < errors->kinds->len; i++)
+    if (g_strcmp0 (g_array_index (errors->kinds, BannerKind, i).title, title) == 0)
+      break;
+  if (i == errors->kinds->len)
+    {
+      BannerKind kind = { title, 0, per_account };
+
+      g_array_append_val (errors->kinds, kind);
+    }
+  g_array_index (errors->kinds, BannerKind, i).count++;
+
+  for (i = 0; i < errors->kinds->len; i++)
+    if (best == NULL || g_array_index (errors->kinds, BannerKind, i).count > best->count)
+      best = &g_array_index (errors->kinds, BannerKind, i);
+
+  if (best->per_account && best->count > 1)
+    /* Translators: Titel des Fehlerbanners, z. B. „Keine Verbindung (7 Konten)“:
+     * Fehlerart und Zahl der Konten mit dieser Fehlerart. */
+    shown = g_strdup_printf (ngettext ("%s (%u Konto)", "%s (%u Konten)", best->count),
+                             best->title, best->count);
+  else
+    shown = g_strdup (best->title);
+
+  revolution_mail_view_show_error (mail_view, shown, errors->details->str);
+}
+
 /* #343: eigene Verzeichnisse getrennt von Evolution (CLAUDE.md Architektur-Festlegung 4),
  * angelegt wie e_get_user_data_dir/e_get_user_cache_dir (EDS e-data-server-util.c:70-135,
  * g_mkdir_with_parents 0700) und Stamp (stamp-helper.c:46-58). Beide Profile nutzen
@@ -133,7 +210,7 @@ create_user_dirs (RevolutionMailView *mail_view)
 
       message = g_strdup_printf (_("Ordner „%s“ konnte nicht angelegt werden: %s"), dir, g_strerror (errno));
       g_warning ("%s", message);
-      revolution_mail_view_show_error (mail_view, _("Datenordner fehlt"), message);
+      show_banner_error (mail_view, _("Datenordner fehlt"), message, FALSE);
     }
 }
 
@@ -162,31 +239,118 @@ load_registry_thread (GTask        *task,
 
 /* #346: CamelSession im Worker (README „Worker“); revolution_mail_session_new registriert
  * die Stores der Konten. Danach online wie Evolution nach dem Start (e-mail-backend.c:323)
- * und Stamp (stamp-session.c:326); es baut noch keine Verbindung auf. */
+ * und Stamp (stamp-session.c:326); es baut noch keine Verbindung auf.
+ * #347: Vorher camel_init wie Evolution (e-mail-backend.c:1301), aber im Worker wie Stamp
+ * (stamp-session.c:334-356), denn es lädt die Zertifikatsdatenbank camel-cert.db
+ * (EDS camel.c:224-233) aus ~/.local/share/revolution. Ohne NSS: TLS läuft über GIO
+ * (camel-network-service.c:978); NSS braucht erst S/MIME. */
 static void
 load_session_thread (GTask        *task,
                      gpointer      source_object G_GNUC_UNUSED,
                      gpointer      task_data,
                      GCancellable *cancellable G_GNUC_UNUSED)
 {
-  RevolutionMailSession *session = revolution_mail_session_new (task_data);
+  g_autofree char *camel_dir = g_build_filename (g_get_user_data_dir (), "revolution", NULL);
+  RevolutionMailSession *session;
+
+  camel_init (camel_dir, FALSE);
+  session = revolution_mail_session_new (task_data);
 
   camel_session_set_online (CAMEL_SESSION (session), TRUE);
   g_task_return_pointer (task, session, g_object_unref);
 }
 
+/* #347: Store online schalten im Worker (README „Worker“) wie Evolution nach dem Start
+ * (e-mail-backend.c:323-339, e_mail_store_go_online_sync e-mail-store-utils.c:214-240).
+ * Die Stores entstehen vor camel_session_set_online und damit offline (EDS
+ * camel-offline-store.c:142); imapx verbindet offline nicht. camel_offline_store_set_online_sync
+ * verbindet (camel-offline-store.c:292-301), dabei meldet sich der Store an
+ * (camel_session_authenticate_sync, imapx camel-imapx-server.c:3491, microsoft365
+ * camel-m365-store.c:532). */
+static void
+connect_service_thread (GTask        *task,
+                        gpointer      source_object,
+                        gpointer      task_data G_GNUC_UNUSED,
+                        GCancellable *cancellable)
+{
+  GError *error = NULL;
+
+  if (camel_offline_store_set_online_sync (source_object, TRUE, cancellable, &error))
+    g_task_return_boolean (task, TRUE);
+  else if (error != NULL)
+    g_task_return_error (task, error);
+  else
+    g_task_return_new_error (task, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_UNAVAILABLE,
+                             _("Verbindung ohne Fehlermeldung abgebrochen"));
+}
+
+static void
+on_service_connected (GObject      *source_object,
+                      GAsyncResult *result,
+                      gpointer      user_data)
+{
+  g_autoptr (RevolutionMailView) mail_view = user_data;
+  CamelService *service = CAMEL_SERVICE (source_object);
+  g_autofree char *display_name = camel_service_dup_display_name (service);
+  g_autofree char *detail = NULL;
+  g_autoptr (GError) error = NULL;
+  const char *title;
+
+  if (g_task_propagate_boolean (G_TASK (result), &error))
+    {
+      g_debug ("verbunden: %s", camel_service_get_uid (service));
+      return;
+    }
+
+  if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+    return;
+
+  g_warning ("Anmeldung %s (%s): %s", display_name, camel_service_get_uid (service), error->message);
+
+  if (g_error_matches (error, G_TLS_ERROR, G_TLS_ERROR_BAD_CERTIFICATE))
+    title = _("Zertifikat nicht vertrauenswürdig");
+  else if (g_error_matches (error, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_CANT_AUTHENTICATE))
+    title = _("Anmeldung fehlgeschlagen");
+  else
+    title = _("Keine Verbindung");
+
+  detail = g_strdup_printf ("%s: %s", display_name, error->message);
+  show_banner_error (mail_view, title, detail, TRUE);
+}
+
 static void
 on_session_loaded (GObject      *source_object,
                    GAsyncResult *result,
-                   gpointer      user_data G_GNUC_UNUSED)
+                   gpointer      user_data)
 {
+  g_autoptr (RevolutionMailView) mail_view = user_data;
   RevolutionMailSession *session = g_task_propagate_pointer (G_TASK (result), NULL);
+  g_autoptr (GCancellable) cancellable = NULL;
   g_autolist (CamelService) services = camel_session_list_services (CAMEL_SESSION (session));
 
   g_debug ("CamelSession: bereit, Rückruf im Thread %p, %u Stores",
            (gpointer) g_thread_self (), g_list_length (services));
   /* An der Anwendung gehalten wie die Registry (g_object_get_data (app, "session")). */
   g_object_set_data_full (source_object, "session", session, g_object_unref);
+
+  /* Beim Beenden abbrechen wie das Laden der Registry (on_activate). */
+  cancellable = g_cancellable_new ();
+  g_signal_connect_object (source_object, "shutdown", G_CALLBACK (g_cancellable_cancel), cancellable, G_CONNECT_SWAPPED);
+
+  for (GList *l = services; l != NULL; l = l->next)
+    {
+      g_autoptr (GTask) task = NULL;
+
+      /* Nur Offline-Stores (imapx, microsoft365); andere verbindet Evolution beim Start
+       * nicht (e_mail_store_go_online_sync, e-mail-store-utils.c:233-236). */
+      if (!CAMEL_IS_OFFLINE_STORE (l->data))
+        continue;
+
+      task = g_task_new (l->data, cancellable, on_service_connected, g_object_ref (mail_view));
+
+      g_task_set_source_tag (task, on_session_loaded);
+      g_task_run_in_thread (task, connect_service_thread);
+    }
 }
 
 static void
@@ -212,7 +376,7 @@ on_registry_loaded (GObject      *source_object,
       g_object_set_data_full (source_object, "registry", registry, g_object_unref);
       revolution_mail_view_set_registry (mail_view, registry);
 
-      task = g_task_new (source_object, NULL, on_session_loaded, NULL);
+      task = g_task_new (source_object, NULL, on_session_loaded, g_object_ref (mail_view));
       g_task_set_source_tag (task, on_registry_loaded);
       g_task_set_task_data (task, g_object_ref (registry), g_object_unref);
       g_task_run_in_thread (task, load_session_thread);
@@ -224,7 +388,7 @@ on_registry_loaded (GObject      *source_object,
 
   message = g_strdup_printf (_("Konten konnten nicht geladen werden: %s"), error->message);
   g_warning ("%s", message);
-  revolution_mail_view_show_error (mail_view, _("Konten nicht verfügbar"), message);
+  show_banner_error (mail_view, _("Konten nicht verfügbar"), message, FALSE);
 }
 
 static void

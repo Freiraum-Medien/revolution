@@ -37,6 +37,10 @@
 #                                 #353: Zeile „UNGELESEN <Anzahl> <UID …>“ (IMAP EXAMINE + UID SEARCH
 #                                 UNSEEN, nur lesend); mit --soll (Datei mit einer solchen Zeile)
 #                                 stellt es genau diesen Stand per UID STORE ±\Seen her (Testkonten)
+#   tests/testdaten.py --anzahl UID ORDNER
+#                                 #410: nur lesend, unabhängig von Camel, jedes Konto aus GOA: Anzahl
+#                                 der Nachrichten eines IMAP-Ordners (EXAMINE, UID SEARCH UNDELETED
+#                                 ohne Junk); Zeile „ANZAHL <UID>/<Ordner> <sichtbar> EXISTS <n>“
 #   tests/testdaten.py --anzeige  #354: nur die Anzeige-Mails (HTML, Text ISO-8859-1, Inline-Bild
 #                                 cid:, Remote-Inhalte) per APPEND in den Posteingang der vier
 #                                 Testkonten (fehlende ergänzen, kein Versand); im Standardlauf
@@ -999,6 +1003,36 @@ def zaehler_imap(k):
         c.logout()
 
 
+def anzahl(konten, uid, ziel):
+    """#410: nur lesend, unabhängig von Camel: Nachrichten eines IMAP-Ordners per LIST, EXAMINE
+    (EXISTS) und UID SEARCH; „sichtbar“ ohne \\Deleted und Junk wie die Liste der App
+    (mail-view.c hidden_flags). Zeile „ANZAHL <UID>/<Ordner> <sichtbar> EXISTS <n>“."""
+    k = next((k for k in konten if k.account.get_uid() == uid), None)
+    if k is None:
+        sys.exit('ABBRUCH: Konto %s nicht in GOA/EDS' % uid)
+    c = imap_verbinden(k)
+    try:
+        roh = None
+        for z in c.list('""', '*')[1]:
+            m = re.match(rb'\((?P<flags>[^)]*)\) (?P<delim>"[^"]*"|NIL) (?P<name>.*)$', z) \
+                if isinstance(z, bytes) else None
+            if not m:
+                continue
+            delim = m.group('delim').decode().strip('"')
+            name = mutf7_decode(m.group('name').decode().strip('"'))
+            if (name.replace(delim, '/') if delim != 'NIL' else name) == ziel:
+                roh = m.group('name').decode()
+        if roh is None:
+            sys.exit('ABBRUCH: Ordner %s fehlt' % ziel)
+        typ, d = c.select(roh if roh.startswith('"') else '"%s"' % roh, readonly=True)
+        exists = int(d[0])
+        sichtbar = len(c.uid('SEARCH', None, 'UNDELETED', 'UNKEYWORD', 'Junk', 'UNKEYWORD', '$Junk')[1][0].split())
+    finally:
+        c.logout()
+    print('ANZAHL %s/%s %d EXISTS %d' % (uid, ziel, sichtbar, exists))
+    return 0
+
+
 def zaehler_graph(k):
     """{Pfad der Anzeigenamen wie Camel microsoft365: n} per Graph, nur GET."""
     q = '?' + urllib.parse.urlencode({'$select': 'displayName,unreadItemCount,childFolderCount', '$top': '100'})
@@ -1066,6 +1100,8 @@ def main():
                     help='#353: ungelesene UIDs (nur lesend); mit --soll DATEI wiederherstellen')
     ap.add_argument('--zaehler', nargs='?', const='', metavar='LOG',
                     help='#350: nur lesend Ungelesene je Ordner (IMAP STATUS, Graph), Vergleich mit LOG')
+    ap.add_argument('--anzahl', nargs=2, metavar=('UID', 'ORDNER'),
+                    help='#410: nur lesend Nachrichten eines IMAP-Ordners (EXAMINE, UID SEARCH)')
     ap.add_argument('--soll', metavar='DATEI', help='#353: Ausgabe von --ungelesen als Sollstand')
     ap.add_argument('--server', nargs='+', metavar='KONTO AKTION [INBOX]',
                     help='#353: serverseitig gelesen|ungelesen|markiert|unmarkiert|neu|weg [im Posteingang]')
@@ -1090,6 +1126,8 @@ def main():
     Camel.provider_init()
     EDataServer.SourceCamel.register_types()
     registry = EDataServer.SourceRegistry.new_sync(None)
+    if args.anzahl:
+        return anzahl(ordner_konten(registry), *args.anzahl)
     if args.zaehler is not None:
         return zaehler(ordner_konten(registry), args.zaehler)
     if args.ordner:

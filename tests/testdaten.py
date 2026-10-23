@@ -40,7 +40,8 @@
 #   tests/testdaten.py --anzahl UID ORDNER
 #                                 #410: nur lesend, unabhängig von Camel, jedes Konto aus GOA: Anzahl
 #                                 der Nachrichten eines IMAP-Ordners (EXAMINE, UID SEARCH UNDELETED
-#                                 ohne Junk); Zeile „ANZAHL <UID>/<Ordner> <sichtbar> EXISTS <n>“
+#                                 ohne Junk); Zeile „ANZAHL <UID>/<Ordner> <sichtbar> EXISTS <n>“;
+#                                 #414: microsoft365 per Graph GET (totalItemCount, beide Zahlen gleich)
 #   tests/testdaten.py --anzeige  #354: nur die Anzeige-Mails (HTML, Text ISO-8859-1, Inline-Bild
 #                                 cid:, Remote-Inhalte; #355: zweite Remote-Mail und Remote-Mail eines
 #                                 anderen Absenders) per APPEND in den Posteingang der vier
@@ -1165,6 +1166,13 @@ def anzahl(konten, uid, ziel):
     k = next((k for k in konten if k.account.get_uid() == uid), None)
     if k is None:
         sys.exit('ABBRUCH: Konto %s nicht in GOA/EDS' % uid)
+    if k.account.get_extension(EDataServer.SOURCE_EXTENSION_MAIL_ACCOUNT).get_backend_name() == 'microsoft365':
+        # #414: Graph zählt alle Nachrichten des Ordners (totalItemCount, nur GET).
+        ref = zaehler_graph(k, 'totalItemCount')
+        if ziel not in ref:
+            sys.exit('ABBRUCH: Ordner %s fehlt' % ziel)
+        print('ANZAHL %s/%s %d EXISTS %d' % (uid, ziel, ref[ziel], ref[ziel]))
+        return 0
     c = imap_verbinden(k)
     try:
         roh = None
@@ -1188,9 +1196,10 @@ def anzahl(konten, uid, ziel):
     return 0
 
 
-def zaehler_graph(k):
-    """{Pfad der Anzeigenamen wie Camel microsoft365: n} per Graph, nur GET."""
-    q = '?' + urllib.parse.urlencode({'$select': 'displayName,unreadItemCount,childFolderCount', '$top': '100'})
+def zaehler_graph(k, feld='unreadItemCount'):
+    """{Pfad der Anzeigenamen wie Camel microsoft365: n} per Graph, nur GET; #414: feld
+    totalItemCount für --anzahl."""
+    q = '?' + urllib.parse.urlencode({'$select': 'displayName,childFolderCount,' + feld, '$top': '100'})
     out = {}
 
     def holen(pfad, prefix):
@@ -1198,7 +1207,7 @@ def zaehler_graph(k):
             d = graph(k, 'GET', pfad)
             for f in d['value']:
                 name = prefix + f['displayName']
-                out[name] = f['unreadItemCount']
+                out[name] = f[feld]
                 if f.get('childFolderCount'):
                     holen('/me/mailFolders/%s/childFolders%s' % (f['id'], q), name + '/')
             pfad = d.get('@odata.nextLink', '').removeprefix(GRAPH) or None
@@ -1340,7 +1349,7 @@ def main():
     ap.add_argument('--zaehler', nargs='?', const='', metavar='LOG',
                     help='#350: nur lesend Ungelesene je Ordner (IMAP STATUS, Graph), Vergleich mit LOG')
     ap.add_argument('--anzahl', nargs=2, metavar=('UID', 'ORDNER'),
-                    help='#410: nur lesend Nachrichten eines IMAP-Ordners (EXAMINE, UID SEARCH)')
+                    help='#410: nur lesend Nachrichten eines Ordners (IMAP EXAMINE, UID SEARCH; #414 Graph)')
     ap.add_argument('--soll', metavar='DATEI', help='#353: Ausgabe von --ungelesen als Sollstand')
     ap.add_argument('--server', nargs='+', metavar='KONTO AKTION [INBOX]',
                     help='#353: serverseitig gelesen|ungelesen|markiert|unmarkiert|neu|weg [im Posteingang]')

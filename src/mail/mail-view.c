@@ -569,8 +569,10 @@ add_messages_block (gpointer data)
   else
     g_list_store_splice (self->messages, n_items, 0, block->items->pdata, block->items->len);
 
-  gtk_stack_set_visible_child_name (self->list_stack,
-                                    g_list_model_get_n_items (G_LIST_MODEL (self->messages)) > 0 ? "list" : "empty");
+  /* #414: Stand der Liste je Block fürs Log (Prüfung auf Rücksprünge, tests/erstes-oeffnen.sh). */
+  n_items = g_list_model_get_n_items (G_LIST_MODEL (self->messages));
+  g_debug ("Nachrichten: %s Liste %u nach %s-Block %u", self->loading, n_items, block->pass, block->items->len);
+  gtk_stack_set_visible_child_name (self->list_stack, n_items > 0 ? "list" : "empty");
 
   select_message_from_env (self);
 

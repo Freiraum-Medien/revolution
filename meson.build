@@ -33,6 +33,10 @@ subdir('src')
 subdir('po')
 subdir('tests')
 
+# #349: Standardlauf ohne die Suite „smoke“ (Netz, GOA); --suite smoke schließt sie ausdrücklich
+# ein (meson mtest.py test_suitable: include_suites gehen vor add_test_setup).
+add_test_setup('default', exclude_suites: ['smoke'], is_default: true)
+
 gnome.post_install(
      glib_compile_schemas: true,
     gtk_update_icon_cache: true,

@@ -10,3 +10,13 @@ executable('anmeldung',
   ],
   include_directories: include_directories('..', '../src'),
 )
+
+# #349: Smoke-Test gegen die echten Konten (braucht Netz, GOA und den Session-Bus), daher eigene
+# Suite, die der Standardlauf auslässt (add_test_setup in meson.build); Aufruf:
+# meson test -C build --suite smoke -v. Ablauf und Prüfungen: tests/smoke.sh, README.
+test('smoke', find_program('smoke.sh'),
+  suite: 'smoke',
+  env: ['BUILD=' + meson.project_build_root()],
+  is_parallel: false,
+  timeout: 900,
+)

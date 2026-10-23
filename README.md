@@ -39,7 +39,7 @@ Der Start nutzt den echten Session-Bus, keine eigene `dbus-run-session`. Eine ei
 
 Muster, keine Hilfsbibliothek (CLAUDE.md Architektur-Festlegungen 1–6). Beispiel im Code: `src/main.c` (#343).
 
-**Worker:** Jeder Camel-/EDS-Aufruf läuft per `GTask` im Worker-Thread, nie im UI-Thread. Der `*_sync`-Aufruf steht in der Thread-Funktion, das Ergebnis kommt im Rückruf im UI-Thread an. Nur dort werden Widgets und Modelle geändert. Vorlage: Evolution `e_mail_session_get_inbox` (libemail-engine/e-mail-session.c:2538-2618).
+**Worker:** Jeder Camel-/EDS-Aufruf läuft per `GTask` im Worker-Thread, nie im UI-Thread. Der `*_sync`-Aufruf steht in der Thread-Funktion, das Ergebnis kommt im Rückruf im UI-Thread an. Nur dort werden Widgets und Modelle geändert. Vorlage: Evolution `e_mail_session_get_inbox` (libemail-engine/e-mail-session.c:2538-2618). Ausnahme (#345): reine Lesezugriffe der `ESourceRegistry` auf ihre Quellen im Speicher (`e_source_registry_list_sources`, `_ref_source`, `_find_extension`) sind im UI-Thread zulässig; sie lesen eine Hashtabelle unter Mutex, ohne D-Bus (EDS e-source-registry.c:459-472, 2432-2439, 2465-2492, 2576-2600). Evolution macht es ebenso (e-mail-account-store.c:1216-1225). Alles mit D-Bus, Netz oder Datei bleibt im Worker.
 
 ```c
 static void
@@ -61,7 +61,7 @@ g_task_run_in_thread (task, load_registry_thread);
 
 Die `ESourceRegistry` wird beim Start so geladen und an der Anwendung gehalten (`g_object_get_data (app, "registry")`). Ihre Signale kommen trotzdem im UI-Thread an: EDS merkt sich beim Anlegen `g_main_context_ref_thread_default ()` (e-source-registry.c:1726), und das ist im GTask-Worker der globale Standard-Kontext. Beleg im Log: `G_MESSAGES_DEBUG=revolution` zeigt Worker- und UI-Thread.
 
-**Datenmodell:** `GListStore` aus konkreten GObject-Items, angezeigt mit `GtkListView`/`GtkColumnView` (Beispiel `src/mail/mail-view.c:208`, `mail-view.blp:124`). Änderungen am Store (`g_list_store_append`, `g_list_store_splice`) nur im UI-Thread, also im GTask-Rückruf. Eine eigene `GListModel`-Klasse erst, wenn ein `GListStore` nicht reicht.
+**Datenmodell:** `GListStore` aus konkreten GObject-Items, angezeigt mit `GtkListView`/`GtkColumnView` (Beispiel: Konten der Seitenleiste, `src/mail/mail-view.c:337-340` mit `GtkTreeListModel`, `mail-view.blp:131`). Änderungen am Store (`g_list_store_append`, `g_list_store_splice`) nur im UI-Thread, also im GTask-Rückruf oder in Signalen der Registry (#345). Eine eigene `GListModel`-Klasse erst, wenn ein `GListStore` nicht reicht.
 
 **Camel-Ordner:** Immer über `camel_store_get_folder_sync (store, full_name, …)` holen, nie das Ergebnis von `camel_store_get_inbox_folder_sync` für Anzeige, Flags oder Refresh verwenden. Die Standardversion ruft die vfunc `get_folder_sync` direkt mit „inbox“ und umgeht den Ordner-Cache (EDS camel-store.c:373-388 gegen 1369/1469); imapx überschreibt sie nicht, es entstehen zwei Instanzen. Bei microsoft365 den Posteingang über den Ordnertyp `CAMEL_FOLDER_TYPE_INBOX` finden (camel-m365-store.c:161), nicht über den festen Namen „inbox“ der Standardversion. Evolution macht es ebenso (e-mail-session.c:2763, mail-folder-cache.c:779).
 
@@ -69,7 +69,7 @@ Die `ESourceRegistry` wird beim Start so geladen und an der Anwendung gehalten (
 
 **Verzeichnisse:** Beim Start werden `~/.local/share/revolution` und `~/.cache/revolution` angelegt (`g_get_user_data_dir ()`/`g_get_user_cache_dir ()` + `revolution`, Rechte 0700), getrennt von Evolution (`…/evolution`). Beide Profile nutzen dieselben Ordner, wie Stamp (stamp-helper.c:46-58) und wie das gemeinsame GSettings-Schema.
 
-**Fehleranzeige:** Fehler zeigt das `AdwBanner` oben im Hauptfenster (`banner` in `src/window.blp`), keine Dialoge. Hinweise erscheinen als Pille (Dokument #5 „M2 Specification“). Test: `XDG_DATA_HOME=/proc/revolution-test scripts/screenshot.sh fehler-banner prefer-light`.
+**Fehleranzeige:** Fehler zeigt das `AdwBanner` im Inhaltsbereich unter der Kopfleiste der Nachrichtenliste (`banner` in `src/mail/mail-view.blp`, `revolution_mail_view_show_error`), keine Dialoge: kurzer Titel, Einzelheiten im Tooltip und im Log. Hinweise erscheinen als Pille (Dokument #5 „M2 Specification“). Test: `XDG_DATA_HOME=/proc/revolution-test scripts/screenshot.sh fehler-banner prefer-light`.
 
 ## Screenshots (headless)
 

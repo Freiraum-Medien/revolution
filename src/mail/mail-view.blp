@@ -114,85 +114,78 @@ template $RevolutionMailView: Adw.BreakpointBin {
         }
       }
 
-      content: ScrolledWindow {
-        hscrollbar-policy: never;
+      // #345: Konten aus der ESourceRegistry (mail-view.c). Ohne Konten Leerzustand
+      // wie Stamp (stamp-window.blp:50-80, Seite „welcome“), hier in der Seitenleiste.
+      content: Stack sidebar_stack {
+        // Erste Seite „list“ ist sichtbar, bis die Registry geladen ist (leere Liste).
+        StackPage {
+          name: "list";
 
-        // Viewport: sonst blendet GtkListView beim Start den ersten
-        // Abschnittskopf („Favoriten“) aus, erst Hochscrollen zeigt ihn.
-        // Ursache klären in #350, Virtualisierung geht verloren.
-        child: Viewport {
-          child: ListView folder_list {
-            tab-behavior: item;
+          child: ScrolledWindow {
+            hscrollbar-policy: never;
 
-            styles [
-              "navigation-sidebar",
-            ]
+            // Viewport: sonst blendet GtkListView beim Start den ersten
+            // Abschnittskopf („Favoriten“) aus, erst Hochscrollen zeigt ihn.
+            // Ursache klären in #350, Virtualisierung geht verloren.
+            child: Viewport {
+              child: ListView folder_list {
+                tab-behavior: item;
 
-            accessibility {
-              label: _("Ordner");
-            }
+                styles [
+                  "navigation-sidebar",
+                ]
 
-            model: SingleSelection folder_selection {};
+                accessibility {
+                  label: _("Ordner");
+                }
 
-            header-factory: BuilderListItemFactory {
-              template ListHeader {
-                child: Label {
-                  label: bind template.item as <TreeListRow>.item as <$RevolutionSampleFolder>.group;
-                  xalign: 0;
-                  margin-start: 14;
-                  margin-end: 14;
-                  margin-top: 4;
-                  margin-bottom: 2;
-                  ellipsize: end;
+                // Modell: GtkTreeListModel über den Konten (mail-view.c), Konten oben.
+                model: SingleSelection folder_selection {};
 
-                  styles [
-                    "caption-heading",
-                    "dimmed",
-                  ]
+                // Kontozeile im Aussehen der Kontoüberschrift des abgenommenen Prototyps
+                // (Tag m2-prototyp, mail-view.blp:137-154, Design/Prototyp/mail-hell.png
+                // „Privat“, „Arbeit“). Ordner als Kinder mit Ausklapp-Pfeil folgen mit #348.
+                factory: BuilderListItemFactory {
+                  template ListItem {
+                    // Zugänglicher Name der Zeile = Kontoname (Architektur 8).
+                    accessible-label: bind template.item as <TreeListRow>.item as <$RevolutionMailAccount>.display-name;
+
+                    child: TreeExpander {
+                      list-row: bind template.item as <TreeListRow>;
+                      indent-for-icon: false;
+
+                      child: Label {
+                        label: bind template.item as <TreeListRow>.item as <$RevolutionMailAccount>.display-name;
+                        hexpand: true;
+                        xalign: 0;
+                        ellipsize: end;
+
+                        styles [
+                          "caption-heading",
+                          "dimmed",
+                        ]
+                      };
+                    };
+                  }
                 };
-              }
-            };
-
-            factory: BuilderListItemFactory {
-              template ListItem {
-                child: TreeExpander {
-                  list-row: bind template.item as <TreeListRow>;
-
-                  child: Box {
-                    spacing: 12;
-
-                    Image {
-                      icon-name: bind template.item as <TreeListRow>.item as <$RevolutionSampleFolder>.icon-name;
-                      accessible-role: presentation;
-                    }
-
-                    Label {
-                      label: bind template.item as <TreeListRow>.item as <$RevolutionSampleFolder>.title;
-                      hexpand: true;
-                      xalign: 0;
-                      ellipsize: end;
-                    }
-
-                    Label {
-                      label: bind template.item as <TreeListRow>.item as <$RevolutionSampleFolder>.unread;
-                      tooltip-text: _("Ungelesene Nachrichten");
-
-                      // Name = Zahl aus dem Text; Blueprint kann accessibility nicht binden.
-                      accessibility {
-                        description: _("ungelesen");
-                      }
-
-                      styles [
-                        "dimmed",
-                        "numeric",
-                      ]
-                    }
-                  };
-                };
-              }
+              };
             };
           };
-        };
+        }
+
+        StackPage {
+          name: "empty";
+
+          child: Adw.StatusPage {
+            icon-name: "mail-unread-symbolic";
+            title: _("Keine Konten");
+            description: _("E-Mail-Konten aus den Online-Konten oder aus Evolution erscheinen hier.");
+
+            styles [
+              "compact",
+            ]
+          };
+        }
       };
     }
 
@@ -272,6 +265,16 @@ template $RevolutionMailView: Adw.BreakpointBin {
             label: _("Filter");
           }
         }
+      }
+
+      // #343/#345: Fehler als AdwBanner (CLAUDE.md Architektur-Festlegung 3) im Inhaltsbereich
+      // unter der Kopfleiste, nicht über die volle Fensterbreite (HIG Banners: „strip along
+      // the top of a view“); die Kopfleisten bleiben auf einer Linie (Dokument #5). Kurzer
+      // Titel, Einzelheiten im Tooltip; beides setzt revolution_mail_view_show_error.
+      // Ohne Markup, weil Fehlertexte <, & enthalten können.
+      [top]
+      Adw.Banner banner {
+        use-markup: false;
       }
 
       // Ohne Ordner: Leerzustand wie Stamp (stamp-conversation-list.blp:252-259).

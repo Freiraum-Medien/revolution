@@ -260,62 +260,148 @@ load_session_thread (GTask        *task,
   g_task_return_pointer (task, session, g_object_unref);
 }
 
+/* #348: Ergebnis des Worker-Tasks je Store (note_store_thread). */
+typedef struct
+{
+  GError *connect_error;
+  GError *folders_error;
+  CamelFolderInfo *info;
+} NoteStoreResult;
+
+static void
+note_store_result_free (NoteStoreResult *result)
+{
+  g_clear_error (&result->connect_error);
+  g_clear_error (&result->folders_error);
+  g_clear_pointer (&result->info, camel_folder_info_free);
+  g_free (result);
+}
+
 /* #347: Store online schalten im Worker (README „Worker“) wie Evolution nach dem Start
  * (e-mail-backend.c:323-339, e_mail_store_go_online_sync e-mail-store-utils.c:214-240).
  * Die Stores entstehen vor camel_session_set_online und damit offline (EDS
  * camel-offline-store.c:142); imapx verbindet offline nicht. camel_offline_store_set_online_sync
  * verbindet (camel-offline-store.c:292-301), dabei meldet sich der Store an
  * (camel_session_authenticate_sync, imapx camel-imapx-server.c:3491, microsoft365
- * camel-m365-store.c:532). */
+ * camel-m365-store.c:532). Nur Offline-Stores (imapx, microsoft365); andere verbindet
+ * Evolution beim Start nicht (e_mail_store_go_online_sync, e-mail-store-utils.c:233-236).
+ * #348: Danach die Ordnerliste, nach Evolution mail_folder_cache_note_store_thread
+ * (libemail-engine/mail-folder-cache.c:2078-2197), gekürzt:
+ *   - Fehler beim Verbinden beenden den Task nicht; offline liefert der Store die Ordner
+ *     aus dem Cache (dort 2113-2116).
+ *   - Ohne Ordnerbaum (POP, Nur-Versand) keine Ordner (dort 2125-2127,
+ *     store_has_folder_hierarchy 1478-1494); die Seitenleiste zeigt das Konto dann nicht.
+ *   - Ohne die Ersteinrichtung (dort 2118-2122): sie schreibt Ordner-Einstellungen in die
+ *     ESource und damit in Evolutions Konfiguration (mail-folder-cache.c:1996-2015).
+ *   - Ohne CAMEL_STORE_FOLDER_INFO_FAST (dort 2140-2142): imapx liefert damit nur seinen
+ *     Cache und lädt die Liste in einem Session-Job nach, dessen Ergebnis nur als Signal
+ *     „folder-created“ kommt (EDS camel-imapx-store.c:2165-2170, camel-store.c:841-845);
+ *     microsoft365 fragt mit FAST den Server nur ohne gespeicherten Delta-Link
+ *     (camel-m365-store.c:1190-1201). Der Cache von Revolution (~/.cache/revolution/mail)
+ *     ist beim ersten Start leer; ohne FAST fragen beide den Server (LIST bzw. Delta). */
 static void
-connect_service_thread (GTask        *task,
-                        gpointer      source_object,
-                        gpointer      task_data G_GNUC_UNUSED,
-                        GCancellable *cancellable)
+note_store_thread (GTask        *task,
+                   gpointer      source_object,
+                   gpointer      task_data G_GNUC_UNUSED,
+                   GCancellable *cancellable)
 {
-  GError *error = NULL;
+  CamelStore *store = CAMEL_STORE (source_object);
+  CamelProvider *provider = camel_service_get_provider (CAMEL_SERVICE (store));
+  NoteStoreResult *result = g_new0 (NoteStoreResult, 1);
 
-  if (camel_offline_store_set_online_sync (source_object, TRUE, cancellable, &error))
-    g_task_return_boolean (task, TRUE);
-  else if (error != NULL)
-    g_task_return_error (task, error);
-  else
-    g_task_return_new_error (task, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_UNAVAILABLE,
-                             _("Verbindung ohne Fehlermeldung abgebrochen"));
+  if (CAMEL_IS_OFFLINE_STORE (store) &&
+      !camel_offline_store_set_online_sync (CAMEL_OFFLINE_STORE (store), TRUE, cancellable, &result->connect_error) &&
+      result->connect_error == NULL)
+    result->connect_error = g_error_new_literal (CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_UNAVAILABLE,
+                                                 _("Verbindung ohne Fehlermeldung abgebrochen"));
+
+  if (provider != NULL && (provider->flags & (CAMEL_PROVIDER_IS_STORAGE | CAMEL_PROVIDER_IS_EXTERNAL)) != 0)
+    result->info = camel_store_get_folder_info_sync (store, NULL,
+                                                     CAMEL_STORE_FOLDER_INFO_RECURSIVE |
+                                                     CAMEL_STORE_FOLDER_INFO_SUBSCRIBED,
+                                                     cancellable, &result->folders_error);
+
+  g_task_return_pointer (task, result, (GDestroyNotify) note_store_result_free);
 }
 
+/* Fehler beim Verbinden wie #347; Fehler beim Laden der Ordner nur, wenn die Verbindung
+ * stand (sonst wäre es derselbe Fehler zweimal). */
 static void
-on_service_connected (GObject      *source_object,
-                      GAsyncResult *result,
-                      gpointer      user_data)
+on_store_noted (GObject      *source_object,
+                GAsyncResult *result,
+                gpointer      user_data)
 {
   g_autoptr (RevolutionMailView) mail_view = user_data;
   CamelService *service = CAMEL_SERVICE (source_object);
   g_autofree char *display_name = camel_service_dup_display_name (service);
   g_autofree char *detail = NULL;
-  g_autoptr (GError) error = NULL;
+  NoteStoreResult *noted;
+  GError *error;
   const char *title;
 
-  if (g_task_propagate_boolean (G_TASK (result), &error))
-    {
-      g_debug ("verbunden: %s", camel_service_get_uid (service));
-      return;
-    }
-
-  if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+  /* NULL nur nach Abbruch beim Beenden (g_task_propagate_pointer prüft den GCancellable). */
+  noted = g_task_propagate_pointer (G_TASK (result), NULL);
+  if (noted == NULL)
     return;
 
-  g_warning ("Anmeldung %s (%s): %s", display_name, camel_service_get_uid (service), error->message);
+  if (noted->connect_error != NULL)
+    {
+      error = noted->connect_error;
+      g_warning ("Anmeldung %s (%s): %s", display_name, camel_service_get_uid (service), error->message);
 
-  if (g_error_matches (error, G_TLS_ERROR, G_TLS_ERROR_BAD_CERTIFICATE))
-    title = _("Zertifikat nicht vertrauenswürdig");
-  else if (g_error_matches (error, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_CANT_AUTHENTICATE))
-    title = _("Anmeldung fehlgeschlagen");
+      if (g_error_matches (error, G_TLS_ERROR, G_TLS_ERROR_BAD_CERTIFICATE))
+        title = _("Zertifikat nicht vertrauenswürdig");
+      else if (g_error_matches (error, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_CANT_AUTHENTICATE))
+        title = _("Anmeldung fehlgeschlagen");
+      else
+        title = _("Keine Verbindung");
+
+      detail = g_strdup_printf ("%s: %s", display_name, error->message);
+      show_banner_error (mail_view, title, detail, TRUE);
+    }
+  else if (CAMEL_IS_OFFLINE_STORE (service))
+    g_debug ("verbunden: %s", camel_service_get_uid (service));
+
+  if (noted->folders_error == NULL)
+    revolution_mail_view_set_folders (mail_view, camel_service_get_uid (service), noted->info);
+  else if (noted->connect_error == NULL)
+    {
+      g_warning ("Ordner %s (%s): %s", display_name, camel_service_get_uid (service), noted->folders_error->message);
+      detail = g_strdup_printf ("%s: %s", display_name, noted->folders_error->message);
+      show_banner_error (mail_view, _("Ordner nicht geladen"), detail, TRUE);
+    }
   else
-    title = _("Keine Verbindung");
+    g_debug ("Ordner: %s nicht geladen: %s", camel_service_get_uid (service), noted->folders_error->message);
 
-  detail = g_strdup_printf ("%s: %s", display_name, error->message);
-  show_banner_error (mail_view, title, detail, TRUE);
+  note_store_result_free (noted);
+}
+
+/* #348: Neue Stores anmelden und ihre Ordner laden, beim Start (on_session_loaded) und nach
+ * jedem Abgleich der Session („services-changed“, Konto zur Laufzeit hinzugefügt oder
+ * aktiviert); bereits gemeldete Stores sind markiert. Dazu Fehler aus add_service ins Banner. */
+static void
+note_stores (RevolutionMailSession *session,
+             RevolutionMailView    *mail_view)
+{
+  g_auto (GStrv) errors = revolution_mail_session_take_errors (session);
+  g_autolist (CamelService) services = camel_session_list_services (CAMEL_SESSION (session));
+  GCancellable *cancellable = g_object_get_data (G_OBJECT (session), "cancellable");
+
+  for (guint i = 0; errors[i] != NULL; i++)
+    show_banner_error (mail_view, _("Konto nicht eingerichtet"), errors[i], TRUE);
+
+  for (GList *l = services; l != NULL; l = l->next)
+    {
+      g_autoptr (GTask) task = NULL;
+
+      if (!CAMEL_IS_STORE (l->data) || g_object_get_data (l->data, "revolution-noted") != NULL)
+        continue;
+
+      g_object_set_data (l->data, "revolution-noted", GINT_TO_POINTER (TRUE));
+      task = g_task_new (l->data, cancellable, on_store_noted, g_object_ref (mail_view));
+      g_task_set_source_tag (task, note_stores);
+      g_task_run_in_thread (task, note_store_thread);
+    }
 }
 
 static void
@@ -336,21 +422,10 @@ on_session_loaded (GObject      *source_object,
   /* Beim Beenden abbrechen wie das Laden der Registry (on_activate). */
   cancellable = g_cancellable_new ();
   g_signal_connect_object (source_object, "shutdown", G_CALLBACK (g_cancellable_cancel), cancellable, G_CONNECT_SWAPPED);
+  g_object_set_data_full (G_OBJECT (session), "cancellable", g_object_ref (cancellable), g_object_unref);
 
-  for (GList *l = services; l != NULL; l = l->next)
-    {
-      g_autoptr (GTask) task = NULL;
-
-      /* Nur Offline-Stores (imapx, microsoft365); andere verbindet Evolution beim Start
-       * nicht (e_mail_store_go_online_sync, e-mail-store-utils.c:233-236). */
-      if (!CAMEL_IS_OFFLINE_STORE (l->data))
-        continue;
-
-      task = g_task_new (l->data, cancellable, on_service_connected, g_object_ref (mail_view));
-
-      g_task_set_source_tag (task, on_session_loaded);
-      g_task_run_in_thread (task, connect_service_thread);
-    }
+  g_signal_connect_object (session, "services-changed", G_CALLBACK (note_stores), mail_view, G_CONNECT_DEFAULT);
+  note_stores (session, mail_view);
 }
 
 static void

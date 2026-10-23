@@ -18,6 +18,7 @@ G_BEGIN_DECLS
 #define REVOLUTION_TYPE_MAIL_SESSION (revolution_mail_session_get_type ())
 G_DECLARE_FINAL_TYPE (RevolutionMailSession, revolution_mail_session, REVOLUTION, MAIL_SESSION, CamelSession)
 
-RevolutionMailSession *revolution_mail_session_new (ESourceRegistry *registry);
+RevolutionMailSession *revolution_mail_session_new         (ESourceRegistry       *registry);
+gchar                **revolution_mail_session_take_errors (RevolutionMailSession *session);
 
 G_END_DECLS

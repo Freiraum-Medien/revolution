@@ -15,6 +15,10 @@
 #     Layout. GTK rendert mit GDK_SCALE=2 (X11-Backend, Xvfb und Fenster doppelt so groß),
 #     ImageMagick verkleinert danach auf SCALE/2 (1,5 → 75 %). CLICK, KEYS und ROUND bleiben
 #     logisch (wie ohne SCALE), das Skript rechnet sie um. Werte über 2 wären hochskaliert.
+#   AFTER_KEYS="Down …" (optional, Umgebung): wie KEYS, aber nach CLICK, z. B. Tastatur in einer
+#     angeklickten Liste (#348)
+#   WAIT=40 (optional, Umgebung): Sekunden zusätzlich warten vor KEYS/CLICK und Aufnahme,
+#     z. B. bis die Ordner aller Konten geladen sind (#348); Standard 0
 #   BUILD=Pfad (optional, Umgebung): Build-Ordner, Standard build/ im Repo. GSettings-Schema
 #     aus BUILD/data, Einstellungen nur im Speicher (GSETTINGS_BACKEND=memory, #342).
 # Compositor (#400): Xvfb hat keinen. Ohne ihn zeichnet GTK Fenster und Popover eckig ohne
@@ -36,7 +40,7 @@ BIN="$BUILD/src/revolution"
 OUT_DIR="${OUT_DIR:-$APP_DIR/../Design/Prototyp}"
 
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
-  sed -n '3,19p' "$0" >&2
+  sed -n '3,23p' "$0" >&2
   exit 1
 fi
 NAME="$1"
@@ -51,7 +55,11 @@ CLICK="${CLICK:-}"
 [ -z "$CLICK" ] || [[ "$CLICK" =~ ^[0-9]+,[0-9]+(\ [0-9]+,[0-9]+)*$ ]] || { echo "CLICK als X,Y angeben, z. B. 640,27" >&2; exit 1; }
 KEYS="${KEYS:-}"
 [ -z "$KEYS" ] || [[ "$KEYS" =~ ^[A-Za-z0-9_+\ ]+$ ]] || { echo "KEYS als Keysym-Namen angeben, z. B. Control_L+3" >&2; exit 1; }
+AFTER_KEYS="${AFTER_KEYS:-}"
+[ -z "$AFTER_KEYS" ] || [[ "$AFTER_KEYS" =~ ^[A-Za-z0-9_+\ ]+$ ]] || { echo "AFTER_KEYS als Keysym-Namen angeben, z. B. Down" >&2; exit 1; }
 ROUND="${ROUND:-}"
+WAIT="${WAIT:-0}"
+[[ "$WAIT" =~ ^[0-9]+$ ]] || { echo "WAIT als Sekunden angeben, z. B. 40" >&2; exit 1; }
 [ -z "$ROUND" ] || [[ "$ROUND" =~ ^[0-9]+$ ]] || { echo "ROUND als Radius in Pixeln angeben, z. B. 15" >&2; exit 1; }
 SCALE="${SCALE:-}"
 RENDER=1
@@ -93,7 +101,7 @@ shoot () {
   env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
     XDG_RUNTIME_DIR="$RUNDIR" GSETTINGS_SCHEMA_DIR="$BUILD/data" GSETTINGS_BACKEND=memory \
     REAL_DISPLAY="$REAL_DISPLAY" BIN="$BIN" OUT="$out" WIDTH="$((WIDTH * RENDER))" HEIGHT="$((HEIGHT * RENDER))" \
-    CLICK="$CLICK" KEYS="$KEYS" RENDER="$RENDER" ${SCALE:+GDK_SCALE=$RENDER} \
+    CLICK="$CLICK" KEYS="$KEYS" AFTER_KEYS="$AFTER_KEYS" WAIT="$WAIT" RENDER="$RENDER" ${SCALE:+GDK_SCALE=$RENDER} \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo GTK_A11Y=none NO_AT_BRIDGE=1 \
     ADW_DEBUG_COLOR_SCHEME="$scheme" \
     xvfb-run -a -s "-screen 0 $((WIDTH * RENDER))x$((HEIGHT * RENDER))x24 +extension Composite" \
@@ -126,9 +134,9 @@ time.sleep(600)
         # Ohne Fenstermanager setzt XConfigureWindow die Größe direkt (python3-xlib).
         WIN="$win" python3 -c "import os; from Xlib import display; d = display.Display(); d.create_resource_object(\"window\", int(os.environ[\"WIN\"], 16)).configure(width=int(os.environ[\"WIDTH\"]), height=int(os.environ[\"HEIGHT\"])); d.sync()"
         sleep 2
-        if [ -n "$KEYS" ]; then
-          # Je Eintrag in KEYS: Tasten nacheinander drücken, rückwärts loslassen.
-          python3 -c "
+        sleep "$WAIT"
+        # Je Eintrag in KEYS bzw. AFTER_KEYS: Tasten nacheinander drücken, rückwärts loslassen.
+        press_keys="
 import os, sys
 from Xlib import display, X, XK
 from Xlib.ext import xtest
@@ -143,6 +151,8 @@ for combo in os.environ[\"KEYS\"].split():
         xtest.fake_input(d, X.KeyRelease, c)
     d.sync()
 "
+        if [ -n "$KEYS" ]; then
+          python3 -c "$press_keys"
           sleep 1
         fi
         if [ -n "$CLICK" ]; then
@@ -152,6 +162,10 @@ for combo in os.environ[\"KEYS\"].split():
           done
           # Zeiger nach 0,0: ein unter ihm geöffnetes Fenster zeigte sonst einen Tooltip (#337).
           python3 -c "from Xlib import display, X; from Xlib.ext import xtest; d = display.Display(); xtest.fake_input(d, X.MotionNotify, x=0, y=0); d.sync()"
+          sleep 1
+        fi
+        if [ -n "$AFTER_KEYS" ]; then
+          KEYS="$AFTER_KEYS" python3 -c "$press_keys"
           sleep 1
         fi
         # Alle sichtbaren Fenster (App, Popover) mit Alphakanal in Stapelreihenfolge

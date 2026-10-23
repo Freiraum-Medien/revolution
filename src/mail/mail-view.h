@@ -8,6 +8,7 @@
 #pragma once
 
 #include <adwaita.h>
+#include <camel/camel.h>
 #include <libedataserver/libedataserver.h>
 
 G_BEGIN_DECLS
@@ -20,5 +21,8 @@ void revolution_mail_view_set_registry (RevolutionMailView *self,
 void revolution_mail_view_show_error   (RevolutionMailView *self,
                                         const char         *title,
                                         const char         *detail);
+void revolution_mail_view_set_folders  (RevolutionMailView *self,
+                                        const char         *uid,
+                                        CamelFolderInfo    *info);
 
 G_END_DECLS

@@ -203,6 +203,16 @@ preview_for (const char *preview)
   return text;
 }
 
+/* Zugänglicher Name der Zeile (Architektur 8): Absender, Betreff, Datum, Zustände. */
+static char *
+accessible_label_for (RevolutionMailMessage *self)
+{
+  return g_strdup_printf ("%s, %s, %s%s%s%s", self->sender, self->subject, self->date,
+                          self->unread ? _(", ungelesen") : "",
+                          self->starred ? _(", markiert") : "",
+                          self->attachment ? _(", mit Anhang") : "");
+}
+
 /* Im Worker: Kopie der Felder aus info. now ist der Stichtag fürs relative Datum. */
 RevolutionMailMessage *
 revolution_mail_message_new (CamelMessageInfo *info,
@@ -232,11 +242,7 @@ revolution_mail_message_new (CamelMessageInfo *info,
   self->starred = (flags & CAMEL_MESSAGE_FLAGGED) != 0;
   self->attachment = (flags & CAMEL_MESSAGE_ATTACHMENTS) != 0;
 
-  /* Zugänglicher Name der Zeile (Architektur 8): Absender, Betreff, Datum, Zustände. */
-  self->accessible_label = g_strdup_printf ("%s, %s, %s%s%s%s", self->sender, self->subject, self->date,
-                                            self->unread ? _(", ungelesen") : "",
-                                            self->starred ? _(", markiert") : "",
-                                            self->attachment ? _(", mit Anhang") : "");
+  self->accessible_label = accessible_label_for (self);
 
   return self;
 }
@@ -311,12 +317,52 @@ revolution_mail_message_update (RevolutionMailMessage *self,
   return changed;
 }
 
+/* #353: Im UI-Thread sofort nach einer Bedienung (mail-view.c, mark_message), bevor Camel die
+ * Änderung über „changed“ bestätigt; so folgen Zeile, Aktionen und Zähler ohne Verzögerung, und
+ * schnell nacheinander gedrückte Kürzel sehen schon den neuen Zustand. */
+void
+revolution_mail_message_set_flags (RevolutionMailMessage *self,
+                                   gboolean               unread,
+                                   gboolean               starred)
+{
+  gboolean changed;
+  g_autofree char *label = NULL;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_MESSAGE (self));
+
+  changed = update_boolean (self, &self->unread, unread, PROP_UNREAD);
+  changed |= update_boolean (self, &self->starred, starred, PROP_STARRED);
+  if (!changed)
+    return;
+
+  label = accessible_label_for (self);
+  update_string (self, &self->accessible_label, label, PROP_ACCESSIBLE_LABEL);
+}
+
 gboolean
 revolution_mail_message_get_unread (RevolutionMailMessage *self)
 {
   g_return_val_if_fail (REVOLUTION_IS_MAIL_MESSAGE (self), FALSE);
 
   return self->unread;
+}
+
+/* #353: Zustand für die Aktionen (mail-view.c, update_message_actions). */
+gboolean
+revolution_mail_message_get_starred (RevolutionMailMessage *self)
+{
+  g_return_val_if_fail (REVOLUTION_IS_MAIL_MESSAGE (self), FALSE);
+
+  return self->starred;
+}
+
+/* #353: Sortierschlüssel (Datum) beim Einfügen neuer Nachrichten (mail-view.c, apply_folder_changes). */
+gint64
+revolution_mail_message_get_timestamp (RevolutionMailMessage *self)
+{
+  g_return_val_if_fail (REVOLUTION_IS_MAIL_MESSAGE (self), 0);
+
+  return self->timestamp;
 }
 
 gboolean

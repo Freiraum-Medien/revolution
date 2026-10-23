@@ -42,6 +42,31 @@ template $RevolutionMailView: Adw.BreakpointBin {
       trigger: "<primary>question";
       action: "action(mail.shortcuts)";
     }
+
+    // #353: Gelesen/Ungelesen wie Evolution (e-mail-reader.c:3179-3226: Strg+K, Umschalt+Strg+K),
+    // Markieren umschalten mit Umschalt+Strg+L wie Apple Mail ⇧⌘L (Entscheidung PM 23.10.2026;
+    // Evolution hat für „Wichtig“ kein Kürzel, e-mail-reader.c:3137-3149, Strg+S ist dort
+    // „Speichern unter“, 3389-3394; auf der Apple-Seite „Tastaturkurzbefehle in Mail auf dem Mac“
+    // nicht aufgeführt), Aktualisieren F5 wie Evolution (e-mail-shell-view-actions.c:1721-1726).
+    Shortcut {
+      trigger: "<primary>k";
+      action: "action(message.mark-read)";
+    }
+
+    Shortcut {
+      trigger: "<primary><shift>k";
+      action: "action(message.mark-unread)";
+    }
+
+    Shortcut {
+      trigger: "<primary><shift>l";
+      action: "action(message.star)";
+    }
+
+    Shortcut {
+      trigger: "F5";
+      action: "action(list.refresh)";
+    }
   }
 
   // Briefing 1.2: ≤ 1000 sp Seitenleiste eingeklappt, ≤ 600 sp „mobile“ (stamp-mail-view.blp:8-26).
@@ -325,6 +350,14 @@ template $RevolutionMailView: Adw.BreakpointBin {
             child: ListView message_list {
               tab-behavior: item;
 
+              // #353: Kontextmenü der Zeile per Tastatur (HIG Keyboard: Menü, Umschalt+F10).
+              ShortcutController {
+                Shortcut {
+                  trigger: "Menu|<shift>F10";
+                  action: "action(list.context-menu)";
+                }
+              }
+
               styles [
                 "message-list",
               ]
@@ -346,6 +379,17 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                   child: Box {
                     spacing: 6;
+
+                    // #353: Rechtsklick öffnet das Kontextmenü (row_menu), Wischen wie Apple Mail
+                    // (mail-view.c, on_row_swipe).
+                    GestureClick {
+                      button: 3;
+                      pressed => $on_row_secondary_click(template);
+                    }
+
+                    GestureSwipe {
+                      swipe => $on_row_swipe(template);
+                    }
 
                     // Platz für den Ungelesen-Punkt bleibt auch ohne Punkt frei.
                     Box {
@@ -1007,8 +1051,17 @@ menu filter_menu {
 menu message_menu {
   section {
     item {
+      label: _("Als gelesen markieren");
+      action: "message.mark-read";
+      accel: "<primary>k";
+      hidden-when: "action-disabled";
+    }
+
+    item {
       label: _("Als ungelesen markieren");
       action: "message.mark-unread";
+      accel: "<primary><shift>k";
+      hidden-when: "action-disabled";
     }
   }
 
@@ -1017,6 +1070,42 @@ menu message_menu {
       label: _("Drucken…");
       action: "message.print";
       accel: "<primary>p";
+    }
+  }
+}
+
+// #353: Kontextmenü einer Zeile der Nachrichtenliste (mail-view.c, show_row_menu). Nur die
+// passenden Einträge sind sichtbar (hidden-when), wie Apple Mail („Als gelesen“ oder „Als ungelesen“).
+menu row_menu {
+  section {
+    item {
+      label: _("Als _gelesen markieren");
+      action: "message.mark-read";
+      accel: "<primary>k";
+      hidden-when: "action-disabled";
+    }
+
+    item {
+      label: _("Als _ungelesen markieren");
+      action: "message.mark-unread";
+      accel: "<primary><shift>k";
+      hidden-when: "action-disabled";
+    }
+  }
+
+  section {
+    item {
+      label: _("_Markieren");
+      action: "message.star-on";
+      accel: "<primary><shift>l";
+      hidden-when: "action-disabled";
+    }
+
+    item {
+      label: _("Markierung _entfernen");
+      action: "message.star-off";
+      accel: "<primary><shift>l";
+      hidden-when: "action-disabled";
     }
   }
 }
@@ -1034,6 +1123,13 @@ menu primary_menu {
       label: _("_Suchen");
       action: "mail.search";
       accel: "<primary>f";
+    }
+
+    // #353
+    item {
+      label: _("_Aktualisieren");
+      action: "list.refresh";
+      accel: "F5";
     }
   }
 

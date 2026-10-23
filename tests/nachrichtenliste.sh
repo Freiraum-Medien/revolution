@@ -21,6 +21,10 @@
 # bis vollständig; je Abschnitt (Start, Laden, danach = Ruhe bzw. Scrollen) Frames (Anzahl, Median,
 # 95 %, Maximum, über 16,7 ms) und längste Antwortzeit des UI-Threads.
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“, dazu „WERT …“ für Messwerte; Exit 0 ohne Fehler.
+# #353: Die Starts wählen Zeilen (Klick, Bild ab) ohne Gelesen zu prüfen. Daher mark-seen=false
+# (eigenes Schema mit .gschema.override, SCHEMA_DIR für scripts/screenshot.sh) und Vergleich der
+# ungelesenen UIDs am Server vorher/nachher (tests/testdaten.py --ungelesen); bei Abweichung FEHLER
+# und Rückstellung auf den Stand vorher (--soll).
 #
 # Copyright 2026 Arnd Messer
 #
@@ -61,6 +65,15 @@ if timeout 3000 python3 "$APP_DIR/tests/testdaten.py" --last "$ANZAHL" >"$OUT/te
 else
   fehler "Testdaten: tests/testdaten.py --last $ANZAHL (siehe $OUT/testdaten.txt)"; exit 1
 fi
+# #353: Schema mit mark-seen=false, ungelesene UIDs am Server vor den Starts.
+SCHEMA="$OUT/schema"
+mkdir -p "$SCHEMA"
+cp "$APP_DIR/data/"*.gschema.xml "$SCHEMA/"
+printf '[de.freiraum_medien.Revolution]\nmark-seen=false\n' >"$SCHEMA/90_test.gschema.override"
+glib-compile-schemas --strict "$SCHEMA" || { fehler "Schema: glib-compile-schemas $SCHEMA"; exit 1; }
+python3 "$APP_DIR/tests/testdaten.py" --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last >"$OUT/ungelesen-vorher.txt" 2>&1 \
+  || { fehler "Ungelesen vorher: tests/testdaten.py --ungelesen (siehe $OUT/ungelesen-vorher.txt)"; exit 1; }
+
 # „LAST <UID>/<voller Ordnername> <Anzahl>“
 ORDNER="$(sed -n 's/^LAST \(.*\) [0-9]*$/\1/p' "$OUT/testdaten.txt")"
 SOLL="$(sed -n 's/^LAST .* \([0-9]*\)$/\1/p' "$OUT/testdaten.txt")"
@@ -113,7 +126,7 @@ lauf () {
   warte "$log" "$OUT/$name.ready" & watcher=$!
   pinger "$OUT/$name-ping.txt" & ping=$!
   env G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER="$ORDNER" REVOLUTION_FRAME_LOG=1 \
-    BUILD="$BUILD" OUT_DIR="$OUT" LOG="$log" READY="$OUT/$name.ready" QUIT="$OUT/$name.quit" \
+    BUILD="$BUILD" SCHEMA_DIR="$SCHEMA" OUT_DIR="$OUT" LOG="$log" READY="$OUT/$name.ready" QUIT="$OUT/$name.quit" \
     WAIT=$((TIMEOUT + 5)) CLICK="$click" AFTER_KEYS="$keys" KEY_DELAY=0.02 \
     "$APP_DIR/scripts/screenshot.sh" "$name" prefer-light 1200x760 >"$OUT/$name.out" 2>&1 \
     || fehler "$name: scripts/screenshot.sh Exit $? (siehe $OUT/$name.out)"
@@ -183,6 +196,22 @@ EOF
 PAGE_DOWN="$(printf 'Page_Down %.0s' $(seq 480))"
 lauf m4-352-oben "" ""
 lauf m4-352-unten "420,110" "${PAGE_DOWN}End"
+
+# #353: mark-seen=false wirksam (kein Gelesen-Timer im Log)?
+if debug "$OUT/m4-352-oben.log" "$OUT/m4-352-unten.log" 2>/dev/null | grep -q '^Gelesen: '; then
+  fehler "mark-seen=false unwirksam: „Gelesen: …“ im Log"
+else
+  ok "mark-seen=false: kein Gelesen-Timer im Log"
+fi
+
+# #353: Ausgangszustand am Server (ungelesene UIDs) unverändert?
+python3 "$APP_DIR/tests/testdaten.py" --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last >"$OUT/ungelesen-nachher.txt" 2>&1
+if [ -s "$OUT/ungelesen-nachher.txt" ] && cmp -s "$OUT/ungelesen-vorher.txt" "$OUT/ungelesen-nachher.txt"; then
+  ok "Server: ungelesene Mails in Revolution-Last unverändert ($(cut -d' ' -f2 "$OUT/ungelesen-vorher.txt"))"
+else
+  fehler "Server: ungelesene Mails geändert (vorher $(cut -d' ' -f2 "$OUT/ungelesen-vorher.txt"), nachher $(cut -d' ' -f2 "$OUT/ungelesen-nachher.txt")); Rückstellung:"
+  python3 "$APP_DIR/tests/testdaten.py" --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last --soll "$OUT/ungelesen-vorher.txt" | sed 's/^/        /'
+fi
 
 echo "Ergebnis: $FEHLER Fehler, Ausgaben in $OUT"
 [ "$FEHLER" -eq 0 ]

@@ -15,6 +15,8 @@
 #     Layout. GTK rendert mit GDK_SCALE=2 (X11-Backend, Xvfb und Fenster doppelt so groß),
 #     ImageMagick verkleinert danach auf SCALE/2 (1,5 → 75 %). CLICK, KEYS und ROUND bleiben
 #     logisch (wie ohne SCALE), das Skript rechnet sie um. Werte über 2 wären hochskaliert.
+#   BUILD=Pfad (optional, Umgebung): Build-Ordner, Standard build/ im Repo. GSettings-Schema
+#     aus BUILD/data, Einstellungen nur im Speicher (GSETTINGS_BACKEND=memory, #342).
 # Compositor (#400): Xvfb hat keinen. Ohne ihn zeichnet GTK Fenster und Popover eckig ohne
 #   Schatten (window.solid-csd), Menüs sähen anders aus als auf dem Desktop. Ein Python-Helfer
 #   meldet sich als Compositing-Manager (Besitzer der Auswahl _NET_WM_CM_S0, ICCCM/EWMH);
@@ -25,11 +27,12 @@
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BIN="$APP_DIR/build/src/revolution"
+BUILD="${BUILD:-$APP_DIR/build}"
+BIN="$BUILD/src/revolution"
 OUT_DIR="${OUT_DIR:-$APP_DIR/../Design/Prototyp}"
 
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
-  sed -n '3,17p' "$0" >&2
+  sed -n '3,19p' "$0" >&2
   exit 1
 fi
 NAME="$1"
@@ -55,6 +58,7 @@ if [ -n "$SCALE" ]; then
 fi
 
 [ -x "$BIN" ] || { echo "Fehlt: $BIN (erst meson compile -C build)" >&2; exit 1; }
+[ -f "$BUILD/data/gschemas.compiled" ] || { echo "Fehlt: $BUILD/data/gschemas.compiled (erst meson compile)" >&2; exit 1; }
 for tool in xvfb-run dbus-run-session import xwininfo python3 ${ROUND:+magick} ${SCALE:+magick}; do
   command -v "$tool" >/dev/null || { echo "Fehlt: $tool" >&2; exit 1; }
 done
@@ -74,7 +78,7 @@ shoot () {
   # keine Portale (sonst startet die Test-D-Bus-Sitzung xdg-desktop-portal),
   # X11-Backend erzwingen.
   env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
-    XDG_RUNTIME_DIR="$RUNDIR" \
+    XDG_RUNTIME_DIR="$RUNDIR" GSETTINGS_SCHEMA_DIR="$BUILD/data" GSETTINGS_BACKEND=memory \
     REAL_DISPLAY="$REAL_DISPLAY" BIN="$BIN" OUT="$out" WIDTH="$((WIDTH * RENDER))" HEIGHT="$((HEIGHT * RENDER))" \
     CLICK="$CLICK" KEYS="$KEYS" RENDER="$RENDER" ${SCALE:+GDK_SCALE=$RENDER} \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo GTK_A11Y=none NO_AT_BRIDGE=1 \

@@ -9,6 +9,8 @@
 #
 #   außen SOCK LOG                 im normalen Netz: nimmt Verbindungen über SOCK an, verbindet
 #                                  das ursprüngliche Ziel, schreibt je Verbindung eine Zeile in LOG
+#                                  und führt über SOCK Abfragen „testdaten --flags|--server|
+#                                  --testordner …“ (tests/testdaten.py) im normalen Netz aus
 #   innen SOCK CTRL ZUSTAND -- BEFEHL …
 #                                  im Namensraum: lo, Gerät d0 (dummy), nft-Umleitung aller TCP-
 #                                  Verbindungen nach außen auf 127.0.0.1:15000, DNS auf
@@ -103,6 +105,18 @@ def aussen(sock_pfad, log_pfad):
                 u.close()
                 c.sendall(struct.pack('!H', len(antwort)) + antwort)
                 notiz('DNS %s' % dns_name(frage))
+                c.close()
+                return
+            if kopf.startswith('testdaten '):
+                # #408: Serverstand unabhängig von der App im normalen Netz (auch während die App
+                # offline ist): nur die Abfragen und Testkonto-Änderungen aus tests/testdaten.py.
+                args = kopf.split()[1:]
+                if args[0] not in ('--flags', '--server', '--testordner'):
+                    raise OSError('nicht erlaubt: %s' % kopf)
+                r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'testdaten.py')]
+                                   + args, capture_output=True, text=True, timeout=300)
+                c.sendall((r.stdout + r.stderr).encode())
+                notiz('TESTDATEN %s' % ' '.join(args))
                 c.close()
                 return
             _, ip, port = kopf.split()
@@ -258,6 +272,21 @@ def innen(sock_pfad, ctrl_pfad, zustand, befehl):
     return kind.returncode
 
 
+def testdaten(sock_pfad, *args):
+    """Für den Treiber: tests/testdaten.py im normalen Netz über außen (SOCK) ausführen."""
+    c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    c.connect(sock_pfad)
+    c.sendall(('testdaten %s\n' % ' '.join(args)).encode())
+    out = b''
+    while True:
+        teil = c.recv(65536)
+        if not teil:
+            break
+        out += teil
+    c.close()
+    return out.decode()
+
+
 def steuere(ctrl_pfad, kommando):
     """Für den Treiber: „up“/„down“ an innen schicken, Antwort zurück."""
     c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -273,7 +302,10 @@ if __name__ == '__main__':
         aussen(sys.argv[2], sys.argv[3])
     elif len(sys.argv) > 6 and sys.argv[1] == 'innen' and sys.argv[4] in ('up', 'down') and sys.argv[5] == '--':
         sys.exit(innen(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[6:]))
+    elif len(sys.argv) >= 4 and sys.argv[1] == 'testdaten':
+        print(testdaten(sys.argv[2], *sys.argv[3:]), end='')
     elif len(sys.argv) == 4 and sys.argv[1] == 'steuern':
         print(steuere(sys.argv[2], sys.argv[3]))
     else:
-        sys.exit('Aufruf: netz-relay.py außen SOCK LOG | innen SOCK CTRL up|down -- BEFEHL … | steuern CTRL up|down')
+        sys.exit('Aufruf: netz-relay.py außen SOCK LOG | innen SOCK CTRL up|down -- BEFEHL … | steuern CTRL up|down'
+                 ' | testdaten SOCK ARGUMENTE …')

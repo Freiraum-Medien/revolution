@@ -201,8 +201,10 @@ typedef struct
   GError *connect_error;
   GError *folders_error;
   CamelFolderInfo *info;
-  /* #408: Session offline, Ordner aus dem Cache ohne Verbindungsversuch. */
+  /* #408: Session offline: Store offline geschaltet (Fehler dabei nur im Log wie Evolution),
+   * Ordner aus dem Cache ohne Verbindungsversuch. */
   gboolean offline;
+  GError *offline_error;
 } NoteStoreResult;
 
 static void
@@ -210,6 +212,7 @@ note_store_result_free (NoteStoreResult *result)
 {
   g_clear_error (&result->connect_error);
   g_clear_error (&result->folders_error);
+  g_clear_error (&result->offline_error);
   g_clear_pointer (&result->info, camel_folder_info_free);
   g_free (result);
 }
@@ -257,12 +260,15 @@ forget_unread (CamelFolderInfo *fi)
  *     (camel-m365-store.c:1190-1201). Der Cache von Revolution (~/.cache/revolution/mail)
  *     ist beim ersten Start leer; ohne FAST fragen beide den Server (LIST bzw. Delta).
  * #350: Danach Gesendet, Entwürfe und Archiv als Ordnertyp (revolution_mail_folder_mark_special).
- * #408: Ist die Session offline (kein Netz), verbindet der Task nicht. Die Stores bleiben dann
- * offline (beim Anlegen nach der Session, camel-offline-store.c:142; go_offline_thread) und liefern
- * die Ordner aus dem Cache (camel_offline_store_get_online, dort 223-238; microsoft365
- * camel-m365-store.c:1187, imapx camel-imapx-store.c:2143-2146); camel_store_get_folder_info_sync
- * verbindet bei Session offline nicht neu (camel-store.c:278). Derselbe Task schaltet die Stores
- * wieder online, wenn das Netz zurück ist (go_online). */
+ * #408: Ist die Session offline (kein Netz), verbindet der Task nicht, sondern schaltet den Store
+ * offline wie Evolution (e_mail_store_go_offline_sync, e-mail-store-utils.c:147-180); beim Start
+ * ist er das schon (angelegt vor camel_session_set_online, camel-offline-store.c:142). Offline
+ * liefern die Stores die Ordner aus dem Cache (camel_offline_store_get_online, dort 223-238;
+ * microsoft365 camel-m365-store.c:1187, imapx camel-imapx-store.c:2143-2146);
+ * camel_store_get_folder_info_sync verbindet bei Session offline nicht neu (camel-store.c:278).
+ * Derselbe Task läuft bei jedem Netzwechsel (on_network_changed, go_online). Je Store nacheinander
+ * (Sperre „revolution-line-lock“): ein abgebrochener Online-Auftrag endet, bevor der Offline-Auftrag
+ * desselben Stores beginnt, statt gleichzeitig zu verbinden und zu trennen. */
 static void
 note_store_thread (GTask        *task,
                    gpointer      source_object,
@@ -272,7 +278,15 @@ note_store_thread (GTask        *task,
   CamelStore *store = CAMEL_STORE (source_object);
   CamelProvider *provider = camel_service_get_provider (CAMEL_SERVICE (store));
   g_autoptr (CamelSession) session = camel_service_ref_session (CAMEL_SERVICE (store));
+  g_autoptr (GMutexLocker) locker = g_mutex_locker_new (g_object_get_data (G_OBJECT (store), "revolution-line-lock"));
   NoteStoreResult *result = g_new0 (NoteStoreResult, 1);
+
+  /* Ein neuerer Netzwechsel hat diesen Auftrag schon abgelöst. */
+  if (g_task_return_error_if_cancelled (task))
+    {
+      note_store_result_free (result);
+      return;
+    }
 
   result->offline = session == NULL || !camel_session_get_online (session);
   if (CAMEL_IS_OFFLINE_STORE (store) && !result->offline &&
@@ -280,6 +294,11 @@ note_store_thread (GTask        *task,
       result->connect_error == NULL)
     result->connect_error = g_error_new_literal (CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_UNAVAILABLE,
                                                  _("Verbindung ohne Fehlermeldung abgebrochen"));
+  else if (CAMEL_IS_OFFLINE_STORE (store) && result->offline)
+    camel_offline_store_set_online_sync (CAMEL_OFFLINE_STORE (store), FALSE, cancellable, &result->offline_error);
+  else if (!CAMEL_IS_OFFLINE_STORE (store) && result->offline &&
+           camel_service_get_connection_status (CAMEL_SERVICE (store)) != CAMEL_SERVICE_DISCONNECTED)
+    camel_service_disconnect_sync (CAMEL_SERVICE (store), TRUE, cancellable, &result->offline_error);
 
   if (provider != NULL && (provider->flags & (CAMEL_PROVIDER_IS_STORAGE | CAMEL_PROVIDER_IS_EXTERNAL)) != 0)
     result->info = camel_store_get_folder_info_sync (store, NULL,
@@ -362,20 +381,52 @@ find_inbox (CamelFolderInfo *fi)
   return NULL;
 }
 
-/* #408: Quelle des verzögerten Online-Schaltens (go_online); ein Netzmonitor und eine Session
- * je Prozess. */
+/* #408: Netzwechsel. online_id: Quelle des verzögerten Online-Schaltens (go_online). line: der
+ * GCancellable der laufenden Umschaltung; jeder Wechsel bricht die vorige ab und beginnt mit einem
+ * neuen wie Evolution (shell_cancel_ongoing_preparing_line_change, e-shell.c:369-390, 415-419;
+ * je Umschaltung eine eigene EActivity mit eigenem GCancellable, e-mail-backend.c:256-268,
+ * 300-308). Ein Netzmonitor und eine Session je Prozess. */
 static guint online_id;
+static GCancellable *line;
 
 static gboolean go_online (gpointer user_data);
+static void on_network_changed (GNetworkMonitor *monitor, GParamSpec *pspec, RevolutionMailView *mail_view);
+
+static GCancellable *
+new_line_change (void)
+{
+  if (line != NULL)
+    g_cancellable_cancel (line);
+  g_set_object (&line, NULL);
+  line = g_cancellable_new ();
+
+  return line;
+}
+
+/* #351: Favoriten eines Kontos einmal beim ersten Ordnerbaum; mit eigenem GCancellable, den nur
+ * das Beenden abbricht (nicht der nächste Netzwechsel). */
+static void
+add_favorites (RevolutionMailView *mail_view,
+               CamelStore         *store,
+               CamelFolderInfo    *info)
+{
+  g_autoptr (GCancellable) cancellable = g_cancellable_new ();
+
+  g_signal_connect_object (g_application_get_default (), "shutdown", G_CALLBACK (g_cancellable_cancel), cancellable,
+                           G_CONNECT_SWAPPED);
+  revolution_mail_favorites_add_store (mail_view, store, info, cancellable);
+}
 
 /* Fehler beim Verbinden wie #347; Fehler beim Laden der Ordner nur, wenn die Verbindung
  * stand (sonst wäre es derselbe Fehler zweimal).
- * #408: Offline meldet die Pille „Offline“ (revolution_mail_view_set_offline) statt eines
- * Verbindungsfehlers je Konto im Sammel-Banner: ein Fehler, der ankommt, während die Session
- * offline ist (Netz während des Verbindens weg), geht nur ins Log. Nach „Netz zurück“
- * (Quelle go_online) bleibt ein schon gezeigter Ordnerbaum stehen: ihn zu ersetzen hebt die
- * Auswahl auf (revolution_mail_view_set_folders leert den Store); die Inhalte gleichen der
- * Posteingang hier und die offene Liste des Kontos ab (revolution_mail_view_refresh_account). */
+ * #408: Ein Auftrag, den ein neuerer Netzwechsel abgelöst hat, kommt abgebrochen an und geht nur
+ * ins Log; der neuere Auftrag desselben Stores läuft danach (Sperre in note_store_thread). Jeder
+ * andere Fehler kommt ins Log und ins Sammel-Banner, auch offline. Offline meldet sonst die Pille
+ * „Offline“ (revolution_mail_view_set_offline). Nach einem Netzwechsel (Quelle go_online bzw.
+ * on_network_changed) wird ein schon gezeigter Ordnerbaum abgeglichen statt ersetzt
+ * (revolution_mail_view_update_folders): Ersetzen hebt die Auswahl auf (set_folders leert den
+ * Store). Danach Posteingang und, online, die offene Liste des Kontos vom Server
+ * (revolution_mail_view_refresh_account). */
 static void
 on_store_noted (GObject      *source_object,
                 GAsyncResult *result,
@@ -383,28 +434,33 @@ on_store_noted (GObject      *source_object,
 {
   g_autoptr (RevolutionMailView) mail_view = user_data;
   CamelService *service = CAMEL_SERVICE (source_object);
+  const char *uid = camel_service_get_uid (service);
   g_autoptr (CamelSession) session = camel_service_ref_session (service);
   g_autofree char *display_name = camel_service_dup_display_name (service);
   g_autofree char *detail = NULL;
+  g_autoptr (GError) task_error = NULL;
   gboolean online = session != NULL && camel_session_get_online (session);
-  gboolean again = g_task_get_source_tag (G_TASK (result)) == go_online;
-  gboolean keep_tree = again && g_object_get_data (G_OBJECT (service), "revolution-folders") != NULL;
+  gpointer tag = g_task_get_source_tag (G_TASK (result));
+  gboolean again = tag == go_online || tag == on_network_changed;
+  gboolean merge = again && g_object_get_data (G_OBJECT (service), "revolution-folders") != NULL;
   NoteStoreResult *noted;
   GError *error;
   const char *title;
 
-  /* NULL nur nach Abbruch beim Beenden (g_task_propagate_pointer prüft den GCancellable). */
-  noted = g_task_propagate_pointer (G_TASK (result), NULL);
+  noted = g_task_propagate_pointer (G_TASK (result), &task_error);
   if (noted == NULL)
-    return;
+    {
+      if (g_error_matches (task_error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        g_debug ("Netz: %s Umschaltung abgebrochen (neuerer Netzwechsel oder Beenden)", uid);
+      else
+        g_warning ("Konto %s (%s): %s", display_name, uid, task_error->message);
+      return;
+    }
 
-  if (noted->connect_error != NULL && !online)
-    g_debug ("offline: %s, Verbindung abgebrochen: %s", camel_service_get_uid (service),
-             noted->connect_error->message);
-  else if (noted->connect_error != NULL)
+  if (noted->connect_error != NULL)
     {
       error = noted->connect_error;
-      g_warning ("Anmeldung %s (%s): %s", display_name, camel_service_get_uid (service), error->message);
+      g_warning ("Anmeldung %s (%s): %s", display_name, uid, error->message);
 
       if (g_error_matches (error, G_TLS_ERROR, G_TLS_ERROR_BAD_CERTIFICATE))
         title = _("Zertifikat nicht vertrauenswürdig");
@@ -416,23 +472,28 @@ on_store_noted (GObject      *source_object,
       detail = g_strdup_printf ("%s: %s", display_name, error->message);
       revolution_mail_view_show_error (mail_view, title, detail, TRUE);
     }
+  else if (noted->offline_error != NULL)
+    /* Wie Evolution (mail_backend_store_operation_done_cb, e-mail-backend.c:128-138): offline
+     * schaltet der Store trotzdem (camel-offline-store.c:356-367). */
+    g_debug ("offline: %s, Ordner aus dem Cache, Trennen mit Fehler: %s", uid, noted->offline_error->message);
   else if (noted->offline)
-    g_debug ("offline: %s, Ordner aus dem Cache", camel_service_get_uid (service));
+    g_debug ("offline: %s, Ordner aus dem Cache", uid);
   else if (CAMEL_IS_OFFLINE_STORE (service))
-    g_debug ("verbunden: %s", camel_service_get_uid (service));
+    g_debug ("verbunden: %s", uid);
 
   if (noted->folders_error == NULL)
     {
       const char *inbox = find_inbox (noted->info);
 
-      if (keep_tree)
-        g_debug ("Ordner: %s vom Server, Ordnerbaum bleibt", camel_service_get_uid (service));
+      if (merge)
+        revolution_mail_view_update_folders (mail_view, uid, noted->info);
       else
         {
-          revolution_mail_view_set_folders (mail_view, camel_service_get_uid (service), noted->info);
+          revolution_mail_view_set_folders (mail_view, uid, noted->info);
           /* #351: Posteingang, Entwürfe und Gesendet dieses Kontos in die Favoriten. */
-          revolution_mail_favorites_add_store (mail_view, CAMEL_STORE (service), noted->info,
-                                               g_task_get_cancellable (G_TASK (result)));
+          if (g_object_get_data (G_OBJECT (service), "revolution-favorites") == NULL)
+            add_favorites (mail_view, CAMEL_STORE (service), noted->info);
+          g_object_set_data (G_OBJECT (service), "revolution-favorites", GINT_TO_POINTER (TRUE));
         }
       if (noted->info != NULL)
         g_object_set_data (G_OBJECT (service), "revolution-folders", GINT_TO_POINTER (TRUE));
@@ -446,23 +507,50 @@ on_store_noted (GObject      *source_object,
           g_task_run_in_thread (task, refresh_inbox_thread);
         }
     }
-  else if (noted->connect_error == NULL && online)
+  else if (noted->connect_error == NULL)
     {
-      g_warning ("Ordner %s (%s): %s", display_name, camel_service_get_uid (service), noted->folders_error->message);
+      g_warning ("Ordner %s (%s): %s", display_name, uid, noted->folders_error->message);
       detail = g_strdup_printf ("%s: %s", display_name, noted->folders_error->message);
       revolution_mail_view_show_error (mail_view, _("Ordner nicht geladen"), detail, TRUE);
     }
   else
-    g_debug ("Ordner: %s nicht geladen: %s", camel_service_get_uid (service), noted->folders_error->message);
+    g_debug ("Ordner: %s nicht geladen: %s", uid, noted->folders_error->message);
 
   /* #350: Konto ohne Ordner gilt für die Erstauswahl als fertig (mail-view.c). */
-  if (noted->folders_error != NULL && !keep_tree)
-    revolution_mail_view_set_folders (mail_view, camel_service_get_uid (service), NULL);
+  if (noted->folders_error != NULL && !merge)
+    revolution_mail_view_set_folders (mail_view, uid, NULL);
 
   note_store_result_free (noted);
 
   if (again && online)
-    revolution_mail_view_refresh_account (mail_view, camel_service_get_uid (service));
+    revolution_mail_view_refresh_account (mail_view, uid);
+}
+
+/* #408: Ein Auftrag je gemeldetem Store (note_stores) für einen Netzwechsel, mit dem
+ * GCancellable dieser Umschaltung. Rückgabe: Zahl der Aufträge. */
+static guint
+switch_stores (RevolutionMailSession *session,
+               RevolutionMailView    *mail_view,
+               gpointer               tag)
+{
+  g_autolist (CamelService) services = camel_session_list_services (CAMEL_SESSION (session));
+  GCancellable *cancellable = new_line_change ();
+  guint count = 0;
+
+  for (GList *l = services; l != NULL; l = l->next)
+    {
+      g_autoptr (GTask) task = NULL;
+
+      if (!CAMEL_IS_STORE (l->data) || g_object_get_data (l->data, "revolution-noted") == NULL)
+        continue;
+
+      task = g_task_new (l->data, cancellable, on_store_noted, g_object_ref (mail_view));
+      g_task_set_source_tag (task, tag);
+      g_task_run_in_thread (task, note_store_thread);
+      count++;
+    }
+
+  return count;
 }
 
 static void
@@ -470,6 +558,13 @@ on_folder_opened (RevolutionMailView *mail_view,
                   CamelFolder        *folder)
 {
   revolution_mail_view_watch_folder (mail_view, folder, FALSE, FALSE);
+}
+
+static void
+free_lock (GMutex *lock)
+{
+  g_mutex_clear (lock);
+  g_free (lock);
 }
 
 /* #348: Neue Stores anmelden und ihre Ordner laden, beim Start (on_session_loaded) und nach
@@ -481,7 +576,9 @@ note_stores (RevolutionMailSession *session,
 {
   g_auto (GStrv) errors = revolution_mail_session_take_errors (session);
   g_autolist (CamelService) services = camel_session_list_services (CAMEL_SESSION (session));
-  GCancellable *cancellable = g_object_get_data (G_OBJECT (session), "cancellable");
+  /* #408: GCancellable der laufenden Umschaltung (new_line_change), damit ein Netzwechsel auch
+   * das erste Verbinden ablöst. */
+  GCancellable *cancellable = line;
 
   for (guint i = 0; errors[i] != NULL; i++)
     revolution_mail_view_show_error (mail_view, _("Konto nicht eingerichtet"), errors[i], TRUE);
@@ -499,6 +596,13 @@ note_stores (RevolutionMailSession *session,
         continue;
 
       g_object_set_data (l->data, "revolution-noted", GINT_TO_POINTER (TRUE));
+      {
+        GMutex *lock = g_new0 (GMutex, 1);
+
+        /* #408: Aufträge je Store nacheinander (note_store_thread). */
+        g_mutex_init (lock);
+        g_object_set_data_full (l->data, "revolution-line-lock", lock, (GDestroyNotify) free_lock);
+      }
       /* #350: geöffnete Ordner für den Ungelesen-Zähler beobachten wie Evolution
        * (store_folder_opened_cb, mail-folder-cache.c:1311-1317); das Signal kommt im
        * Hauptkontext (EDS camel-store.c:895-925). */
@@ -578,48 +682,14 @@ on_test_store (GSimpleAction *action G_GNUC_UNUSED,
  * _online_cb (e-mail-backend.c:211-253, 294-340): Session offline, laufende Camel-Vorgänge
  * abbrechen (camel_operation_cancel_all), jeden Store im Worker offline
  * (e_mail_store_go_offline_sync, e-mail-store-utils.c:147-180); online: Session online, jeden
- * Store im Worker online (e_mail_store_go_online_sync, dort 214-240) und abrufen.
+ * Store im Worker online (e_mail_store_go_online_sync, dort 214-240) und abrufen. Beides im selben
+ * Auftrag je Store (note_store_thread, switch_stores).
  * Gekürzt: ohne Rückfrage zum Herunterladen für offline (mail:ask-quick-offline, e-mail-backend.c:
  * 242-254; Revolution lädt nichts für offline vor) und ohne die EActivity des Shells. Abrufen
  * nach dem Online-Schalten wie beim Start (note_store_thread: Ordnerliste, Posteingang) statt
  * e_source_refresh_force_timeout (e-mail-backend.c:141-176). Revolution hat keinen Schalter
  * „Offline arbeiten“; daher entfällt auto_reconnect (online geht es immer, wenn das Netz da ist). */
 #define SET_ONLINE_TIMEOUT_SECONDS 5
-
-static void
-go_offline_thread (GTask        *task,
-                   gpointer      source_object,
-                   gpointer      task_data G_GNUC_UNUSED,
-                   GCancellable *cancellable)
-{
-  GError *error = NULL;
-  gboolean success;
-
-  if (CAMEL_IS_OFFLINE_STORE (source_object))
-    success = camel_offline_store_set_online_sync (source_object, FALSE, cancellable, &error);
-  else
-    success = camel_service_disconnect_sync (source_object, TRUE, cancellable, &error);
-
-  if (success)
-    g_task_return_boolean (task, TRUE);
-  else
-    g_task_return_error (task, error);
-}
-
-/* Fehler beim Offline-Schalten nur ins Log wie Evolution (mail_backend_store_operation_done_cb,
- * e-mail-backend.c:128-138). */
-static void
-on_store_offline (GObject      *source_object,
-                  GAsyncResult *result,
-                  gpointer      user_data G_GNUC_UNUSED)
-{
-  g_autoptr (GError) error = NULL;
-
-  if (g_task_propagate_boolean (G_TASK (result), &error))
-    g_debug ("offline: %s", camel_service_get_uid (CAMEL_SERVICE (source_object)));
-  else
-    g_debug ("offline: %s mit Fehler: %s", camel_service_get_uid (CAMEL_SERVICE (source_object)), error->message);
-}
 
 static RevolutionMailSession *
 app_session (void)
@@ -632,27 +702,11 @@ go_online (gpointer user_data)
 {
   RevolutionMailView *mail_view = user_data;
   RevolutionMailSession *session = app_session ();
-  GCancellable *cancellable = g_object_get_data (G_OBJECT (session), "cancellable");
-  g_autolist (CamelService) services = camel_session_list_services (CAMEL_SESSION (session));
-  guint count = 0;
 
   online_id = 0;
   camel_session_set_online (CAMEL_SESSION (session), TRUE);
   revolution_mail_view_set_offline (mail_view, FALSE);
-
-  for (GList *l = services; l != NULL; l = l->next)
-    {
-      g_autoptr (GTask) task = NULL;
-
-      if (!CAMEL_IS_STORE (l->data) || g_object_get_data (l->data, "revolution-noted") == NULL)
-        continue;
-
-      task = g_task_new (l->data, cancellable, on_store_noted, g_object_ref (mail_view));
-      g_task_set_source_tag (task, go_online);
-      g_task_run_in_thread (task, note_store_thread);
-      count++;
-    }
-  g_debug ("Netz: online, %u Stores verbinden", count);
+  g_debug ("Netz: online, %u Stores verbinden", switch_stores (session, mail_view, go_online));
 
   return G_SOURCE_REMOVE;
 }
@@ -663,8 +717,6 @@ on_network_changed (GNetworkMonitor    *monitor,
                     RevolutionMailView *mail_view)
 {
   RevolutionMailSession *session = app_session ();
-  GCancellable *cancellable;
-  g_autolist (CamelService) services = NULL;
 
   if (session == NULL)
     return;
@@ -676,7 +728,7 @@ on_network_changed (GNetworkMonitor    *monitor,
 
       g_debug ("Netz: verfügbar, online in %d s", SET_ONLINE_TIMEOUT_SECONDS);
       online_id = g_timeout_add_seconds_full (G_PRIORITY_DEFAULT, SET_ONLINE_TIMEOUT_SECONDS, go_online,
-                                                      g_object_ref (mail_view), g_object_unref);
+                                              g_object_ref (mail_view), g_object_unref);
       return;
     }
 
@@ -684,30 +736,19 @@ on_network_changed (GNetworkMonitor    *monitor,
   if (!camel_session_get_online (CAMEL_SESSION (session)))
     return;
 
-  g_debug ("Netz: nicht verfügbar, offline");
   camel_session_set_online (CAMEL_SESSION (session), FALSE);
   camel_operation_cancel_all ();
   revolution_mail_view_set_offline (mail_view, TRUE);
-
-  cancellable = g_object_get_data (G_OBJECT (session), "cancellable");
-  services = camel_session_list_services (CAMEL_SESSION (session));
-  for (GList *l = services; l != NULL; l = l->next)
-    {
-      g_autoptr (GTask) task = NULL;
-
-      if (!CAMEL_IS_STORE (l->data))
-        continue;
-
-      task = g_task_new (l->data, cancellable, on_store_offline, NULL);
-      g_task_set_source_tag (task, on_network_changed);
-      g_task_run_in_thread (task, go_offline_thread);
-    }
+  g_debug ("Netz: nicht verfügbar, offline, %u Stores trennen", switch_stores (session, mail_view, on_network_changed));
 }
 
 static void
 on_shutdown_network (GApplication *app G_GNUC_UNUSED)
 {
   g_clear_handle_id (&online_id, g_source_remove);
+  if (line != NULL)
+    g_cancellable_cancel (line);
+  g_clear_object (&line);
 }
 
 static void
@@ -717,18 +758,12 @@ on_session_loaded (GObject      *source_object,
 {
   g_autoptr (RevolutionMailView) mail_view = user_data;
   RevolutionMailSession *session = g_task_propagate_pointer (G_TASK (result), NULL);
-  g_autoptr (GCancellable) cancellable = NULL;
   g_autolist (CamelService) services = camel_session_list_services (CAMEL_SESSION (session));
 
   g_debug ("CamelSession: bereit, Rückruf im Thread %p, %u Stores",
            (gpointer) g_thread_self (), g_list_length (services));
   /* An der Anwendung gehalten wie die Registry (g_object_get_data (app, "session")). */
   g_object_set_data_full (source_object, "session", session, g_object_unref);
-
-  /* Beim Beenden abbrechen wie das Laden der Registry (on_activate). */
-  cancellable = g_cancellable_new ();
-  g_signal_connect_object (source_object, "shutdown", G_CALLBACK (g_cancellable_cancel), cancellable, G_CONNECT_SWAPPED);
-  g_object_set_data_full (G_OBJECT (session), "cancellable", g_object_ref (cancellable), g_object_unref);
 
   revolution_mail_view_set_session (mail_view, CAMEL_SESSION (session));
   if (g_strcmp0 (g_getenv ("REVOLUTION_TEST_HOOKS"), "1") == 0)
@@ -750,9 +785,11 @@ on_session_loaded (GObject      *source_object,
     }
   g_signal_connect_object (e_network_monitor_get_default (), "notify::network-available",
                            G_CALLBACK (on_network_changed), mail_view, G_CONNECT_DEFAULT);
+  /* Beim Beenden die laufende Umschaltung abbrechen (auch das erste Verbinden, note_stores). */
   g_signal_connect (source_object, "shutdown", G_CALLBACK (on_shutdown_network), NULL);
 
   g_signal_connect_object (session, "services-changed", G_CALLBACK (note_stores), mail_view, G_CONNECT_DEFAULT);
+  new_line_change ();
   note_stores (session, mail_view);
   on_network_changed (G_NETWORK_MONITOR (e_network_monitor_get_default ()), NULL, mail_view);
 }

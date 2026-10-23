@@ -25,8 +25,14 @@ from Xlib.ext import xtest
 
 BIN, OUT, NAME, APP_DIR = os.environ['BIN'], os.environ['OUT'], os.environ['NAME'], os.environ['APP_DIR']
 CTRL, RELAIS_LOG, REF = os.environ['CTRL'], os.environ['RELAIS_LOG'], os.environ['REF']
+RELAIS_SOCK, KONTO = os.environ['RELAIS_SOCK'], os.environ['KONTO']
+PHASEN = os.environ.get('PHASEN', 'start,abbruch,flag,ordner').split(',')
+ORDNER_KONTO = os.environ.get('ORDNER_KONTO', '')
 ORDNER = os.environ['REVOLUTION_FOLDER']
 LOGKEY = ORDNER.replace('/', ' ', 1)
+EINLADUNG = '[Revolution-Test] Einladung: Abstimmung Testdaten'
+# Fenster 1200×760, erste Zeile der Liste unter der Pille „Offline“ (m4-408-1-offline-start.png).
+ZEILE_OFFLINE = (420, 170)
 
 fehler = 0
 d = display.Display()
@@ -121,6 +127,30 @@ def netz(kommando):
     (ok if r.stdout.strip() == 'ok ' + kommando else falsch)('Netz %s: %s' % (kommando, (r.stdout + r.stderr).strip()))
 
 
+def testdaten(*args):
+    """tests/testdaten.py im normalen Netz (über außen), unabhängig vom Netz der App."""
+    r = subprocess.run([sys.executable, os.path.join(APP_DIR, 'tests', 'netz-relay.py'), 'testdaten', RELAIS_SOCK]
+                       + list(args), capture_output=True, text=True, timeout=320)
+    return r.stdout
+
+
+def server_markiert():
+    for zeile in testdaten('--flags', KONTO).splitlines():
+        m = re.match(r'^FLAGS (\d) (\d) (.*?)( \(flag\.flagStatus=.*\))?$', zeile)
+        if m and m.group(3) == EINLADUNG:
+            return int(m.group(2))
+    return None
+
+
+def warte_server(soll, zeit):
+    start = time.monotonic()
+    while time.monotonic() - start < zeit:
+        if server_markiert() == soll:
+            return time.monotonic() - start
+        time.sleep(3)
+    return None
+
+
 # ------------------------------------------------------------------ Vergleichsliste (testdaten.py --ordner)
 
 def referenz():
@@ -136,6 +166,14 @@ def referenz():
 
 
 # ------------------------------------------------------------------ XTest
+
+def klick(p):
+    xtest.fake_input(d, X.MotionNotify, x=p[0], y=p[1])
+    xtest.fake_input(d, X.ButtonPress, 1)
+    xtest.fake_input(d, X.ButtonRelease, 1)
+    d.sync()
+    time.sleep(0.5)
+
 
 def taste(kombi, pause=0.3):
     codes = [d.keysym_to_keycode(XK.string_to_keysym(k)) for k in kombi.split('+')]
@@ -180,7 +218,7 @@ def ordner_wie_server(schritt, uids, ab):
     for uid in uids:
         n = [int(m.group(1)) for t in texte for m in [re.match(r'^Ordner: %s (\d+) geladen$' % re.escape(uid), t)] if m]
         app = {t[len('Ordner: %s ' % uid):] for t in texte if t.startswith('Ordner: %s ' % uid)
-               and not re.match(r'^Ordner: \S+ (\d+ geladen|nicht |vom Server)', t)}
+               and not re.match(r'^Ordner: \S+ (\d+ geladen|nicht |abgeglichen|neu |entfernt )', t)}
         gleich = n and n[-1] == anzahl.get(uid) and app == namen.get(uid, set())
         (ok if gleich else falsch)('%s: Ordner %s: App %s, Server %s%s' % (
             schritt, uid[:8], n[-1] if n else 'keine', anzahl.get(uid),
@@ -208,7 +246,7 @@ def online_schalten(schritt, uids):
     fehlt = warte_alle(r'^verbunden: %s$', uids, ab, 120)
     (falsch if fehlt else ok)('%s: %s' % (schritt, 'nicht verbunden: %s' % sorted(fehlt) if fehlt
                                           else 'alle %d Konten verbunden' % len(uids)))
-    fehlt = warte_alle(r'^Ordner: %s (vom Server, Ordnerbaum bleibt|\d+ geladen)$', uids, ab, 120)
+    fehlt = warte_alle(r'^Ordner: %s (abgeglichen, \d+ neu, \d+ entfernt|\d+ geladen)$', uids, ab, 120)
     (falsch if fehlt else ok)('%s: %s' % (schritt, 'Ordnerliste nicht vom Server: %s' % sorted(fehlt) if fehlt
                                           else 'Ordnerliste aller Konten vom Server geholt'))
     pruefe('%s: Liste vom Server' % schritt, r'^Aktualisieren: %s fertig$' % re.escape(LOGKEY), ab, 120)
@@ -222,9 +260,9 @@ def offline_laufzeit(schritt, uids):
     ab, ab_datei = marke(), dateizeilen()
     netz('down')
     tcp_vorher = len(relais_zeilen())
-    pruefe('%s: Session' % schritt, r'^Netz: nicht verfügbar, offline$', ab, 20)
+    pruefe('%s: Session' % schritt, r'^Netz: nicht verfügbar, offline, \d+ Stores trennen$', ab, 20)
     pruefe('%s: Pille' % schritt, r'^Hinweis Offline: sichtbar$', ab, 10)
-    fehlt = warte_alle(r'^offline: %s( mit Fehler: .*)?$', uids, ab, 60)
+    fehlt = warte_alle(r'^offline: %s, Ordner aus dem Cache', uids, ab, 60)
     (falsch if fehlt else ok)('%s: %s' % (schritt, 'nicht offline: %s' % sorted(fehlt) if fehlt
                                           else 'alle %d Stores offline' % len(uids)))
     ab2 = marke()
@@ -236,6 +274,85 @@ def offline_laufzeit(schritt, uids):
     (ok if not tcp else falsch)('%s: keine Verbindung nach außen ohne Netz (%d)' % (schritt, len(tcp)))
 
 
+def offline_schalten(schritt, uids):
+    ab = marke()
+    netz('down')
+    pruefe('%s: Session' % schritt, r'^Netz: nicht verfügbar, offline, \d+ Stores trennen$', ab, 20)
+    fehlt = warte_alle(r'^offline: %s, Ordner aus dem Cache', uids, ab, 60)
+    (falsch if fehlt else ok)('%s: %s' % (schritt, 'nicht offline: %s' % sorted(fehlt) if fehlt
+                                          else 'alle %d Stores offline' % len(uids)))
+
+
+def abbruch(uids, verzoegerung):
+    """Netz weg, während die Stores nach „Netz zurück“ verbinden; danach müssen alle wieder verbinden."""
+    schritt = 'Netz weg beim Verbinden %.1f s' % verzoegerung
+    offline_schalten(schritt + ': vorher', uids)
+    ab, ab_datei = marke(), dateizeilen()
+    netz('up')
+    if pruefe('%s: Session' % schritt, r'^Netz: online, \d+ Stores verbinden$', ab, 30) is None:
+        return
+    time.sleep(verzoegerung)
+    ab2 = marke()
+    netz('down')
+    pruefe('%s: offline' % schritt, r'^Netz: nicht verfügbar, offline, \d+ Stores trennen$', ab2, 20)
+    fehlt = warte_alle(r'^offline: %s, Ordner aus dem Cache', uids, ab2, 60)
+    (falsch if fehlt else ok)('%s: %s' % (schritt, 'nicht offline: %s' % sorted(fehlt) if fehlt
+                                          else 'alle %d Stores offline' % len(uids)))
+    time.sleep(3)
+    abgebrochen = [t for _, t in log_zeilen()[ab:] if 'abgebrochen' in t]
+    wert('%s: %d Aufträge abgebrochen, z. B. %s' % (schritt, len(abgebrochen), abgebrochen[:2]))
+    ohne_warnungen(schritt, ab_datei)
+    online_schalten(schritt + ': Netz zurück', uids)
+
+
+def flag_offline(uids):
+    """Markieren ohne Netz (nur lokal), nach „Netz zurück“ am Server; danach Ausgangszustand."""
+    schritt = 'Flag ohne Netz %s' % KONTO
+    vorher = server_markiert()
+    if vorher != 0:
+        falsch('%s: Einladung am Server markiert=%s, erwartet 0; übersprungen' % (schritt, vorher))
+        return
+    offline_schalten(schritt, uids)
+    ab = marke()
+    klick(ZEILE_OFFLINE)
+    taste('Shift_L+Control_L+l')
+    pruefe('%s: lokal' % schritt, r'^Flags: %s \S+ markiert lokal gespeichert \(offline\)$' % re.escape(LOGKEY), ab, 30)
+    m = server_markiert()
+    (ok if m == 0 else falsch)('%s: Server ohne Netz markiert=%s (erwartet 0)' % (schritt, m))
+    bild('6-flag-offline')
+    online_schalten(schritt + ': Netz zurück', uids)
+    t = warte_server(1, 180)
+    (ok if t is not None else falsch)('%s: Server markiert=1 nach Netz zurück%s' % (
+        schritt, ' (%.0f s nach Liste vom Server)' % t if t is not None else ' fehlt nach 180 s'))
+    ab = marke()
+    taste('Shift_L+Control_L+l')
+    pruefe('%s: zurück' % schritt, r'^Flags: %s \S+ nicht markiert gespeichert nach' % re.escape(LOGKEY), ab, 60)
+    t = warte_server(0, 120)
+    (ok if t is not None else falsch)('%s: Ausgangszustand am Server markiert=0' % schritt)
+
+
+def ordner_abgleich(uids):
+    """Ordner am Server anlegen bzw. löschen, während die App offline ist; nach „Netz zurück“ im
+    Baum neu bzw. weg, ohne Ersetzen des Baums (Auswahl bleibt, kein neues Laden der Liste)."""
+    uid = ORDNER_KONTO.split()[1]
+    adresse = ORDNER_KONTO.split()[0]
+    for aktion, log, nr in (('anlegen', 'neu', '7-ordner-neu'), ('loeschen', 'entfernt', '8-ordner-entfernt')):
+        schritt = 'Ordner %s %s' % (aktion, adresse)
+        offline_schalten(schritt, uids)
+        out = testdaten('--testordner', adresse, aktion)
+        name = re.search(r'^TESTORDNER (.*)$', out, re.M)
+        if name is None:
+            falsch('%s: am Server: %s' % (schritt, out.strip()[-300:]))
+            return
+        ok('%s: am Server %s' % (schritt, name.group(1)))
+        ab = marke()
+        online_schalten(schritt + ': Netz zurück', uids)
+        pruefe('%s: Baum' % schritt, r'^Ordner: %s %s %s$' % (re.escape(uid), log, re.escape(name.group(1))), ab, 30)
+        neu_geladen = [t for _, t in log_zeilen()[ab:] if t.startswith('Nachrichten: ') and t.endswith(' lädt')]
+        (falsch if neu_geladen else ok)('%s: Auswahl bleibt (%s)' % (schritt, neu_geladen or 'Liste nicht neu geladen'))
+        bild(nr)
+
+
 def vorbereiten():
     pruefe('Nachricht', r'^Nachricht: %s \S+ geladen nach' % re.escape(LOGKEY), 0, 120)
 
@@ -243,6 +360,10 @@ def vorbereiten():
 def wechsel(uids):
     # 1. Start ohne Netz: Ordner und Nachricht aus dem Cache, Pille sichtbar, kein Verbindungsfehler.
     pruefe('Start ohne Netz', r'^Netz: nicht verfügbar, Start offline$', 0, 30)
+    if 'start' not in PHASEN:
+        online_schalten('Netz zurück', uids)
+        weitere(uids)
+        return
     pruefe('Start ohne Netz: Pille', r'^Hinweis Offline: sichtbar$', 0, 10)
     fehlt = warte_alle(r'^Ordner: %s \d+ geladen$', uids, 0, 60)
     (falsch if fehlt else ok)('Start ohne Netz: %s' % ('keine Ordner: %s' % sorted(fehlt) if fehlt
@@ -271,6 +392,21 @@ def wechsel(uids):
     online_schalten('Netz wieder zurück', uids)
     time.sleep(2)
     bild('4-online')
+    weitere(uids)
+
+
+def weitere(uids):
+    # 5. Netz weg, während die Stores verbinden (verschiedene Zeitpunkte).
+    if 'abbruch' in PHASEN:
+        for verzoegerung in (0.2, 0.4, 1.0):
+            abbruch(uids, verzoegerung)
+        bild('5-nach-abbruch')
+    # 6. Markieren ohne Netz, nach „Netz zurück“ am Server.
+    if 'flag' in PHASEN:
+        flag_offline(uids)
+    # 7. Ordner am Server neu bzw. gelöscht, während offline.
+    if 'ordner' in PHASEN and ORDNER_KONTO:
+        ordner_abgleich(uids)
 
 
 def main():

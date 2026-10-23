@@ -1769,6 +1769,28 @@ on_reader_shown (RevolutionMailView *self)
   self->seen_id = g_timeout_add_full (G_PRIORITY_DEFAULT, timeout, on_mark_seen_timeout, self, NULL);
 }
 
+/* #408: Ordner eines Kontos nach „Netz zurück“ (main.c, on_store_noted), im UI-Thread: Baum
+ * abgleichen statt ersetzen (revolution_mail_folder_merge_tree), Auswahl und Aufklappzustand
+ * bleiben. Ein inzwischen ausgeblendetes Konto wird übergangen. */
+void
+revolution_mail_view_update_folders (RevolutionMailView *self,
+                                     const char         *uid,
+                                     CamelFolderInfo    *info)
+{
+  g_autoptr (RevolutionMailAccount) account = NULL;
+  guint added = 0, removed = 0;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
+
+  account = find_account (self, uid);
+  if (account == NULL)
+    return;
+
+  revolution_mail_folder_merge_tree (G_LIST_STORE (gtk_tree_list_model_get_model (account_tree (account))),
+                                     info, account, &added, &removed);
+  g_debug ("Ordner: %s abgeglichen, %u neu, %u entfernt", uid, added, removed);
+}
+
 /* #353: Ordner neu vom Server (list.refresh, F5 wie Evolution mail-folder-refresh,
  * e-mail-shell-view-actions.c:1721-1726; Strg+R ist dort Antworten, e-mail-reader.c:3382-3387).
  * camel_folder_refresh_info_sync im Worker, die Liste folgt über „changed“. Ohne geladenen

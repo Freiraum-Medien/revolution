@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Vorlage: quelltext/stamp/data/org.tabos.stamp.gschema.xml:4-18 (Fenstergröße).
-     Nur Schlüssel mit Nutzer im Code (main.c). -->
+     Nur Schlüssel mit Nutzer im Code (main.c, src/mail/mail-view.c). -->
 <schemalist gettext-domain="revolution">
   <schema id="de.freiraum_medien.Revolution" path="/de/freiraum_medien/Revolution/">
     <key name="theme" type="s">
@@ -28,6 +28,17 @@
       <default>false</default>
       <summary>Fenster maximiert</summary>
       <description>Ob das Hauptfenster beim letzten Start maximiert war.</description>
+    </key>
+    <!-- #353: wie Evolution org.gnome.evolution.mail (gschema.xml.in:424-438), Nutzer mail-view.c. -->
+    <key name="mark-seen" type="b">
+      <default>true</default>
+      <summary>Nach Verzögerung als gelesen markieren</summary>
+      <description>Eine gewählte ungelesene E-Mail nach mark-seen-timeout als gelesen markieren.</description>
+    </key>
+    <key name="mark-seen-timeout" type="i">
+      <default>1500</default>
+      <summary>Verzögerung bis „gelesen“</summary>
+      <description>Millisekunden, bis eine gewählte E-Mail als gelesen markiert wird.</description>
     </key>
   </schema>
 </schemalist>

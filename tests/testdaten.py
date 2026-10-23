@@ -16,6 +16,16 @@
 #   tests/testdaten.py --last N   #352: N Lastmails per IMAP-APPEND (kein Versand) in den Ordner
 #                                 „Revolution-Last“ von privat@ (fehlende ergänzen); letzte
 #                                 Zeile „LAST <UID>/<voller Ordnername> <Anzahl>“
+#   tests/testdaten.py --flags KONTO
+#                                 #353, nur lesend, unabhängig von Camel: Flags der Mails im Ordner
+#                                 Revolution-Test direkt vom Server (IMAP EXAMINE + UID FETCH FLAGS
+#                                 bzw. Graph GET isRead/importance/flag); Zeilen „ORDNER <UID>/<Name>“
+#                                 und „FLAGS <gelesen 0|1> <markiert 0|1> <Betreff>“
+#   tests/testdaten.py --server KONTO AKTION
+#                                 #353, schreibend nur in Testkonten: serverseitig an der Einladung
+#                                 in Revolution-Test gelesen|ungelesen|markiert|unmarkiert (IMAP UID
+#                                 STORE bzw. Graph PATCH), neu (IMAP APPEND einer Live-Mail) oder
+#                                 weg (Live-Mails löschen: UID STORE \Deleted + EXPUNGE)
 #
 # Copyright 2026 Arnd Messer
 #
@@ -24,10 +34,14 @@
 import argparse
 import ctypes
 import datetime
+import imaplib
+import json
 import re
+import email.header
 import email.policy
 import email.utils
 import os
+import urllib.request
 import struct
 import sys
 import threading
@@ -636,6 +650,135 @@ def ordner(session, konten):
     return 0
 
 
+# ---------------------------------------------------------------- #353: Flags direkt am Server
+
+GRAPH = 'https://graph.microsoft.com/v1.0'
+EINLADUNG = PREFIX + ' Einladung: Abstimmung Testdaten'
+LIVE = PREFIX + ' Live'
+
+
+def imap_verbinden(k):
+    """Eigene IMAP-Verbindung mit den GOA-Daten (Host, Benutzer, Passwort bzw. OAuth2)."""
+    m = k.goa.get_mail()
+    host, _, port = m.props.imap_host.partition(':')
+    if m.props.imap_use_ssl:
+        c = imaplib.IMAP4_SSL(host, int(port or 993), timeout=TIMEOUT)
+    else:
+        c = imaplib.IMAP4(host, int(port or 143), timeout=TIMEOUT)
+        if m.props.imap_use_tls:
+            c.starttls()
+    user = m.props.imap_user_name
+    if k.goa.get_oauth2_based():
+        token = k.goa.get_oauth2_based().call_get_access_token_sync(None)[0]
+        c.authenticate('XOAUTH2', lambda _: ('user=%s\x01auth=Bearer %s\x01\x01' % (user, token)).encode())
+    else:
+        c.login(user, k.goa.get_password_based().call_get_password_sync('imap-password', None))
+    return c
+
+
+def imap_ordner(c, ziel=ORDNER):
+    """(IMAP-Name, Camel-Name) des Ordners Revolution-Test (df.eu: unter INBOX mit Trenner „.“)."""
+    if ziel == 'INBOX':
+        return 'INBOX', 'INBOX'
+    typ, daten = c.list()
+    for zeile in daten:
+        treffer = re.match(rb'\((.*?)\) "(.*?)" "?(.*?)"?$', zeile)
+        if treffer and treffer.group(3).decode().split(treffer.group(2).decode())[-1] == ziel:
+            name = treffer.group(3).decode()
+            return name, name.replace(treffer.group(2).decode(), '/')
+    sys.exit('ABBRUCH: Ordner %s fehlt' % ziel)
+
+
+def imap_mails(c):
+    """[(UID, gelesen, markiert, Betreff)] der Testmails im gewählten Ordner."""
+    typ, daten = c.uid('SEARCH', None, 'ALL')
+    out = []
+    for uid in daten[0].split():
+        typ, d = c.uid('FETCH', uid, '(FLAGS BODY.PEEK[HEADER.FIELDS (SUBJECT)])')
+        flags = d[0][0].decode()
+        betreff = str(email.header.make_header(email.header.decode_header(
+            d[0][1].decode().partition(':')[2].strip())))
+        if betreff.startswith(PREFIX):
+            out.append((uid.decode(), '\\Seen' in flags, '\\Flagged' in flags, betreff))
+    return out
+
+
+def graph(k, methode, pfad, daten=None):
+    token = k.goa.get_oauth2_based().call_get_access_token_sync(None)[0]
+    req = urllib.request.Request(GRAPH + pfad, method=methode,
+                                 data=json.dumps(daten).encode() if daten is not None else None,
+                                 headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        return json.loads(r.read() or b'null')
+
+
+def graph_mails(k):
+    """(Ordner-ID, [(ID, gelesen, markiert, Betreff, flagStatus)]) in Revolution-Test."""
+    ordner = graph(k, 'GET', "/me/mailFolders?$top=100&$filter=displayName%20eq%20'" + ORDNER + "'")['value']
+    if not ordner:
+        sys.exit('ABBRUCH: Ordner %s fehlt' % ORDNER)
+    mails = graph(k, 'GET', '/me/mailFolders/%s/messages?$top=100&$select=subject,isRead,importance,flag'
+                  % ordner[0]['id'])['value']
+    return ordner[0]['id'], [(m['id'], m['isRead'], m['importance'] == 'high', m['subject'],
+                              m['flag']['flagStatus']) for m in mails if m['subject'].startswith(PREFIX)]
+
+
+def flags(k):
+    """#353: nur lesend (IMAP EXAMINE, Graph GET)."""
+    if k.goa.get_mail().props.imap_supported:
+        c = imap_verbinden(k)
+        name, camel = imap_ordner(c)
+        c.select('"%s"' % name, readonly=True)
+        print('ORDNER %s/%s' % (k.account.get_uid(), camel))
+        for uid, seen, flagged, betreff in imap_mails(c):
+            print('FLAGS %d %d %s' % (seen, flagged, betreff))
+        c.logout()
+    else:
+        _, mails = graph_mails(k)
+        print('ORDNER %s/%s' % (k.account.get_uid(), ORDNER))
+        for _, seen, flagged, betreff, status in mails:
+            print('FLAGS %d %d %s (flag.flagStatus=%s)' % (seen, flagged, betreff, status))
+    return 0
+
+
+def server(k, aktion, ziel=ORDNER):
+    """#353: serverseitige Änderung in einem Testkonto, während die App läuft; neu/weg auch im
+    Posteingang (ziel INBOX, Beleg für IDLE)."""
+    nur_testkonten([k.adresse])
+    if k.goa.get_mail().props.imap_supported:
+        c = imap_verbinden(k)
+        name, _ = imap_ordner(c, ziel)
+        c.select('"%s"' % name)
+        if aktion == 'neu':
+            m = EmailMessage(policy=email.policy.SMTP)
+            m.set_content('Live-Mail für #353 (APPEND, wird danach gelöscht).\n')
+            m['Subject'] = '%s %s' % (LIVE, datetime.datetime.now().strftime('%H:%M:%S'))
+            m['From'] = k.adresse
+            m['To'] = k.adresse
+            m['Date'] = email.utils.formatdate(localtime=True)
+            print(c.append('"%s"' % name, None, None, m.as_bytes()))
+        elif aktion == 'weg':
+            for uid, _, _, betreff in imap_mails(c):
+                if betreff.startswith(LIVE):
+                    print(c.uid('STORE', uid, '+FLAGS', '(\\Deleted)'))
+            print(c.expunge())
+        else:
+            uid = next(u for u, _, _, b in imap_mails(c) if b == EINLADUNG)
+            flag = '\\Seen' if aktion in ('gelesen', 'ungelesen') else '\\Flagged'
+            print(c.uid('STORE', uid, '+FLAGS' if aktion in ('gelesen', 'markiert') else '-FLAGS', '(%s)' % flag))
+        c.logout()
+    else:
+        if aktion in ('neu', 'weg'):
+            sys.exit('ABBRUCH: %s nur für IMAP' % aktion)
+        _, mails = graph_mails(k)
+        mid = next(m[0] for m in mails if m[3] == EINLADUNG)
+        daten = {'gelesen': {'isRead': True}, 'ungelesen': {'isRead': False},
+                 'markiert': {'importance': 'high'}, 'unmarkiert': {'importance': 'normal'}}[aktion]
+        graph(k, 'PATCH', '/me/messages/' + mid, daten)
+        print('PATCH %s' % daten)
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description='Testdaten für Revolution (#344)')
     ap.add_argument('--dry-run', action='store_true', help='nur anzeigen, nichts senden/schreiben')
@@ -643,7 +786,18 @@ def main():
     ap.add_argument('--ordner', action='store_true', help='nur lesend: Ordnerliste aller Konten')
     ap.add_argument('--last', type=int, metavar='N',
                     help='N Lastmails per APPEND in %s von %s (#352)' % (LAST_ORDNER, LAST_KONTO))
+    ap.add_argument('--flags', metavar='KONTO', help='#353: nur lesend Flags in %s vom Server' % ORDNER)
+    ap.add_argument('--server', nargs='+', metavar='KONTO AKTION [INBOX]',
+                    help='#353: serverseitig gelesen|ungelesen|markiert|unmarkiert|neu|weg [im Posteingang]')
     args = ap.parse_args()
+
+    if args.flags or args.server:
+        adresse = (args.flags or args.server[0]).lower()
+        nur_testkonten([adresse])
+        k = konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse]
+        if args.server and (len(args.server) not in (2, 3) or args.server[2:] not in ([], ['INBOX'])):
+            ap.error('--server KONTO AKTION [INBOX]')
+        return flags(k) if args.flags else server(k, *args.server[1:])
 
     os.makedirs(os.path.join(CACHE, 'data'), exist_ok=True)
     os.makedirs(os.path.join(CACHE, 'cache'), exist_ok=True)

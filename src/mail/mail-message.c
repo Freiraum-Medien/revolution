@@ -319,6 +319,24 @@ revolution_mail_message_get_unread (RevolutionMailMessage *self)
   return self->unread;
 }
 
+/* #353: Zustand für die Aktionen (mail-view.c, update_message_actions). */
+gboolean
+revolution_mail_message_get_starred (RevolutionMailMessage *self)
+{
+  g_return_val_if_fail (REVOLUTION_IS_MAIL_MESSAGE (self), FALSE);
+
+  return self->starred;
+}
+
+/* #353: Sortierschlüssel (Datum) beim Einfügen neuer Nachrichten (mail-view.c, apply_folder_changes). */
+gint64
+revolution_mail_message_get_timestamp (RevolutionMailMessage *self)
+{
+  g_return_val_if_fail (REVOLUTION_IS_MAIL_MESSAGE (self), 0);
+
+  return self->timestamp;
+}
+
 gboolean
 revolution_mail_message_has_preview (RevolutionMailMessage *self)
 {

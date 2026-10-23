@@ -75,7 +75,8 @@ server () {
 debug () { sed -nE 's/^\(revolution:[0-9]+\): revolution-DEBUG: [0-9:.]+: //p' "$1"; }
 
 # #414: Live-Mail ablegen, sobald das Laden beginnt. Der Helfer meldet sich vorher an (BEREIT in
-# $2.out, dann $2.bereit), damit nur das APPEND in das kurze Laden fällt; Uhrzeit danach in $2.
+# $2.out, dann $2.bereit), damit nur das APPEND in das kurze Laden fällt; Uhrzeit nach dem APPEND
+# (ABGELEGT) in $2.
 live_ablegen () {
   local log="$1" zeit="$2" helfer
   rm -f "$zeit.los" "$zeit.bereit"
@@ -87,7 +88,7 @@ live_ablegen () {
     if [ -f "$log" ] && grep -qF "Nachrichten: $KEY lädt" "$log"; then
       touch "$zeit.los"
       wait "$helfer"
-      date +%H:%M:%S.%3N >"$zeit"
+      sed -n 's/^ABGELEGT //p' "$zeit.out" >"$zeit"
       return
     fi
     sleep 0.01

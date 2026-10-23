@@ -34,7 +34,7 @@
 #                                 STORE bzw. Graph PATCH), neu (IMAP APPEND einer Live-Mail) oder
 #                                 weg (Live-Mails löschen: UID STORE \Deleted + EXPUNGE); #414: mit
 #                                 --warte DATEI erst anmelden, „BEREIT“ ausgeben, dann ablegen,
-#                                 sobald DATEI existiert (Live-Mail während des ersten Ladens)
+#                                 sobald DATEI existiert, und „ABGELEGT <Uhrzeit>“ ausgeben
 #   tests/testdaten.py --ungelesen KONTO ORDNER [--soll DATEI]
 #                                 #353: Zeile „UNGELESEN <Anzahl> <UID …>“ (IMAP EXAMINE + UID SEARCH
 #                                 UNSEEN, nur lesend); mit --soll (Datei mit einer solchen Zeile)
@@ -1108,6 +1108,8 @@ def server(k, aktion, ziel=ORDNER, warte=None):
             m['To'] = k.adresse
             m['Date'] = email.utils.formatdate(localtime=True)
             print(c.append('"%s"' % name, None, None, m.as_bytes()))
+            if warte:
+                print('ABGELEGT ' + datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3], flush=True)
         elif aktion == 'weg':
             for uid, _, _, betreff in imap_mails(c):
                 if betreff.startswith(LIVE):

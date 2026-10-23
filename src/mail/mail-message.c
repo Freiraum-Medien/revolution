@@ -15,6 +15,8 @@
 
 #include "config.h"
 
+#include <string.h>
+
 #include <glib/gi18n.h>
 
 #include "mail-message.h"
@@ -112,18 +114,36 @@ revolution_mail_message_init (RevolutionMailMessage *self G_GNUC_UNUSED)
 {
 }
 
-/* Anzeigename des Absenders, sonst die Adresse (Prototyp: nur der Name). */
+/* Anzeigename des Absenders, sonst die Adresse (Prototyp: nur der Name). Name in spitzen
+ * Klammern oder gleich der Adresse gilt als kein Name: microsoft365 setzt den Namen aus
+ * Graph, der dort oft die Adresse ist, und baut daraus „adresse <adresse>“
+ * (camel-m365-folder.c:787-800); camel_address_decode liefert dann den Namen „<adresse>“. */
 static char *
 sender_for (const char *from)
 {
   g_autoptr (CamelInternetAddress) address = camel_internet_address_new ();
   const char *name = NULL, *email = NULL;
+  g_autofree char *bare = NULL;
 
-  if (from != NULL && camel_address_decode (CAMEL_ADDRESS (address), from) > 0 &&
-      camel_internet_address_get (address, 0, &name, &email))
-    return g_strdup (name != NULL && *name != '\0' ? name : email);
+  if (from == NULL || camel_address_decode (CAMEL_ADDRESS (address), from) <= 0 ||
+      !camel_internet_address_get (address, 0, &name, &email))
+    return g_strdup (from != NULL && *from != '\0' ? from : _("Unbekannter Absender"));
 
-  return g_strdup (from != NULL && *from != '\0' ? from : _("Unbekannter Absender"));
+  bare = g_strstrip (g_strdup (name != NULL ? name : ""));
+  if (bare[0] == '<' && g_str_has_suffix (bare, ">"))
+    {
+      char *inner = g_strndup (bare + 1, strlen (bare) - 2);
+
+      g_free (bare);
+      bare = g_strstrip (inner);
+    }
+
+  if (email != NULL && *email != '\0' && (*bare == '\0' || g_ascii_strcasecmp (bare, email) == 0))
+    return g_strdup (email);
+  if (*bare != '\0')
+    return g_steal_pointer (&bare);
+
+  return g_strdup (email != NULL && *email != '\0' ? email : _("Unbekannter Absender"));
 }
 
 /* Datum relativ wie der abgenommene Prototyp (Dokument #5, Design/Prototyp/mail-hell.png):
@@ -209,11 +229,34 @@ revolution_mail_message_new (CamelMessageInfo *info,
   self->starred = (flags & CAMEL_MESSAGE_FLAGGED) != 0;
   self->attachment = (flags & CAMEL_MESSAGE_ATTACHMENTS) != 0;
 
-  /* Zugänglicher Name der Zeile (Architektur 8): Absender, Betreff, Datum, ungelesen. */
-  self->accessible_label = g_strdup_printf ("%s, %s, %s%s", self->sender, self->subject, self->date,
-                                            self->unread ? _(", ungelesen") : "");
+  /* Zugänglicher Name der Zeile (Architektur 8): Absender, Betreff, Datum, Zustände. */
+  self->accessible_label = g_strdup_printf ("%s, %s, %s%s%s%s", self->sender, self->subject, self->date,
+                                            self->unread ? _(", ungelesen") : "",
+                                            self->starred ? _(", markiert") : "",
+                                            self->attachment ? _(", mit Anhang") : "");
 
   return self;
+}
+
+const char *
+revolution_mail_message_get_uid (RevolutionMailMessage *self)
+{
+  g_return_val_if_fail (REVOLUTION_IS_MAIL_MESSAGE (self), NULL);
+
+  return self->uid;
+}
+
+/* Gleiche Anzeige (Abgleich in mail-view.c, merge_messages). */
+gboolean
+revolution_mail_message_equal (RevolutionMailMessage *a,
+                               RevolutionMailMessage *b)
+{
+  g_return_val_if_fail (REVOLUTION_IS_MAIL_MESSAGE (a) && REVOLUTION_IS_MAIL_MESSAGE (b), FALSE);
+
+  return g_strcmp0 (a->uid, b->uid) == 0 && g_strcmp0 (a->sender, b->sender) == 0 &&
+         g_strcmp0 (a->subject, b->subject) == 0 && g_strcmp0 (a->preview, b->preview) == 0 &&
+         g_strcmp0 (a->date, b->date) == 0 && a->unread == b->unread && a->starred == b->starred &&
+         a->attachment == b->attachment;
 }
 
 gboolean

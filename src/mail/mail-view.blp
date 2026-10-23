@@ -333,7 +333,11 @@ template $RevolutionMailView: Adw.BreakpointBin {
                 label: _("Nachrichten");
               }
 
-              model: SingleSelection message_selection {};
+              // #352: keine Vorauswahl, solange die Anzeige (#354) fehlt.
+              model: SingleSelection message_selection {
+                autoselect: false;
+                can-unselect: true;
+              };
 
               factory: BuilderListItemFactory {
                 template ListItem {
@@ -456,14 +460,16 @@ template $RevolutionMailView: Adw.BreakpointBin {
                         }
                       }
 
-                      Label {
-                        label: bind template.item as <$RevolutionMailMessage>.preview;
+                      // #352: Inscription wie Stamp (stamp-conversation-row.blp:170-180) mit fest
+                      // zwei Zeilen, damit Zeilen ohne Vorschau (z. B. Gmail) gleich hoch bleiben.
+                      Inscription {
+                        text: bind template.item as <$RevolutionMailMessage>.preview;
                         xalign: 0;
-                        wrap: true;
+                        yalign: 0;
+                        min-lines: 2;
+                        nat-lines: 2;
                         wrap-mode: word_char;
-                        lines: 2;
-                        ellipsize: end;
-                        width-chars: 10;
+                        text-overflow: ellipsize_end;
 
                         styles [
                           "dimmed",

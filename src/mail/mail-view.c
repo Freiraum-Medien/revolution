@@ -300,21 +300,30 @@ typedef struct
   char         *uid;
   char         *full_name;
   guint         generation;
+  /* Nur im Worker: der Cache-Durchgang hat Einträge geschickt. */
+  gboolean      shown;
   /* Übergabe der Blöcke (send_messages, messages_block_free). */
   GMutex        lock;
   GCond         cond;
   guint         consumed;
 } LoadMessages;
 
+/* Mit Referenzzähler (g_atomic_rc_box): Blöcke, die nach einem Abbruch noch in der
+ * Hauptschleife liegen, halten LoadMessages über das Ende des Tasks hinaus. */
 static void
-load_messages_free (LoadMessages *load)
+load_messages_clear (LoadMessages *load)
 {
   g_object_unref (load->session);
   g_free (load->uid);
   g_free (load->full_name);
   g_mutex_clear (&load->lock);
   g_cond_clear (&load->cond);
-  g_free (load);
+}
+
+static void
+load_messages_release (LoadMessages *load)
+{
+  g_atomic_rc_box_release_full (load, (GDestroyNotify) load_messages_clear);
 }
 
 typedef struct
@@ -325,6 +334,7 @@ typedef struct
   GPtrArray          *items;
   const char         *pass;
   gboolean            reset;
+  gboolean            merge;
   gboolean            last;
   guint               total;
   guint               unread;
@@ -340,6 +350,7 @@ messages_block_free (MessagesBlock *block)
   block->load->consumed++;
   g_cond_signal (&block->load->cond);
   g_mutex_unlock (&block->load->lock);
+  load_messages_release (block->load);
 
   g_object_unref (block->self);
   g_ptr_array_unref (block->items);
@@ -355,17 +366,94 @@ set_list_subtitle (RevolutionMailView *self,
   g_autofree char *subtitle = NULL;
 
   /* Untertitel wie der Prototyp (Design/Prototyp/mail-hell.png: „10 E-Mails, 4 ungelesen“). */
-  count = g_strdup_printf (ngettext ("%u E-Mail", "%u E-Mails", total), total);
+  /* %'u: Tausenderpunkt nach Gebietsschema (glibc), z. B. „3.000 E-Mails“. */
+  count = g_strdup_printf (ngettext ("%'u E-Mail", "%'u E-Mails", total), total);
   if (unread > 0)
     /* Translators: „10 E-Mails, 4 ungelesen“; %s ist die Anzahl der E-Mails. */
-    subtitle = g_strdup_printf (_("%s, %u ungelesen"), count, unread);
+    subtitle = g_strdup_printf (_("%s, %'u ungelesen"), count, unread);
 
   gtk_label_set_label (self->list_subtitle, subtitle != NULL ? subtitle : count);
   gtk_widget_set_visible (GTK_WIDGET (self->list_subtitle), TRUE);
 }
 
+/* Im UI-Thread: Server-Stand items (ganz, sortiert) als Abgleich auf die angezeigte Liste:
+ * nur fehlende Einträge entfernen, neue einfügen, geänderte ersetzen. Auswahl und
+ * Scrollposition bleiben bei unveränderten Einträgen erhalten. Beide Listen sind gleich
+ * sortiert; ein Eintrag mit geänderter Position wird neu eingefügt, der alte fällt am Ende
+ * weg. */
+static void
+merge_messages (RevolutionMailView *self,
+                GPtrArray          *items,
+                guint              *added,
+                guint              *removed,
+                guint              *changed)
+{
+  GListModel *model = G_LIST_MODEL (self->messages);
+  g_autoptr (GHashTable) wanted = g_hash_table_new (g_str_hash, g_str_equal);
+  guint i, j, n;
+
+  for (j = 0; j < items->len; j++)
+    g_hash_table_add (wanted, (gpointer) revolution_mail_message_get_uid (items->pdata[j]));
+
+  /* Nicht mehr vorhandene, zusammenhängende Läufe auf einmal. */
+  for (i = g_list_model_get_n_items (model); i > 0;)
+    {
+      guint end = i;
+
+      while (i > 0)
+        {
+          g_autoptr (RevolutionMailMessage) old = g_list_model_get_item (model, i - 1);
+
+          if (g_hash_table_contains (wanted, revolution_mail_message_get_uid (old)))
+            break;
+          i--;
+        }
+
+      if (i < end)
+        {
+          g_list_store_splice (self->messages, i, end - i, NULL, 0);
+          *removed += end - i;
+        }
+      else
+        i--;
+    }
+
+  for (i = 0, j = 0; j < items->len;)
+    {
+      g_autoptr (RevolutionMailMessage) old = i < g_list_model_get_n_items (model) ? g_list_model_get_item (model, i) : NULL;
+      const char *old_uid = old != NULL ? revolution_mail_message_get_uid (old) : NULL;
+      guint start = j;
+
+      if (g_strcmp0 (old_uid, revolution_mail_message_get_uid (items->pdata[j])) == 0)
+        {
+          if (!revolution_mail_message_equal (old, items->pdata[j]))
+            {
+              g_list_store_splice (self->messages, i, 1, &items->pdata[j], 1);
+              (*changed)++;
+            }
+          i++;
+          j++;
+          continue;
+        }
+
+      while (j < items->len && g_strcmp0 (old_uid, revolution_mail_message_get_uid (items->pdata[j])) != 0)
+        j++;
+      g_list_store_splice (self->messages, i, 0, &items->pdata[start], j - start);
+      *added += j - start;
+      i += j - start;
+    }
+
+  n = g_list_model_get_n_items (model);
+  if (i < n)
+    {
+      g_list_store_splice (self->messages, i, n - i, NULL, 0);
+      *removed += n - i;
+    }
+}
+
 /* Im UI-Thread: ein Block aus send_messages. Der erste Block eines Durchgangs ersetzt die
- * Liste, die übrigen hängen an. */
+ * Liste, die übrigen hängen an; ein Server-Stand nach angezeigtem Cache kommt als ein Block
+ * und wird abgeglichen (merge_messages). */
 static gboolean
 add_messages_block (gpointer data)
 {
@@ -378,7 +466,16 @@ add_messages_block (gpointer data)
 
   n_items = g_list_model_get_n_items (G_LIST_MODEL (self->messages));
 
-  if (block->reset)
+  if (block->merge)
+    {
+      guint added = 0, removed = 0, changed = 0;
+
+      merge_messages (self, block->items, &added, &removed, &changed);
+      set_list_subtitle (self, block->total, block->unread);
+      g_debug ("Nachrichten: %s Abgleich %u neu, %u entfernt, %u geändert", self->loading,
+               added, removed, changed);
+    }
+  else if (block->reset)
     {
       g_list_store_splice (self->messages, 0, n_items, block->items->pdata, block->items->len);
       set_list_subtitle (self, block->total, block->unread);
@@ -423,6 +520,36 @@ compare_messages (gconstpointer a,
   return camel_folder_cmp_uids (user_data, camel_message_info_get_uid (ib), camel_message_info_get_uid (ia));
 }
 
+/* Im Worker: Block an den UI-Thread (Standardkontext) und warten, bis er übernommen ist
+ * (siehe MESSAGES_BLOCK). Nach Abbruch nicht weiter warten: beim Beenden läuft die
+ * Hauptschleife nicht mehr. FALSE nach Abbruch. */
+static gboolean
+post_block (MessagesBlock *block,
+            GCancellable  *cancellable)
+{
+  LoadMessages *load = block->load;
+  g_autoptr (GSource) source = g_idle_source_new ();
+  gboolean done;
+  guint sent;
+
+  g_mutex_lock (&load->lock);
+  sent = load->consumed + 1;
+  g_mutex_unlock (&load->lock);
+
+  g_source_set_priority (source, G_PRIORITY_DEFAULT_IDLE);
+  g_source_set_static_name (source, "[revolution] add_messages_block");
+  g_source_set_callback (source, add_messages_block, block, (GDestroyNotify) messages_block_free);
+  g_source_attach (source, NULL);
+
+  g_mutex_lock (&load->lock);
+  while (load->consumed < sent && !g_cancellable_is_cancelled (cancellable))
+    g_cond_wait_until (&load->cond, &load->lock, g_get_monotonic_time () + 100 * G_TIME_SPAN_MILLISECOND);
+  done = load->consumed >= sent;
+  g_mutex_unlock (&load->lock);
+
+  return done;
+}
+
 /* Im Worker: alle Nachrichten des Ordners aus der Summary, sortiert, in Blöcken in den
  * UI-Thread. *signature (UIDs und Flags) erkennt einen unveränderten Stand, der dann nicht
  * erneut geschickt wird. Gelöschte und Spam ausgeblendet wie Evolution
@@ -444,7 +571,8 @@ send_messages (GTask       *task,
                        (folder_flags & (CAMEL_FOLDER_IS_JUNK | CAMEL_FOLDER_IS_TRASH)) == 0;
   g_autoptr (GPtrArray) infos = g_ptr_array_new_with_free_func (g_object_unref);
   g_autoptr (GDateTime) now = g_date_time_new_now_local ();
-  guint hash = 0, unread = 0, previews = 0, i = 0, sent = load->consumed;
+  gboolean merge = load->shown && g_str_equal (pass, "Server");
+  guint hash = 0, unread = 0, previews = 0, i = 0;
   GPtrArray *uids;
 
   camel_folder_summary_prepare_fetch_all (camel_folder_get_folder_summary (folder), NULL);
@@ -480,24 +608,27 @@ send_messages (GTask       *task,
       return !g_cancellable_is_cancelled (cancellable);
     }
   *signature = hash;
+  load->shown = TRUE;
 
   g_ptr_array_sort_values_with_data (infos, compare_messages, folder);
 
   do
     {
       MessagesBlock *block;
-      guint end = MIN (i + MESSAGES_BLOCK, infos->len);
+      /* Abgleich in einem Block: der UI-Thread legt dabei kaum neue Zeilen an. */
+      guint end = merge ? infos->len : MIN (i + MESSAGES_BLOCK, infos->len);
 
       if (g_cancellable_is_cancelled (cancellable))
         return FALSE;
 
       block = g_new0 (MessagesBlock, 1);
       block->self = g_object_ref (self);
-      block->load = load;
+      block->load = g_atomic_rc_box_acquire (load);
       block->generation = load->generation;
       block->items = g_ptr_array_new_full (end - i, g_object_unref);
       block->pass = pass;
       block->reset = i == 0;
+      block->merge = merge;
       block->total = infos->len;
       block->unread = unread;
 
@@ -511,15 +642,8 @@ send_messages (GTask       *task,
 
       block->last = i >= infos->len;
       block->previews = previews;
-      g_main_context_invoke_full (g_task_get_context (task), G_PRIORITY_DEFAULT_IDLE, add_messages_block, block,
-                                  (GDestroyNotify) messages_block_free);
-
-      /* Warten, bis der UI-Thread den Block übernommen hat (siehe MESSAGES_BLOCK). */
-      sent++;
-      g_mutex_lock (&load->lock);
-      while (load->consumed < sent)
-        g_cond_wait (&load->cond, &load->lock);
-      g_mutex_unlock (&load->lock);
+      if (!post_block (block, cancellable))
+        return FALSE;
     }
   while (i < infos->len);
 
@@ -644,7 +768,7 @@ on_folder_selected (RevolutionMailView *self)
 
   gtk_stack_set_visible_child_name (self->list_stack, "list");
 
-  load = g_new0 (LoadMessages, 1);
+  load = g_atomic_rc_box_new0 (LoadMessages);
   g_mutex_init (&load->lock);
   g_cond_init (&load->cond);
   load->session = g_object_ref (self->session);
@@ -661,7 +785,7 @@ on_folder_selected (RevolutionMailView *self)
   task = g_task_new (self, self->load_cancellable, on_messages_loaded, NULL);
   g_task_set_source_tag (task, on_folder_selected);
   g_task_set_priority (task, G_PRIORITY_DEFAULT_IDLE);
-  g_task_set_task_data (task, load, (GDestroyNotify) load_messages_free);
+  g_task_set_task_data (task, load, (GDestroyNotify) load_messages_release);
   g_task_run_in_thread (task, load_messages_thread);
 }
 

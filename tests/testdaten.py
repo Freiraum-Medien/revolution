@@ -10,6 +10,9 @@
 #   tests/testdaten.py            einspielen (fehlende Teile ergänzen)
 #   tests/testdaten.py --dry-run  nur anzeigen, was fehlt
 #   tests/testdaten.py --pruefen  nur lesend belegen, was vorhanden ist
+#   tests/testdaten.py --ordner   nur lesend: Ordnerliste aller Mail-Konten aus GOA (#348),
+#                                 auch der nur lesend freigegebenen; Vergleich mit dem Log
+#                                 der App (G_MESSAGES_DEBUG=revolution, „Ordner: UID Name“)
 #
 # Copyright 2026 Arnd Messer
 #
@@ -510,10 +513,44 @@ def pruefen(konten):
     return fehler
 
 
+def ordner_konten(registry):
+    """#348: alle aktivierten Mail-Konten aus GOA wie die Seitenleiste (Online-Konto mit Mail,
+    Quelle und Collection aktiviert, mail-account.c), ohne Einschränkung auf Testkonten."""
+    goa = {}
+    for o in Goa.Client.new_sync(None).get_accounts():
+        mail = o.get_mail()
+        if mail and not o.get_account().props.mail_disabled:
+            goa[o.get_account().props.id] = (mail.props.email_address.lower(), o)
+    konten = []
+    for coll in registry.list_sources(EDataServer.SOURCE_EXTENSION_GOA):
+        acc_id = coll.get_extension(EDataServer.SOURCE_EXTENSION_GOA).get_account_id()
+        if acc_id not in goa or not coll.get_enabled():
+            continue
+        for s in registry.list_sources(EDataServer.SOURCE_EXTENSION_MAIL_ACCOUNT):
+            if s.get_parent() == coll.get_uid() and s.get_enabled():
+                konten.append(Konto(goa[acc_id][0], goa[acc_id][1], s, None))
+    return konten
+
+
+def ordner(session, konten):
+    """#348: nur lesend. Verbinden und camel_store_get_folder_info_sync mit denselben Flags
+    wie die App (RECURSIVE|SUBSCRIBED, main.c note_store_thread); keine Schreibzugriffe."""
+    for k in konten:
+        store = dienst(session, k.account, EDataServer.SOURCE_EXTENSION_MAIL_ACCOUNT,
+                       Camel.ProviderType.STORE)
+        namen = [n for n, _ in ordnerbaum(store)]
+        for n in namen:
+            print('ORDNER %s %s' % (k.account.get_uid(), n))
+        print('ANZAHL %s %d %s' % (k.account.get_uid(), len(namen), k.adresse))
+        store.disconnect_sync(True, None)
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description='Testdaten für Revolution (#344)')
     ap.add_argument('--dry-run', action='store_true', help='nur anzeigen, nichts senden/schreiben')
     ap.add_argument('--pruefen', action='store_true', help='nur lesend prüfen')
+    ap.add_argument('--ordner', action='store_true', help='nur lesend: Ordnerliste aller Konten')
     args = ap.parse_args()
 
     os.makedirs(os.path.join(CACHE, 'data'), exist_ok=True)
@@ -522,6 +559,13 @@ def main():
     Camel.provider_init()
     EDataServer.SourceCamel.register_types()
     registry = EDataServer.SourceRegistry.new_sync(None)
+    if args.ordner:
+        konten = ordner_konten(registry)
+        session = TestSession(user_data_dir=os.path.join(CACHE, 'data'),
+                              user_cache_dir=os.path.join(CACHE, 'cache'))
+        session.setup({k.account.get_uid(): k.goa for k in konten})
+        session.set_online(True)
+        return ordner(session, konten)
     konten = konten_finden(registry)
     nur_testkonten(list(konten))
     for k in konten.values():

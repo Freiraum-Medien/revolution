@@ -2,8 +2,8 @@
  *
  * Vorlage: quelltext/stamp/src/views/mail/stamp-mail-view.c (Template-Klasse
  * mit Eigenschaft „stack“ für den Ansichtsumschalter). Oberfläche in
- * mail-view.blp; hier Template-Anbindung und seit #345 die Konten der Seitenleiste.
- * Ordner und Nachrichten füllen #348 und #352. Aktionen ohne Funktion sind nicht
+ * mail-view.blp; hier Template-Anbindung, seit #345 die Konten der Seitenleiste und
+ * seit #348 ihre Ordner. Nachrichten füllt #352. Aktionen ohne Funktion sind nicht
  * registriert, ihre Knöpfe und Menüeinträge sind daher ausgegraut (#342).
  *
  * Copyright 2026 Arnd Messer
@@ -17,6 +17,7 @@
 
 #include "composer/composer.h"
 #include "mail-account.h"
+#include "mail-folder.h"
 #include "mail-sample.h"
 #include "mail-view.h"
 
@@ -127,6 +128,24 @@ static const GActionEntry mail_actions[] = {
   { "toggle-sidebar", on_toggle_sidebar, NULL, NULL, NULL, { 0 } },
 };
 
+/* Eintrag zum Konto mit dieser UID (neue Referenz) oder NULL. */
+static RevolutionMailAccount *
+find_account (RevolutionMailView *self,
+              const char         *uid)
+{
+  GListModel *model = G_LIST_MODEL (self->accounts);
+
+  for (guint i = 0; i < g_list_model_get_n_items (model); i++)
+    {
+      g_autoptr (RevolutionMailAccount) account = g_list_model_get_item (model, i);
+
+      if (g_strcmp0 (revolution_mail_account_get_uid (account), uid) == 0)
+        return g_steal_pointer (&account);
+    }
+
+  return NULL;
+}
+
 /* #345: Konten aus der Registry in den Store, nur im UI-Thread (Registry-Signale kommen
  * dort an, README „Worker“). Reihenfolge alphabetisch nach Anzeigename wie Evolutions
  * Standard (e-mail-account-store.c:119-153, g_utf8_collate); e_source_registry_list_sources
@@ -178,8 +197,14 @@ sync_accounts (RevolutionMailView *self)
       for (guint i = 0; i < shown->len; i++)
         {
           g_autofree char *name = e_source_dup_display_name (shown->pdata[i]);
+          RevolutionMailAccount *account = find_account (self, e_source_get_uid (shown->pdata[i]));
 
-          g_ptr_array_add (accounts, revolution_mail_account_new (e_source_get_uid (shown->pdata[i]), name));
+          /* #348: vorhandene Einträge behalten, sonst gingen ihre geladenen Ordner verloren. */
+          if (account != NULL)
+            revolution_mail_account_set_display_name (account, name);
+          else
+            account = revolution_mail_account_new (e_source_get_uid (shown->pdata[i]), name);
+          g_ptr_array_add (accounts, account);
         }
       g_list_store_splice (self->accounts, 0, n_items, accounts->pdata, accounts->len);
     }
@@ -188,13 +213,48 @@ sync_accounts (RevolutionMailView *self)
   gtk_stack_set_visible_child_name (self->sidebar_stack, shown->len > 0 ? "list" : "empty");
 }
 
-/* create_func des GtkTreeListModel (Vorlage Tag m2-prototyp mail-sample.c:68-76):
- * Konten haben bis #348 keine Ordner; NULL heißt „keine Kinder, kein Ausklapp-Pfeil“. */
+/* create_func des GtkTreeListModel (Vorlage Tag m2-prototyp mail-sample.c:217-225):
+ * Unterordner oder NULL (kein Ausklapp-Pfeil). */
 static GListModel *
-account_children (gpointer item G_GNUC_UNUSED,
-                  gpointer user_data G_GNUC_UNUSED)
+folder_children (gpointer item,
+                 gpointer user_data G_GNUC_UNUSED)
 {
-  return NULL;
+  GListModel *children = revolution_mail_folder_get_children (item);
+
+  return children != NULL ? g_object_ref (children) : NULL;
+}
+
+/* #348: Je Konto ein GtkTreeListModel über seinen Ordnern, am Konto-Eintrag gehalten
+ * (sync_accounts behält die Einträge). autoexpand wie der Prototyp (mail-sample.c:236). */
+static GtkTreeListModel *
+account_tree (RevolutionMailAccount *account)
+{
+  GtkTreeListModel *tree = g_object_get_data (G_OBJECT (account), "folder-tree");
+
+  if (tree == NULL)
+    {
+      tree = gtk_tree_list_model_new (G_LIST_MODEL (g_list_store_new (REVOLUTION_TYPE_MAIL_FOLDER)),
+                                      FALSE, TRUE, folder_children, NULL, NULL);
+      g_object_set_data_full (G_OBJECT (account), "folder-tree", tree, g_object_unref);
+    }
+
+  return tree;
+}
+
+/* map_func des GtkMapListModel: Konto → sein Ordnerbaum. Das GtkFlattenListModel darüber
+ * macht daraus je Konto einen Abschnitt (GtkSectionModel) mit dem Kontonamen als Kopf
+ * (mail-view.blp), wie der Prototyp (mail-sample.c:241-245). Konten ohne Ordner (noch nicht
+ * geladen, POP, Nur-Versand) haben keinen Abschnitt. */
+static gpointer
+account_folders (gpointer item,
+                 gpointer user_data G_GNUC_UNUSED)
+{
+  GtkTreeListModel *tree = account_tree (item);
+
+  g_object_ref (tree);
+  g_object_unref (item);
+
+  return tree;
 }
 
 /* #401 Punkt 1: Klasse .dark für Regeln nur im dunklen Design (style.css). */
@@ -267,6 +327,7 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
                                                         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_type_ensure (REVOLUTION_TYPE_MAIL_ACCOUNT);
+  g_type_ensure (REVOLUTION_TYPE_MAIL_FOLDER);
   g_type_ensure (REVOLUTION_TYPE_SAMPLE_MESSAGE);
 
   gtk_widget_class_set_template_from_resource (widget_class, "/de/freiraum_medien/Revolution/mail-view.ui");
@@ -286,7 +347,7 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
 static void
 revolution_mail_view_init (RevolutionMailView *self)
 {
-  g_autoptr (GtkTreeListModel) tree = NULL;
+  g_autoptr (GtkFlattenListModel) folders = NULL;
   g_autoptr (GListStore) messages = g_list_store_new (REVOLUTION_TYPE_SAMPLE_MESSAGE);
   g_autoptr (GSimpleActionGroup) list_group = g_simple_action_group_new ();
   g_autoptr (GSimpleActionGroup) mail_group = g_simple_action_group_new ();
@@ -295,11 +356,11 @@ revolution_mail_view_init (RevolutionMailView *self)
 
   gtk_widget_init_template (GTK_WIDGET (self));
 
-  /* CR #397: Ordnerbaum als GtkTreeListModel, Konten als oberste Ebene (#345). */
+  /* CR #397: Ordnerbaum als GtkTreeListModel je Konto (#348), Konten als Abschnitte (#345). */
   self->accounts = g_list_store_new (REVOLUTION_TYPE_MAIL_ACCOUNT);
-  tree = gtk_tree_list_model_new (g_object_ref (G_LIST_MODEL (self->accounts)), FALSE, TRUE,
-                                  account_children, NULL, NULL);
-  gtk_single_selection_set_model (self->folder_selection, G_LIST_MODEL (tree));
+  folders = gtk_flatten_list_model_new (G_LIST_MODEL (gtk_map_list_model_new (g_object_ref (G_LIST_MODEL (self->accounts)),
+                                                                              account_folders, NULL, NULL)));
+  gtk_single_selection_set_model (self->folder_selection, G_LIST_MODEL (folders));
   gtk_single_selection_set_model (self->message_selection, G_LIST_MODEL (messages));
 
   g_action_map_add_action_entries (G_ACTION_MAP (list_group), list_actions, G_N_ELEMENTS (list_actions), self);
@@ -348,4 +409,31 @@ revolution_mail_view_show_error (RevolutionMailView *self,
   adw_banner_set_title (self->banner, title);
   gtk_widget_set_tooltip_text (GTK_WIDGET (self->banner), detail);
   adw_banner_set_revealed (self->banner, TRUE);
+}
+
+/* #348: Ordner eines Kontos aus dem Worker (main.c, camel_store_get_folder_info_sync), im
+ * UI-Thread. Ersetzt die bisherigen Ordner; ein inzwischen ausgeblendetes Konto wird
+ * übergangen. info NULL: keine Ordner. */
+void
+revolution_mail_view_set_folders (RevolutionMailView *self,
+                                  const char         *uid,
+                                  CamelFolderInfo    *info)
+{
+  g_autoptr (RevolutionMailAccount) account = NULL;
+  GListStore *store;
+  guint count;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
+
+  account = find_account (self, uid);
+  if (account == NULL)
+    {
+      g_debug ("Ordner: %s nicht mehr angezeigt", uid);
+      return;
+    }
+
+  store = G_LIST_STORE (gtk_tree_list_model_get_model (account_tree (account)));
+  g_list_store_remove_all (store);
+  count = revolution_mail_folder_append_tree (store, info, account);
+  g_debug ("Ordner: %s %u geladen", uid, count);
 }

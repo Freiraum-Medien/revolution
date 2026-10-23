@@ -59,6 +59,11 @@
  *   - Ohne camel_service_migrate_files (alte URL-Ordner gibt es in Revolution nicht).
  *   - Anzeigename in der Warnung per e_source_dup_display_name; Cast von e_weak_ref_free
  *     über GCallback (-Wcast-function-type).
+ *   - #348: Nach jedem Abgleich das Signal „services-changed“ im UI-Thread statt der
+ *     Meldung je Store aus add_service an den Account-Store (e-mail-ui-session.c:527-541);
+ *     Fehler aus add_service zusätzlich gesammelt für das Banner
+ *     (revolution_mail_session_take_errors).
+ *   - #348: get_filter_driver ohne Regeln (Vorlage e-mail-ui-session.c, Einzelheiten dort).
  */
 
 #define G_LOG_DOMAIN "revolution"
@@ -87,6 +92,10 @@ struct _RevolutionMailSession {
 
 	/* Registry-Signale können mehrere Abgleiche gleichzeitig starten. */
 	GMutex sync_lock;
+
+	/* #348: Fehler aus add_service („Konto: Meldung“), unter sync_lock; abgeholt mit
+	 * revolution_mail_session_take_errors für das Banner (main.c). */
+	GPtrArray *add_errors;
 };
 
 struct _ServiceProxyData {
@@ -98,6 +107,13 @@ enum {
 	PROP_0,
 	PROP_REGISTRY
 };
+
+enum {
+	SERVICES_CHANGED,
+	LAST_SIGNAL
+};
+
+static guint signals[LAST_SIGNAL];
 
 G_DEFINE_FINAL_TYPE (RevolutionMailSession, revolution_mail_session, CAMEL_TYPE_SESSION)
 
@@ -257,6 +273,8 @@ mail_session_add_from_source (RevolutionMailSession *session,
 		g_warning (
 			"Failed to add service '%s' (%s): %s",
 			display_name, uid, error->message);
+		/* #348: Aufrufer hält sync_lock (mail_session_sync_stores). */
+		g_ptr_array_add (session->add_errors, g_strdup_printf ("%s: %s", display_name, error->message));
 		g_free (display_name);
 		g_error_free (error);
 	}
@@ -335,6 +353,17 @@ mail_session_sync_thread (GTask *task,
 	g_task_return_boolean (task, TRUE);
 }
 
+/* #348: Abgleich fertig, im UI-Thread: „services-changed“ meldet neue Stores an main.c,
+ * das sie anmeldet und ihre Ordner lädt (note_stores). Muster: Evolution meldet neue
+ * Dienste aus add_service über den Hauptkontext weiter (e-mail-ui-session.c:527-541). */
+static void
+mail_session_sync_done_cb (GObject *source_object,
+                           GAsyncResult *result G_GNUC_UNUSED,
+                           gpointer user_data G_GNUC_UNUSED)
+{
+	g_signal_emit (source_object, signals[SERVICES_CHANGED], 0);
+}
+
 /* Registry-Signale kommen im UI-Thread an (README „Architektur“). Ist schon ein Abgleich
  * angefordert, deckt er dieses Signal mit ab („source-changed“ kommt auch für Kalender
  * und Adressbücher). */
@@ -346,7 +375,7 @@ mail_session_registry_changed_cb (RevolutionMailSession *session)
 	if (!g_atomic_int_compare_and_exchange (&session->sync_pending, 0, 1))
 		return;
 
-	task = g_task_new (session, NULL, NULL, NULL);
+	task = g_task_new (session, NULL, mail_session_sync_done_cb, NULL);
 	g_task_set_source_tag (task, mail_session_registry_changed_cb);
 	g_task_run_in_thread (task, mail_session_sync_thread);
 	g_object_unref (task);
@@ -425,6 +454,7 @@ mail_session_finalize (GObject *object)
 	RevolutionMailSession *self = REVOLUTION_MAIL_SESSION (object);
 
 	g_mutex_clear (&self->sync_lock);
+	g_ptr_array_unref (self->add_errors);
 
 	/* Chain up to parent's finalize() method. */
 	G_OBJECT_CLASS (revolution_mail_session_parent_class)->finalize (object);
@@ -786,6 +816,23 @@ mail_session_authenticate_sync (CamelSession *session,
 	return (result == CAMEL_AUTHENTICATION_ACCEPTED);
 }
 
+/* #348: Filter für neue Nachrichten. Ein Ordner mit CAMEL_FOLDER_FILTER_RECENT (imapx setzt
+ * es für den Posteingang bei „FilterInbox=true“ in der ESource, EDS camel-imapx-folder.c:
+ * 1346-1361) ruft bei neuen Nachrichten get_filter_driver (camel-folder.c:1320-1324); ohne
+ * Methode gibt Camel ein CRITICAL aus (camel-session.c:1454). Nach Evolution
+ * main_get_filter_driver (src/mail/e-mail-ui-session.c:246-345), gekürzt auf
+ * camel_filter_driver_new (dort 271): Revolution hat keine Filterregeln und liest Evolutions
+ * filters.xml nicht (Architektur-Festlegung 4), ohne Regeln bleiben die Nachrichten
+ * unverändert. Der Aufrufer gibt den Treiber frei (camel-folder.c:350-351). */
+static CamelFilterDriver *
+mail_session_get_filter_driver (CamelSession *session,
+                                const gchar *type G_GNUC_UNUSED,
+                                CamelFolder *for_folder G_GNUC_UNUSED,
+                                GError **error G_GNUC_UNUSED)
+{
+	return camel_filter_driver_new (session);
+}
+
 static void
 revolution_mail_session_class_init (RevolutionMailSessionClass *class)
 {
@@ -804,6 +851,7 @@ revolution_mail_session_class_init (RevolutionMailSessionClass *class)
 	session_class->get_oauth2_access_token_sync = mail_session_get_oauth2_access_token_sync;
 	session_class->trust_prompt = mail_session_trust_prompt;
 	session_class->authenticate_sync = mail_session_authenticate_sync;
+	session_class->get_filter_driver = mail_session_get_filter_driver;
 
 	g_object_class_install_property (
 		object_class,
@@ -816,12 +864,21 @@ revolution_mail_session_class_init (RevolutionMailSessionClass *class)
 			G_PARAM_READWRITE |
 			G_PARAM_CONSTRUCT_ONLY |
 			G_PARAM_STATIC_STRINGS));
+
+	/* #348: nach jedem Abgleich der Stores, im UI-Thread. */
+	signals[SERVICES_CHANGED] = g_signal_new (
+		"services-changed",
+		G_TYPE_FROM_CLASS (class),
+		G_SIGNAL_RUN_LAST,
+		0, NULL, NULL, NULL,
+		G_TYPE_NONE, 0);
 }
 
 static void
 revolution_mail_session_init (RevolutionMailSession *session)
 {
 	g_mutex_init (&session->sync_lock);
+	session->add_errors = g_ptr_array_new_with_free_func (g_free);
 }
 
 /* Im Worker aufrufen: registriert die Stores der Konten (add_service, Datenbank je Store). */
@@ -852,4 +909,23 @@ revolution_mail_session_new (ESourceRegistry *registry)
 	g_free (user_cache_dir);
 
 	return session;
+}
+
+/* #348: Fehler aus add_service seit dem letzten Aufruf, NULL-terminiert; im UI-Thread. */
+gchar **
+revolution_mail_session_take_errors (RevolutionMailSession *session)
+{
+	GPtrArray *errors;
+
+	g_return_val_if_fail (REVOLUTION_IS_MAIL_SESSION (session), NULL);
+
+	g_mutex_lock (&session->sync_lock);
+	errors = g_steal_pointer (&session->add_errors);
+	session->add_errors = g_ptr_array_new_with_free_func (g_free);
+	g_mutex_unlock (&session->sync_lock);
+
+	g_ptr_array_set_free_func (errors, NULL);
+	g_ptr_array_add (errors, NULL);
+
+	return (gchar **) g_ptr_array_free (errors, FALSE);
 }

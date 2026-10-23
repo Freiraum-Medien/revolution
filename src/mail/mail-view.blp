@@ -139,31 +139,56 @@ template $RevolutionMailView: Adw.BreakpointBin {
                   label: _("Ordner");
                 }
 
-                // Modell: GtkTreeListModel über den Konten (mail-view.c), Konten oben.
+                // Modell (mail-view.c): je Konto ein GtkTreeListModel über seinen Ordnern,
+                // zusammengefügt als Abschnitte (GtkFlattenListModel), #348.
                 model: SingleSelection folder_selection {};
 
-                // Kontozeile im Aussehen der Kontoüberschrift des abgenommenen Prototyps
+                // Konten als nicht auswählbare Abschnittsköpfe wie der abgenommene Prototyp
                 // (Tag m2-prototyp, mail-view.blp:137-154, Design/Prototyp/mail-hell.png
-                // „Privat“, „Arbeit“). Ordner als Kinder mit Ausklapp-Pfeil folgen mit #348.
+                // „Privat“, „Arbeit“). Kopf = Konto des ersten Ordners im Abschnitt.
+                header-factory: BuilderListItemFactory {
+                  template ListHeader {
+                    child: Label {
+                      label: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.account as <$RevolutionMailAccount>.display-name;
+                      xalign: 0;
+                      margin-start: 14;
+                      margin-end: 14;
+                      margin-top: 4;
+                      margin-bottom: 2;
+                      ellipsize: end;
+
+                      styles [
+                        "caption-heading",
+                        "dimmed",
+                      ]
+                    };
+                  }
+                };
+
+                // Ordnerzeile wie der Prototyp (mail-view.blp:156-193) ohne Ungelesen-Zähler
+                // (#348: nicht im Umfang); Unterordner mit Ausklapp-Pfeil.
                 factory: BuilderListItemFactory {
                   template ListItem {
-                    // Zugänglicher Name der Zeile = Kontoname (Architektur 8).
-                    accessible-label: bind template.item as <TreeListRow>.item as <$RevolutionMailAccount>.display-name;
+                    // Zugänglicher Name der Zeile = Ordnername (Architektur 8).
+                    accessible-label: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.display-name;
 
                     child: TreeExpander {
                       list-row: bind template.item as <TreeListRow>;
-                      indent-for-icon: false;
 
-                      child: Label {
-                        label: bind template.item as <TreeListRow>.item as <$RevolutionMailAccount>.display-name;
-                        hexpand: true;
-                        xalign: 0;
-                        ellipsize: end;
+                      child: Box {
+                        spacing: 12;
 
-                        styles [
-                          "caption-heading",
-                          "dimmed",
-                        ]
+                        Image {
+                          icon-name: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.icon-name;
+                          accessible-role: presentation;
+                        }
+
+                        Label {
+                          label: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.display-name;
+                          hexpand: true;
+                          xalign: 0;
+                          ellipsize: end;
+                        }
                       };
                     };
                   }

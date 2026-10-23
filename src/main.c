@@ -115,7 +115,7 @@ on_startup (GtkApplication *app,
  * g_mkdir_with_parents 0700) und Stamp (stamp-helper.c:46-58). Beide Profile nutzen
  * dieselben Ordner wie bei Stamp, das den Ordner „stamp“ fest verwendet. */
 static void
-create_user_dirs (AdwBanner *banner)
+create_user_dirs (RevolutionMailView *mail_view)
 {
   const char *bases[] = { g_get_user_data_dir (), g_get_user_cache_dir () };
 
@@ -132,8 +132,7 @@ create_user_dirs (AdwBanner *banner)
 
       message = g_strdup_printf (_("Ordner „%s“ konnte nicht angelegt werden: %s"), dir, g_strerror (errno));
       g_warning ("%s", message);
-      adw_banner_set_title (banner, message);
-      adw_banner_set_revealed (banner, TRUE);
+      revolution_mail_view_show_error (mail_view, _("Datenordner fehlt"), message);
     }
 }
 
@@ -165,7 +164,7 @@ on_registry_loaded (GObject      *source_object,
                     GAsyncResult *result,
                     gpointer      user_data)
 {
-  g_autoptr (AdwBanner) banner = user_data;
+  g_autoptr (RevolutionMailView) mail_view = user_data;
   g_autoptr (GError) error = NULL;
   g_autofree char *message = NULL;
   ESourceRegistry *registry;
@@ -177,8 +176,10 @@ on_registry_loaded (GObject      *source_object,
 
       g_debug ("ESourceRegistry: geladen, Rückruf im Thread %p, %u Mail-Konten",
                (gpointer) g_thread_self (), g_list_length (accounts));
-      /* An der Anwendung gehalten; #345 liest sie mit g_object_get_data (app, "registry"). */
+      /* An der Anwendung gehalten (g_object_get_data (app, "registry")); die Mail-Ansicht
+       * zeigt daraus die Konten (#345). */
       g_object_set_data_full (source_object, "registry", registry, g_object_unref);
+      revolution_mail_view_set_registry (mail_view, registry);
       return;
     }
 
@@ -187,8 +188,7 @@ on_registry_loaded (GObject      *source_object,
 
   message = g_strdup_printf (_("Konten konnten nicht geladen werden: %s"), error->message);
   g_warning ("%s", message);
-  adw_banner_set_title (banner, message);
-  adw_banner_set_revealed (banner, TRUE);
+  revolution_mail_view_show_error (mail_view, _("Konten nicht verfügbar"), message);
 }
 
 static void
@@ -199,7 +199,7 @@ on_activate (GtkApplication *app,
   g_autoptr (GPropertyAction) view_action = NULL;
   g_autoptr (GCancellable) cancellable = NULL;
   g_autoptr (GTask) task = NULL;
-  AdwBanner *banner;
+  RevolutionMailView *mail_view;
   GtkWindow *window;
 
   window = gtk_application_get_active_window (app);
@@ -224,13 +224,13 @@ on_activate (GtkApplication *app,
       gtk_widget_add_css_class (GTK_WIDGET (window), "devel");
 #endif
 
-      banner = ADW_BANNER (gtk_builder_get_object (builder, "banner"));
-      create_user_dirs (banner);
+      mail_view = REVOLUTION_MAIL_VIEW (gtk_builder_get_object (builder, "mail_view"));
+      create_user_dirs (mail_view);
 
       /* Beim Beenden abbrechen; der Task hält den GCancellable bis zum Rückruf. */
       cancellable = g_cancellable_new ();
       g_signal_connect_object (app, "shutdown", G_CALLBACK (g_cancellable_cancel), cancellable, G_CONNECT_SWAPPED);
-      task = g_task_new (app, cancellable, on_registry_loaded, g_object_ref (banner));
+      task = g_task_new (app, cancellable, on_registry_loaded, g_object_ref (mail_view));
       g_task_set_source_tag (task, on_activate);
       g_task_set_task_data (task, g_thread_self (), NULL);
       g_task_run_in_thread (task, load_registry_thread);

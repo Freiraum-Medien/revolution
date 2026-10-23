@@ -61,7 +61,7 @@ g_task_run_in_thread (task, load_registry_thread);
 
 Die `ESourceRegistry` wird beim Start so geladen und an der Anwendung gehalten (`g_object_get_data (app, "registry")`). Ihre Signale kommen trotzdem im UI-Thread an: EDS merkt sich beim Anlegen `g_main_context_ref_thread_default ()` (e-source-registry.c:1726), und das ist im GTask-Worker der globale Standard-Kontext. Beleg im Log: `G_MESSAGES_DEBUG=revolution` zeigt Worker- und UI-Thread.
 
-**Datenmodell:** `GListStore` aus konkreten GObject-Items, angezeigt mit `GtkListView`/`GtkColumnView` (Beispiel `src/mail/mail-view.c:208`, `mail-view.blp:124`). Änderungen am Store (`g_list_store_append`, `g_list_store_splice`) nur im UI-Thread, also im GTask-Rückruf. Eine eigene `GListModel`-Klasse erst, wenn ein `GListStore` nicht reicht.
+**Datenmodell:** `GListStore` aus konkreten GObject-Items, angezeigt mit `GtkListView`/`GtkColumnView` (Beispiel: Konten der Seitenleiste, `src/mail/mail-view.c:337-340` mit `GtkTreeListModel`, `mail-view.blp:131`). Änderungen am Store (`g_list_store_append`, `g_list_store_splice`) nur im UI-Thread, also im GTask-Rückruf oder in Signalen der Registry (#345). Eine eigene `GListModel`-Klasse erst, wenn ein `GListStore` nicht reicht.
 
 **Camel-Ordner:** Immer über `camel_store_get_folder_sync (store, full_name, …)` holen, nie das Ergebnis von `camel_store_get_inbox_folder_sync` für Anzeige, Flags oder Refresh verwenden. Die Standardversion ruft die vfunc `get_folder_sync` direkt mit „inbox“ und umgeht den Ordner-Cache (EDS camel-store.c:373-388 gegen 1369/1469); imapx überschreibt sie nicht, es entstehen zwei Instanzen. Bei microsoft365 den Posteingang über den Ordnertyp `CAMEL_FOLDER_TYPE_INBOX` finden (camel-m365-store.c:161), nicht über den festen Namen „inbox“ der Standardversion. Evolution macht es ebenso (e-mail-session.c:2763, mail-folder-cache.c:779).
 
@@ -69,7 +69,7 @@ Die `ESourceRegistry` wird beim Start so geladen und an der Anwendung gehalten (
 
 **Verzeichnisse:** Beim Start werden `~/.local/share/revolution` und `~/.cache/revolution` angelegt (`g_get_user_data_dir ()`/`g_get_user_cache_dir ()` + `revolution`, Rechte 0700), getrennt von Evolution (`…/evolution`). Beide Profile nutzen dieselben Ordner, wie Stamp (stamp-helper.c:46-58) und wie das gemeinsame GSettings-Schema.
 
-**Fehleranzeige:** Fehler zeigt das `AdwBanner` oben im Hauptfenster (`banner` in `src/window.blp`), keine Dialoge. Hinweise erscheinen als Pille (Dokument #5 „M2 Specification“). Test: `XDG_DATA_HOME=/proc/revolution-test scripts/screenshot.sh fehler-banner prefer-light`.
+**Fehleranzeige:** Fehler zeigt das `AdwBanner` im Inhaltsbereich unter der Kopfleiste der Nachrichtenliste (`banner` in `src/mail/mail-view.blp`, `revolution_mail_view_show_error`), keine Dialoge: kurzer Titel, Einzelheiten im Tooltip und im Log. Hinweise erscheinen als Pille (Dokument #5 „M2 Specification“). Test: `XDG_DATA_HOME=/proc/revolution-test scripts/screenshot.sh fehler-banner prefer-light`.
 
 ## Screenshots (headless)
 

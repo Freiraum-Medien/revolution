@@ -585,11 +585,15 @@ on_load_changed (RevolutionMailReader *self,
                                         NULL, on_guard_reply, g_object_ref (self));
 }
 
-/* Neuer Webprozess: Erweiterung erneut bestätigen lassen, Inhalt neu laden. */
+/* Neuer Webprozess: Erweiterung erneut bestätigen lassen, Inhalt neu laden. Beim Beenden der
+ * App (on_application_shutdown, WEBKIT_WEB_PROCESS_TERMINATED_BY_API) nichts tun. */
 static void
 on_web_process_terminated (RevolutionMailReader             *self,
                            WebKitWebProcessTerminationReason reason)
 {
+  if (reason == WEBKIT_WEB_PROCESS_TERMINATED_BY_API)
+    return;
+
   g_warning ("Nachricht: Webprozess beendet (%d)", reason);
   self->guard = GUARD_NONE;
   show_html (self);

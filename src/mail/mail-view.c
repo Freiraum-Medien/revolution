@@ -618,9 +618,10 @@ add_messages_block (gpointer data)
    * späterer Block erneut an. Nach dem letzten Block wirken sie am bestehenden Eintrag. Wie
    * Evolution, das während eines Neuaufbaus keine Änderung einzeln einträgt, sondern die Liste
    * neu aufbaut (message_list_folder_changed, message-list.c:5127-5128, 5178-5186).
-   * #414: Schon ab dem Lesen der UIDs (begin; beim Cache-Durchgang ab der Auswahl), sonst entfernte bzw. überschriebe der Durchgang
-   * eine dazwischen eingefügte neue Mail. Zeigt die Liste dann schon Einträge (auch aus
-   * Live-Änderungen ohne Cache), gleicht der Server-Durchgang ab, statt sie zu ersetzen. */
+   * #414: Schon ab dem Lesen der UIDs (begin; beim Cache-Durchgang ab der Auswahl), sonst
+   * entfernte bzw. überschriebe der Durchgang eine dazwischen eingefügte neue Mail. Zeigt die
+   * Liste dann schon Einträge (auch aus Live-Änderungen ohne Cache), gleicht der
+   * Server-Durchgang ab, statt sie zu ersetzen. */
   if (block->begin)
     {
       self->blocks_running = TRUE;

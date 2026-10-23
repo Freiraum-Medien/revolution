@@ -71,6 +71,15 @@ Die `ESourceRegistry` wird beim Start so geladen und an der Anwendung gehalten (
 
 **Fehleranzeige:** Fehler zeigt das `AdwBanner` im Inhaltsbereich unter der Kopfleiste der Nachrichtenliste (`banner` in `src/mail/mail-view.blp`, `revolution_mail_view_show_error`), keine Dialoge: kurzer Titel, Einzelheiten im Tooltip und im Log. Hinweise erscheinen als Pille (Dokument #5 „M2 Specification“). Test: `XDG_DATA_HOME=/proc/revolution-test scripts/screenshot.sh fehler-banner prefer-light`.
 
+**Anmeldung (#347):** Ohne Dialoge. Zugangsdaten kommen in einem Versuch aus GOA (OAuth2-Token über die Registry, Passwort über `ESourceCredentialsProvider`) bzw. aus dem Schlüsselbund (`src/mail/mail-session.c`, Abschnitt „Anmeldung“). Nach dem Start schaltet je Store ein Worker-GTask den Store online und meldet ihn damit an (`src/main.c`). Fehler sammelt ein Banner („Keine Verbindung“, „Anmeldung fehlgeschlagen“, „Zertifikat nicht vertrauenswürdig“), je Konto eine Zeile im Tooltip. Log mit `G_MESSAGES_DEBUG=revolution`: `angemeldet: <UID> <Mechanismus> <Ergebnis>`. Prüfen:
+
+```sh
+unshare -n --map-current-user env BUILD=build scripts/screenshot.sh fehler-netz prefer-light  # ohne Netz, Bus erreichbar
+G_MESSAGES_DEBUG=revolution build/tests/anmeldung UID…                         # Konten anmelden
+G_MESSAGES_DEBUG=revolution build/tests/anmeldung --benutzer x UID             # Ablehnung (nur im Speicher)
+G_MESSAGES_DEBUG=revolution build/tests/anmeldung --zertifikat UID             # abgelaufenes Zertifikat
+```
+
 ## Screenshots (headless)
 
 `scripts/screenshot.sh NAME SCHEMA [BREITExHÖHE]`. Das Skript läuft in eigenem Xvfb am echten Session-Bus (Grund oben unter Headless-Start) und bricht ab, wenn Revolution dort schon läuft. Einstellungen bleiben dabei im Speicher (`GSETTINGS_BACKEND=memory`). Wichtige Umgebungsvariablen: `BUILD` (Build-Ordner, Standard `build/`), `OUT_DIR` (Zielordner), `KEYS` (Tastendrücke vorab).

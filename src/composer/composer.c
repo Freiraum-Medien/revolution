@@ -23,7 +23,6 @@ struct _RevolutionComposer
   GtkWidget *cc_entry;
   GtkWidget *bcc_entry;
   GtkWidget *body_view;
-  GtkWidget *heading_dropdown;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionComposer, revolution_composer, ADW_TYPE_APPLICATION_WINDOW)
@@ -119,23 +118,17 @@ revolution_composer_class_init (RevolutionComposerClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionComposer, cc_entry);
   gtk_widget_class_bind_template_child (widget_class, RevolutionComposer, bcc_entry);
   gtk_widget_class_bind_template_child (widget_class, RevolutionComposer, body_view);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionComposer, heading_dropdown);
 }
 
 static void
 revolution_composer_init (RevolutionComposer *self)
 {
   g_autoptr (GSimpleActionGroup) group = g_simple_action_group_new ();
-  g_autoptr (GPropertyAction) heading = NULL;
   AdwStyleManager *style_manager = adw_style_manager_get_default ();
 
   gtk_widget_init_template (GTK_WIDGET (self));
 
   g_action_map_add_action_entries (G_ACTION_MAP (group), composer_actions, G_N_ELEMENTS (composer_actions), self);
-
-  /* #402: Platzhalter-Aktion Absatzformat, spiegelt die Auswahl der Liste. */
-  heading = g_property_action_new ("heading", self->heading_dropdown, "selected");
-  g_action_map_add_action (G_ACTION_MAP (group), G_ACTION (heading));
   gtk_widget_insert_action_group (GTK_WIDGET (self), "composer", G_ACTION_GROUP (group));
 
   g_signal_connect_object (style_manager, "notify::dark", G_CALLBACK (on_dark_changed), self, G_CONNECT_DEFAULT);

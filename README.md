@@ -45,13 +45,13 @@ KEYS="Control_L+3" scripts/screenshot.sh kontakte-hell prefer-light
 
 ## Git-Hook
 
-`hooks/pre-merge-commit` baut und testet das Merge-Ergebnis in `build-hook/` (`meson compile` und `meson test`). Schlägt eins davon fehl, bricht `git merge` ohne Commit ab. Der Merge bleibt dann offen und wird mit `git merge --abort` zurückgenommen. Einmal je Klon aktivieren:
+`hooks/pre-merge-commit` baut und testet das Merge-Ergebnis in `build-hook/` mit `werror=true` (`meson compile` und `meson test`); jede Compiler-Warnung zählt also als Fehler. Schlägt eins davon fehl, bricht `git merge` ohne Commit ab. Der Merge bleibt dann offen und wird mit `git merge --abort` zurückgenommen. Einmal je Klon aktivieren:
 
 ```sh
 git config core.hooksPath hooks
 git config merge.ff false
 ```
 
-Lücken: Der Hook läuft nicht bei `git merge --no-verify` und nicht, wenn der Merge mit Konflikt stoppt. Den Konflikt-Commit dann vor dem Abschluss selbst mit `meson compile -C build-hook && meson test -C build-hook` prüfen.
+Lücken: Der Hook läuft nicht bei `git merge --no-verify` und nicht, wenn der Merge mit Konflikt stoppt. Den Konflikt-Commit dann vor dem Abschluss selbst mit `meson configure -Dwerror=true build-hook && meson compile -C build-hook && meson test -C build-hook` prüfen.
 
 Arbeitsweise: ein Branch pro Task (`task/<Nr>-<kurz>`), Merge nach `main` erst nach dem Review.

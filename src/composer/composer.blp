@@ -443,8 +443,9 @@ template $RevolutionComposer: Adw.ApplicationWindow {
       margin-end: 12;
 
       // #402: Absatzformat (Arnd 22.10.), Auswahlliste in Nautilus-Optik wie Von/Signatur;
-      // Platzhalter-Aktion composer.heading (composer.c).
-      DropDown heading_dropdown {
+      // Funktion folgt mit #359, bis dahin ausgegraut wie die übrige Formatierung.
+      DropDown {
+        sensitive: false;
         tooltip-text: _("Absatzformat");
         valign: center;
 

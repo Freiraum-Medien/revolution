@@ -30,6 +30,7 @@
 
 #include <errno.h>
 #include <glib/gi18n.h>
+#include <glib/gstdio.h>
 
 #include "mail-attachment.h"
 #include "mail-view.h"
@@ -218,9 +219,61 @@ get_new_name_with_count (const char *initial_name,
   return g_string_free (string, FALSE);
 }
 
+/* Steuer- und Formatzeichen (Unicode-Kategorien Cc, Cf, u. a. U+202E RIGHT-TO-LEFT OVERRIDE) werden
+ * „_“, auch im angezeigten Namen (Pille, Tooltip, zugänglicher Name): „rechnung<U+202E>fdp.exe“
+ * erschiene sonst als „rechnungexe.pdf“. Ungültiges UTF-8 wird vorher ersetzt. */
+static char *
+visible_name (const char *name)
+{
+  g_autofree char *valid = g_utf8_make_valid (name, -1);
+  GString *out = g_string_sized_new (strlen (valid));
+
+  for (const char *p = valid; *p != '\0'; p = g_utf8_next_char (p))
+    {
+      gunichar c = g_utf8_get_char (p);
+      GUnicodeType type = g_unichar_type (c);
+
+      if (type == G_UNICODE_CONTROL || type == G_UNICODE_FORMAT)
+        g_string_append_c (out, '_');
+      else
+        g_string_append_unichar (out, c);
+    }
+
+  return g_string_free (out, FALSE);
+}
+
+/* Höchstens max Bytes (Dateisysteme: 255 Byte je Name, NAME_MAX), UTF-8-sicher; die Endung ab dem
+ * letzten Punkt bleibt, wenn sie kurz ist (bis 32 Byte), gekürzt wird davor. */
+static char *
+fit_name (const char *name,
+          gsize       max)
+{
+  gsize length = strlen (name);
+  const char *ext = strrchr (name, '.');
+  gsize ext_length, cut;
+
+  if (length <= max)
+    return g_strdup (name);
+
+  ext_length = ext != NULL && ext != name && strlen (ext) <= 32 ? strlen (ext) : 0;
+  cut = max - ext_length;
+  /* name[cut] ist das erste weggelassene Byte; ist es ein Folgebyte, fällt das ganze Zeichen weg. */
+  while (cut > 0 && ((guchar) name[cut] & 0xC0) == 0x80)
+    cut--;
+
+  {
+    GString *out = g_string_new_len (name, (gssize) cut);
+
+    if (ext_length > 0)
+      g_string_append (out, ext);
+    return g_string_free (out, FALSE);
+  }
+}
+
 /* Anzeigename wie Evolution (e-attachment.c:2494-2531): Dateiname des Teils (Kodierung nach
  * RFC 2047 aufgelöst) ohne Pfadanteil, bei message/rfc822 ohne Dateiname der Betreff, sonst
- * „anhang.dat“. Zusätzlich: „.“, „..“ und leere Namen gelten als kein Name. */
+ * „anhang.dat“. Zusätzlich: „.“, „..“ und leere Namen gelten als kein Name; Steuer- und
+ * Formatzeichen werden „_“ (visible_name). */
 static char *
 display_name (CamelMimePart    *part,
               CamelContentType *type)
@@ -241,6 +294,14 @@ display_name (CamelMimePart    *part,
 
       if (subject != NULL)
         base = g_strdup (subject);
+    }
+
+  if (base != NULL)
+    {
+      char *visible = visible_name (base);
+
+      g_free (base);
+      base = visible;
     }
 
   if (base == NULL || *g_strstrip (base) == '\0' || g_str_equal (base, ".") || g_str_equal (base, "..") ||
@@ -274,8 +335,12 @@ revolution_mail_attachment_new (CamelMimePart *part,
   content = camel_medium_get_content (CAMEL_MEDIUM (part));
 
   self->name = display_name (part, type);
-  self->file_name = g_strdup (self->name);
+  self->file_name = fit_name (self->name, 255);
   make_safe_filename (self->file_name);
+  /* Abweichung von Evolution: kein führender Punkt, sonst legte „Alle speichern“ versteckte Dateien
+   * an (etwa „.xprofile“ in den persönlichen Ordner). */
+  if (self->file_name[0] == '.')
+    self->file_name[0] = '_';
 
   mime_type = type != NULL ? camel_content_type_simple (type) : NULL;
   if (mime_type != NULL)
@@ -297,8 +362,11 @@ revolution_mail_attachment_new (CamelMimePart *part,
   return self;
 }
 
-/* CamelDataWrapper ist nicht reentrant (Evolution e-attachment.c:3392-3394); derselbe Teil kann
- * gleichzeitig geöffnet und gespeichert werden, daher nacheinander dekodieren. */
+/* Derselbe Teil kann gleichzeitig geöffnet und gespeichert werden (zwei Worker). Für gewöhnliche Teile
+ * sperrt Camel 3.56 selbst (stream_lock um das Schreiben, camel-data-wrapper.c:261-276; Filter je
+ * Aufruf, 282-351). Eine angehängte Nachricht (message/rfc822) ergänzt beim Schreiben aber ohne
+ * Sperre ihre Kopfzeilen (mime_message_ensure_required_headers, camel-mime-message.c:281-295), und
+ * Evolution nennt CamelDataWrapper nicht reentrant (e-attachment.c:3392-3394); daher nacheinander. */
 static GMutex decode_lock;
 
 /* Im Worker: Inhalt des Teils dekodiert (Transfer-Encoding) in den Strom, dann schließen. */
@@ -350,6 +418,38 @@ create_file (RevolutionMailAttachment *self,
   return TRUE;
 }
 
+/* Speichern unter: erst vollständig in eine neue Datei neben dem Ziel schreiben, dann umbenennen
+ * (G_FILE_COPY_OVERWRITE); bricht das Schreiben ab, bleibt das Original unberührt. */
+static gboolean
+replace_file (RevolutionMailAttachment *self,
+              GFile                    *target,
+              GCancellable             *cancellable,
+              GError                  **error)
+{
+  g_autoptr (GFile) parent = g_file_get_parent (target);
+  g_autofree char *name = g_strdup_printf (".revolution-%08x.tmp", g_random_int ());
+  g_autoptr (GFile) temp = NULL;
+
+  if (parent == NULL)
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_FILENAME, _("Kein Ordner"));
+      return FALSE;
+    }
+
+  temp = g_file_get_child (parent, name);
+  if (!create_file (self, temp, G_FILE_CREATE_NONE, cancellable, error))
+    return FALSE;
+
+  if (!g_file_move (temp, target, G_FILE_COPY_OVERWRITE | G_FILE_COPY_NOFOLLOW_SYMLINKS, cancellable, NULL, NULL,
+                    error))
+    {
+      g_file_delete (temp, NULL, NULL);
+      return FALSE;
+    }
+
+  return TRUE;
+}
+
 /* ------------------------------------------------------------------ Anhangleiste */
 
 struct _RevolutionMailAttachmentBar
@@ -395,6 +495,58 @@ selected_attachment (RevolutionMailAttachmentBar *self)
 
 /* ---- Öffnen */
 
+static char *
+temp_base (void)
+{
+  return g_build_filename (g_get_user_cache_dir (), "revolution", "attachments", NULL);
+}
+
+/* Aufräumen wie Evolution e-mktemp.c:47, 54-90 (TEMP_EXPIRE 2 h, Zugriffszeit, Zeile 79): beim Start im
+ * Worker Dateien in ~/.cache/revolution/attachments/XXXXXX entfernen, die seit mehr als 2 h weder
+ * gelesen noch geändert wurden, danach leere Ordner, die selbst älter als 2 h sind. Nur reguläre
+ * Dateien und Ordner dieser einen Ebene (lstat, keine Verweise verfolgen). */
+#define TEMP_EXPIRE (60 * 60 * 2)
+
+static void
+cleanup_thread (GTask        *task,
+                gpointer      source_object G_GNUC_UNUSED,
+                gpointer      task_data G_GNUC_UNUSED,
+                GCancellable *cancellable G_GNUC_UNUSED)
+{
+  g_autofree char *base = temp_base ();
+  g_autoptr (GDir) dir = g_dir_open (base, 0, NULL);
+  gint64 now = g_get_real_time () / G_USEC_PER_SEC;
+  const char *name;
+  guint files = 0, dirs = 0;
+
+  while (dir != NULL && (name = g_dir_read_name (dir)) != NULL)
+    {
+      g_autofree char *sub = g_build_filename (base, name, NULL);
+      g_autoptr (GDir) inner = NULL;
+      GStatBuf st;
+      const char *file;
+
+      if (g_lstat (sub, &st) != 0 || !S_ISDIR (st.st_mode) || (inner = g_dir_open (sub, 0, NULL)) == NULL)
+        continue;
+
+      while ((file = g_dir_read_name (inner)) != NULL)
+        {
+          g_autofree char *path = g_build_filename (sub, file, NULL);
+          GStatBuf fst;
+
+          if (g_lstat (path, &fst) == 0 && S_ISREG (fst.st_mode) && MAX (fst.st_atime, fst.st_mtime) + TEMP_EXPIRE < now &&
+              g_unlink (path) == 0)
+            files++;
+        }
+
+      if (MAX (st.st_atime, st.st_mtime) + TEMP_EXPIRE < now && g_rmdir (sub) == 0)
+        dirs++;
+    }
+
+  g_debug ("Anhang: temporäre Dateien aufgeräumt (%u Dateien, %u Ordner älter als 2 h)", files, dirs);
+  g_task_return_boolean (task, TRUE);
+}
+
 /* Im Worker: eigener Ordner je Öffnen unter ~/.cache/revolution/attachments (Rechte 0700, wie
  * Evolution „We use a directory so the files can retain their basenames“, e-attachment.c:220-224;
  * Architektur 4: eigene Verzeichnisse), darin der bereinigte Dateiname mit Rechten 0600. */
@@ -405,7 +557,7 @@ open_thread (GTask        *task,
              GCancellable *cancellable)
 {
   RevolutionMailAttachment *attachment = task_data;
-  g_autofree char *base = g_build_filename (g_get_user_cache_dir (), "revolution", "attachments", NULL);
+  g_autofree char *base = temp_base ();
   g_autofree char *template = g_build_filename (base, "XXXXXX", NULL);
   g_autoptr (GFile) file = NULL;
   GError *error = NULL;
@@ -421,6 +573,7 @@ open_thread (GTask        *task,
   file = g_file_new_build_filename (template, attachment->file_name, NULL);
   if (!create_file (attachment, file, G_FILE_CREATE_PRIVATE, cancellable, &error))
     {
+      g_rmdir (template);
       g_task_return_error (task, error);
       return;
     }
@@ -532,15 +685,14 @@ save_thread (GTask        *task,
              GCancellable *cancellable)
 {
   Save *save = task_data;
+  GString *failures = NULL;
   GError *error = NULL;
 
   if (!save->folder)
     {
       RevolutionMailAttachment *attachment = g_ptr_array_index (save->attachments, 0);
-      g_autoptr (GFileOutputStream) stream = g_file_replace (save->target, NULL, FALSE, G_FILE_CREATE_NONE,
-                                                             cancellable, &error);
 
-      if (stream == NULL || !write_attachment (attachment, G_OUTPUT_STREAM (stream), cancellable, &error))
+      if (!replace_file (attachment, save->target, cancellable, &error))
         {
           g_prefix_error (&error, "%s: ", attachment->name);
           g_task_return_error (task, error);
@@ -551,14 +703,18 @@ save_thread (GTask        *task,
       return;
     }
 
+  /* Ein Fehler bricht nicht ab: die übrigen Anhänge werden gespeichert, die Fehler gesammelt gemeldet. */
   for (guint i = 0; i < save->attachments->len; i++)
     {
       RevolutionMailAttachment *attachment = g_ptr_array_index (save->attachments, i);
       gboolean done = FALSE;
 
-      for (int count = 0; !done && count < 1000; count++)
+      for (int count = 0; !done && error == NULL && count < 1000; count++)
         {
-          g_autofree char *name = get_new_name_with_count (attachment->file_name, count);
+          /* Mit Zusatz „ (N)“ höchstens 255 Byte (fit_name kürzt vor der Endung). */
+          g_autofree char *suffix = g_strdup_printf (" (%d)", count);
+          g_autofree char *base = fit_name (attachment->file_name, 255 - (count > 0 ? strlen (suffix) : 0));
+          g_autofree char *name = get_new_name_with_count (base, count);
           g_autoptr (GFile) file = g_file_get_child (save->target, name);
 
           if (create_file (attachment, file, G_FILE_CREATE_NONE, cancellable, &error))
@@ -570,20 +726,29 @@ save_thread (GTask        *task,
             }
           else if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_EXISTS))
             g_clear_error (&error);
-          else
-            {
-              g_prefix_error (&error, "%s: ", attachment->name);
-              g_task_return_error (task, error);
-              return;
-            }
         }
-      if (!done)
+      if (done)
         {
-          g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_EXISTS, "%s: %s", attachment->name,
-                                   _("Kein freier Dateiname"));
-          return;
+          save->saved++;
+          continue;
         }
-      save->saved++;
+
+      if (failures == NULL)
+        failures = g_string_new (NULL);
+      else
+        g_string_append (failures, "; ");
+      g_string_append_printf (failures, "%s: %s", attachment->name, error != NULL ? error->message : _("Kein freier Dateiname"));
+      g_clear_error (&error);
+    }
+
+  if (failures != NULL)
+    {
+      g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                               /* Translators: Alle speichern mit Fehlern, z. B. „2 von 5 nicht gespeichert: …“. */
+                               _("%u von %u nicht gespeichert: %s"), save->attachments->len - save->saved,
+                               save->attachments->len, failures->str);
+      g_string_free (failures, TRUE);
+      return;
     }
 
   g_task_return_boolean (task, TRUE);
@@ -600,10 +765,7 @@ on_saved (GObject      *source_object,
   g_autofree char *path = g_file_get_path (save->target);
 
   if (!g_task_propagate_boolean (G_TASK (result), &error))
-    {
-      show_error (self, _("Anhang nicht gespeichert"), path, error);
-      return;
-    }
+    show_error (self, _("Anhang nicht gespeichert"), path, error);
 
   g_debug ("Anhänge: %u gespeichert %s %s", save->saved, save->folder ? "im Ordner" : "als", path);
 }
@@ -835,7 +997,19 @@ revolution_mail_attachment_bar_class_init (RevolutionMailAttachmentBarClass *kla
 static void
 revolution_mail_attachment_bar_init (RevolutionMailAttachmentBar *self)
 {
+  static gsize cleaned;
+
   gtk_widget_init_template (GTK_WIDGET (self));
+
+  /* Einmal je Start: alte temporäre Dateien aufräumen (cleanup_thread). */
+  if (g_once_init_enter (&cleaned))
+    {
+      g_autoptr (GTask) task = g_task_new (NULL, NULL, NULL, NULL);
+
+      g_task_set_source_tag (task, cleanup_thread);
+      g_task_run_in_thread (task, cleanup_thread);
+      g_once_init_leave (&cleaned, 1);
+    }
 
   self->store = g_list_store_new (REVOLUTION_TYPE_MAIL_ATTACHMENT);
   gtk_single_selection_set_model (self->selection, G_LIST_MODEL (self->store));

@@ -5,10 +5,14 @@ src/main.c
 src/mail/mail-folder.c
 src/mail/mail-message.c
 src/mail/mail-view.c
+src/mail/mail-reader.c
+src/mail/mail-attachment.c
 src/mail/mail-session.c
 src/window.blp
 src/composer/composer.blp
 src/mail/mail-view.blp
+src/mail/mail-reader.blp
+src/mail/mail-attachment.blp
 src/contacts/contacts-view.blp
 src/contacts/contacts-view.c
 src/calendar/calendar-view.blp

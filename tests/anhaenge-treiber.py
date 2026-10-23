@@ -253,9 +253,13 @@ def speichern_unter(teile):
 
 def alle_speichern(teile, anzahl):
     """Menü-Taste an der Pille mit dem Fokus → „Alle speichern …“, Ordner im GTK-Dialog; zweimal in
-    denselben Ordner."""
+    denselben Ordner, dann in einen schreibgeschützten Ordner (jeder Anhang schlägt fehl: die App
+    versucht alle und meldet die Fehler gesammelt)."""
     ordner = os.path.join(ZIEL, 'alle')
-    for runde in (1, 2):
+    gesperrt = os.path.join(ZIEL, 'gesperrt')
+    os.makedirs(gesperrt, exist_ok=True)
+    os.chmod(gesperrt, 0o500)
+    for runde, ziel_r in ((1, ordner), (2, ordner), (3, gesperrt)):
         ab = marke()
         anfang()
         taste('Menu')
@@ -272,7 +276,7 @@ def alle_speichern(teile, anzahl):
             return
         time.sleep(1)
         taste('Control_L+l')
-        tippen(ordner)
+        tippen(ziel_r)
         # Die Ortszeile ergänzt beim Tippen nachlaufend (Vervollständigung des Ordners); Rest hinter
         # der Schreibmarke entfernen.
         time.sleep(0.5)
@@ -288,6 +292,18 @@ def alle_speichern(teile, anzahl):
             if runde == 1:
                 bild('8c-ordner-dialog-eingabe2')
         m = warte(r'^Anhänge: (\d+) gespeichert im Ordner (.*)$', ab, 30)
+        if runde == 3:
+            time.sleep(1)
+            bild('8d-gesperrt-banner')
+            warnung = [z for z in open(LOG, encoding='utf-8', errors='replace') if 'Anhang nicht gespeichert' in z]
+            namen = ('Lageplan Übersicht.pdf', 'Marktstand.png', 'Unterlagen.zip', 'revolution-pfad.txt', 'Weitergeleitet')
+            gesammelt = warnung and '%d von %d nicht gespeichert' % (anzahl, anzahl) in warnung[-1] and all(
+                n in warnung[-1] for n in namen)
+            (ok if m is not None and m.group(1) == '0' and gesammelt else falsch)(
+                'Alle speichern in schreibgeschützten Ordner: alle %d versucht, Fehler gesammelt: %s' % (
+                    anzahl, warnung[-1].strip()[:300] if warnung else '-'))
+            os.chmod(gesperrt, 0o700)
+            continue
         if m is None or m.group(2) != ordner or int(m.group(1)) != anzahl:
             falsch('Alle speichern (%d): Log „Anhänge: %d gespeichert im Ordner %s“ fehlt (%s)' % (
                 runde, anzahl, ordner, m.group(0) if m else '-'))
@@ -399,8 +415,10 @@ def main():
 
     rest = [z for z in open(LOG, encoding='utf-8', errors='replace')
             if not z.startswith('(revolution:') and not z.startswith('libEGL warning:') and z.strip()]
+    # Erwartet: die gesammelte Fehlermeldung aus „Alle speichern“ in den schreibgeschützten Ordner.
     andere = [z for z in open(LOG, encoding='utf-8', errors='replace')
-              if z.startswith('(revolution:') and 'revolution-DEBUG' not in z]
+              if z.startswith('(revolution:') and 'revolution-DEBUG' not in z
+              and not ('revolution-WARNING' in z and 'Anhang nicht gespeichert' in z and '/gesperrt:' in z)]
     rest += andere
     (falsch if rest else ok)('Log: %s' % ('%d unerwartete Zeilen: %s' % (len(rest), rest[:3]) if rest else 'nur DEBUG-Zeilen'))
     return 1 if fehler else 0

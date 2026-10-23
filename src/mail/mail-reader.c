@@ -401,6 +401,29 @@ collect_part (Collect       *collect,
     append_plain (collect, part);
 }
 
+/* Nutzt der Körper „cid:<cid>“? Jede Fundstelle bis zum Ende der Adresse (Anführungszeichen,
+ * Klammer, Leerraum, Tag-Ende) genau vergleichen, %-kodiert wie on_cid_request entschlüsselt;
+ * „cid:bild1“ zählt nicht für „bild“. */
+static gboolean
+cid_used (const char *body,
+          const char *cid)
+{
+  for (const char *p = strstr (body, "cid:"); p != NULL; p = strstr (p, "cid:"))
+    {
+      g_autofree char *token = NULL, *unescaped = NULL;
+      gsize length;
+
+      p += 4;
+      length = strcspn (p, "\"' )<>\t\r\n");
+      token = g_strndup (p, length);
+      unescaped = g_uri_unescape_string (token, NULL);
+      if (g_strcmp0 (unescaped != NULL ? unescaped : token, cid) == 0)
+        return TRUE;
+    }
+
+  return FALSE;
+}
+
 /* #356: Teile, die der Körper über cid: einbindet (Inline-Bilder), sind kein Anhang, außer mit
  * Content-Disposition „attachment“. Übrige als RevolutionMailAttachment (Name, Typ, Größe). */
 static GPtrArray *
@@ -413,13 +436,9 @@ attachments_for (Collect *collect)
       CamelMimePart *part = g_ptr_array_index (collect->attachments, i);
       const char *cid = camel_mime_part_get_content_id (part);
 
-      if (cid != NULL && *cid != '\0' && g_strcmp0 (camel_mime_part_get_disposition (part), "attachment") != 0)
-        {
-          g_autofree char *needle = g_strconcat ("cid:", cid, NULL);
-
-          if (strstr (collect->body->str, needle) != NULL)
-            continue;
-        }
+      if (cid != NULL && *cid != '\0' && g_strcmp0 (camel_mime_part_get_disposition (part), "attachment") != 0 &&
+          cid_used (collect->body->str, cid))
+        continue;
 
       g_ptr_array_add (attachments, revolution_mail_attachment_new (part, collect->cancellable));
     }

@@ -23,7 +23,8 @@
 # Anhang-Mail. Der Python-Treiber tests/anhaenge-treiber.py bedient die App per XTest: PDF (Eingabe),
 # PNG (Doppelklick), ZIP (Pfeil rechts, Eingabe) öffnen; PDF über Rechtsklick „Speichern unter …“,
 # dasselbe Ziel ein zweites Mal (GTK fragt, Abbrechen lässt die Datei unverändert); zweimal „Alle
-# speichern …“ (Menü-Taste) in denselben Ordner (zweites Mal „Name (1).ext“ wie Evolution). Jede
+# speichern …“ (Menü-Taste) in denselben Ordner (zweites Mal „Name (1).ext“ wie Evolution), dann in
+# einen schreibgeschützten Ordner (alle Anhänge versucht, Fehler gesammelt im Banner). Jede
 # Datei byte-gleich (sha256) mit den Teilen, die tests/testdaten.py --anhang-teile unabhängig von
 # Camel vom Server holt (IMAP bzw. Graph). Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“, „WERT …“
 # für Messwerte; Exit 0 ohne Fehler.
@@ -105,6 +106,16 @@ then
   echo "FEHLER  Test-Handler nicht wirksam, kein Start"; exit 1
 fi
 
+# ---- Aufräumen der temporären Dateien beim Start (älter als 2 h): ein alter und ein neuer Ordner
+TMPBASE="$HOME/.cache/revolution/attachments"
+mkdir -p "$TMPBASE"
+alt="$(mktemp -d "$TMPBASE/test-alt-XXXXXX")"
+neu="$(mktemp -d "$TMPBASE/test-neu-XXXXXX")"
+echo alt >"$alt/alt.txt"
+echo neu >"$neu/neu.txt"
+touch -a -m -d '3 hours ago' "$alt/alt.txt" "$alt"
+aufraeumen_geprueft=0
+
 # ---- Läufe je Konto
 for konto in $KONTEN; do
   name="m4-356-${konto%%@*}"
@@ -118,6 +129,7 @@ for konto in $KONTEN; do
   case "$konto" in *outlook*) inbox=Posteingang ;; esac
   ordner="$(python3 "$APP_DIR/tests/testdaten.py" --flags "$konto" | sed -n "s#^ORDNER \([^/]*\)/.*#\1/$inbox#p")"
   ziel="$SPEICHER/$name"
+  [ -d "$ziel/gesperrt" ] && chmod 700 "$ziel/gesperrt"
   rm -rf "$ziel"
   mkdir -p "$ziel/einzeln" "$ziel/alle"
   if [ "$(bus_hat_app)" != "(false,)" ]; then
@@ -142,6 +154,16 @@ for konto in $KONTEN; do
   portale="$(grep -c 'member=\(OpenFile\|OpenURI\|OpenDirectory\|SaveFile\|OpenFile\|SaveFiles\)' "$OUT/$name-portale.txt")"
   if [ "$portale" = 0 ]; then echo "OK      $name: dbus-monitor: 0 Aufrufe der Portale OpenURI/FileChooser"
   else echo "FEHLER  $name: dbus-monitor: $portale Portal-Aufrufe ($OUT/$name-portale.txt)"; fi | tee -a "$OUT/$name.txt"
+  if [ "$aufraeumen_geprueft" = 0 ]; then
+    aufraeumen_geprueft=1
+    zeile="$(grep -o 'Anhang: temporäre Dateien aufgeräumt.*' "$OUT/$name.log")"
+    if [ ! -e "$alt" ] && [ -f "$neu/neu.txt" ] && [ -n "$zeile" ]; then
+      echo "OK      $name: Start räumt auf: alter Ordner (3 h) entfernt, neuer bleibt; Log „$zeile“"
+    else
+      echo "FEHLER  $name: Aufräumen beim Start: alt vorhanden=$([ -e "$alt" ] && echo ja || echo nein), neu vorhanden=$([ -f "$neu/neu.txt" ] && echo ja || echo nein), Log „$zeile“"
+    fi | tee -a "$OUT/$name.txt"
+    rm -rf "$alt" "$neu"
+  fi
   FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/$name.txt")))
 done
 

@@ -183,7 +183,7 @@ class TestSession(Camel.Session):
         return True, token, expires
 
     def do_authenticate_sync(self, service, mechanism, c):
-        # Microsoft365-SASL ist nur im Evolution-UI-Modul registriert (m365probe.py);
+        # Microsoft365-SASL ist nur im Evolution-UI-Modul registriert (PM-Probe, außerhalb Repo);
         # dafür und für XOAUTH2 kein Passwort, sonst Passwort aus GOA setzen.
         authtype = Camel.Sasl.authtype(mechanism) if mechanism else None
         if (not mechanism or (authtype and authtype.need_password)) and not service.get_password():
@@ -252,7 +252,7 @@ def dienst(session, src, ext, typ):
 
 class _CFI(ctypes.Structure):
     # GI liefert next/child von CamelFolderInfo nur als Zeiger-int; Layout laut camel-store.h
-    # (wie Claude/skripte/m365probe.py).
+    # (Muster aus PM-Probeskript, außerhalb Repo).
     _fields_ = [('next', ctypes.c_void_p), ('parent', ctypes.c_void_p), ('child', ctypes.c_void_p),
                 ('full_name', ctypes.c_char_p), ('display_name', ctypes.c_char_p),
                 ('flags', ctypes.c_uint32), ('unread', ctypes.c_int32), ('total', ctypes.c_int32)]
@@ -277,9 +277,13 @@ def ordnerbaum(store):
 
 def inbox_holen(store):
     try:
-        return store.get_inbox_folder_sync(cancellable())
-    except GLib.Error:
-        pass
+        inbox = store.get_inbox_folder_sync(cancellable())
+        # imapx liefert hier eine Instanz außerhalb des Ordner-Caches des Stores; Abruf und
+        # Flag-Abgleich laufen aber über die Cache-Instanz. Daher über get_folder_sync holen.
+        return store.get_folder_sync(inbox.get_full_name(), 0, cancellable())
+    except GLib.Error as e:
+        if not e.matches(Camel.store_error_quark(), Camel.StoreError.NO_FOLDER):
+            raise
     # microsoft365 hat kein get_inbox_folder_sync; Ordner mit Typ INBOX suchen.
     for name, flags in ordnerbaum(store):
         if flags & Camel.FOLDER_TYPE_MASK == int(Camel.FolderInfoFlags.TYPE_INBOX):
@@ -291,6 +295,9 @@ def store_oeffnen(session, k):
     print('%s: verbinden' % k.adresse)
     k.store = dienst(session, k.account, EDataServer.SOURCE_EXTENSION_MAIL_ACCOUNT,
                      Camel.ProviderType.STORE)
+    # imapx kennt Unterordner erst nach LIST (frischer Cache: „No such folder“);
+    # wie Evolutions Ordner-Cache zuerst die Ordnerliste abrufen.
+    ordnerbaum(k.store)
     k.inbox = inbox_holen(k.store)
     k.inbox.refresh_info_sync(cancellable())
 
@@ -298,7 +305,9 @@ def store_oeffnen(session, k):
 def testmails(folder):
     """{(Betreff, Absender): uid} aller [Revolution-Test]-Mails im Ordner."""
     out = {}
-    # search_by_expression liefert hier (imapx und microsoft365) nichts; daher Summary durchgehen.
+    # Summary durchgehen statt search_by_expression: ohne (match-all …) liefert die Suche 0
+    # (camel-folder-search.c, „TODO: else, find all matches“), mit match-all gibt PyGObject
+    # die Ergebnis-Strings falsch frei („camel_pstring_free: String is not ours“).
     for uid in folder.get_uids():
         info = folder.get_message_info(uid)
         if info and (info.get_subject() or '').startswith(PREFIX):
@@ -313,8 +322,9 @@ def ordner_holen(store, name, anlegen):
     for kandidat in (name, 'INBOX/' + name):
         try:
             return store.get_folder_sync(kandidat, 0, cancellable())
-        except GLib.Error:
-            pass
+        except GLib.Error as e:
+            if not e.matches(Camel.store_error_quark(), Camel.StoreError.NO_FOLDER):
+                raise
     if not anlegen:
         return None
     parent, _, kurz = name.rpartition('/')

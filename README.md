@@ -45,7 +45,7 @@ KEYS="Control_L+3" scripts/screenshot.sh kontakte-hell prefer-light
 
 ## Git-Hook
 
-`hooks/pre-merge-commit` baut und testet das Merge-Ergebnis in `build-hook/` (`meson compile` und `meson test`). Schlägt eins davon fehl, bricht `git merge` ab. Einmal je Klon aktivieren:
+`hooks/pre-merge-commit` baut und testet das Merge-Ergebnis in `build-hook/` (`meson compile` und `meson test`). Schlägt eins davon fehl, bricht `git merge` ohne Commit ab. Der Merge bleibt dann offen und wird mit `git merge --abort` zurückgenommen. Einmal je Klon aktivieren:
 
 ```sh
 git config core.hooksPath hooks

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Vorlage: quelltext/stamp/data/org.tabos.stamp.metainfo.xml.in,
+     App-ID je Profil per configure_file wie gnome-calendar src/appdata/meson.build. -->
+<component type="desktop-application">
+  <id>@APPLICATION_ID@</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Revolution</name>
+  <summary>E-Mail, Kontakte und Kalender für GNOME</summary>
+  <description>
+    <p>Revolution ist ein Mail-Client für GNOME mit Kontakten und Kalender. Konten richtet man in den GNOME-Online-Konten ein.</p>
+  </description>
+
+  <developer id="de.freiraum_medien">
+    <name>Arnd Messer</name>
+  </developer>
+  <!-- Domain freiraum-medien.de (CLAUDE.md, App-ID, Arnd 23.10.2026). -->
+  <url type="homepage">https://freiraum-medien.de</url>
+  <translation type="gettext">revolution</translation>
+  <launchable type="desktop-id">@APPLICATION_ID@.desktop</launchable>
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.1.0" date="2026-10-23" />
+  </releases>
+</component>

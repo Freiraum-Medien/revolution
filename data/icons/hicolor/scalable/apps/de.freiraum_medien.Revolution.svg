@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Entwurf A „Glas und Papier“: ein Blatt steckt in einem Umschlag aus Glas. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="hinten" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a5fb4"/>
+      <stop offset="1" stop-color="#1c71d8"/>
+    </linearGradient>
+    <linearGradient id="glas" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#99c1f1" stop-opacity="0.92"/>
+      <stop offset="1" stop-color="#62a0ea" stop-opacity="0.96"/>
+    </linearGradient>
+  </defs>
+  <!-- Schatten am Boden -->
+  <rect x="18" y="108" width="92" height="6" rx="3" fill="#000000" opacity="0.12"/>
+  <!-- Rückwand des Umschlags -->
+  <rect x="14" y="40" width="100" height="70" rx="10" fill="url(#hinten)"/>
+  <!-- Das Blatt -->
+  <!-- leicht gedreht; es endet in der Kerbe des Umschlags und scheint nicht als Rechteck durch -->
+  <g transform="rotate(-3 64 56)">
+    <rect x="28" y="14" width="72" height="74" rx="6" fill="#ffffff"/>
+    <rect x="38" y="28" width="34" height="5" rx="2.5" fill="#c0bfbc"/>
+    <rect x="38" y="40" width="50" height="5" rx="2.5" fill="#deddda"/>
+    <rect x="38" y="52" width="44" height="5" rx="2.5" fill="#deddda"/>
+  </g>
+  <!-- Vorderseite aus Glas: Das Blatt scheint durch -->
+  <path d="M 14 54 L 58 84 a 10 10 0 0 0 12 0 L 114 54 V 100 a 10 10 0 0 1 -10 10 H 24 a 10 10 0 0 1 -10 -10 Z" fill="url(#glas)"/>
+  <path d="M 14 54 L 58 84 a 10 10 0 0 0 12 0 L 114 54" fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="2"/>
+</svg>

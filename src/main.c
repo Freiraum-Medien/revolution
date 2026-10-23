@@ -17,6 +17,7 @@
 
 #include "contacts/contacts-view.h"
 #include "calendar/calendar-view.h"
+#include "mail/mail-folder.h"
 #include "mail/mail-session.h"
 #include "mail/mail-view.h"
 
@@ -201,6 +202,26 @@ note_store_result_free (NoteStoreResult *result)
   g_free (result);
 }
 
+/* #350: Zahlen der Ordnerliste von imapx sind nicht verlässlich: imapx nimmt die der Store-Summary
+ * (camel-imapx-store.c:1362), also den Stand der lokalen Summary beim letzten Öffnen
+ * (camel-store-summary.c:1011-1050); beim Verbinden öffnet imapx jeden Ordner
+ * (camel-offline-store.c:317, camel-imapx-store.c:2904-2925), nie abgeglichene Ordner stehen
+ * danach auf 0 (gemessen: Revolution-Zaehler2 100 ungelesen, ab dem zweiten Start 0). Den
+ * frischen Wert aus LIST-STATUS (dort 1391-1399) gibt es nur ohne diesen Stand. Daher bei imapx
+ * keine Zahl aus der Liste („unbekannt“), sondern erst nach dem Abgleich in dieser Sitzung
+ * (Posteingang beim Start, geöffnete Ordner; revolution_mail_folder_watch). Abweichung von
+ * Evolution (em-folder-tree-model.c:1494 zeigt fi->unread). microsoft365 liefert die Zahl aus
+ * Graph (unreadItemCount, camel-m365-store.c:741, 1125) und behält sie. */
+static void
+forget_unread (CamelFolderInfo *fi)
+{
+  for (; fi != NULL; fi = fi->next)
+    {
+      fi->unread = -1;
+      forget_unread (fi->child);
+    }
+}
+
 /* #347: Store online schalten im Worker (README „Worker“) wie Evolution nach dem Start
  * (e-mail-backend.c:323-339, e_mail_store_go_online_sync e-mail-store-utils.c:214-240).
  * Die Stores entstehen vor camel_session_set_online und damit offline (EDS
@@ -222,7 +243,8 @@ note_store_result_free (NoteStoreResult *result)
  *     „folder-created“ kommt (EDS camel-imapx-store.c:2165-2170, camel-store.c:841-845);
  *     microsoft365 fragt mit FAST den Server nur ohne gespeicherten Delta-Link
  *     (camel-m365-store.c:1190-1201). Der Cache von Revolution (~/.cache/revolution/mail)
- *     ist beim ersten Start leer; ohne FAST fragen beide den Server (LIST bzw. Delta). */
+ *     ist beim ersten Start leer; ohne FAST fragen beide den Server (LIST bzw. Delta).
+ * #350: Danach Gesendet, Entwürfe und Archiv als Ordnertyp (revolution_mail_folder_mark_special). */
 static void
 note_store_thread (GTask        *task,
                    gpointer      source_object,
@@ -245,7 +267,80 @@ note_store_thread (GTask        *task,
                                                      CAMEL_STORE_FOLDER_INFO_SUBSCRIBED,
                                                      cancellable, &result->folders_error);
 
+  if (result->info != NULL)
+    {
+      g_autoptr (CamelSession) session = camel_service_ref_session (CAMEL_SERVICE (store));
+      g_autoptr (ESourceRegistry) registry = NULL;
+
+      g_object_get (session, "registry", &registry, NULL);
+      revolution_mail_folder_mark_special (store, registry, result->info, cancellable);
+      if (provider != NULL && g_strcmp0 (provider->protocol, "imapx") == 0)
+        forget_unread (result->info);
+    }
+
   g_task_return_pointer (task, result, (GDestroyNotify) note_store_result_free);
+}
+
+/* #350: Posteingang beim Start aktualisieren wie Evolutions Abruf nach dem Start (mail-send-recv.c,
+ * refresh_folders_exec: camel_store_get_folder_sync, camel_folder_refresh_info_sync) und im
+ * UI-Thread beobachten (Ungelesen-Zähler, revolution_mail_folder_watch). Ordner immer über
+ * camel_store_get_folder_sync (README „Camel-Ordner“). Ein Fehler beim Aktualisieren (z. B. ohne
+ * Netz) lässt den Stand des Caches stehen. */
+static void
+refresh_inbox_thread (GTask        *task,
+                      gpointer      source_object,
+                      gpointer      task_data,
+                      GCancellable *cancellable)
+{
+  g_autoptr (GError) error = NULL;
+  gint64 started = g_get_monotonic_time ();
+  CamelFolder *folder = camel_store_get_folder_sync (source_object, task_data, 0, cancellable, &error);
+
+  if (folder == NULL)
+    {
+      g_task_return_error (task, g_steal_pointer (&error));
+      return;
+    }
+
+  if (camel_folder_refresh_info_sync (folder, cancellable, &error))
+    g_debug ("Posteingang: %s %s aktualisiert nach %.0f ms", camel_service_get_uid (source_object),
+             (const char *) task_data, (g_get_monotonic_time () - started) / 1000.0);
+  else
+    g_debug ("Posteingang: %s %s nicht aktualisiert: %s", camel_service_get_uid (source_object),
+             (const char *) task_data, error->message);
+
+  g_task_return_pointer (task, folder, g_object_unref);
+}
+
+static void
+on_inbox_refreshed (GObject      *source_object,
+                    GAsyncResult *result,
+                    gpointer      user_data)
+{
+  g_autoptr (RevolutionMailView) mail_view = user_data;
+  g_autoptr (GError) error = NULL;
+  g_autoptr (CamelFolder) folder = g_task_propagate_pointer (G_TASK (result), &error);
+
+  if (folder != NULL)
+    revolution_mail_view_watch_folder (mail_view, folder, TRUE, TRUE);
+  else if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+    g_debug ("Posteingang: %s nicht geladen: %s", camel_service_get_uid (CAMEL_SERVICE (source_object)),
+             error->message);
+}
+
+static const char *
+find_inbox (CamelFolderInfo *fi)
+{
+  for (; fi != NULL; fi = fi->next)
+    {
+      const char *found = (fi->flags & CAMEL_FOLDER_TYPE_MASK) == CAMEL_FOLDER_TYPE_INBOX ? fi->full_name
+                                                                                       : find_inbox (fi->child);
+
+      if (found != NULL)
+        return found;
+    }
+
+  return NULL;
 }
 
 /* Fehler beim Verbinden wie #347; Fehler beim Laden der Ordner nur, wenn die Verbindung
@@ -287,7 +382,20 @@ on_store_noted (GObject      *source_object,
     g_debug ("verbunden: %s", camel_service_get_uid (service));
 
   if (noted->folders_error == NULL)
-    revolution_mail_view_set_folders (mail_view, camel_service_get_uid (service), noted->info);
+    {
+      const char *inbox = find_inbox (noted->info);
+
+      revolution_mail_view_set_folders (mail_view, camel_service_get_uid (service), noted->info);
+      if (inbox != NULL)
+        {
+          g_autoptr (GTask) task = g_task_new (service, g_task_get_cancellable (G_TASK (result)),
+                                               on_inbox_refreshed, g_object_ref (mail_view));
+
+          g_task_set_source_tag (task, on_store_noted);
+          g_task_set_task_data (task, g_strdup (inbox), g_free);
+          g_task_run_in_thread (task, refresh_inbox_thread);
+        }
+    }
   else if (noted->connect_error == NULL)
     {
       g_warning ("Ordner %s (%s): %s", display_name, camel_service_get_uid (service), noted->folders_error->message);
@@ -297,7 +405,18 @@ on_store_noted (GObject      *source_object,
   else
     g_debug ("Ordner: %s nicht geladen: %s", camel_service_get_uid (service), noted->folders_error->message);
 
+  /* #350: Konto ohne Ordner gilt für die Erstauswahl als fertig (mail-view.c). */
+  if (noted->folders_error != NULL)
+    revolution_mail_view_set_folders (mail_view, camel_service_get_uid (service), NULL);
+
   note_store_result_free (noted);
+}
+
+static void
+on_folder_opened (RevolutionMailView *mail_view,
+                  CamelFolder        *folder)
+{
+  revolution_mail_view_watch_folder (mail_view, folder, FALSE, FALSE);
 }
 
 /* #348: Neue Stores anmelden und ihre Ordner laden, beim Start (on_session_loaded) und nach
@@ -322,6 +441,11 @@ note_stores (RevolutionMailSession *session,
         continue;
 
       g_object_set_data (l->data, "revolution-noted", GINT_TO_POINTER (TRUE));
+      /* #350: geöffnete Ordner für den Ungelesen-Zähler beobachten wie Evolution
+       * (store_folder_opened_cb, mail-folder-cache.c:1311-1317); das Signal kommt im
+       * Hauptkontext (EDS camel-store.c:895-925). */
+      g_signal_connect_object (l->data, "folder-opened", G_CALLBACK (on_folder_opened), mail_view,
+                               G_CONNECT_SWAPPED);
       task = g_task_new (l->data, cancellable, on_store_noted, g_object_ref (mail_view));
       g_task_set_source_tag (task, note_stores);
       g_task_run_in_thread (task, note_store_thread);

@@ -13,9 +13,16 @@
 #   tests/testdaten.py --ordner   nur lesend: Ordnerliste aller Mail-Konten aus GOA (#348),
 #                                 auch der nur lesend freigegebenen; Vergleich mit dem Log
 #                                 der App (G_MESSAGES_DEBUG=revolution, „Ordner: UID Name“)
+#   tests/testdaten.py --zaehler [LOG]  #350: nur lesend, unabhängig von Camel: ungelesene
+#                                 Nachrichten je Ordner aller Mail-Konten aus GOA, IMAP per STATUS
+#                                 (kein SELECT/EXAMINE, \\Recent bleibt), microsoft365 per Graph
+#                                 (GET); Zeilen „ZAEHLER <UID> <Ordner> <N>“. Mit LOG (App-Log,
+#                                 G_MESSAGES_DEBUG=revolution) Vergleich mit dem letzten
+#                                 „Ungelesen: <UID> <Ordner> <N>“ je Ordner, Exit 1 bei Abweichung
 #   tests/testdaten.py --last N   #352: N Lastmails per IMAP-APPEND (kein Versand) in den Ordner
 #                                 „Revolution-Last“ von privat@ (fehlende ergänzen); letzte
-#                                 Zeile „LAST <UID>/<voller Ordnername> <Anzahl>“
+#                                 Zeile „LAST <UID>/<voller Ordnername> <Anzahl>“; #350: mit
+#                                 --last-ordner NAME in einen anderen Ordner (Abbruch-Test Zähler)
 #   tests/testdaten.py --flags KONTO
 #                                 #353, nur lesend, unabhängig von Camel: Flags der Mails im Ordner
 #                                 Revolution-Test direkt vom Server (IMAP EXAMINE + UID FETCH FLAGS
@@ -40,6 +47,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import argparse
+import base64
 import ctypes
 import datetime
 import imaplib
@@ -49,6 +57,7 @@ import email.header
 import email.policy
 import email.utils
 import os
+import urllib.parse
 import urllib.request
 import struct
 import sys
@@ -372,12 +381,12 @@ def last_nachricht(nr, jetzt):
     return msg
 
 
-def last(k, anzahl, dry):
-    """#352: fehlende Lastmails 1..anzahl per APPEND in LAST_ORDNER (idempotent)."""
+def last(k, anzahl, dry, ordner=LAST_ORDNER):
+    """#352: fehlende Lastmails 1..anzahl per APPEND in ordner (idempotent)."""
     nur_testkonten([k.adresse])
-    folder = ordner_holen(k.store, LAST_ORDNER, not dry)
+    folder = ordner_holen(k.store, ordner, not dry)
     if folder is None:
-        print('  %s: Ordner %s anlegen, %d Lastmails einspielen' % (k.adresse, LAST_ORDNER, anzahl))
+        print('  %s: Ordner %s anlegen, %d Lastmails einspielen' % (k.adresse, ordner, anzahl))
         return 0
     folder.refresh_info_sync(cancellable())
     vorhanden = set()
@@ -955,6 +964,92 @@ def server(k, aktion, ziel=ORDNER):
     return 0
 
 
+# ---------------------------------------------------------------- #350: Ungelesen-Zähler
+
+def mutf7_decode(name):
+    """IMAP-Ordnername (modifiziertes UTF-7, RFC 3501 5.1.3) → Text."""
+    def teil(m):
+        if m.group(1) == '':
+            return '&'
+        b = m.group(1).replace(',', '/')
+        return base64.b64decode(b + '=' * (-len(b) % 4)).decode('utf-16-be')
+    return re.sub(r'&([^-]*)-', teil, name)
+
+
+def zaehler_imap(k):
+    """{voller Name wie Camel: n} per LIST und STATUS (UNSEEN), nur lesend (kein SELECT/EXAMINE)."""
+    c = imap_verbinden(k)
+    try:
+        out = {}
+        typ, zeilen = c.list('""', '*')
+        for z in zeilen:
+            if not isinstance(z, bytes):
+                continue
+            m = re.match(rb'\((?P<flags>[^)]*)\) (?P<delim>"[^"]*"|NIL) (?P<name>.*)$', z)
+            if not m or b'\\noselect' in m.group('flags').lower() or b'\\nonexistent' in m.group('flags').lower():
+                continue
+            roh = m.group('name').decode()
+            delim = m.group('delim').decode().strip('"')
+            typ, st = c.status(roh if roh.startswith('"') else '"%s"' % roh, '(UNSEEN)')
+            n = int(re.search(rb'UNSEEN (\d+)', st[0]).group(1))
+            name = mutf7_decode(roh.strip('"'))
+            out[name.replace(delim, '/') if delim != 'NIL' else name] = n
+        return out
+    finally:
+        c.logout()
+
+
+def zaehler_graph(k):
+    """{Pfad der Anzeigenamen wie Camel microsoft365: n} per Graph, nur GET."""
+    q = '?' + urllib.parse.urlencode({'$select': 'displayName,unreadItemCount,childFolderCount', '$top': '100'})
+    out = {}
+
+    def holen(pfad, prefix):
+        while pfad:
+            d = graph(k, 'GET', pfad)
+            for f in d['value']:
+                name = prefix + f['displayName']
+                out[name] = f['unreadItemCount']
+                if f.get('childFolderCount'):
+                    holen('/me/mailFolders/%s/childFolders%s' % (f['id'], q), name + '/')
+            pfad = d.get('@odata.nextLink', '').removeprefix(GRAPH) or None
+
+    holen('/me/mailFolders' + q, '')
+    return out
+
+
+def zaehler(konten, log):
+    """#350: nur lesend. Ungelesene je Ordner unabhängig von Camel; mit log Vergleich mit dem
+    letzten „Ungelesen: <UID> <Ordner> <N>“ der App je Ordner."""
+    app = {}
+    if log:
+        for z in open(log, encoding='utf-8', errors='replace'):
+            m = re.search(r'revolution-DEBUG: [0-9:.]+: Ungelesen: (\S+) (.+) (\d+)$', z.rstrip('\n'))
+            if m:
+                app[(m.group(1), m.group(2))] = int(m.group(3))
+    fehler = gleich = ohne = 0
+    for k in konten:
+        uid = k.account.get_uid()
+        backend = k.account.get_extension(EDataServer.SOURCE_EXTENSION_MAIL_ACCOUNT).get_backend_name()
+        ref = zaehler_graph(k) if backend == 'microsoft365' else zaehler_imap(k)
+        for name in sorted(ref):
+            print('ZAEHLER %s %s %d' % (uid, name, ref[name]))
+            if not log:
+                continue
+            if (uid, name) not in app:
+                # App ohne Zahl: imapx-Ordner ohne Abgleich in dieser Sitzung (main.c forget_unread)
+                print('  OHNE ZAHL in der App: %s %s (Server %d)' % (k.adresse, name, ref[name]))
+                ohne += 1
+            elif app[(uid, name)] != ref[name]:
+                print('  ABWEICHUNG %s %s: App %d, Server %d' % (k.adresse, name, app[(uid, name)], ref[name]))
+                fehler += 1
+            else:
+                gleich += 1
+    if log:
+        print('Vergleich: %d gleich, %d abweichend, %d ohne Zahl in der App' % (gleich, fehler, ohne))
+    return 1 if fehler else 0
+
+
 def main():
     ap = argparse.ArgumentParser(description='Testdaten für Revolution (#344)')
     ap.add_argument('--dry-run', action='store_true', help='nur anzeigen, nichts senden/schreiben')
@@ -964,9 +1059,13 @@ def main():
                     help='#354: nur die Anzeige-Mails per APPEND in die Posteingänge')
     ap.add_argument('--last', type=int, metavar='N',
                     help='N Lastmails per APPEND in %s von %s (#352)' % (LAST_ORDNER, LAST_KONTO))
+    ap.add_argument('--last-ordner', default=LAST_ORDNER, metavar='NAME',
+                    help='#350: Ordner für --last statt %s (z. B. Revolution-Zaehler)' % LAST_ORDNER)
     ap.add_argument('--flags', metavar='KONTO', help='#353: nur lesend Flags in %s vom Server' % ORDNER)
     ap.add_argument('--ungelesen', nargs=2, metavar=('KONTO', 'ORDNER'),
                     help='#353: ungelesene UIDs (nur lesend); mit --soll DATEI wiederherstellen')
+    ap.add_argument('--zaehler', nargs='?', const='', metavar='LOG',
+                    help='#350: nur lesend Ungelesene je Ordner (IMAP STATUS, Graph), Vergleich mit LOG')
     ap.add_argument('--soll', metavar='DATEI', help='#353: Ausgabe von --ungelesen als Sollstand')
     ap.add_argument('--server', nargs='+', metavar='KONTO AKTION [INBOX]',
                     help='#353: serverseitig gelesen|ungelesen|markiert|unmarkiert|neu|weg [im Posteingang]')
@@ -991,6 +1090,8 @@ def main():
     Camel.provider_init()
     EDataServer.SourceCamel.register_types()
     registry = EDataServer.SourceRegistry.new_sync(None)
+    if args.zaehler is not None:
+        return zaehler(ordner_konten(registry), args.zaehler)
     if args.ordner:
         konten = ordner_konten(registry)
         session = TestSession(user_data_dir=os.path.join(CACHE, 'data'),
@@ -1013,7 +1114,7 @@ def main():
         k.store = dienst(session, k.account, EDataServer.SOURCE_EXTENSION_MAIL_ACCOUNT,
                          Camel.ProviderType.STORE)
         ordnerbaum(k.store)
-        n = last(k, args.last, args.dry_run)
+        n = last(k, args.last, args.dry_run, args.last_ordner)
         k.store.disconnect_sync(True, None)
         return n
     for k in konten.values():

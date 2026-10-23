@@ -25,6 +25,9 @@
 #     Tests setzen damit Vorgaben per .gschema.override (z. B. mark-seen=false)
 #   BUILD=Pfad (optional, Umgebung): Build-Ordner, Standard build/ im Repo. GSettings-Schema
 #     aus BUILD/data, Einstellungen nur im Speicher (GSETTINGS_BACKEND=memory, #342).
+#   GSETTINGS_BACKEND=keyfile (optional, Umgebung, #350): Einstellungen über mehrere Starts, dann
+#     mit eigenem XDG_CONFIG_HOME (Datei XDG_CONFIG_HOME/glib-2.0/settings/keyfile), z. B. für
+#     den zuletzt gewählten Ordner; Standard memory
 #   LOG=Datei (optional, Umgebung, #349): Ausgabe der App (stdout und stderr) in diese Datei
 #   READY=Datei (optional, Umgebung, #349): statt fester WAIT-Sekunden warten, bis die Datei
 #     existiert, höchstens WAIT Sekunden (tests/smoke.sh legt sie an, sobald alles geladen ist)
@@ -50,7 +53,7 @@ BIN="$BUILD/src/revolution"
 OUT_DIR="${OUT_DIR:-$APP_DIR/../Design/Prototyp}"
 
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
-  sed -n '3,31p' "$0" >&2
+  sed -n '3,36p' "$0" >&2
   exit 1
 fi
 NAME="$1"
@@ -114,7 +117,7 @@ shoot () {
   # Session-Bus bleibt über DBUS_SESSION_BUS_ADDRESS erreichbar), keine Portale, X11-Backend
   # erzwingen.
   env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
-    XDG_RUNTIME_DIR="$RUNDIR" GSETTINGS_SCHEMA_DIR="${SCHEMA_DIR:-$BUILD/data}" GSETTINGS_BACKEND=memory \
+    XDG_RUNTIME_DIR="$RUNDIR" GSETTINGS_SCHEMA_DIR="${SCHEMA_DIR:-$BUILD/data}" GSETTINGS_BACKEND="${GSETTINGS_BACKEND:-memory}" \
     REAL_DISPLAY="$REAL_DISPLAY" BIN="$BIN" OUT="$out" WIDTH="$((WIDTH * RENDER))" HEIGHT="$((HEIGHT * RENDER))" \
     CLICK="$CLICK" KEYS="$KEYS" AFTER_KEYS="$AFTER_KEYS" KEY_DELAY="$KEY_DELAY" WAIT="$WAIT" RENDER="$RENDER" ${SCALE:+GDK_SCALE=$RENDER} \
     LOG="$LOG" READY="$READY" QUIT="$QUIT" \

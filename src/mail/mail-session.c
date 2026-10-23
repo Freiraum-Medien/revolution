@@ -20,6 +20,9 @@
  * Copyright (C) 1999-2008 Novell, Inc. (www.novell.com)
  * Copyright (C) 2009 Intel Corporation
  *
+ * SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only
+ * (Kopf ohne Versionsangabe; dafür gilt Evolution 3.56.2 COPYING:1-4, „LGPLv2 or (at
+ * your choice) LGPLv3“, COPYING.LGPL2 ist Version 2.1.)
  */
 
 /* mail-session.c – CamelSession der Mail (#346)
@@ -41,7 +44,9 @@
  * Geändert gegenüber der Vorlage:
  *   - Welche Konten einen Store bekommen, entscheidet dieselbe Regel wie die Seitenleiste
  *     (revolution_mail_account_hidden_reason, #345) statt nur der GOA/UOA-Prüfung
- *     (e-mail-session.c:516-556, 592-600).
+ *     (e-mail-session.c:516-556, 592-600). Anders als in Evolution bekommen damit auch
+ *     deaktivierte Nicht-GOA-Konten und die eingebauten Speicher local/vfolder/rss
+ *     keinen Store.
  *   - Die Registry-Signale (dort vier Rückrufe, 654-760) starten einen Abgleich im
  *     Worker-GTask (README „Worker“): add_service legt je Store die Datenbank an
  *     (EDS camel-store.c:516-547). Der Abgleich deckt auch eine (de)aktivierte Collection
@@ -69,6 +74,9 @@ struct _RevolutionMailSession {
 	ESourceRegistry *registry;
 
 	gulong registry_handler_ids[5];
+
+	/* 1, solange ein Abgleich angefordert, aber noch nicht begonnen ist. */
+	gint sync_pending;
 
 	/* Registry-Signale können mehrere Abgleiche gleichzeitig starten. */
 	GMutex sync_lock;
@@ -306,15 +314,24 @@ mail_session_sync_thread (GTask *task,
                           gpointer task_data G_GNUC_UNUSED,
                           GCancellable *cancellable G_GNUC_UNUSED)
 {
-	mail_session_sync_stores (REVOLUTION_MAIL_SESSION (source_object));
+	RevolutionMailSession *session = REVOLUTION_MAIL_SESSION (source_object);
+
+	/* Vor dem Abgleich zurücksetzen: ein Signal ab jetzt fordert einen neuen an. */
+	g_atomic_int_set (&session->sync_pending, 0);
+	mail_session_sync_stores (session);
 	g_task_return_boolean (task, TRUE);
 }
 
-/* Registry-Signale kommen im UI-Thread an (README „Architektur“). */
+/* Registry-Signale kommen im UI-Thread an (README „Architektur“). Ist schon ein Abgleich
+ * angefordert, deckt er dieses Signal mit ab („source-changed“ kommt auch für Kalender
+ * und Adressbücher). */
 static void
 mail_session_registry_changed_cb (RevolutionMailSession *session)
 {
 	GTask *task;
+
+	if (!g_atomic_int_compare_and_exchange (&session->sync_pending, 0, 1))
+		return;
 
 	task = g_task_new (session, NULL, NULL, NULL);
 	g_task_set_source_tag (task, mail_session_registry_changed_cb);
@@ -418,14 +435,15 @@ mail_session_constructed (GObject *object)
 
 	camel_session_set_network_monitor (CAMEL_SESSION (session), e_network_monitor_get_default ());
 
-	/* Add available mail accounts. */
-	mail_session_sync_stores (session);
-
-	/* Listen for registry changes. */
+	/* Listen for registry changes. Vor dem ersten Abgleich, damit kein Signal dazwischen
+	 * verloren geht; der Mutex in mail_session_sync_stores ordnet die Abgleiche. */
 	for (gsize ii = 0; ii < G_N_ELEMENTS (signals); ii++)
 		session->registry_handler_ids[ii] = g_signal_connect_swapped (
 			session->registry, signals[ii],
 			G_CALLBACK (mail_session_registry_changed_cb), session);
+
+	/* Add available mail accounts. */
+	mail_session_sync_stores (session);
 }
 
 static CamelService *

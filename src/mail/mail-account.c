@@ -109,7 +109,8 @@ static const char * const builtin_uids[] = { "local", "vfolder", "rss", NULL };
  *    selbst (e-mail-account-store.c:1220-1255); der Ordnerbaum zeigt nur aktivierte
  *    (em-folder-tree-model.c:559-574).
  * Die Registry-Aufrufe lesen nur die Quellen im Speicher (EDS e-source-registry.c:459-472,
- * 2576-2604), kein D-Bus; wie on_registry_loaded in main.c im UI-Thread.
+ * 2576-2604), kein D-Bus, unter Mutex; daher zulässig im UI-Thread (Seitenleiste, README
+ * „Worker“) wie im Worker (Session).
  * #346: Dieselbe Regel entscheidet, für welche Konten die Session einen Store registriert
  * (mail-session.c); daher hier statt in mail-view.c. */
 const char *

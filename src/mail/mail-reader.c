@@ -741,7 +741,8 @@ create_web_context (gpointer data G_GNUC_UNUSED)
 
   /* Der Webprozess läuft in der Sandbox (bubblewrap) und sieht den Ordner sonst nicht: ohne diese
    * Zeile antwortete er im Build-Ordner auf „revolution-guard“ mit „nicht verarbeitet“. */
-  webkit_web_context_add_path_to_sandbox (context, extensions, TRUE);
+  if (g_file_test (extensions, G_FILE_TEST_IS_DIR))
+    webkit_web_context_add_path_to_sandbox (context, extensions, TRUE);
   g_signal_connect (context, "initialize-web-process-extensions", G_CALLBACK (on_initialize_extensions),
                     (gpointer) extensions);
   webkit_web_context_register_uri_scheme (context, "cid", on_cid_request, NULL, NULL);

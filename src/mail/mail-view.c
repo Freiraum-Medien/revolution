@@ -377,8 +377,8 @@ set_list_subtitle (RevolutionMailView *self,
 }
 
 /* Im UI-Thread: Server-Stand items (ganz, sortiert) als Abgleich auf die angezeigte Liste:
- * nur fehlende Einträge entfernen, neue einfügen, geänderte ersetzen. Auswahl und
- * Scrollposition bleiben bei unveränderten Einträgen erhalten. Beide Listen sind gleich
+ * nur fehlende Einträge entfernen, neue einfügen, geänderte am bestehenden Eintrag
+ * aktualisieren. Auswahl und Scrollposition bleiben erhalten. Beide Listen sind gleich
  * sortiert; ein Eintrag mit geänderter Position wird neu eingefügt, der alte fällt am Ende
  * weg. */
 static void
@@ -426,11 +426,9 @@ merge_messages (RevolutionMailView *self,
 
       if (g_strcmp0 (old_uid, revolution_mail_message_get_uid (items->pdata[j])) == 0)
         {
-          if (!revolution_mail_message_equal (old, items->pdata[j]))
-            {
-              g_list_store_splice (self->messages, i, 1, &items->pdata[j], 1);
-              (*changed)++;
-            }
+          /* Am bestehenden Eintrag, nicht per splice: die Auswahl bliebe sonst nicht erhalten. */
+          if (revolution_mail_message_update (old, items->pdata[j]))
+            (*changed)++;
           i++;
           j++;
           continue;
@@ -468,9 +466,15 @@ add_messages_block (gpointer data)
 
   if (block->merge)
     {
+      GtkAdjustment *vadjustment = gtk_scrollable_get_vadjustment (GTK_SCROLLABLE (self->message_list));
+      gboolean at_top = gtk_adjustment_get_value (vadjustment) < 1.0;
       guint added = 0, removed = 0, changed = 0;
 
       merge_messages (self, block->items, &added, &removed, &changed);
+      /* GtkListView hält die bisher erste Zeile; stand die Liste oben, soll neue Post oben
+       * sichtbar sein. Ohne Auswahl und Fokus (GTK_LIST_SCROLL_NONE). */
+      if (at_top && g_list_model_get_n_items (G_LIST_MODEL (self->messages)) > 0)
+        gtk_list_view_scroll_to (self->message_list, 0, GTK_LIST_SCROLL_NONE, NULL);
       set_list_subtitle (self, block->total, block->unread);
       g_debug ("Nachrichten: %s Abgleich %u neu, %u entfernt, %u geändert", self->loading,
                added, removed, changed);

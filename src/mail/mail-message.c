@@ -29,6 +29,7 @@ struct _RevolutionMailMessage
   char     *subject;
   char     *preview;
   char     *date;
+  gint64    timestamp;
   char     *accessible_label;
   gboolean  unread;
   gboolean  starred;
@@ -50,6 +51,8 @@ enum
   PROP_ATTACHMENT,
   N_PROPS
 };
+
+static GParamSpec *props[N_PROPS];
 
 static void
 revolution_mail_message_get_property (GObject    *object,
@@ -92,7 +95,6 @@ static void
 revolution_mail_message_class_init (RevolutionMailMessageClass *klass)
 {
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
-  GParamSpec *props[N_PROPS] = { NULL, };
   GParamFlags flags = G_PARAM_READABLE | G_PARAM_STATIC_STRINGS;
 
   object_class->get_property = revolution_mail_message_get_property;
@@ -224,6 +226,7 @@ revolution_mail_message_new (CamelMessageInfo *info,
   flags = camel_message_info_get_flags (info);
   camel_message_info_property_unlock (info);
 
+  self->timestamp = date;
   self->date = date_for (date, now);
   self->unread = (flags & CAMEL_MESSAGE_SEEN) == 0;
   self->starred = (flags & CAMEL_MESSAGE_FLAGGED) != 0;
@@ -246,17 +249,66 @@ revolution_mail_message_get_uid (RevolutionMailMessage *self)
   return self->uid;
 }
 
-/* Gleiche Anzeige (Abgleich in mail-view.c, merge_messages). */
-gboolean
-revolution_mail_message_equal (RevolutionMailMessage *a,
-                               RevolutionMailMessage *b)
+static gboolean
+update_string (RevolutionMailMessage  *self,
+               char                  **field,
+               const char             *value,
+               guint                   prop)
 {
-  g_return_val_if_fail (REVOLUTION_IS_MAIL_MESSAGE (a) && REVOLUTION_IS_MAIL_MESSAGE (b), FALSE);
+  if (g_strcmp0 (*field, value) == 0)
+    return FALSE;
 
-  return g_strcmp0 (a->uid, b->uid) == 0 && g_strcmp0 (a->sender, b->sender) == 0 &&
-         g_strcmp0 (a->subject, b->subject) == 0 && g_strcmp0 (a->preview, b->preview) == 0 &&
-         g_strcmp0 (a->date, b->date) == 0 && a->unread == b->unread && a->starred == b->starred &&
-         a->attachment == b->attachment;
+  g_free (*field);
+  *field = g_strdup (value);
+  g_object_notify_by_pspec (G_OBJECT (self), props[prop]);
+
+  return TRUE;
+}
+
+static gboolean
+update_boolean (RevolutionMailMessage *self,
+                gboolean              *field,
+                gboolean               value,
+                guint                  prop)
+{
+  if (*field == value)
+    return FALSE;
+
+  *field = value;
+  g_object_notify_by_pspec (G_OBJECT (self), props[prop]);
+
+  return TRUE;
+}
+
+/* Im UI-Thread (Abgleich in mail-view.c, merge_messages): Felder von from (gleiche UID)
+ * übernehmen, am bestehenden Eintrag, damit Auswahl und Zeile erhalten bleiben; die
+ * Bindungen der Zeile (mail-view.blp) folgen über notify. Verglichen wird der Zeitstempel,
+ * nicht das relative Datum (das nach Mitternacht anders lautet). TRUE bei Änderung. */
+gboolean
+revolution_mail_message_update (RevolutionMailMessage *self,
+                                RevolutionMailMessage *from)
+{
+  gboolean changed = FALSE;
+
+  g_return_val_if_fail (REVOLUTION_IS_MAIL_MESSAGE (self), FALSE);
+  g_return_val_if_fail (REVOLUTION_IS_MAIL_MESSAGE (from), FALSE);
+
+  if (self->timestamp != from->timestamp)
+    {
+      self->timestamp = from->timestamp;
+      update_string (self, &self->date, from->date, PROP_DATE);
+      changed = TRUE;
+    }
+  changed |= update_string (self, &self->sender, from->sender, PROP_SENDER);
+  changed |= update_string (self, &self->subject, from->subject, PROP_SUBJECT);
+  changed |= update_string (self, &self->preview, from->preview, PROP_PREVIEW);
+  changed |= update_boolean (self, &self->unread, from->unread, PROP_UNREAD);
+  changed |= update_boolean (self, &self->starred, from->starred, PROP_STARRED);
+  changed |= update_boolean (self, &self->attachment, from->attachment, PROP_ATTACHMENT);
+  if (changed)
+    update_string (self, &self->accessible_label, from->accessible_label, PROP_ACCESSIBLE_LABEL);
+
+  return changed;
 }
 
 gboolean

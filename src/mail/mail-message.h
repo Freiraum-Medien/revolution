@@ -17,8 +17,8 @@ G_DECLARE_FINAL_TYPE (RevolutionMailMessage, revolution_mail_message, REVOLUTION
 RevolutionMailMessage *revolution_mail_message_new         (CamelMessageInfo      *info,
                                                             GDateTime             *now);
 const char            *revolution_mail_message_get_uid     (RevolutionMailMessage *self);
-gboolean               revolution_mail_message_equal       (RevolutionMailMessage *a,
-                                                            RevolutionMailMessage *b);
+gboolean               revolution_mail_message_update      (RevolutionMailMessage *self,
+                                                            RevolutionMailMessage *from);
 gboolean               revolution_mail_message_get_unread  (RevolutionMailMessage *self);
 gboolean               revolution_mail_message_has_preview (RevolutionMailMessage *self);
 

@@ -21,6 +21,7 @@ gboolean revolution_mail_favorites_setup     (CamelSession          *session,
                                               GError               **error);
 void     revolution_mail_favorites_fill      (GListStore            *store,
                                               RevolutionMailAccount *account);
+void     revolution_mail_favorites_sync_session (CamelSession      *session);
 void     revolution_mail_favorites_add_store (RevolutionMailView    *view,
                                               CamelStore            *store,
                                               CamelFolderInfo       *info,

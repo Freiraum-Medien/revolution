@@ -441,6 +441,9 @@ note_stores (RevolutionMailSession *session,
   for (guint i = 0; errors[i] != NULL; i++)
     revolution_mail_view_show_error (mail_view, _("Konto nicht eingerichtet"), errors[i], TRUE);
 
+  /* #351: Quellen entfernter Stores aus den Favoriten nehmen (mail-favorites.c). */
+  revolution_mail_favorites_sync_session (CAMEL_SESSION (session));
+
   for (GList *l = services; l != NULL; l = l->next)
     {
       g_autoptr (GTask) task = NULL;
@@ -460,6 +463,66 @@ note_stores (RevolutionMailSession *session,
       g_task_set_source_tag (task, note_stores);
       g_task_run_in_thread (task, note_store_thread);
     }
+}
+
+/* #351: Nur für Tests (REVOLUTION_TEST_HOOKS=1, tests/kombiniert.sh), Muster wie REVOLUTION_FOLDER:
+ * Aktion app.test-store (UID, vorhanden) über org.gtk.Actions am Session-Bus. FALSE entfernt den
+ * Store dieses Kontos aus der Session wie mail-session.c beim Abgleich (camel_session_remove_service)
+ * und meldet danach „services-changed“ wie dort; TRUE stößt den Abgleich der Session über das
+ * Registry-Signal „source-changed“ an (mail-session.c, mail_session_registry_changed_cb), der den
+ * Store des weiterhin angezeigten Kontos neu anlegt. Ohne Änderung an GOA oder ESource. */
+static void
+test_remove_store_thread (GTask        *task,
+                          gpointer      source_object,
+                          gpointer      task_data,
+                          GCancellable *cancellable G_GNUC_UNUSED)
+{
+  g_autoptr (CamelService) service = camel_session_ref_service (source_object, task_data);
+
+  if (service != NULL)
+    camel_session_remove_service (source_object, service);
+  g_debug ("Test: Store %s %s", (const char *) task_data, service != NULL ? "entfernt" : "nicht gefunden");
+  g_task_return_boolean (task, TRUE);
+}
+
+static void
+on_test_store_removed (GObject      *source_object,
+                       GAsyncResult *result G_GNUC_UNUSED,
+                       gpointer      user_data G_GNUC_UNUSED)
+{
+  g_signal_emit_by_name (source_object, "services-changed");
+}
+
+static void
+on_test_store (GSimpleAction *action G_GNUC_UNUSED,
+               GVariant      *parameter,
+               gpointer       user_data)
+{
+  GApplication *app = user_data;
+  CamelSession *session = g_object_get_data (G_OBJECT (app), "session");
+  ESourceRegistry *registry = g_object_get_data (G_OBJECT (app), "registry");
+  g_autoptr (ESource) source = NULL;
+  const char *uid;
+  gboolean present;
+
+  g_variant_get (parameter, "(&sb)", &uid, &present);
+  if (session == NULL || registry == NULL)
+    return;
+
+  if (!present)
+    {
+      g_autoptr (GTask) task = g_task_new (session, NULL, on_test_store_removed, NULL);
+
+      g_task_set_source_tag (task, on_test_store);
+      g_task_set_task_data (task, g_strdup (uid), g_free);
+      g_task_run_in_thread (task, test_remove_store_thread);
+      return;
+    }
+
+  source = e_source_registry_ref_source (registry, uid);
+  g_debug ("Test: Store %s Abgleich", uid);
+  if (source != NULL)
+    g_signal_emit_by_name (registry, "source-changed", source);
 }
 
 static void
@@ -483,6 +546,15 @@ on_session_loaded (GObject      *source_object,
   g_object_set_data_full (G_OBJECT (session), "cancellable", g_object_ref (cancellable), g_object_unref);
 
   revolution_mail_view_set_session (mail_view, CAMEL_SESSION (session));
+  if (g_strcmp0 (g_getenv ("REVOLUTION_TEST_HOOKS"), "1") == 0)
+    {
+      const GActionEntry test_actions[] = {
+        { "test-store", on_test_store, "(sb)", NULL, NULL, { 0 } },
+      };
+
+      g_action_map_add_action_entries (G_ACTION_MAP (source_object), test_actions, G_N_ELEMENTS (test_actions),
+                                       source_object);
+    }
   g_signal_connect_object (session, "services-changed", G_CALLBACK (note_stores), mail_view, G_CONNECT_DEFAULT);
   note_stores (session, mail_view);
 }

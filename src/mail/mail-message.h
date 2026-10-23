@@ -26,5 +26,8 @@ gboolean               revolution_mail_message_get_unread  (RevolutionMailMessag
 gboolean               revolution_mail_message_get_starred (RevolutionMailMessage *self);
 gint64                 revolution_mail_message_get_timestamp (RevolutionMailMessage *self);
 gboolean               revolution_mail_message_has_preview (RevolutionMailMessage *self);
+gboolean               revolution_mail_message_get_source  (RevolutionMailMessage  *self,
+                                                            const char            **uid,
+                                                            const char            **full_name);
 
 G_END_DECLS

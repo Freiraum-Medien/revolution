@@ -1933,6 +1933,9 @@ static void
 on_message_selected (RevolutionMailView *self)
 {
   RevolutionMailMessage *message = gtk_single_selection_get_selected_item (self->message_selection);
+  g_autoptr (RevolutionMailAccount) account = NULL;
+  g_autoptr (RevolutionMailFolder) place = NULL;
+  const char *source_uid, *source_folder;
 
   if (message == NULL || self->folder == NULL || self->session == NULL)
     {
@@ -1941,8 +1944,13 @@ on_message_selected (RevolutionMailView *self)
       return;
     }
 
+  /* #351: In den Favoriten zeigt der Kopf den echten Ordner (Prototyp „Eingang — Privat“). */
+  if (revolution_mail_message_get_source (message, &source_uid, &source_folder) &&
+      (account = find_account (self, source_uid)) != NULL)
+    place = revolution_mail_folder_find (gtk_tree_list_model_get_model (account_tree (account)), source_folder);
+
   gtk_stack_set_visible_child_name (self->message_stack, "content");
-  revolution_mail_reader_show (self->reader, self->session, self->folder, message);
+  revolution_mail_reader_show (self->reader, self->session, self->folder, place != NULL ? place : self->folder, message);
 }
 
 /* #352: Nur für Testläufe (tests/nachrichtenliste.sh) wie REVOLUTION_THEME (main.c):

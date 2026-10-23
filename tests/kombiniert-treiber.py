@@ -6,6 +6,10 @@
 # ohne Anmeldung, Graph-Anfragen (M365_DEBUG=1) nur als „> METHODE Pfad“ ohne Kopfzeilen (Token).
 # NAME-Endung:
 #   -dunkel  nur laden, Screenshot; kein Schreibzugriff (Beleg nur lesend, tests/kombiniert.sh)
+#   -zyklus  laden, dann den Store des Kontos ZYKLUS_UID aus der Session nehmen und wieder anlegen
+#            (Test-Aktion app.test-store, REVOLUTION_TEST_HOOKS=1, main.c): seine Mails verschwinden aus
+#            „Alle Eingänge“ und kommen genau einmal wieder (Zählung, keine doppelten UIDs); kein
+#            Schreibzugriff
 #   -hell    laden, Screenshot, dann im Testkonto KONTO an der Live-Mail (tests/testdaten.py --server
 #            KONTO neu INBOX, vor dem Start) Gelesen nach Verzögerung, Markieren, Markierung entfernen,
 #            Ungelesen; jede Änderung direkt am Server geprüft (tests/testdaten.py --live-flags, nur
@@ -37,9 +41,9 @@ fehler = 0
 d = display.Display()
 LOG = os.path.join(OUT, NAME + '.log')
 ZEILE_RE = re.compile(r'^\(revolution:\d+\): revolution-DEBUG: (\d\d):(\d\d):(\d\d\.\d+): (.*)$')
-IMAP_RE = re.compile(r'(\[imapx:[A-Za-z]\]).*?\b(LIST|LSUB|STATUS|SELECT|EXAMINE|CREATE|DELETE|RENAME|SUBSCRIBE|'
-                     r'UNSUBSCRIBE|APPEND|STORE|EXPUNGE|COPY|MOVE|IDLE|FETCH|NAMESPACE|CAPABILITY|ENABLE|NOOP|'
-                     r'SEARCH|UID|ID|CLOSE|UNSELECT|LOGOUT|DONE)\b(.{0,160})')
+# Gesendete IMAP-Befehle: je Befehl eine Zeile „completing command buffer is [N] '<Befehl>'“
+# (EDS camel-imapx-command.c:528-532, CAMEL_DEBUG=imapx:command); „UID STORE“ usw. bleiben vollständig.
+IMAP_RE = re.compile(r"(\[imapx:[A-Za-z]\]) completing command buffer is \[\d+\] '(.{0,160})")
 GRAPH_RE = re.compile(r'^> (GET|POST|PATCH|PUT|DELETE|HEAD) (\S+)')
 
 
@@ -69,8 +73,8 @@ def filtern(quelle, ziel):
         else:
             m = IMAP_RE.search(zeile)
             g = GRAPH_RE.match(zeile)
-            if m and ('command' in zeile.lower() or '> ' in zeile):
-                ziel.write('%s %s%s\n' % (m.group(1), m.group(2), m.group(3).rstrip()))
+            if m:
+                ziel.write('%s %s\n' % (m.group(1), m.group(2).rstrip().rstrip("'")))
             elif g:
                 ziel.write('[graph] %s %s\n' % (g.group(1), g.group(2).split('?')[0]))
             elif '"requests"' in zeile and '"method"' in zeile:
@@ -278,6 +282,61 @@ def testkonto():
     (ok if entfernt == 2 else falsch)('Live-Mails am Server gelöscht → %d entfernt (erwartet 2)' % entfernt)
 
 
+def liste():
+    """(Zeilen, verschiedene UIDs) des letzten Stands der Liste „Alle Eingänge“."""
+    m = letzte(r'^Nachrichten: %s (?:vollständig |.*Liste )(\d+)(?: nach [^,]*)?, (\d+) verschiedene UIDs' % re.escape(FAV))
+    return (int(m.group(1)), int(m.group(2))) if m else (None, None)
+
+
+def anzahl_konto(uid, ab=0):
+    """Letzte Zahl „Favoriten: Anzahl inbox <uid> …“ ab Marke, None ohne Zeile."""
+    werte = [int(m.group(1)) for m in (re.match(r'^Favoriten: Anzahl inbox %s \S+ (\d+)$' % uid, t)
+                                       for _, t in log_zeilen()[ab:]) if m]
+    return werte[-1] if werte else None
+
+
+def test_store(uid, vorhanden):
+    pfad = '/' + os.environ['APP_ID'].replace('.', '/').replace('-', '_')
+    r = subprocess.run(['gdbus', 'call', '--session', '-d', os.environ['APP_ID'], '-o', pfad, '-m',
+                        'org.gtk.Actions.Activate', 'test-store',
+                        "[<('%s', %s)>]" % (uid, 'true' if vorhanden else 'false'), '{}'],
+                       capture_output=True, text=True, timeout=30)
+    wert('app.test-store %s %s: %s' % (uid, vorhanden, (r.stdout + r.stderr).strip()))
+
+
+def zyklus():
+    uid = os.environ['ZYKLUS_UID']
+    gesamt, verschieden = liste()
+    n = anzahl_konto(uid)
+    wert('vorher: Liste %s, %s verschiedene UIDs, Konto %s: %s' % (gesamt, verschieden, uid, n))
+    if gesamt is None or n is None or gesamt != verschieden:
+        falsch('Ausgangsstand unklar')
+        return
+    ab = marke()
+    test_store(uid, False)
+    t = warte(r'^Favoriten: inbox ohne %s .*\(Store entfernt\)$' % uid, ab, 60)
+    (ok if t else falsch)('Store entfernt → Quelle aus „Alle Eingänge“: %s' % (t[1] if t else 'fehlt'))
+    ruhig(3, 60)
+    ohne, ohne_v = liste()
+    (ok if ohne == gesamt - n and ohne_v == ohne else falsch)(
+        'ohne Konto: Liste %s, %s verschiedene UIDs (erwartet %d)' % (ohne, ohne_v, gesamt - n))
+    rest = anzahl_konto(uid, ab)
+    (ok if rest is None else falsch)('ohne Konto: keine Zählung mehr für %s (%s)' % (uid, rest))
+    bild('2-ohne-konto')
+    ab = marke()
+    test_store(uid, True)
+    t = warte(r'^Favoriten: %s fertig$' % uid, ab, 120)
+    (ok if t else falsch)('Store neu angelegt → Quellen wieder hinzugefügt: %s' % (t[1] if t else 'fehlt'))
+    ruhig(3, 120)
+    wieder, wieder_v = liste()
+    n2 = anzahl_konto(uid, ab)
+    (ok if wieder == gesamt and wieder_v == wieder and n2 == n else falsch)(
+        'wieder da: Liste %s, %s verschiedene UIDs, Konto %s (vorher %s/%s/%s)' % (wieder, wieder_v, n2, gesamt, verschieden, n))
+    quellen = [t for _, t in log_zeilen()[ab:] if re.match(r'^Favoriten: inbox aus %s ' % uid, t)]
+    (ok if len(quellen) == 1 else falsch)('Posteingang genau einmal wieder hinzugefügt (%d×)' % len(quellen))
+    bild('3-wieder')
+
+
 def main():
     log = open(LOG, 'w')
     app = subprocess.Popen([BIN], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -297,6 +356,8 @@ def main():
         wert('Liste: %s' % (letzte(r'^Nachrichten: %s .*' % re.escape(FAV)).group(0)))
         wert('Ungelesen „Alle Eingänge“: %s' % ungelesen_fav())
         bild('1-geladen')
+        if NAME.endswith('-zyklus'):
+            zyklus()
         if NAME.endswith('-hell'):
             testkonto()
             ruhig(3, 60)

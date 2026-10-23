@@ -7,6 +7,7 @@ src/mail/mail-message.c
 src/mail/mail-view.c
 src/mail/mail-reader.c
 src/mail/mail-attachment.c
+src/mail/mail-favorites.c
 src/mail/mail-session.c
 src/window.blp
 src/composer/composer.blp

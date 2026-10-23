@@ -31,8 +31,12 @@ struct _RevolutionMailMessage
   char     *date;
   gint64    timestamp;
   char     *accessible_label;
-  /* #351: Konto der Nachricht im Suchordner (Favoriten), sonst NULL. */
+  /* #351: Konto der Nachricht im Suchordner (Favoriten), sonst NULL: voller Anzeigename, Kurzform
+   * für die Zeile, UID und voller Name des Quellordners (Ort im Nachrichtenkopf, mail-view.c). */
   char     *account;
+  char     *account_label;
+  char     *source_uid;
+  char     *source_folder;
   gboolean  unread;
   gboolean  starred;
   gboolean  attachment;
@@ -52,6 +56,7 @@ enum
   PROP_STARRED,
   PROP_ATTACHMENT,
   PROP_ACCOUNT,
+  PROP_ACCOUNT_LABEL,
   PROP_SHOW_ACCOUNT,
   N_PROPS
 };
@@ -77,6 +82,7 @@ revolution_mail_message_get_property (GObject    *object,
     case PROP_STARRED:          g_value_set_boolean (value, self->starred); break;
     case PROP_ATTACHMENT:       g_value_set_boolean (value, self->attachment); break;
     case PROP_ACCOUNT:          g_value_set_string (value, self->account); break;
+    case PROP_ACCOUNT_LABEL:    g_value_set_string (value, self->account_label); break;
     case PROP_SHOW_ACCOUNT:     g_value_set_boolean (value, self->account != NULL); break;
     default: G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -94,6 +100,9 @@ revolution_mail_message_finalize (GObject *object)
   g_free (self->date);
   g_free (self->accessible_label);
   g_free (self->account);
+  g_free (self->account_label);
+  g_free (self->source_uid);
+  g_free (self->source_folder);
 
   G_OBJECT_CLASS (revolution_mail_message_parent_class)->finalize (object);
 }
@@ -116,6 +125,7 @@ revolution_mail_message_class_init (RevolutionMailMessageClass *klass)
   props[PROP_STARRED] = g_param_spec_boolean ("starred", NULL, NULL, FALSE, flags);
   props[PROP_ATTACHMENT] = g_param_spec_boolean ("attachment", NULL, NULL, FALSE, flags);
   props[PROP_ACCOUNT] = g_param_spec_string ("account", NULL, NULL, NULL, flags);
+  props[PROP_ACCOUNT_LABEL] = g_param_spec_string ("account-label", NULL, NULL, NULL, flags);
   props[PROP_SHOW_ACCOUNT] = g_param_spec_boolean ("show-account", NULL, NULL, FALSE, flags);
   g_object_class_install_properties (object_class, N_PROPS, props);
 }
@@ -212,6 +222,37 @@ preview_for (const char *preview)
   return text;
 }
 
+/* #351: Kurzform des Kontonamens für die Zeile (PM 24.10.2026: kurz, Absender nicht unnötig kürzen):
+ * bei einer Adresse der Teil vor dem @, sofern kein anderes Konto der Session denselben hat, sonst
+ * der volle Anzeigename. Im Worker; die Session liest nur ihre Dienste (camel_session_list_services). */
+static char *
+account_label_for (CamelStore *store,
+                   const char *name)
+{
+  g_autoptr (CamelSession) session = camel_service_ref_session (CAMEL_SERVICE (store));
+  g_autolist (CamelService) services = session != NULL ? camel_session_list_services (session) : NULL;
+  const char *at = name != NULL ? strchr (name, '@') : NULL;
+  g_autofree char *local = NULL;
+
+  if (at == NULL || at == name)
+    return g_strdup (name);
+
+  local = g_strndup (name, at - name);
+  for (GList *l = services; l != NULL; l = l->next)
+    {
+      g_autofree char *other = NULL;
+
+      if (l->data == (gpointer) store || !CAMEL_IS_STORE (l->data) || CAMEL_IS_VEE_STORE (l->data))
+        continue;
+
+      other = camel_service_dup_display_name (l->data);
+      if (other != NULL && g_ascii_strncasecmp (other, local, at - name) == 0 && other[at - name] == '@')
+        return g_strdup (name);
+    }
+
+  return g_steal_pointer (&local);
+}
+
 /* Zugänglicher Name der Zeile (Architektur 8): Absender, Betreff, Datum, Zustände, #351 Konto. */
 static char *
 accessible_label_for (RevolutionMailMessage *self)
@@ -263,7 +304,12 @@ revolution_mail_message_new (CamelMessageInfo *info,
       CamelStore *store = original != NULL ? camel_folder_get_parent_store (original) : NULL;
 
       if (store != NULL)
-        self->account = camel_service_dup_display_name (CAMEL_SERVICE (store));
+        {
+          self->account = camel_service_dup_display_name (CAMEL_SERVICE (store));
+          self->account_label = account_label_for (store, self->account);
+          self->source_uid = g_strdup (camel_service_get_uid (CAMEL_SERVICE (store)));
+          self->source_folder = g_strdup (camel_folder_get_full_name (original));
+        }
     }
 
   self->accessible_label = accessible_label_for (self);
@@ -387,6 +433,20 @@ revolution_mail_message_get_timestamp (RevolutionMailMessage *self)
   g_return_val_if_fail (REVOLUTION_IS_MAIL_MESSAGE (self), 0);
 
   return self->timestamp;
+}
+
+/* #351: Quellordner einer Nachricht im Suchordner (UID des Kontos, voller Name), sonst FALSE. */
+gboolean
+revolution_mail_message_get_source (RevolutionMailMessage  *self,
+                                    const char            **uid,
+                                    const char            **full_name)
+{
+  g_return_val_if_fail (REVOLUTION_IS_MAIL_MESSAGE (self), FALSE);
+
+  *uid = self->source_uid;
+  *full_name = self->source_folder;
+
+  return self->source_uid != NULL && self->source_folder != NULL;
 }
 
 gboolean

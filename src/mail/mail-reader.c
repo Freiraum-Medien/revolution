@@ -1653,9 +1653,11 @@ void
 revolution_mail_reader_show (RevolutionMailReader  *self,
                              CamelSession          *session,
                              RevolutionMailFolder  *folder,
+                             RevolutionMailFolder  *place_folder,
                              RevolutionMailMessage *message)
 {
   g_autoptr (RevolutionMailAccount) account = NULL;
+  g_autoptr (RevolutionMailAccount) place_account = NULL;
   g_autofree char *sender = NULL, *subject = NULL, *folder_name = NULL, *icon = NULL, *account_name = NULL;
   g_autofree char *place = NULL;
   LoadMessage *load;
@@ -1663,13 +1665,17 @@ revolution_mail_reader_show (RevolutionMailReader  *self,
   g_return_if_fail (REVOLUTION_IS_MAIL_READER (self));
   g_return_if_fail (CAMEL_IS_SESSION (session));
   g_return_if_fail (REVOLUTION_IS_MAIL_FOLDER (folder));
+  g_return_if_fail (REVOLUTION_IS_MAIL_FOLDER (place_folder));
   g_return_if_fail (REVOLUTION_IS_MAIL_MESSAGE (message));
 
   revolution_mail_reader_clear (self);
 
   g_object_get (message, "sender", &sender, "subject", &subject, NULL);
-  g_object_get (folder, "account", &account, "display-name", &folder_name, "icon-name", &icon, NULL);
-  g_object_get (account, "display-name", &account_name, NULL);
+  /* #351: Geladen wird aus folder, angezeigt wird der Ort place_folder: bei Nachrichten aus den
+   * Favoriten der echte Ordner wie der Prototyp („Eingang — Privat“, mail-view.c). */
+  g_object_get (folder, "account", &account, NULL);
+  g_object_get (place_folder, "account", &place_account, "display-name", &folder_name, "icon-name", &icon, NULL);
+  g_object_get (place_account, "display-name", &account_name, NULL);
   /* Translators: Ordner und Konto im Nachrichtenkopf, z. B. „Eingang — Privat“. */
   place = g_strdup_printf (_("%s — %s"), folder_name, account_name);
 

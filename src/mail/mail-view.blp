@@ -467,6 +467,22 @@ template $RevolutionMailView: Adw.BreakpointBin {
                           ellipsize: end;
                         }
 
+                        // #351: Konto der Nachricht in den Favoriten (mail-message.c), Kurzform, klein
+                        // und gedimmt wie das Datum (Dokument #5: Beschriftungen gedimmt), voller
+                        // Name im Tooltip.
+                        Label {
+                          label: bind template.item as <$RevolutionMailMessage>.account-label;
+                          visible: bind template.item as <$RevolutionMailMessage>.show-account;
+                          tooltip-text: bind template.item as <$RevolutionMailMessage>.account;
+                          max-width-chars: 14;
+                          ellipsize: end;
+
+                          styles [
+                            "caption",
+                            "dimmed",
+                          ]
+                        }
+
                         Label {
                           label: bind template.item as <$RevolutionMailMessage>.date;
 

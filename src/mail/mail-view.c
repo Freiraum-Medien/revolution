@@ -24,6 +24,7 @@
 
 #include "composer/composer.h"
 #include "mail-account.h"
+#include "mail-favorites.h"
 #include "mail-folder.h"
 #include "mail-message.h"
 #include "mail-reader.h"
@@ -81,6 +82,8 @@ struct _RevolutionMailView
   RevolutionMailReader *reader;
   /* #350: Erstauswahl erledigt (select_initial_folder). */
   gboolean             initial_done;
+  /* #351: Abschnitt „Favoriten“ über den Konten (mail-favorites.c). */
+  RevolutionMailAccount *favorites;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionMailView, revolution_mail_view, ADW_TYPE_BREAKPOINT_BIN)
@@ -194,6 +197,10 @@ find_account (RevolutionMailView *self,
       if (g_strcmp0 (revolution_mail_account_get_uid (account), uid) == 0)
         return g_steal_pointer (&account);
     }
+
+  /* #351: Favoriten für Erstauswahl und Zähler (select_initial_folder, revolution_mail_view_watch_folder). */
+  if (self->favorites != NULL && g_strcmp0 (revolution_mail_account_get_uid (self->favorites), uid) == 0)
+    return g_object_ref (self->favorites);
 
   return NULL;
 }
@@ -1242,18 +1249,43 @@ set_flags_thread (GTask        *task,
                   GCancellable *cancellable G_GNUC_UNUSED)
 {
   SetFlags *data = task_data;
-  CamelStore *store = camel_folder_get_parent_store (data->folder);
-  g_autoptr (CamelSession) session = camel_service_ref_session (CAMEL_SERVICE (store));
+  CamelFolder *folder = data->folder;
+  const char *uid = data->uid;
+  g_autofree char *real_uid = NULL;
+  CamelStore *store;
+  g_autoptr (CamelSession) session = NULL;
   GError *error = NULL;
 
-  camel_folder_set_message_flags (data->folder, data->uid, data->mask, data->set);
+  /* #351: Im Suchordner (Favoriten) am echten Ordner setzen und speichern wie Evolution
+   * (mail_reader_replace_vee_folder_with_real, e-mail-reader.c:425-450, camel_vee_folder_get_location);
+   * camel_folder_synchronize_sync des Suchordners speichert die Quellordner nicht
+   * (camel-vee-folder.c:1476-1477). Die Liste folgt über „changed“ der Quelle und des Suchordners. */
+  if (CAMEL_IS_VEE_FOLDER (folder))
+    {
+      g_autoptr (CamelMessageInfo) info = camel_folder_get_message_info (folder, uid);
+
+      folder = info != NULL ? camel_vee_folder_get_location (CAMEL_VEE_FOLDER (folder), CAMEL_VEE_MESSAGE_INFO (info),
+                                                             &real_uid)
+                            : NULL;
+      if (folder == NULL)
+        {
+          g_task_return_new_error (task, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID_UID,
+                                   _("Nachricht %s nicht gefunden"), uid);
+          return;
+        }
+      uid = real_uid;
+    }
+
+  store = camel_folder_get_parent_store (folder);
+  session = camel_service_ref_session (CAMEL_SERVICE (store));
+  camel_folder_set_message_flags (folder, uid, data->mask, data->set);
   if ((CAMEL_IS_OFFLINE_STORE (store) && !camel_offline_store_get_online (CAMEL_OFFLINE_STORE (store))) ||
       session == NULL || !camel_session_get_online (session))
     {
       /* Summary sofort auf die Platte: sie speichert sonst erst beim Freigeben des Ordners
        * (camel-folder.c:810-811), das Revolution beim Beenden nicht abwartet. Evolution speichert
        * beim Beenden über camel_store_synchronize (e-mail-backend.c:491, camel-store.c:477-478). */
-      if (!camel_folder_summary_save (camel_folder_get_folder_summary (data->folder), &error))
+      if (!camel_folder_summary_save (camel_folder_get_folder_summary (folder), &error))
         g_task_return_error (task, error);
       else
         g_task_return_int (task, FLAGS_LOCAL);
@@ -1263,9 +1295,9 @@ set_flags_thread (GTask        *task,
   /* Ohne Cancellable: die Anwendung bleibt gehalten, bis der letzte Auftrag durch ist
    * (start_flags), auch nach dem Schließen des Fensters (Obergrenze flags_deadline). Bei einem
    * Fehler die Summary lokal speichern, damit der nächste Abgleich die Änderung nachholt. */
-  if (!camel_folder_synchronize_sync (data->folder, FALSE, NULL, &error))
+  if (!camel_folder_synchronize_sync (folder, FALSE, NULL, &error))
     {
-      camel_folder_summary_save (camel_folder_get_folder_summary (data->folder), NULL);
+      camel_folder_summary_save (camel_folder_get_folder_summary (folder), NULL);
       g_task_return_error (task, error);
     }
   else
@@ -1901,6 +1933,9 @@ static void
 on_message_selected (RevolutionMailView *self)
 {
   RevolutionMailMessage *message = gtk_single_selection_get_selected_item (self->message_selection);
+  g_autoptr (RevolutionMailAccount) account = NULL;
+  g_autoptr (RevolutionMailFolder) place = NULL;
+  const char *source_uid, *source_folder;
 
   if (message == NULL || self->folder == NULL || self->session == NULL)
     {
@@ -1909,8 +1944,13 @@ on_message_selected (RevolutionMailView *self)
       return;
     }
 
+  /* #351: In den Favoriten zeigt der Kopf den echten Ordner (Prototyp „Eingang — Privat“). */
+  if (revolution_mail_message_get_source (message, &source_uid, &source_folder) &&
+      (account = find_account (self, source_uid)) != NULL)
+    place = revolution_mail_folder_find (gtk_tree_list_model_get_model (account_tree (account)), source_folder);
+
   gtk_stack_set_visible_child_name (self->message_stack, "content");
-  revolution_mail_reader_show (self->reader, self->session, self->folder, message);
+  revolution_mail_reader_show (self->reader, self->session, self->folder, place != NULL ? place : self->folder, message);
 }
 
 /* #352: Nur für Testläufe (tests/nachrichtenliste.sh) wie REVOLUTION_THEME (main.c):
@@ -2012,6 +2052,7 @@ revolution_mail_view_dispose (GObject *object)
   g_clear_object (&self->stack);
   g_clear_object (&self->registry);
   g_clear_object (&self->accounts);
+  g_clear_object (&self->favorites);
   g_clear_object (&self->messages);
   g_clear_object (&self->folder);
   g_clear_object (&self->session);
@@ -2087,6 +2128,8 @@ static void
 revolution_mail_view_init (RevolutionMailView *self)
 {
   g_autoptr (GtkFlattenListModel) folders = NULL;
+  g_autoptr (GListStore) sections = g_list_store_new (G_TYPE_LIST_MODEL);
+  g_autoptr (GListStore) favorites = g_list_store_new (REVOLUTION_TYPE_MAIL_ACCOUNT);
   g_autoptr (GSimpleActionGroup) message_group = g_simple_action_group_new ();
   g_autoptr (GSimpleActionGroup) list_group = g_simple_action_group_new ();
   g_autoptr (GSimpleActionGroup) mail_group = g_simple_action_group_new ();
@@ -2097,8 +2140,17 @@ revolution_mail_view_init (RevolutionMailView *self)
 
   /* CR #397: Ordnerbaum als GtkTreeListModel je Konto (#348), Konten als Abschnitte (#345). */
   self->accounts = g_list_store_new (REVOLUTION_TYPE_MAIL_ACCOUNT);
-  folders = gtk_flatten_list_model_new (G_LIST_MODEL (gtk_map_list_model_new (g_object_ref (G_LIST_MODEL (self->accounts)),
-                                                                              account_folders, NULL, NULL)));
+  /* #351: Favoriten als erster Abschnitt vor den Konten (Prototyp), außerhalb von self->accounts
+   * (sync_accounts gleicht nur die Konten der Registry ab); Ordner sind gleich da. */
+  self->favorites = revolution_mail_account_new (REVOLUTION_MAIL_FAVORITES_UID, _("Favoriten"));
+  revolution_mail_favorites_fill (G_LIST_STORE (gtk_tree_list_model_get_model (account_tree (self->favorites))),
+                                  self->favorites);
+  g_object_set_data (G_OBJECT (self->favorites), "folders-noted", GINT_TO_POINTER (TRUE));
+  g_list_store_append (favorites, self->favorites);
+  g_list_store_append (sections, favorites);
+  g_list_store_append (sections, self->accounts);
+  folders = gtk_flatten_list_model_new (G_LIST_MODEL (gtk_map_list_model_new (
+    G_LIST_MODEL (gtk_flatten_list_model_new (G_LIST_MODEL (g_steal_pointer (&sections)))), account_folders, NULL, NULL)));
   gtk_single_selection_set_model (self->folder_selection, G_LIST_MODEL (folders));
   g_signal_connect_object (self->folder_selection, "notify::selected-item", G_CALLBACK (on_folder_selected),
                            self, G_CONNECT_SWAPPED);

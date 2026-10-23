@@ -304,6 +304,26 @@ revolution_mail_folder_append_tree (GListStore            *store,
   return count;
 }
 
+/* #351: Eintrag ohne CamelFolderInfo für die Favoriten (mail-favorites.c): Name und Symbol fest,
+ * ohne Ordnertyp, damit die Erstauswahl (mail-view.c) ihn nicht für einen Posteingang hält.
+ * icon_name: statische Zeichenkette. */
+RevolutionMailFolder *
+revolution_mail_folder_new (const char            *full_name,
+                            const char            *display_name,
+                            const char            *icon_name,
+                            RevolutionMailAccount *account)
+{
+  RevolutionMailFolder *folder = g_object_new (REVOLUTION_TYPE_MAIL_FOLDER, NULL);
+
+  folder->full_name = g_strdup (full_name);
+  folder->display_name = g_strdup (display_name);
+  folder->icon_name = icon_name;
+  g_weak_ref_set (&folder->account, account);
+  set_unread (folder, -1);
+
+  return folder;
+}
+
 /* #350: Ordner mit diesem vollen Namen in model und seinen Unterordnern (neue Referenz) oder
  * NULL. */
 RevolutionMailFolder *

@@ -64,6 +64,8 @@
  *     Fehler aus add_service zusätzlich gesammelt für das Banner
  *     (revolution_mail_session_take_errors).
  *   - #348: get_filter_driver ohne Regeln (Vorlage e-mail-ui-session.c, Einzelheiten dort).
+ *   - #351: Der Suchordner-Store der Favoriten (CamelVeeStore, mail-favorites.c) hat keine ESource:
+ *     add_service konfiguriert ihn nicht, der Abgleich entfernt ihn nicht.
  */
 
 #define G_LOG_DOMAIN "revolution"
@@ -327,6 +329,10 @@ mail_session_sync_stores (RevolutionMailSession *session)
 		CamelService *service = CAMEL_SERVICE (link->data);
 		ESource *source;
 
+		/* #351: Suchordner-Store der Favoriten ohne ESource (mail-favorites.c). */
+		if (CAMEL_IS_VEE_STORE (service))
+			continue;
+
 		source = e_source_registry_ref_source (session->registry, camel_service_get_uid (service));
 		if (source == NULL)
 			mail_session_remove_service (session, service);
@@ -514,6 +520,11 @@ mail_session_add_service (CamelSession *session,
 		add_service (session, uid, protocol, type, error);
 
 	/* Configure the CamelService from the corresponding ESource. */
+
+	/* #351: Der Suchordner-Store der Favoriten hat keine ESource (mail-favorites.c);
+	 * Evolution konfiguriert seinen über die eingebaute Quelle „vfolder“ (e-mail-session.c:897-915). */
+	if (CAMEL_IS_VEE_STORE (service))
+		return service;
 
 	if (CAMEL_IS_SERVICE (service)) {
 		ESource *source;

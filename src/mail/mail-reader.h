@@ -21,6 +21,7 @@ G_DECLARE_FINAL_TYPE (RevolutionMailReader, revolution_mail_reader, REVOLUTION, 
 void revolution_mail_reader_show  (RevolutionMailReader  *self,
                                    CamelSession          *session,
                                    RevolutionMailFolder  *folder,
+                                   RevolutionMailFolder  *place,
                                    RevolutionMailMessage *message);
 void revolution_mail_reader_clear (RevolutionMailReader  *self);
 

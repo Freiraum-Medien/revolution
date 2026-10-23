@@ -60,6 +60,8 @@ struct _RevolutionMailView
   GHashTable          *pending_changed;
   GHashTable          *pending_removed;
   gboolean             changes_running;
+  /* #410: ein Durchgang schickt noch Blöcke (add_messages_block), Änderungen warten bis danach. */
+  gboolean             blocks_running;
   GActionMap          *message_actions;
   RevolutionMailMessage *selected;
   gulong               selected_handler;
@@ -96,6 +98,7 @@ on_compose (GSimpleAction *action G_GNUC_UNUSED,
 
 static void on_refresh (GSimpleAction *action, GVariant *parameter, gpointer user_data);
 static void on_context_menu (GSimpleAction *action, GVariant *parameter, gpointer user_data);
+static void start_folder_changes (RevolutionMailView *self);
 
 static const GActionEntry list_actions[] = {
   { "compose", on_compose, NULL, NULL, NULL, { 0 } },
@@ -524,6 +527,13 @@ add_messages_block (gpointer data)
   if (block->generation != self->load_generation)
     return G_SOURCE_REMOVE;
 
+  /* #410: Zwischen dem ersten und dem letzten Block eines Durchgangs keine Live-Änderungen
+   * anwenden (start_folder_changes, on_folder_changes_done): eine dabei eingefügte UID hinge ein
+   * späterer Block erneut an. Nach dem letzten Block wirken sie am bestehenden Eintrag. Wie
+   * Evolution, das während eines Neuaufbaus keine Änderung einzeln einträgt, sondern die Liste
+   * neu aufbaut (message_list_folder_changed, message-list.c:5127-5128, 5178-5186). */
+  self->blocks_running = !block->last;
+
   n_items = g_list_model_get_n_items (G_LIST_MODEL (self->messages));
 
   if (block->merge)
@@ -558,9 +568,12 @@ add_messages_block (gpointer data)
   select_message_from_env (self);
 
   if (block->last)
-    g_debug ("Nachrichten: %s %s %u (ungelesen %u, mit Vorschau %u) nach %.0f ms", self->loading,
-             block->pass, block->total, block->unread, block->previews,
-             (g_get_monotonic_time () - self->load_started) / 1000.0);
+    {
+      g_debug ("Nachrichten: %s %s %u (ungelesen %u, mit Vorschau %u) nach %.0f ms", self->loading,
+               block->pass, block->total, block->unread, block->previews,
+               (g_get_monotonic_time () - self->load_started) / 1000.0);
+      start_folder_changes (self);
+    }
 
   return G_SOURCE_REMOVE;
 }
@@ -923,6 +936,24 @@ set_list_counts (RevolutionMailView *self)
   gtk_stack_set_visible_child_name (self->list_stack, n_items > 0 ? "list" : "empty");
 }
 
+/* #410: verschiedene UIDs in der Liste, fürs Log (Prüfung auf doppelte Zeilen,
+ * tests/erstes-oeffnen.sh). */
+static guint
+distinct_uids (RevolutionMailView *self)
+{
+  GListModel *model = G_LIST_MODEL (self->messages);
+  g_autoptr (GHashTable) uids = g_hash_table_new (g_str_hash, g_str_equal);
+
+  for (guint i = 0; i < g_list_model_get_n_items (model); i++)
+    {
+      g_autoptr (RevolutionMailMessage) item = g_list_model_get_item (model, i);
+
+      g_hash_table_add (uids, (gpointer) revolution_mail_message_get_uid (item));
+    }
+
+  return g_hash_table_size (uids);
+}
+
 static int
 compare_newest_first (gconstpointer a,
                       gconstpointer b)
@@ -1021,8 +1052,9 @@ apply_folder_changes (RevolutionMailView *self,
   if (n_added > 0 && at_top)
     gtk_list_view_scroll_to (self->message_list, 0, GTK_LIST_SCROLL_NONE, NULL);
   set_list_counts (self);
-  g_debug ("Nachrichten: %s Änderung %u neu, %u entfernt, %u geändert", self->loading,
-           n_added, n_removed, n_changed);
+  g_debug ("Nachrichten: %s Änderung %u neu, %u entfernt, %u geändert, Liste %u, %u verschiedene UIDs",
+           self->loading, n_added, n_removed, n_changed,
+           g_list_model_get_n_items (model), distinct_uids (self));
 }
 
 static void
@@ -1050,8 +1082,6 @@ folder_changes_thread (GTask        *task,
   g_task_return_boolean (task, TRUE);
 }
 
-static void start_folder_changes (RevolutionMailView *self);
-
 static void
 on_folder_changes_done (GObject      *source_object,
                         GAsyncResult *result,
@@ -1063,10 +1093,11 @@ on_folder_changes_done (GObject      *source_object,
   self->changes_running = FALSE;
   if (changes->folder != self->camel_folder || changes->generation != self->load_generation)
     ;
-  else if (self->flags_running)
+  else if (self->flags_running || self->blocks_running)
     {
       /* Inzwischen bedient (mark_message): der gelesene Stand kann älter sein als die Zeile.
-       * Später neu lesen, wenn alle Flag-Aufträge durch sind (on_flags_set). */
+       * Später neu lesen, wenn alle Flag-Aufträge durch sind (on_flags_set). #410: ebenso,
+       * solange ein Durchgang Blöcke schickt (bis zum letzten Block, add_messages_block). */
       for (guint i = 0; i < changes->changed->len; i++)
         g_hash_table_add (self->pending_changed, g_strdup (changes->changed->pdata[i]));
       for (guint i = 0; i < changes->removed->len; i++)
@@ -1094,8 +1125,9 @@ start_folder_changes (RevolutionMailView *self)
   g_autoptr (GTask) task = NULL;
   FolderChanges *changes;
 
-  /* Während Flag-Aufträgen nicht: die Zeilen zeigen schon den bedienten Stand (mark_message). */
-  if (self->changes_running || self->flags_running || self->camel_folder == NULL ||
+  /* Während Flag-Aufträgen nicht: die Zeilen zeigen schon den bedienten Stand (mark_message).
+   * #410: auch nicht zwischen den Blöcken eines Durchgangs (add_messages_block). */
+  if (self->changes_running || self->flags_running || self->blocks_running || self->camel_folder == NULL ||
       (g_hash_table_size (self->pending_changed) == 0 && g_hash_table_size (self->pending_removed) == 0))
     return;
 
@@ -1726,7 +1758,8 @@ folder_ready_free (FolderReady *ready)
 
 /* Im UI-Thread: ab jetzt Änderungen des Ordners live in die Liste (on_folder_changed), Flags
  * und Aktualisieren möglich. Der Server-Durchgang danach gleicht ohnehin ab; Änderungen, die
- * dabei auch über „changed“ kommen, wirken am bestehenden Eintrag und doppeln nichts. */
+ * dabei auch über „changed“ kommen, wirken am bestehenden Eintrag und doppeln nichts, solange
+ * kein Durchgang Blöcke schickt (#410, blocks_running). */
 static gboolean
 use_folder (gpointer data)
 {
@@ -1778,8 +1811,8 @@ on_messages_loaded (GObject      *source_object,
       revolution_mail_view_show_error (self, _("Nachrichten nicht geladen"), detail, FALSE);
     }
 
-  g_debug ("Nachrichten: %s vollständig %u nach %.0f ms", self->loading, n_items,
-           (g_get_monotonic_time () - self->load_started) / 1000.0);
+  g_debug ("Nachrichten: %s vollständig %u nach %.0f ms, %u verschiedene UIDs", self->loading, n_items,
+           (g_get_monotonic_time () - self->load_started) / 1000.0, distinct_uids (self));
 }
 
 /* Auswahl im Ordnerbaum: Nachrichten dieses Ordners laden, laufendes Laden abbrechen. */
@@ -1801,6 +1834,7 @@ on_folder_selected (RevolutionMailView *self)
   g_cancellable_cancel (self->load_cancellable);
   g_clear_object (&self->load_cancellable);
   self->load_generation++;
+  self->blocks_running = FALSE;
   /* #353: Änderungen des bisherigen Ordners nicht mehr anwenden. */
   if (self->camel_folder != NULL)
     g_signal_handlers_disconnect_by_func (self->camel_folder, on_folder_changed, self);

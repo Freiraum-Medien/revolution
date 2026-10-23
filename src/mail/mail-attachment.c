@@ -418,38 +418,6 @@ create_file (RevolutionMailAttachment *self,
   return TRUE;
 }
 
-/* Speichern unter: erst vollständig in eine neue Datei neben dem Ziel schreiben, dann umbenennen
- * (G_FILE_COPY_OVERWRITE); bricht das Schreiben ab, bleibt das Original unberührt. */
-static gboolean
-replace_file (RevolutionMailAttachment *self,
-              GFile                    *target,
-              GCancellable             *cancellable,
-              GError                  **error)
-{
-  g_autoptr (GFile) parent = g_file_get_parent (target);
-  g_autofree char *name = g_strdup_printf (".revolution-%08x.tmp", g_random_int ());
-  g_autoptr (GFile) temp = NULL;
-
-  if (parent == NULL)
-    {
-      g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_FILENAME, _("Kein Ordner"));
-      return FALSE;
-    }
-
-  temp = g_file_get_child (parent, name);
-  if (!create_file (self, temp, G_FILE_CREATE_NONE, cancellable, error))
-    return FALSE;
-
-  if (!g_file_move (temp, target, G_FILE_COPY_OVERWRITE | G_FILE_COPY_NOFOLLOW_SYMLINKS, cancellable, NULL, NULL,
-                    error))
-    {
-      g_file_delete (temp, NULL, NULL);
-      return FALSE;
-    }
-
-  return TRUE;
-}
-
 /* ------------------------------------------------------------------ Anhangleiste */
 
 struct _RevolutionMailAttachmentBar
@@ -691,8 +659,13 @@ save_thread (GTask        *task,
   if (!save->folder)
     {
       RevolutionMailAttachment *attachment = g_ptr_array_index (save->attachments, 0);
+      /* g_file_replace wie Evolution (e-attachment.c:3636-3639), aber ohne
+       * G_FILE_CREATE_REPLACE_DESTINATION: Rechte der vorhandenen Datei und Verweise bleiben, das
+       * Ziel eines Verweises wird beschrieben (PM #356 Runde 2). */
+      g_autoptr (GFileOutputStream) stream = g_file_replace (save->target, NULL, FALSE, G_FILE_CREATE_NONE,
+                                                             cancellable, &error);
 
-      if (!replace_file (attachment, save->target, cancellable, &error))
+      if (stream == NULL || !write_attachment (attachment, G_OUTPUT_STREAM (stream), cancellable, &error))
         {
           g_prefix_error (&error, "%s: ", attachment->name);
           g_task_return_error (task, error);

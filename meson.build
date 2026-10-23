@@ -26,6 +26,11 @@ conf.set_quoted('GETTEXT_PACKAGE', meson.project_name())
 conf.set_quoted('LOCALEDIR', get_option('prefix') / get_option('localedir'))
 # Wie Stamp (quelltext/stamp/meson.build:22): DEVEL schaltet die Stilklasse „devel“.
 conf.set('DEVEL', profile == 'Devel')
+# #354: Web-Process-Extension des Lesebereichs (src/web-extension). Installiert unter libdir;
+# aus dem Build-Ordner gestartet nimmt die App die Erweiterung im Build-Ordner (mail-reader.c).
+web_extensions_dir = get_option('prefix') / get_option('libdir') / 'revolution' / 'web-extensions'
+conf.set_quoted('WEB_EXTENSIONS_DIR', web_extensions_dir)
+conf.set_quoted('BUILD_SRC_DIR', meson.project_build_root() / 'src')
 configure_file(output: 'config.h', configuration: conf)
 
 subdir('data')

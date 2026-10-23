@@ -366,7 +366,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
                 label: _("Nachrichten");
               }
 
-              // #352: keine Vorauswahl, solange die Anzeige (#354) fehlt.
+              // Keine Vorauswahl: die Auswahl öffnet die Nachricht (#354), Erstauswahl #350.
               model: SingleSelection message_selection {
                 autoselect: false;
                 can-unselect: true;
@@ -719,7 +719,6 @@ template $RevolutionMailView: Adw.BreakpointBin {
       // #400 Punkt 7: Kopf frei auf dem Hintergrund, darunter der Mailtext als große
       // abgerundete Karte bis zum unteren Rand (Vorbild 03). Nur der Inhalt scrollt.
       // Ohne Auswahl: Leerzustand wie Stamp (stamp-message-list.blp:119-135).
-      // Nachrichtenkopf und Inhalt füllt #354.
       content: Stack message_stack {
         // Erste Seite „empty“ ist sichtbar (Gtk.Stack zeigt das erste Kind).
         StackPage {
@@ -731,195 +730,10 @@ template $RevolutionMailView: Adw.BreakpointBin {
           };
         }
 
+        // #354: Lesebereich (Kopf und Inhalt) in eigenen Dateien mail-reader.{blp,c}.
         StackPage {
           name: "content";
-
-          child: Box {
-            orientation: vertical;
-
-            // #401 Punkt 4: Hinweis im Apple-Stil (Vorbild 12) statt Adw.Banner über die
-            // volle Breite: abgerundete Pille mit Abstand, Symbol links, Knopf in Akzentfarbe.
-            // Sichtbar erst mit #355 (Remote-Bilder-Sperre).
-            Box {
-              visible: false;
-              spacing: 12;
-              margin-start: 12;
-              margin-end: 12;
-              // #340: 13px, Oberkante auf der Linie 63px (style.css „Eine Linie“).
-              margin-top: 13;
-
-              styles [
-                "mail-notice",
-              ]
-
-              Image {
-                icon-name: "preferences-system-privacy-symbolic";
-                accessible-role: presentation;
-              }
-
-              Label {
-                label: _("Entfernte Inhalte gesperrt");
-                hexpand: true;
-                xalign: 0;
-                ellipsize: end;
-              }
-
-              Button {
-                label: _("Laden");
-                tooltip-text: _("Entfernte Inhalte dieser E-Mail laden");
-                valign: center;
-
-                styles [
-                  "mail-notice-button",
-                ]
-              }
-            }
-
-            // Nachrichtenkopf, Vorlage stamp-message-header.blp:4-150.
-            // #401 Punkt 5: graziler (Vorbild 13): nur der Absender halbfett, Betreff gleich groß.
-            Grid {
-              column-spacing: 12;
-              row-spacing: 2;
-              margin-start: 24;
-              margin-end: 18;
-              margin-top: 14;
-              margin-bottom: 14;
-
-              Adw.Avatar {
-                size: 48;
-                valign: start;
-                show-initials: true;
-                text: "";
-
-                layout {
-                  column: 0;
-                  row: 0;
-                  row-span: 3;
-                }
-              }
-
-              Box {
-                spacing: 6;
-
-                layout {
-                  column: 1;
-                  row: 0;
-                }
-
-                Label {
-                  label: "";
-                  hexpand: true;
-                  xalign: 0;
-                  ellipsize: end;
-                  selectable: true;
-
-                  styles [
-                    "mail-sender",
-                  ]
-                }
-
-                Image {
-                  icon-name: "inbox-symbolic";
-                  tooltip-text: _("Ordner");
-
-                  accessibility {
-                    label: _("Ordner");
-                  }
-
-                  styles [
-                    "dimmed",
-                  ]
-                }
-
-                Label {
-                  label: "";
-
-                  styles [
-                    "dimmed",
-                  ]
-                }
-
-                Label {
-                  label: "";
-                  margin-start: 6;
-
-                  styles [
-                    "numeric",
-                    "dimmed",
-                  ]
-                }
-              }
-
-              Label {
-                label: "";
-                xalign: 0;
-                wrap: true;
-                selectable: true;
-
-                layout {
-                  column: 1;
-                  row: 1;
-                }
-
-                styles [
-                  "mail-subject",
-                ]
-              }
-
-              Box {
-                spacing: 6;
-
-                layout {
-                  column: 1;
-                  row: 2;
-                }
-
-                Label {
-                  label: _("An:");
-
-                  styles [
-                    "dimmed",
-                  ]
-                }
-
-                Label {
-                  label: "";
-                  hexpand: true;
-                  xalign: 0;
-                  ellipsize: end;
-
-                  styles [
-                    "dimmed",
-                  ]
-                }
-
-                Button {
-                  label: _("Details");
-                  tooltip-text: _("Alle Kopfzeilen anzeigen");
-                  valign: center;
-
-                  styles [
-                    "flat",
-                    "mail-details",
-                  ]
-                }
-              }
-            }
-
-            // HTML-Mail: eigener weißer Hintergrund auch im Dunkelmodus (style.css .html-mail).
-            // Inhalt folgt mit WebKitGTK (#354).
-            Adw.Bin {
-              vexpand: true;
-              overflow: hidden;
-              margin-start: 12;
-              margin-end: 12;
-              margin-bottom: 12;
-
-              styles [
-                "html-mail",
-              ]
-            }
-          };
+          child: $RevolutionMailReader reader {};
         }
       };
     }

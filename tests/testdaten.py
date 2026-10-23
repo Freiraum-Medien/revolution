@@ -30,6 +30,10 @@
 #                                 #353: Zeile „UNGELESEN <Anzahl> <UID …>“ (IMAP EXAMINE + UID SEARCH
 #                                 UNSEEN, nur lesend); mit --soll (Datei mit einer solchen Zeile)
 #                                 stellt es genau diesen Stand per UID STORE ±\Seen her (Testkonten)
+#   tests/testdaten.py --anzeige  #354: nur die Anzeige-Mails (HTML, Text ISO-8859-1, Inline-Bild
+#                                 cid:, Remote-Inhalte) per APPEND in den Posteingang der vier
+#                                 Testkonten (fehlende ergänzen, kein Versand); im Standardlauf
+#                                 enthalten
 #
 # Copyright 2026 Arnd Messer
 #
@@ -170,6 +174,114 @@ MAILS = [
     ('einladung', 'KONTO_IMAP_1@example.invalid', PREFIX + ' Einladung: Abstimmung Testdaten', True),
 ]
 KOPIEN = {'anhang': UNTERORDNER, 'einladung': ORDNER}
+
+# #354: Mails für die Anzeige, per APPEND (kein Versand) in den Posteingang jedes Testkontos.
+# Absender als Kopfzeile ein Testkonto mit Anzeigenamen. Erkennung wie MAILS über (Betreff, Absender).
+ANZEIGE_ABSENDER = 'KONTO_IMAP_1@example.invalid'
+ANZEIGE = [
+    ('anzeige-html', PREFIX + ' Anzeige HTML: Jahresabrechnung'),
+    ('anzeige-latin1', PREFIX + ' Anzeige Text ISO-8859-1: Grüße aus Köln'),
+    ('anzeige-cid', PREFIX + ' Anzeige Inline-Bild (cid)'),
+    ('anzeige-remote', PREFIX + ' Anzeige Remote-Inhalte (Tracking-Pixel)'),
+]
+REMOTE_HOST = 'https://upload.wikimedia.org'
+
+
+def anzeige_html():
+    zeilen = ''.join('<tr><td style="padding:6px 0">%s</td><td style="padding:6px 0;text-align:right">%s</td></tr>'
+                     % z for z in [('Abrechnungszeitraum', '01.01. – 31.12.2026'), ('Verbrauch Strom', '2.418 kWh'),
+                                   ('Neuer Abschlag ab Januar', '72,00 € monatlich'),
+                                   ('<b>Ihr Guthaben</b>', '<b style="color:#0b7fab">84,20 €</b>')])
+    absatz = ('<p>Das Guthaben überweisen wir in den nächsten Tagen auf Ihr Konto. Den neuen Abschlag '
+              'haben wir an Ihren Verbrauch angepasst. Fragen beantworten wir gern unter '
+              '<a href="mailto:KONTO_IMAP_1@example.invalid">KONTO_IMAP_1@example.invalid</a>.</p>')
+    return ('<!DOCTYPE html><html><head><meta charset="utf-8"><style>'
+            'body{font-family:sans-serif;color:#1d1d1d;margin:0}'
+            '.rahmen{max-width:640px;margin:0 auto;padding:32px 40px}'
+            '.kopf{display:flex;justify-content:space-between;border-bottom:2px solid #0b7fab;padding-bottom:12px}'
+            '.marke{color:#0b7fab;font-size:22px;font-weight:bold}'
+            '.box{background:#eef5f9;border-radius:10px;padding:14px 22px;margin:20px 0}'
+            '.knopf{display:inline-block;background:#0b7fab;color:#fff;padding:12px 24px;border-radius:4px;'
+            'text-decoration:none;font-weight:bold}'
+            '@media (prefers-color-scheme: dark){.box{background:#1d3340}}'
+            '</style></head><body><div class="rahmen">'
+            '<div class="kopf"><span class="marke">Stadtwerke Lindenau</span>'
+            '<span style="color:#666;font-size:13px">Kundennummer 104 227 1</span></div>'
+            '<h1>Ihre Jahresabrechnung 2026 ist da</h1>'
+            '<p>Sehr geehrte Frau Vogt,</p><p>vielen Dank, dass Sie Ihre Energie von uns beziehen. Ihre '
+            '<b>Jahresabrechnung für 2026</b> steht ab sofort bereit. Sie haben weniger verbraucht als im '
+            'Vorjahr und erhalten ein <b>Guthaben</b>. Umlaute und Zeichen: äöü ÄÖÜ ß € „Anführung“ – Strich.</p>'
+            '<table class="box" width="100%%">%s</table>%s'
+            '<p><a class="knopf" href="https://www.gnome.org/">Zur Rechnung im Kundenportal</a></p>'
+            '%s<p>Freundliche Grüße<br>Ihr Kundenservice der Stadtwerke Lindenau</p>'
+            '<hr><p style="color:#666;font-size:12px">Testmail für Revolution #354 (HTML, UTF-8, ohne '
+            'Remote-Inhalte). Ende der Nachricht.</p></div></body></html>\n'
+            % (zeilen, absatz * 3, absatz * 3))
+
+
+def anzeige_nachricht(key, betreff):
+    m = EmailMessage(policy=email.policy.SMTP)
+    if key == 'anzeige-html':
+        m.set_content('Ihre Jahresabrechnung 2026 ist da (Textfassung).\n')
+        m.add_alternative(anzeige_html(), subtype='html')
+    elif key == 'anzeige-latin1':
+        m.set_content('Hallo Arnd,\n\nviele Grüße aus Köln! Umlaute in ISO-8859-1: äöü ÄÖÜ ß, '
+                      'dazu »Zitat« und ½ Liter.\n\nLink: https://www.gnome.org/ und Adresse '
+                      'KONTO_IMAP_1@example.invalid\n\nEinrückung:\n    vier Leerzeichen\n\tein Tab\n\n'
+                      '> Zitierte Zeile aus der vorigen Mail\n> mit zweiter Zeile\n\n'
+                      'Tschüß\nRevolution #354\n', charset='iso-8859-1')
+    elif key == 'anzeige-cid':
+        m.set_content('Inline-Bild nur in der HTML-Fassung.\n')
+        m.add_alternative('<html><body><p>Inline-Bild aus der Mail (cid:), blaues Quadrat 16×16 '
+                          'auf 64×64 skaliert:</p><p><img src="cid:revolution-bild@example.invalid" '
+                          'width="64" height="64" alt="Inline-Bild"></p><p>Ende.</p></body></html>\n',
+                          subtype='html')
+        m.get_payload()[1].add_related(png_bytes(), maintype='image', subtype='png',
+                                       cid='<revolution-bild@example.invalid>', filename='bild.png')
+    elif key == 'anzeige-remote':
+        h = REMOTE_HOST
+        m.set_content('Remote-Inhalte nur in der HTML-Fassung.\n')
+        m.add_alternative(
+            '<html><head><link rel="stylesheet" href="%s/revolution-test.css">'
+            '<link rel="preconnect" href="%s"><link rel="dns-prefetch" href="%s">'
+            '<style>@import url("%s/revolution-import.css"); .bg{background:url("%s/revolution-bg.png")}</style>'
+            '</head><body><p>Remote-Inhalte (dürfen ohne Freigabe nicht laden, #354/#355):</p>'
+            '<p class="bg"><img src="%s" alt="Remote-Bild" width="172" height="178"></p>'
+            '<img src="%s/revolution-pixel.gif?id=354" width="1" height="1" alt="">'
+            '<video src="%s/revolution.webm" width="10" height="10"></video>'
+            '<iframe src="%s/revolution-frame.html" width="10" height="10"></iframe>'
+            '<p>Ende.</p></body></html>\n' % (h, h, h, h, h, REMOTE_BILD, h, h, h), subtype='html')
+    m['Subject'] = betreff
+    m['From'] = email.utils.formataddr(('Revolution Testdaten', ANZEIGE_ABSENDER))
+    m['To'] = ANZEIGE_ABSENDER
+    m['Cc'] = 'KONTO_IMAP_2@example.invalid'
+    m['Date'] = email.utils.formatdate(localtime=True)
+    m['Message-ID'] = msgid(key)
+    msg = Camel.MimeMessage.new()
+    msg.construct_from_stream_sync(Camel.StreamMem.new_with_buffer(m.as_bytes()), None)
+    return msg
+
+
+def anzeige(konten, dry):
+    """#354: fehlende Anzeige-Mails per APPEND in den Posteingang (idempotent, als gelesen)."""
+    for a, k in konten.items():
+        nur_testkonten([a])
+        k.inbox.refresh_info_sync(cancellable())
+        vorhanden = testmails(k.inbox)
+        neu = 0
+        for key, betreff in ANZEIGE:
+            if (betreff, ANZEIGE_ABSENDER) in vorhanden:
+                continue
+            print('  %s: %s per APPEND' % (a, betreff))
+            neu += 1
+            if dry:
+                continue
+            info = Camel.MessageInfo.new(None)
+            info.set_flags(Camel.MessageFlags.SEEN, Camel.MessageFlags.SEEN)
+            k.inbox.append_message_sync(anzeige_nachricht(key, betreff), info, cancellable())
+        if neu and not dry:
+            k.inbox.synchronize_sync(False, cancellable())
+            k.inbox.refresh_info_sync(cancellable())
 
 
 def camel_nachricht(key, absender, betreff, an):
@@ -605,6 +717,17 @@ def pruefen(konten):
                 for tiefe, typ, name, extra in out:
                     print('         %s%s%s%s' % ('  ' * tiefe, typ, ' name=%s' % name if name else '',
                                                  ' %s' % extra if extra else ''))
+        for key, betreff in ANZEIGE:
+            uid = mails.get((betreff, ANZEIGE_ABSENDER))
+            if uid is None:
+                print('  FEHLT  %s (%s)' % (betreff, ANZEIGE_ABSENDER))
+                fehler += 1
+                continue
+            print('  ok   %s  UID %s' % (betreff, uid))
+            out = []
+            teile(k.inbox.get_message_sync(uid, cancellable()), 0, out)
+            for tiefe, typ, name, extra in out:
+                print('         %s%s%s' % ('  ' * tiefe, typ, ' name=%s' % name if name else ''))
         for name in (ORDNER, UNTERORDNER):
             f = ordner_holen(k.store, name, False)
             if f is None:
@@ -809,6 +932,8 @@ def main():
     ap.add_argument('--dry-run', action='store_true', help='nur anzeigen, nichts senden/schreiben')
     ap.add_argument('--pruefen', action='store_true', help='nur lesend prüfen')
     ap.add_argument('--ordner', action='store_true', help='nur lesend: Ordnerliste aller Konten')
+    ap.add_argument('--anzeige', action='store_true',
+                    help='#354: nur die Anzeige-Mails per APPEND in die Posteingänge')
     ap.add_argument('--last', type=int, metavar='N',
                     help='N Lastmails per APPEND in %s von %s (#352)' % (LAST_ORDNER, LAST_KONTO))
     ap.add_argument('--flags', metavar='KONTO', help='#353: nur lesend Flags in %s vom Server' % ORDNER)
@@ -868,11 +993,17 @@ def main():
 
     if args.pruefen:
         return 1 if pruefen(konten) else 0
+    if args.anzeige:
+        anzeige(konten, args.dry_run)
+        for k in konten.values():
+            k.store.disconnect_sync(True, None)
+        return 0
     n = senden(session, konten, args.dry_run)
     if n and not args.dry_run:
         print('  warte auf Zustellung …')
         warten(konten)
     ablegen(konten, args.dry_run)
+    anzeige(konten, args.dry_run)
     for k in konten.values():
         k.store.disconnect_sync(True, None)
     return 0

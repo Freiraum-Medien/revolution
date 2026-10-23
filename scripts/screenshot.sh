@@ -21,6 +21,12 @@
 #     z. B. bis die Ordner aller Konten geladen sind (#348); Standard 0
 #   BUILD=Pfad (optional, Umgebung): Build-Ordner, Standard build/ im Repo. GSettings-Schema
 #     aus BUILD/data, Einstellungen nur im Speicher (GSETTINGS_BACKEND=memory, #342).
+#   LOG=Datei (optional, Umgebung, #349): Ausgabe der App (stdout und stderr) in diese Datei
+#   READY=Datei (optional, Umgebung, #349): statt fester WAIT-Sekunden warten, bis die Datei
+#     existiert, höchstens WAIT Sekunden (tests/smoke.sh legt sie an, sobald alles geladen ist)
+#   QUIT=Datei (optional, Umgebung, #349): nach der Aufnahme das Fenster per WM_DELETE_WINDOW
+#     schließen wie der Schließen-Knopf, höchstens 20 s aufs Ende warten; in die Datei
+#     „PID Exit-Code“ bzw. „PID Zeitlimit“ (dann kill). Ohne QUIT: kill wie bisher.
 # Compositor (#400): Xvfb hat keinen. Ohne ihn zeichnet GTK Fenster und Popover eckig ohne
 #   Schatten (window.solid-csd), Menüs sähen anders aus als auf dem Desktop. Ein Python-Helfer
 #   meldet sich als Compositing-Manager (Besitzer der Auswahl _NET_WM_CM_S0, ICCCM/EWMH);
@@ -40,7 +46,7 @@ BIN="$BUILD/src/revolution"
 OUT_DIR="${OUT_DIR:-$APP_DIR/../Design/Prototyp}"
 
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
-  sed -n '3,23p' "$0" >&2
+  sed -n '3,29p' "$0" >&2
   exit 1
 fi
 NAME="$1"
@@ -61,6 +67,9 @@ ROUND="${ROUND:-}"
 WAIT="${WAIT:-0}"
 [[ "$WAIT" =~ ^[0-9]+$ ]] || { echo "WAIT als Sekunden angeben, z. B. 40" >&2; exit 1; }
 [ -z "$ROUND" ] || [[ "$ROUND" =~ ^[0-9]+$ ]] || { echo "ROUND als Radius in Pixeln angeben, z. B. 15" >&2; exit 1; }
+LOG="${LOG:-}"
+READY="${READY:-}"
+QUIT="${QUIT:-}"
 SCALE="${SCALE:-}"
 RENDER=1
 if [ -n "$SCALE" ]; then
@@ -102,6 +111,7 @@ shoot () {
     XDG_RUNTIME_DIR="$RUNDIR" GSETTINGS_SCHEMA_DIR="$BUILD/data" GSETTINGS_BACKEND=memory \
     REAL_DISPLAY="$REAL_DISPLAY" BIN="$BIN" OUT="$out" WIDTH="$((WIDTH * RENDER))" HEIGHT="$((HEIGHT * RENDER))" \
     CLICK="$CLICK" KEYS="$KEYS" AFTER_KEYS="$AFTER_KEYS" WAIT="$WAIT" RENDER="$RENDER" ${SCALE:+GDK_SCALE=$RENDER} \
+    LOG="$LOG" READY="$READY" QUIT="$QUIT" \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo GTK_A11Y=none NO_AT_BRIDGE=1 \
     ADW_DEBUG_COLOR_SCHEME="$scheme" \
     xvfb-run -a -s "-screen 0 $((WIDTH * RENDER))x$((HEIGHT * RENDER))x24 +extension Composite" \
@@ -126,7 +136,7 @@ d.sync()
 time.sleep(600)
 " & cm=$!
       sleep 1
-      "$BIN" & pid=$!
+      if [ -n "$LOG" ]; then "$BIN" >"$LOG" 2>&1 & pid=$!; else "$BIN" & pid=$!; fi
       sleep 3
       win=$(xwininfo -root -tree | awk "/\"Revolution\"/ {print \$1; exit}")
       if [ -n "$win" ]; then
@@ -134,7 +144,14 @@ time.sleep(600)
         # Ohne Fenstermanager setzt XConfigureWindow die Größe direkt (python3-xlib).
         WIN="$win" python3 -c "import os; from Xlib import display; d = display.Display(); d.create_resource_object(\"window\", int(os.environ[\"WIN\"], 16)).configure(width=int(os.environ[\"WIDTH\"]), height=int(os.environ[\"HEIGHT\"])); d.sync()"
         sleep 2
-        sleep "$WAIT"
+        if [ -n "$READY" ]; then
+          for _ in $(seq "$WAIT"); do [ -e "$READY" ] && break; sleep 1; done
+          [ -e "$READY" ] || echo "READY nach $WAIT s nicht erreicht: $READY"
+          # Eine Sekunde, damit GTK die zuletzt geladenen Zeilen auch zeichnet.
+          sleep 1
+        else
+          sleep "$WAIT"
+        fi
         # Je Eintrag in KEYS bzw. AFTER_KEYS: Tasten nacheinander drücken, rückwärts loslassen.
         press_keys="
 import os, sys
@@ -193,6 +210,34 @@ out.crop((g.x, g.y, g.x + g.width, g.y + g.height)).save(os.environ[\"OUT\"])
 "
       else
         import -window root "$OUT"
+      fi
+      if [ -n "$QUIT" ] && [ -n "$win" ]; then
+        # WM_PROTOCOLS/WM_DELETE_WINDOW (ICCCM 4.2.8.1): GTK behandelt das wie den Schließen-Knopf.
+        WIN="$win" python3 -c "
+import os
+from Xlib import display, X, protocol
+d = display.Display()
+w = d.create_resource_object(\"window\", int(os.environ[\"WIN\"], 16))
+ev = protocol.event.ClientMessage(window=w, client_type=d.intern_atom(\"WM_PROTOCOLS\"),
+                                  data=(32, [d.intern_atom(\"WM_DELETE_WINDOW\"), X.CurrentTime, 0, 0, 0]))
+w.send_event(ev, event_mask=X.NoEventMask)
+d.sync()
+"
+        # Beendet ist die App als Zombie (Z in /proc/PID/stat), bis wait den Exit-Code abholt.
+        state=""
+        for _ in $(seq 20); do
+          state=$(awk "{print \$3}" "/proc/$pid/stat" 2>/dev/null || echo Z)
+          [ "$state" = Z ] && break
+          sleep 1
+        done
+        if [ "$state" = Z ]; then
+          rc=0; wait "$pid" || rc=$?
+          echo "$pid $rc" >"$QUIT"
+          # Abgeholt: die PID kann neu vergeben werden, kein kill mehr darauf.
+          pid=""
+        else
+          echo "$pid Zeitlimit" >"$QUIT"
+        fi
       fi
       kill "$pid" "$cm" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
     '

@@ -20,6 +20,26 @@ Tests (Desktop-Datei, Metainfo mit `appstreamcli validate --no-net`, GSettings-S
 meson test -C build
 ```
 
+### Smoke-Test (#349)
+
+Gegen die echten Konten aus GNOME Online Accounts, daher eigene Suite `smoke`, die `meson test` ohne `--suite` auslässt (`add_test_setup` in `meson.build`):
+
+```sh
+meson test -C build --suite smoke -v      # oder: tests/smoke.sh [AUSGABEORDNER]
+```
+
+Vorbedingungen: Netz, Konten in GOA, echter Session-Bus, Revolution läuft nicht (`NameHasOwner` = false), Pakete wie unter Screenshots. Ohne `meson test` baut das Skript vorher selbst unter `flock` (`BUILD_LOCK`, Standard `build/.build.lock`). Ausgaben (Logs, PNGs, Vergleichslisten) nach `build/smoke/` bzw. in den Ordner aus Argument oder `SMOKE_OUT`; Zeitlimit je Start `SMOKE_TIMEOUT` (Standard 120 s).
+
+Ablauf: vier App-Starts über `scripts/screenshot.sh` (Mail hell und dunkel in 1200×4800 mit allen Konten und Ordnern, Kalender mit Strg+2, Kontakte mit Strg+3) mit `G_MESSAGES_DEBUG=revolution` und `G_DEBUG=fatal-criticals`. Je Start wartet das Skript, bis jedes angezeigte Konto fertig ist (Log `Ordner: <UID> <N> geladen` bzw. Fehlerzeile), nimmt den Screenshot auf und schließt das Fenster per `WM_DELETE_WINDOW`. Geprüft wird je Start:
+
+- (a) Konten: angezeigte Konten = Regel aus `src/mail/mail-account.c`, unabhängig per Python-GI gegen die Registry ausgewertet
+- (b) Anmeldung: je Konto `angemeldet: <UID> … angenommen`
+- (c) Ordner: Log `Ordner: <UID> <Name>` und Anzahl = `tests/testdaten.py --ordner` (nur lesend)
+- (d) Log: Positivliste, nur DEBUG-Zeilen der App; ausgenommen zwei feste `libEGL warning: …DRI3…`-Zeilen von Mesa unter Xvfb, jede andere Zeile ist ein Fehler
+- (e) Beenden: Exit 0, kein Rest-Prozess (App, Xvfb, Compositing-Attrappe), App-ID nicht mehr auf dem Bus
+
+Am Ende (f): PIDs von `evolution-source-registry` und `goa-daemon` sowie sha256, Änderungszeit und Inode jeder Datei in `~/.config/evolution/sources` unverändert. Je Prüfung eine Zeile `OK …` bzw. `FEHLER …`, Exit 0 nur ohne Fehler. Gegenprobe ohne Netz (Bus bleibt erreichbar): `unshare -n --map-current-user tests/smoke.sh` meldet FEHLER und Exit 1.
+
 Starten aus dem Build-Ordner: Das Schema liegt kompiliert in `build/data`.
 
 ```sh
@@ -84,7 +104,7 @@ G_MESSAGES_DEBUG=revolution build/tests/anmeldung --zertifikat UID             #
 
 ## Screenshots (headless)
 
-`scripts/screenshot.sh NAME SCHEMA [BREITExHÖHE]`. Das Skript läuft in eigenem Xvfb am echten Session-Bus (Grund oben unter Headless-Start) und bricht ab, wenn Revolution dort schon läuft. Einstellungen bleiben dabei im Speicher (`GSETTINGS_BACKEND=memory`). Wichtige Umgebungsvariablen: `BUILD` (Build-Ordner, Standard `build/`), `OUT_DIR` (Zielordner), `KEYS` (Tastendrücke vorab).
+`scripts/screenshot.sh NAME SCHEMA [BREITExHÖHE]`. Das Skript läuft in eigenem Xvfb am echten Session-Bus (Grund oben unter Headless-Start) und bricht ab, wenn Revolution dort schon läuft. Einstellungen bleiben dabei im Speicher (`GSETTINGS_BACKEND=memory`). Wichtige Umgebungsvariablen: `BUILD` (Build-Ordner, Standard `build/`), `OUT_DIR` (Zielordner), `KEYS` (Tastendrücke vorab); für den Smoke-Test `LOG` (Ausgabe der App), `READY` (warten, bis die Datei existiert) und `QUIT` (Beenden per `WM_DELETE_WINDOW`, Exit-Code in die Datei), Einzelheiten im Kopf des Skripts.
 
 ```sh
 scripts/screenshot.sh mail-hell prefer-light
@@ -94,13 +114,13 @@ KEYS="Control_L+3" scripts/screenshot.sh kontakte-hell prefer-light
 
 ## Git-Hook
 
-`hooks/pre-merge-commit` baut und testet das Merge-Ergebnis in `build-hook/` mit `werror=true` (`meson compile` und `meson test`); jede Compiler-Warnung zählt also als Fehler. Schlägt eins davon fehl, bricht `git merge` ohne Commit ab. Der Merge bleibt dann offen und wird mit `git merge --abort` zurückgenommen. Einmal je Klon aktivieren:
+`hooks/pre-merge-commit` baut und testet das Merge-Ergebnis in `build-hook/` mit `werror=true` (`meson compile` und `meson test --no-suite smoke`, also offline ohne den Smoke-Test); jede Compiler-Warnung zählt also als Fehler. Schlägt eins davon fehl, bricht `git merge` ohne Commit ab. Der Merge bleibt dann offen und wird mit `git merge --abort` zurückgenommen. Einmal je Klon aktivieren:
 
 ```sh
 git config core.hooksPath hooks
 git config merge.ff false
 ```
 
-Lücken: Der Hook läuft nicht bei `git merge --no-verify` und nicht, wenn der Merge mit Konflikt stoppt. Den Konflikt-Commit dann vor dem Abschluss selbst mit `meson configure -Dwerror=true build-hook && meson compile -C build-hook && meson test -C build-hook` prüfen.
+Lücken: Der Hook läuft nicht bei `git merge --no-verify` und nicht, wenn der Merge mit Konflikt stoppt. Den Konflikt-Commit dann vor dem Abschluss selbst mit `meson configure -Dwerror=true build-hook && meson compile -C build-hook && meson test -C build-hook --no-suite smoke` prüfen.
 
 Arbeitsweise: ein Branch pro Task (`task/<Nr>-<kurz>`), Merge nach `main` erst nach dem Review.

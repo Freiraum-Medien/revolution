@@ -39,7 +39,7 @@ Der Start nutzt den echten Session-Bus, keine eigene `dbus-run-session`. Eine ei
 
 Muster, keine Hilfsbibliothek (CLAUDE.md Architektur-Festlegungen 1–6). Beispiel im Code: `src/main.c` (#343).
 
-**Worker:** Jeder Camel-/EDS-Aufruf läuft per `GTask` im Worker-Thread, nie im UI-Thread. Der `*_sync`-Aufruf steht in der Thread-Funktion, das Ergebnis kommt im Rückruf im UI-Thread an. Nur dort werden Widgets und Modelle geändert. Vorlage: Evolution `e_mail_session_get_inbox` (libemail-engine/e-mail-session.c:2538-2618).
+**Worker:** Jeder Camel-/EDS-Aufruf läuft per `GTask` im Worker-Thread, nie im UI-Thread. Der `*_sync`-Aufruf steht in der Thread-Funktion, das Ergebnis kommt im Rückruf im UI-Thread an. Nur dort werden Widgets und Modelle geändert. Vorlage: Evolution `e_mail_session_get_inbox` (libemail-engine/e-mail-session.c:2538-2618). Ausnahme (#345): reine Lesezugriffe der `ESourceRegistry` auf ihre Quellen im Speicher (`e_source_registry_list_sources`, `_ref_source`, `_find_extension`) sind im UI-Thread zulässig; sie lesen eine Hashtabelle unter Mutex, ohne D-Bus (EDS e-source-registry.c:459-472, 2432-2439, 2465-2492, 2576-2600). Evolution macht es ebenso (e-mail-account-store.c:1216-1225). Alles mit D-Bus, Netz oder Datei bleibt im Worker.
 
 ```c
 static void

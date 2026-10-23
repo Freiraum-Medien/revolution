@@ -158,7 +158,6 @@ template $RevolutionMailView: Adw.BreakpointBin {
                         label: bind template.item as <TreeListRow>.item as <$RevolutionMailAccount>.display-name;
                         hexpand: true;
                         xalign: 0;
-                        margin-start: 6;
                         ellipsize: end;
 
                         styles [
@@ -180,7 +179,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
           child: Adw.StatusPage {
             icon-name: "mail-unread-symbolic";
             title: _("Keine Konten");
-            description: _("Revolution nutzt die E-Mail-Konten aus den Online-Konten der Systemeinstellungen.");
+            description: _("E-Mail-Konten aus den Online-Konten oder aus Evolution erscheinen hier.");
 
             styles [
               "compact",

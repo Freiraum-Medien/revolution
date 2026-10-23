@@ -418,15 +418,16 @@ format_address (CamelInternetAddress *address)
  * prefer-dark: matchMedia('(prefers-color-scheme: dark)') = true, auch mit <meta name="color-scheme"
  * content="light only">). In den Themes 2/3 (App dunkel) griffe daher in jeder Mail ihr Dunkel-CSS.
  * Abhilfe (PM #354, aus Dokument #5 „HTML behält eigenen Hintergrund“): eine zweite Fassung, in der
- * „prefers-color-scheme: dark“ und „light“ getauscht sind, nur in <style>-Elementen und
- * media-Attributen (link, style, source); unter dunkler Oberfläche greifen so die hellen Regeln. */
+ * „prefers-color-scheme: dark“ und „light“ getauscht sind, nur in <style>-Elementen und in den Tags
+ * link, style, source, img, video, audio, picture (media-Attribut); Fließtext bleibt unverändert.
+ * Unter dunkler Oberfläche greifen so die hellen Regeln. */
 static GRegex *
 scheme_regex (guint which)
 {
   static GRegex *regex[3];
   static const char *patterns[3] = {
-    /* Bereiche: <style>…</style> und media="…" */
-    "<style\\b[^>]*>.*?</style\\s*>|\\bmedia\\s*=\\s*(?:\"[^\"]*\"|'[^']*'|[^\\s>]+)",
+    /* Bereiche: <style>…</style> und Tags mit media-Attribut (nur innerhalb des Tags) */
+    "<style\\b[^>]*>.*?</style\\s*>|<(?:link|source|img|video|audio|picture)\\b[^>]*>",
     /* Medienabfrage selbst */
     "(prefers-color-scheme\\s*:\\s*)(dark|light)\\b",
     /* Die Mail erklärt eine Dunkel-Fassung: color-scheme bzw. supported-color-schemes mit „dark“ als
@@ -663,6 +664,7 @@ show_html (RevolutionMailReader *self)
 
   if (self->guard == GUARD_OK)
     {
+      /* Sichtbar erst mit dem neuen Dokument (on_load_changed, WEBKIT_LOAD_COMMITTED). */
       self->showing = TRUE;
       webkit_web_view_load_html (self->web_view, html, NULL);
     }
@@ -714,6 +716,9 @@ static void
 on_load_changed (RevolutionMailReader *self,
                  WebKitLoadEvent       event)
 {
+  if (event == WEBKIT_LOAD_COMMITTED && self->showing)
+    gtk_widget_set_visible (GTK_WIDGET (self->web_view), TRUE);
+
   if (event == WEBKIT_LOAD_FINISHED && self->showing)
     {
       self->showing = FALSE;
@@ -1195,6 +1200,8 @@ start_load (gpointer user_data)
   g_autoptr (GTask) task = NULL;
 
   self->load_timeout = 0;
+  /* Kreisel erst mit dem Laden, nicht schon beim Blättern (Wartezeit 100 ms). */
+  gtk_widget_set_visible (GTK_WIDGET (self->spinner), TRUE);
   load->started = g_get_monotonic_time ();
   self->cancellable = g_cancellable_new ();
   task = g_task_new (self, self->cancellable, on_message_loaded, NULL);
@@ -1234,7 +1241,6 @@ revolution_mail_reader_show (RevolutionMailReader  *self,
   gtk_label_set_label (self->subject_label, subject);
   gtk_image_set_from_icon_name (self->folder_icon, icon);
   gtk_label_set_label (self->folder_label, place);
-  gtk_widget_set_visible (GTK_WIDGET (self->spinner), TRUE);
 
   load = g_new0 (LoadMessage, 1);
   load->session = g_object_ref (session);
@@ -1273,7 +1279,7 @@ revolution_mail_reader_clear (RevolutionMailReader *self)
   gtk_label_set_label (self->cc_full, "");
   gtk_label_set_label (self->date_full, "");
 
-  /* Alte Nachricht sofort ausblenden; vor der Bestätigung der Sperre lädt nichts. */
-  if (self->guard == GUARD_OK)
-    webkit_web_view_load_html (self->web_view, "<!DOCTYPE html><html></html>", NULL);
+  /* Alte Nachricht sofort ausblenden: WebView unsichtbar statt leere Seite laden (beim Blättern
+   * lud sonst jeder Auswahlwechsel eine Seite, PM #354 Runde 2: Frames > 16,7 ms 3 → 12). */
+  gtk_widget_set_visible (GTK_WIDGET (self->web_view), FALSE);
 }

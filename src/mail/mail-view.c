@@ -343,7 +343,8 @@ typedef struct
   char         *uid;
   char         *full_name;
   guint         generation;
-  /* Nur im Worker: der Cache-Durchgang hat Einträge geschickt. */
+  /* #414: Die Liste zeigte beim Beginn des Durchgangs Einträge (aus dem Cache oder aus
+   * Live-Änderungen); gesetzt im UI-Thread (add_messages_block), während der Worker wartet. */
   gboolean      shown;
   /* Übergabe der Blöcke (send_messages, messages_block_free). */
   GMutex        lock;
@@ -382,6 +383,10 @@ typedef struct
   gboolean            reset;
   gboolean            merge;
   gboolean            last;
+  /* #414: keine Einträge, nur Beginn eines Durchgangs (vor dem Lesen der UIDs) bzw. Ende eines
+   * Durchgangs, der nichts schickt (send_messages). */
+  gboolean            begin;
+  gboolean            end;
   guint               total;
   guint               unread;
   guint               previews;
@@ -534,14 +539,28 @@ add_messages_block (gpointer data)
   if (block->generation != self->load_generation)
     return G_SOURCE_REMOVE;
 
+  n_items = g_list_model_get_n_items (G_LIST_MODEL (self->messages));
+
   /* #410: Zwischen dem ersten und dem letzten Block eines Durchgangs keine Live-Änderungen
    * anwenden (start_folder_changes, on_folder_changes_done): eine dabei eingefügte UID hinge ein
    * späterer Block erneut an. Nach dem letzten Block wirken sie am bestehenden Eintrag. Wie
    * Evolution, das während eines Neuaufbaus keine Änderung einzeln einträgt, sondern die Liste
-   * neu aufbaut (message_list_folder_changed, message-list.c:5127-5128, 5178-5186). */
+   * neu aufbaut (message_list_folder_changed, message-list.c:5127-5128, 5178-5186).
+   * #414: Schon ab dem Lesen der UIDs (begin), sonst entfernte bzw. überschriebe der Durchgang
+   * eine dazwischen eingefügte neue Mail. Zeigt die Liste dann schon Einträge (auch aus
+   * Live-Änderungen ohne Cache), gleicht der Server-Durchgang ab, statt sie zu ersetzen. */
+  if (block->begin)
+    {
+      self->blocks_running = TRUE;
+      block->load->shown = n_items > 0;
+      return G_SOURCE_REMOVE;
+    }
   self->blocks_running = !block->last;
-
-  n_items = g_list_model_get_n_items (G_LIST_MODEL (self->messages));
+  if (block->end)
+    {
+      start_folder_changes (self);
+      return G_SOURCE_REMOVE;
+    }
 
   if (block->merge)
     {
@@ -640,6 +659,25 @@ post_block (MessagesBlock *block,
   return done;
 }
 
+/* #414: Beginn bzw. Ende eines Durchgangs ohne Einträge an den UI-Thread (add_messages_block). */
+static gboolean
+post_frame (GTask    *task,
+            gboolean  begin)
+{
+  LoadMessages *load = g_task_get_task_data (task);
+  MessagesBlock *block = g_new0 (MessagesBlock, 1);
+
+  block->self = g_object_ref (g_task_get_source_object (task));
+  block->load = g_atomic_rc_box_acquire (load);
+  block->generation = load->generation;
+  block->items = g_ptr_array_new ();
+  block->begin = begin;
+  block->end = !begin;
+  block->last = !begin;
+
+  return post_block (block, g_task_get_cancellable (task));
+}
+
 /* Im Worker: Flags, die eine Nachricht in diesem Ordner ausblenden. Gelöschte und Spam wie
  * Evolution (message_list_get_hide_deleted/_junk, message-list.c:4585-4666), ohne die
  * Ausnahmen für Suchordner (gibt es noch nicht). #353: zweiter Nutzer folder_changes_thread. */
@@ -674,9 +712,14 @@ send_messages (GTask       *task,
   guint32 hidden = hidden_flags (folder);
   g_autoptr (GPtrArray) infos = g_ptr_array_new_with_free_func (g_object_unref);
   g_autoptr (GDateTime) now = g_date_time_new_now_local ();
-  gboolean merge = load->shown && g_str_equal (pass, "Server");
+  gboolean merge;
   guint hash = 0, unread = 0, previews = 0, i = 0;
   GPtrArray *uids;
+
+  /* #414: Ab hier keine Live-Änderungen mehr in die Liste, bis der Durchgang fertig ist. */
+  if (!post_frame (task, TRUE))
+    return FALSE;
+  merge = load->shown && g_str_equal (pass, "Server");
 
   camel_folder_summary_prepare_fetch_all (camel_folder_get_folder_summary (folder), NULL);
   uids = camel_folder_get_uids (folder);
@@ -707,10 +750,9 @@ send_messages (GTask       *task,
   if (hash == *signature || (infos->len == 0 && g_str_equal (pass, "Cache")))
     {
       *signature = hash;
-      return !g_cancellable_is_cancelled (cancellable);
+      return post_frame (task, FALSE);
     }
   *signature = hash;
-  load->shown = TRUE;
 
   g_ptr_array_sort_values_with_data (infos, compare_messages, folder);
 

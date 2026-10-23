@@ -61,6 +61,8 @@ Die `ESourceRegistry` wird beim Start so geladen und an der Anwendung gehalten (
 
 **Datenmodell:** `GListStore` aus konkreten GObject-Items, angezeigt mit `GtkListView`/`GtkColumnView` (Beispiel `src/mail/mail-view.c:208`, `mail-view.blp:124`). Änderungen am Store (`g_list_store_append`, `g_list_store_splice`) nur im UI-Thread, also im GTask-Rückruf. Eine eigene `GListModel`-Klasse erst, wenn ein `GListStore` nicht reicht.
 
+**Camel-Ordner:** Immer über `camel_store_get_folder_sync (store, full_name, …)` holen, nie das Ergebnis von `camel_store_get_inbox_folder_sync` für Anzeige, Flags oder Refresh verwenden. Die Standardversion ruft die vfunc `get_folder_sync` direkt mit „inbox“ und umgeht den Ordner-Cache (EDS camel-store.c:373-388 gegen 1369/1469); imapx überschreibt sie nicht, es entstehen zwei Instanzen. Bei microsoft365 den Posteingang über den Ordnertyp `CAMEL_FOLDER_TYPE_INBOX` finden (camel-m365-store.c:161), nicht über den festen Namen „inbox“ der Standardversion. Evolution macht es ebenso (e-mail-session.c:2763, mail-folder-cache.c:779).
+
 **eds-compat.c:** Die einzige Datei für Aufrufe, die von der EDS-/Camel-Version abhängen (3.56 heute, 3.62 später), jeweils mit `#if EDS_CHECK_VERSION (…)`. Heute gibt es keinen solchen Aufruf; die Datei bricht nur den Build ab, wenn EDS älter als 3.56 ist.
 
 **Verzeichnisse:** Beim Start werden `~/.local/share/revolution` und `~/.cache/revolution` angelegt (`g_get_user_data_dir ()`/`g_get_user_cache_dir ()` + `revolution`, Rechte 0700), getrennt von Evolution (`…/evolution`). Beide Profile nutzen dieselben Ordner, wie Stamp (stamp-helper.c:46-58) und wie das gemeinsame GSettings-Schema.

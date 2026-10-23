@@ -1,4 +1,4 @@
-// Kontakte-Ansicht, Prototyp #338. Ohne Logik, Beispieldaten aus contacts-sample.c.
+// Kontakte-Ansicht (Prototyp #338). Daten folgen in M6.
 // Aufbau nach quelltext/stamp/src/views/contact/stamp-contact-view.blp:4-185 und
 // mail-view.blp (Briefing 1.4); Design-Referenz GNOME Contacts 49.0.
 // #402: Designsprache der Mail-Ansicht (#399–#401) übernommen, Muster jeweils
@@ -209,7 +209,8 @@ template $RevolutionContactsView: Adw.BreakpointBin {
           hexpand: true;
 
           Label {
-            label: _("Persönlich");
+            // Name des gewählten Adressbuchs folgt mit M6.
+            label: _("Kontakte");
             xalign: 0;
             ellipsize: end;
 
@@ -218,8 +219,9 @@ template $RevolutionContactsView: Adw.BreakpointBin {
             ]
           }
 
+          // Anzahl folgt mit M6.
           Label {
-            label: _("12 Kontakte");
+            visible: false;
             xalign: 0;
             ellipsize: end;
 
@@ -231,87 +233,104 @@ template $RevolutionContactsView: Adw.BreakpointBin {
         };
       }
 
-      // #402 Punkt 4: Buchstabenleiste A–Z rechts neben der Liste (Knöpfe in contacts-view.c).
-      content: Box {
-        ScrolledWindow {
-          hexpand: true;
-          hscrollbar-policy: never;
+      // Ohne Adressbuch: Leerzustand wie Stamp (stamp-contact-list.blp:126-133).
+      content: Stack contact_stack {
+        // Erste Seite „empty“ ist sichtbar (Gtk.Stack zeigt das erste Kind).
+        StackPage {
+          name: "empty";
 
-          // Viewport: ohne ihn fehlt beim Start der Abschnittskopf „A“ (headless
-          // geprüft). Ursache klären in #350, Virtualisierung geht verloren.
-          // #402: Auswahl als abgerundete Akzentfläche wie die Nachrichtenliste
-          // (style.css .contact-list), ohne Trennlinien.
-          child: Viewport {
-            child: ListView contact_list {
-              tab-behavior: item;
-
-              styles [
-                "contact-list",
-              ]
-
-              accessibility {
-                label: _("Kontakte");
-              }
-
-              model: SingleSelection contact_selection {};
-
-              header-factory: BuilderListItemFactory {
-                template ListHeader {
-                  child: Label {
-                    label: bind template.item as <$RevolutionContactsSampleEntry>.group;
-                    xalign: 0;
-                    margin-start: 12;
-                    margin-end: 12;
-                    margin-top: 6;
-                    margin-bottom: 3;
-
-                    styles [
-                      "caption-heading",
-                      "dimmed",
-                    ]
-                  };
-                }
-              };
-
-              factory: BuilderListItemFactory {
-                template ListItem {
-                  child: Box {
-                    spacing: 12;
-
-                    // 32 px statt 48 (stamp-contact-row.blp:15-18): Platz bei 1280×800.
-                    // presentation: der Name steht im Label daneben, sonst doppelt vorgelesen.
-                    Adw.Avatar {
-                      size: 32;
-                      show-initials: true;
-                      accessible-role: presentation;
-                      text: bind template.item as <$RevolutionContactsSampleEntry>.title;
-                    }
-
-                    Label {
-                      label: bind template.item as <$RevolutionContactsSampleEntry>.title;
-                      hexpand: true;
-                      xalign: 0;
-                      ellipsize: end;
-                    }
-                  };
-                }
-              };
-            };
+          child: Adw.StatusPage {
+            icon-name: "system-users-symbolic";
+            title: _("Keine Kontakte");
           };
         }
 
-        Box letter_bar {
-          orientation: vertical;
-          valign: center;
-          margin-end: 4;
+        StackPage {
+          name: "list";
 
-          styles [
-            "letter-bar",
-          ]
+          // #402 Punkt 4: Buchstabenleiste A–Z rechts neben der Liste (Knöpfe in contacts-view.c).
+          child: Box {
+            ScrolledWindow {
+              hexpand: true;
+              hscrollbar-policy: never;
 
-          accessibility {
-            label: _("Zu Anfangsbuchstabe springen");
-          }
+              // Viewport: ohne ihn fehlt beim Start der Abschnittskopf „A“ (headless
+              // geprüft). Ursache klären in #350, Virtualisierung geht verloren.
+              // #402: Auswahl als abgerundete Akzentfläche wie die Nachrichtenliste
+              // (style.css .contact-list), ohne Trennlinien.
+              child: Viewport {
+                child: ListView contact_list {
+                  tab-behavior: item;
+
+                  styles [
+                    "contact-list",
+                  ]
+
+                  accessibility {
+                    label: _("Kontakte");
+                  }
+
+                  model: SingleSelection contact_selection {};
+
+                  header-factory: BuilderListItemFactory {
+                    template ListHeader {
+                      child: Label {
+                        label: bind template.item as <$RevolutionContactsSampleEntry>.group;
+                        xalign: 0;
+                        margin-start: 12;
+                        margin-end: 12;
+                        margin-top: 6;
+                        margin-bottom: 3;
+
+                        styles [
+                          "caption-heading",
+                          "dimmed",
+                        ]
+                      };
+                    }
+                  };
+
+                  factory: BuilderListItemFactory {
+                    template ListItem {
+                      child: Box {
+                        spacing: 12;
+
+                        // 32 px statt 48 (stamp-contact-row.blp:15-18): Platz bei 1280×800.
+                        // presentation: der Name steht im Label daneben, sonst doppelt vorgelesen.
+                        Adw.Avatar {
+                          size: 32;
+                          show-initials: true;
+                          accessible-role: presentation;
+                          text: bind template.item as <$RevolutionContactsSampleEntry>.title;
+                        }
+
+                        Label {
+                          label: bind template.item as <$RevolutionContactsSampleEntry>.title;
+                          hexpand: true;
+                          xalign: 0;
+                          ellipsize: end;
+                        }
+                      };
+                    }
+                  };
+                };
+              };
+            }
+
+            Box letter_bar {
+              orientation: vertical;
+              valign: center;
+              margin-end: 4;
+
+              styles [
+                "letter-bar",
+              ]
+
+              accessibility {
+                label: _("Zu Anfangsbuchstabe springen");
+              }
+            }
+          };
         }
       };
     }
@@ -412,1044 +431,11 @@ template $RevolutionContactsView: Adw.BreakpointBin {
         };
       }
 
-      content: Box {
-        orientation: vertical;
-
-        // #402 Punkt 3: Verknüpfungsvorschlag als Pille wie der Hinweis der Mail-Ansicht
-        // (style.css .mail-notice), Inhalt nach GNOME Contacts
-        // (contacts-link-suggestion-grid.ui: Text, „Link Contacts“, Schließen-Knopf).
-        Box link_notice {
-          spacing: 12;
-          margin-start: 12;
-          margin-end: 12;
-          // #340: 13px, Oberkante auf der Linie 63px (style.css „Eine Linie“).
-          margin-top: 13;
-
-          styles [
-            "mail-notice",
-          ]
-
-          // Avatar des vorgeschlagenen Eintrags wie avatar_bin in GNOME Contacts.
-          Adw.Avatar {
-            size: 24;
-            show-initials: true;
-            accessible-role: presentation;
-            text: _("J. Albrecht");
-          }
-
-          Label {
-            label: _("Ist dies dieselbe Person wie „J. Albrecht“ (Globale Adressliste)?");
-            hexpand: true;
-            xalign: 0;
-            ellipsize: end;
-          }
-
-          Button {
-            label: _("Kontakte verknüpfen");
-            tooltip-text: _("Beide Einträge zu einem Kontakt verknüpfen");
-            action-name: "contact.link";
-            valign: center;
-
-            styles [
-              "mail-notice-button",
-            ]
-          }
-
-          Button {
-            icon-name: "window-close-symbolic";
-            tooltip-text: _("Vorschlag ausblenden");
-            valign: center;
-            clicked => $on_link_dismiss() swapped;
-
-            accessibility {
-              label: _("Vorschlag ausblenden");
-            }
-
-            styles [
-              "flat",
-              "circular",
-            ]
-          }
-        }
-
-        // Kopf, Reiter und Inhalt scrollen gemeinsam wie in GNOME Contacts
-        // (contacts-contact-pane.ui: GtkScrolledWindow > AdwClamp).
-        ScrolledWindow {
-          vexpand: true;
-          hscrollbar-policy: never;
-
-          child: Adw.Clamp {
-            maximum-size: 620;
-            tightening-threshold: 480;
-            margin-start: 12;
-            margin-end: 12;
-            margin-top: 18;
-            margin-bottom: 24;
-
-            child: Box {
-              orientation: vertical;
-              spacing: 18;
-
-              // #402 Punkt 1: Kopf wie GNOME Contacts (großer Avatar mittig, Name groß
-              // darunter); Name halbfett wie .mail-sender (style.css .contact-name).
-              Box {
-                orientation: vertical;
-                spacing: 12;
-                halign: center;
-
-                Adw.Avatar {
-                  size: 96;
-                  show-initials: true;
-                  text: _("Jana Albrecht");
-                  halign: center;
-                }
-
-                Label {
-                  label: _("Jana Albrecht");
-                  wrap: true;
-                  wrap-mode: word_char;
-                  justify: center;
-                  selectable: true;
-
-                  styles [
-                    "title-1",
-                    "contact-name",
-                  ]
-                }
-
-                // Runde Schnellaktionen (Platzhalter), Akzent-Tönung wie .mail-notice-button.
-                Box {
-                  spacing: 12;
-                  halign: center;
-                  margin-top: 6;
-
-                  Button {
-                    icon-name: "mail-message-new-symbolic";
-                    tooltip-text: _("Mail schreiben");
-                    action-name: "contact.write-mail";
-
-                    accessibility {
-                      label: _("Mail schreiben");
-                    }
-
-                    styles [
-                      "contact-action",
-                    ]
-                  }
-
-                  Button {
-                    icon-name: "call-start-symbolic";
-                    tooltip-text: _("Anrufen");
-                    action-name: "contact.call";
-
-                    accessibility {
-                      label: _("Anrufen");
-                    }
-
-                    styles [
-                      "contact-action",
-                    ]
-                  }
-
-                  Button {
-                    icon-name: "calendar-new-symbolic";
-                    tooltip-text: _("Zu Termin einladen");
-                    action-name: "contact.invite";
-
-                    accessibility {
-                      label: _("Zu Termin einladen");
-                    }
-
-                    styles [
-                      "contact-action",
-                    ]
-                  }
-
-                  // #402 Punkt 6: Teilen-Menü, Optik wie das Hauptmenü (primary-menu).
-                  MenuButton {
-                    icon-name: "share-nodes-symbolic";
-                    tooltip-text: _("Teilen");
-                    menu-model: share_menu;
-
-                    accessibility {
-                      label: _("Teilen");
-                    }
-
-                    styles [
-                      "contact-action",
-                      "primary-menu",
-                    ]
-                  }
-                }
-              }
-
-              // #402 Punkt 2: Reiter unter dem Kopf. „Firma“ blendet contacts-view.c aus,
-              // wenn keine Firma eingetragen ist.
-              Adw.InlineViewSwitcher {
-                stack: detail_stack;
-                halign: center;
-              }
-
-              Adw.ViewStack detail_stack {
-                vhomogeneous: false;
-
-                Adw.ViewStackPage {
-                  name: "details";
-                  title: _("Details");
-
-                  // Jede Angabe als eigene Karte (style.css .contact-card, .contact-field),
-                  // Symbol klein und grau, Aktion direkt in der Zeile.
-                  child: Box {
-                    orientation: vertical;
-                    spacing: 12;
-
-                    // #402: gleiche Angaben in einer Karte wie GNOME Contacts, feiner Trenner (style.css).
-                    Box {
-                      orientation: vertical;
-
-                      styles [
-                        "contact-card",
-                      ]
-
-                      Box {
-                        spacing: 12;
-
-                        styles [
-                          "contact-field",
-                        ]
-
-                        Image {
-                          icon-name: "mail-unread-symbolic";
-                          tooltip-text: _("E-Mail");
-
-                          accessibility {
-                            label: _("E-Mail");
-                          }
-
-                          styles [
-                            "dimmed",
-                          ]
-                        }
-
-                        Box {
-                          orientation: vertical;
-                          hexpand: true;
-
-                          Label {
-                            label: _("Arbeit");
-                            xalign: 0;
-
-                            styles [
-                              "caption",
-                              "dimmed",
-                            ]
-                          }
-
-                          Label {
-                            label: "jana.albrecht@albrecht-partner.example";
-                            xalign: 0;
-                            wrap: true;
-                            wrap-mode: word_char;
-                            selectable: true;
-                          }
-                        }
-
-                        Button {
-                          icon-name: "sent-symbolic";
-                          tooltip-text: _("E-Mail an diese Adresse schreiben");
-                          action-name: "contact.write-mail";
-                          valign: center;
-
-                          accessibility {
-                            label: _("E-Mail an diese Adresse schreiben");
-                          }
-
-                          styles [
-                            "flat",
-                            "circular",
-                          ]
-                        }
-                      }
-
-                      Separator {
-                        styles [
-                          "contact-separator",
-                        ]
-                      }
-
-                      Box {
-                        spacing: 12;
-
-                        styles [
-                          "contact-field",
-                        ]
-
-                        Image {
-                          icon-name: "mail-unread-symbolic";
-                          tooltip-text: _("E-Mail");
-
-                          accessibility {
-                            label: _("E-Mail");
-                          }
-
-                          styles [
-                            "dimmed",
-                          ]
-                        }
-
-                        Box {
-                          orientation: vertical;
-                          hexpand: true;
-
-                          Label {
-                            label: _("Privat");
-                            xalign: 0;
-
-                            styles [
-                              "caption",
-                              "dimmed",
-                            ]
-                          }
-
-                          Label {
-                            label: "jana.albrecht@example.org";
-                            xalign: 0;
-                            wrap: true;
-                            wrap-mode: word_char;
-                            selectable: true;
-                          }
-                        }
-
-                        Button {
-                          icon-name: "sent-symbolic";
-                          tooltip-text: _("E-Mail an diese Adresse schreiben");
-                          action-name: "contact.write-mail";
-                          valign: center;
-
-                          accessibility {
-                            label: _("E-Mail an diese Adresse schreiben");
-                          }
-
-                          styles [
-                            "flat",
-                            "circular",
-                          ]
-                        }
-                      }
-                    }
-
-                    // Telefonnummern in einer Karte.
-                    Box {
-                      orientation: vertical;
-
-                      styles [
-                        "contact-card",
-                      ]
-
-                      Box {
-                        spacing: 12;
-
-                        styles [
-                          "contact-field",
-                        ]
-
-                        Image {
-                          icon-name: "phone-symbolic";
-                          tooltip-text: _("Telefon");
-
-                          accessibility {
-                            label: _("Telefon");
-                          }
-
-                          styles [
-                            "dimmed",
-                          ]
-                        }
-
-                        Box {
-                          orientation: vertical;
-                          hexpand: true;
-
-                          Label {
-                            label: _("Mobil");
-                            xalign: 0;
-
-                            styles [
-                              "caption",
-                              "dimmed",
-                            ]
-                          }
-
-                          Label {
-                            label: "+49 171 0000456";
-                            xalign: 0;
-                            selectable: true;
-
-                            styles [
-                              "numeric",
-                            ]
-                          }
-                        }
-
-                        Button {
-                          icon-name: "call-start-symbolic";
-                          tooltip-text: _("Diese Nummer anrufen");
-                          action-name: "contact.call";
-                          valign: center;
-
-                          accessibility {
-                            label: _("Diese Nummer anrufen");
-                          }
-
-                          styles [
-                            "flat",
-                            "circular",
-                          ]
-                        }
-                      }
-
-                      Separator {
-                        styles [
-                          "contact-separator",
-                        ]
-                      }
-
-                      Box {
-                        spacing: 12;
-
-                        styles [
-                          "contact-field",
-                        ]
-
-                        Image {
-                          icon-name: "phone-symbolic";
-                          tooltip-text: _("Telefon");
-
-                          accessibility {
-                            label: _("Telefon");
-                          }
-
-                          styles [
-                            "dimmed",
-                          ]
-                        }
-
-                        Box {
-                          orientation: vertical;
-                          hexpand: true;
-
-                          Label {
-                            label: _("Büro");
-                            xalign: 0;
-
-                            styles [
-                              "caption",
-                              "dimmed",
-                            ]
-                          }
-
-                          Label {
-                            label: "+49 341 0000789";
-                            xalign: 0;
-                            selectable: true;
-
-                            styles [
-                              "numeric",
-                            ]
-                          }
-                        }
-
-                        Button {
-                          icon-name: "call-start-symbolic";
-                          tooltip-text: _("Diese Nummer anrufen");
-                          action-name: "contact.call";
-                          valign: center;
-
-                          accessibility {
-                            label: _("Diese Nummer anrufen");
-                          }
-
-                          styles [
-                            "flat",
-                            "circular",
-                          ]
-                        }
-                      }
-                    }
-
-                    // Geburtstag wie im Kalender-Beispiel („Geburtstag Jana“, 24. Oktober).
-                    Box {
-                      spacing: 12;
-
-                      styles [
-                        "contact-card",
-                        "contact-field",
-                      ]
-
-                      Image {
-                        icon-name: "birthday-symbolic";
-                        tooltip-text: _("Geburtstag");
-
-                        accessibility {
-                          label: _("Geburtstag");
-                        }
-
-                        styles [
-                          "dimmed",
-                        ]
-                      }
-
-                      Box {
-                        orientation: vertical;
-                        hexpand: true;
-
-                        Label {
-                          label: _("Geburtstag");
-                          xalign: 0;
-
-                          styles [
-                            "caption",
-                            "dimmed",
-                          ]
-                        }
-
-                        Label {
-                          label: _("24. Oktober 1984");
-                          xalign: 0;
-                          selectable: true;
-                        }
-                      }
-                    }
-
-                    Box {
-                      spacing: 12;
-
-                      styles [
-                        "contact-card",
-                        "contact-field",
-                      ]
-
-                      Image {
-                        icon-name: "mark-location-symbolic";
-                        tooltip-text: _("Adresse");
-
-                        accessibility {
-                          label: _("Adresse");
-                        }
-
-                        styles [
-                          "dimmed",
-                        ]
-                      }
-
-                      Box {
-                        orientation: vertical;
-                        hexpand: true;
-
-                        Label {
-                          label: _("Arbeit");
-                          xalign: 0;
-
-                          styles [
-                            "caption",
-                            "dimmed",
-                          ]
-                        }
-
-                        Label {
-                          label: _("Kanalstraße 12\n04179 Lindenau");
-                          xalign: 0;
-                          wrap: true;
-                          selectable: true;
-                        }
-                      }
-                    }
-
-                    Box {
-                      spacing: 12;
-
-                      styles [
-                        "contact-card",
-                        "contact-field",
-                      ]
-
-                      Image {
-                        icon-name: "x-office-document-symbolic";
-                        tooltip-text: _("Notiz");
-
-                        accessibility {
-                          label: _("Notiz");
-                        }
-
-                        styles [
-                          "dimmed",
-                        ]
-                      }
-
-                      Box {
-                        orientation: vertical;
-                        hexpand: true;
-
-                        Label {
-                          label: _("Notiz");
-                          xalign: 0;
-
-                          styles [
-                            "caption",
-                            "dimmed",
-                          ]
-                        }
-
-                        Label {
-                          label: _("Ansprechpartnerin für das Projekt Nordlicht. Pläne bitte immer als PDF schicken.");
-                          xalign: 0;
-                          wrap: true;
-                          selectable: true;
-                        }
-                      }
-                    }
-                  };
-                }
-
-                // Verlauf: letzte E-Mails (mail-sample.c) und gemeinsame Termine
-                // (calendar-sample.c) mit Jana Albrecht als ruhige Liste ohne Trennlinien.
-                Adw.ViewStackPage {
-                  name: "history";
-                  title: _("Verlauf");
-
-                  child: Box {
-                    orientation: vertical;
-                    spacing: 6;
-
-                    Label {
-                      label: _("E-Mails");
-                      xalign: 0;
-                      margin-start: 12;
-
-                      styles [
-                        "caption-heading",
-                        "dimmed",
-                      ]
-                    }
-
-                    Box {
-                      orientation: vertical;
-                      spacing: 14;
-
-                      styles [
-                        "contact-card",
-                        "contact-history",
-                      ]
-
-                      Box {
-                        spacing: 12;
-
-                        Image {
-                          icon-name: "mail-unread-symbolic";
-                          valign: start;
-                          margin-top: 2;
-                          accessible-role: presentation;
-
-                          styles [
-                            "dimmed",
-                          ]
-                        }
-
-                        Box {
-                          orientation: vertical;
-                          hexpand: true;
-
-                          Label {
-                            label: _("Unterlagen für das Projekt Nordlicht");
-                            xalign: 0;
-                            ellipsize: end;
-                          }
-
-                          Label {
-                            label: _("Von Jana Albrecht · Heute, 09:14");
-                            xalign: 0;
-                            ellipsize: end;
-
-                            styles [
-                              "caption",
-                              "dimmed",
-                            ]
-                          }
-                        }
-                      }
-
-                      Box {
-                        spacing: 12;
-
-                        Image {
-                          icon-name: "mail-unread-symbolic";
-                          valign: start;
-                          margin-top: 2;
-                          accessible-role: presentation;
-
-                          styles [
-                            "dimmed",
-                          ]
-                        }
-
-                        Box {
-                          orientation: vertical;
-                          hexpand: true;
-
-                          Label {
-                            label: _("Re: Termin beim Bauamt");
-                            xalign: 0;
-                            ellipsize: end;
-                          }
-
-                          Label {
-                            label: _("An Jana Albrecht · 16.10.26");
-                            xalign: 0;
-                            ellipsize: end;
-
-                            styles [
-                              "caption",
-                              "dimmed",
-                            ]
-                          }
-                        }
-                      }
-
-                      Box {
-                        spacing: 12;
-
-                        Image {
-                          icon-name: "mail-unread-symbolic";
-                          valign: start;
-                          margin-top: 2;
-                          accessible-role: presentation;
-
-                          styles [
-                            "dimmed",
-                          ]
-                        }
-
-                        Box {
-                          orientation: vertical;
-                          hexpand: true;
-
-                          Label {
-                            label: _("Kostenschätzung Fassade, erster Entwurf");
-                            xalign: 0;
-                            ellipsize: end;
-                          }
-
-                          Label {
-                            label: _("Von Jana Albrecht · 09.10.26");
-                            xalign: 0;
-                            ellipsize: end;
-
-                            styles [
-                              "caption",
-                              "dimmed",
-                            ]
-                          }
-                        }
-                      }
-                    }
-
-                    Label {
-                      label: _("Gemeinsame Termine");
-                      xalign: 0;
-                      margin-start: 12;
-                      margin-top: 12;
-
-                      styles [
-                        "caption-heading",
-                        "dimmed",
-                      ]
-                    }
-
-                    Box {
-                      orientation: vertical;
-                      spacing: 14;
-
-                      styles [
-                        "contact-card",
-                        "contact-history",
-                      ]
-
-                      Box {
-                        spacing: 12;
-
-                        Image {
-                          icon-name: "x-office-calendar-symbolic";
-                          valign: start;
-                          margin-top: 2;
-                          accessible-role: presentation;
-
-                          styles [
-                            "dimmed",
-                          ]
-                        }
-
-                        Box {
-                          orientation: vertical;
-                          hexpand: true;
-
-                          Label {
-                            label: _("Review Fassadenpläne");
-                            xalign: 0;
-                            ellipsize: end;
-                          }
-
-                          Label {
-                            label: _("Freitag, 23. Oktober, 16:00 – 17:30 · Videokonferenz");
-                            xalign: 0;
-                            ellipsize: end;
-
-                            styles [
-                              "caption",
-                              "dimmed",
-                            ]
-                          }
-                        }
-                      }
-
-                      Box {
-                        spacing: 12;
-
-                        Image {
-                          icon-name: "x-office-calendar-symbolic";
-                          valign: start;
-                          margin-top: 2;
-                          accessible-role: presentation;
-
-                          styles [
-                            "dimmed",
-                          ]
-                        }
-
-                        Box {
-                          orientation: vertical;
-                          hexpand: true;
-
-                          Label {
-                            label: _("Abstimmung Bauamt");
-                            xalign: 0;
-                            ellipsize: end;
-                          }
-
-                          Label {
-                            label: _("Mittwoch, 21. Oktober, 09:00 – 10:30 · Bauamt Lindenau");
-                            xalign: 0;
-                            ellipsize: end;
-
-                            styles [
-                              "caption",
-                              "dimmed",
-                            ]
-                          }
-                        }
-                      }
-
-                      Box {
-                        spacing: 12;
-
-                        Image {
-                          icon-name: "x-office-calendar-symbolic";
-                          valign: start;
-                          margin-top: 2;
-                          accessible-role: presentation;
-
-                          styles [
-                            "dimmed",
-                          ]
-                        }
-
-                        Box {
-                          orientation: vertical;
-                          hexpand: true;
-
-                          Label {
-                            label: _("Jour fixe Nordlicht");
-                            xalign: 0;
-                            ellipsize: end;
-                          }
-
-                          Label {
-                            label: _("Montag, 19. Oktober, 10:00 – 11:00 · Besprechungsraum 3");
-                            xalign: 0;
-                            ellipsize: end;
-
-                            styles [
-                              "caption",
-                              "dimmed",
-                            ]
-                          }
-                        }
-                      }
-                    }
-                  };
-                }
-
-                // Firma: Name und Kollegen (Beispieldaten); Klick wählt den Kontakt in
-                // der Liste (contacts-view.c, kein Dialog).
-                Adw.ViewStackPage firm_page {
-                  name: "firm";
-                  title: _("Firma");
-
-                  child: Box {
-                    orientation: vertical;
-                    spacing: 6;
-
-                    Box {
-                      spacing: 12;
-
-                      styles [
-                        "contact-card",
-                        "contact-field",
-                      ]
-
-                      Image {
-                        icon-name: "building-symbolic";
-                        tooltip-text: _("Firma");
-
-                        accessibility {
-                          label: _("Firma");
-                        }
-
-                        styles [
-                          "dimmed",
-                        ]
-                      }
-
-                      Box {
-                        orientation: vertical;
-                        hexpand: true;
-
-                        Label {
-                          label: _("Geschäftsführerin");
-                          xalign: 0;
-
-                          styles [
-                            "caption",
-                            "dimmed",
-                          ]
-                        }
-
-                        Label firm_label {
-                          label: _("Albrecht und Partner Architekten");
-                          xalign: 0;
-                          wrap: true;
-                          selectable: true;
-                        }
-                      }
-                    }
-
-                    Label {
-                      label: _("Kollegen");
-                      xalign: 0;
-                      margin-start: 12;
-                      margin-top: 12;
-
-                      styles [
-                        "caption-heading",
-                        "dimmed",
-                      ]
-                    }
-
-                    // Zeilenname = Kontaktname, über den contacts-view.c den Eintrag wählt.
-                    ListBox {
-                      selection-mode: none;
-                      row-activated => $on_colleague_activated() swapped;
-
-                      accessibility {
-                        label: _("Kollegen");
-                      }
-
-                      styles [
-                        "contact-card",
-                        "contact-colleagues",
-                      ]
-
-                      ListBoxRow {
-                        name: "Anna Behrens";
-
-                        child: Box {
-                          spacing: 12;
-
-                          Adw.Avatar {
-                            size: 32;
-                            show-initials: true;
-                            accessible-role: presentation;
-                            text: _("Anna Behrens");
-                          }
-
-                          Box {
-                            orientation: vertical;
-                            valign: center;
-                            hexpand: true;
-
-                            Label {
-                              label: _("Anna Behrens");
-                              xalign: 0;
-                              ellipsize: end;
-                            }
-
-                            Label {
-                              label: _("Projektleiterin");
-                              xalign: 0;
-                              ellipsize: end;
-
-                              styles [
-                                "caption",
-                                "dimmed",
-                              ]
-                            }
-                          }
-                        };
-                      }
-
-                      ListBoxRow {
-                        name: "Aylin Demir";
-
-                        child: Box {
-                          spacing: 12;
-
-                          Adw.Avatar {
-                            size: 32;
-                            show-initials: true;
-                            accessible-role: presentation;
-                            text: _("Aylin Demir");
-                          }
-
-                          Box {
-                            orientation: vertical;
-                            valign: center;
-                            hexpand: true;
-
-                            Label {
-                              label: _("Aylin Demir");
-                              xalign: 0;
-                              ellipsize: end;
-                            }
-
-                            Label {
-                              label: _("Bauzeichnerin");
-                              xalign: 0;
-                              ellipsize: end;
-
-                              styles [
-                                "caption",
-                                "dimmed",
-                              ]
-                            }
-                          }
-                        };
-                      }
-                    }
-                  };
-                }
-              }
-            };
-          };
-        }
+      // Ohne Auswahl: Leerzustand wie Stamp (stamp-contact-details.blp:10-23).
+      // Detail (Kopf, Reiter Details | Verlauf | Firma) folgt in M6, Muster im Tag m2-prototyp.
+      content: Adw.StatusPage {
+        icon-name: "avatar-default-symbolic";
+        title: _("Kein Kontakt ausgewählt");
       };
     }
 
@@ -1608,21 +594,6 @@ menu primary_menu {
     item {
       label: _("_Info zu Revolution");
       action: "contacts.about";
-    }
-  }
-}
-
-// #402 Punkt 6: Teilen (Platzhalter).
-menu share_menu {
-  section {
-    item {
-      label: _("Als _vCard teilen");
-      action: "contact.share-vcard";
-    }
-
-    item {
-      label: _("_QR-Code anzeigen");
-      action: "contact.show-qr";
     }
   }
 }

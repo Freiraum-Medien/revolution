@@ -158,7 +158,6 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
         Entry to_entry {
           hexpand: true;
-          text: _("Jonas Weber <jonas.weber@example.org>");
 
           accessibility {
             labelled-by: to_label;
@@ -205,7 +204,6 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         }
 
         Entry cc_entry {
-          text: _("Mara Schulz <mara.schulz@example.net>");
 
           accessibility {
             labelled-by: cc_label;
@@ -290,7 +288,6 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         }
 
         Entry subject_entry {
-          text: _("Hoffest am Samstag – Planung");
 
           accessibility {
             labelled-by: subject_label;
@@ -340,12 +337,9 @@ template $RevolutionComposer: Adw.ApplicationWindow {
             "composer-dropdown",
           ]
 
-          model: StringList {
-            strings [
-              _("Lena Hoffmann – lena@hofladen-hoffmann.example"),
-              _("Lena Hoffmann – lena.hoffmann@example.org"),
-            ]
-          };
+          // Identitäten folgen mit #360; bis dahin ausgeblendet (leere Liste zeigt „(None)“).
+          visible: false;
+          model: StringList {};
 
           accessibility {
             labelled-by: from_label;
@@ -380,12 +374,8 @@ template $RevolutionComposer: Adw.ApplicationWindow {
             model: StringList {
               strings [
                 _("Ohne"),
-                _("Geschäftlich"),
-                _("Privat"),
               ]
             };
-
-            selected: 1;
 
             accessibility {
               labelled-by: signature_label;
@@ -407,164 +397,10 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         }
       }
 
-      // Anhangbereich als WrapBox (stamp-composer.blp:270-284), Anhang-Knopf
-      // wie Stamp stamp-attachment-button.blp (Symbol, Name, Größe gedimmt).
-      // #402: Anhänge als ruhige, abgerundete Pillen wie der Hinweis in der Mail-Ansicht
-      // (style.css .mail-notice); kleines gedimmtes Symbol, Name, Größe gedimmt.
-      Adw.WrapBox {
-        child-spacing: 8;
-        line-spacing: 8;
-        margin-top: 10;
-        margin-bottom: 12;
-        margin-start: 12;
-        margin-end: 12;
+      // Anhangbereich (WrapBox, stamp-composer.blp:270-284) folgt mit #360,
+      // Muster im Tag m2-prototyp.
 
-        Box {
-          styles [
-            "composer-attachment",
-          ]
-
-          Button {
-            action-name: "composer.open-attachment";
-            action-target: "'lageplan'";
-            tooltip-text: _("Anhang öffnen");
-
-            accessibility {
-              label: _("Lageplan-Hoffest.pdf, 1,2 MB");
-            }
-
-            styles [
-              "flat",
-            ]
-
-            child: Box {
-              spacing: 8;
-
-              Image {
-                icon-name: "x-office-document-symbolic";
-                accessible-role: presentation;
-
-                styles [
-                  "dimmed",
-                ]
-              }
-
-              Box {
-                spacing: 8;
-                valign: center;
-
-                Label {
-                  label: _("Lageplan-Hoffest.pdf");
-                  halign: start;
-                  ellipsize: middle;
-                }
-
-                Label {
-                  label: _("1,2 MB");
-                  halign: start;
-
-                  styles [
-                    "dimmed",
-                    "numeric",
-                  ]
-                }
-              }
-            };
-          }
-
-          Button {
-            icon-name: "window-close-symbolic";
-            tooltip-text: _("Anhang entfernen");
-            valign: center;
-
-            styles [
-              "flat",
-              "circular",
-            ]
-
-            action-name: "composer.remove-attachment";
-            action-target: "'lageplan'";
-
-            accessibility {
-              label: _("Lageplan-Hoffest.pdf entfernen");
-            }
-          }
-        }
-
-        Box {
-          styles [
-            "composer-attachment",
-          ]
-
-          Button {
-            action-name: "composer.open-attachment";
-            action-target: "'stand'";
-            tooltip-text: _("Anhang öffnen");
-
-            accessibility {
-              label: _("Marktstand.jpg, 3,4 MB");
-            }
-
-            styles [
-              "flat",
-            ]
-
-            child: Box {
-              spacing: 8;
-
-              Image {
-                icon-name: "image-x-generic-symbolic";
-                accessible-role: presentation;
-
-                styles [
-                  "dimmed",
-                ]
-              }
-
-              Box {
-                spacing: 8;
-                valign: center;
-
-                Label {
-                  label: _("Marktstand.jpg");
-                  halign: start;
-                  ellipsize: middle;
-                }
-
-                Label {
-                  label: _("3,4 MB");
-                  halign: start;
-
-                  styles [
-                    "dimmed",
-                    "numeric",
-                  ]
-                }
-              }
-            };
-          }
-
-          Button {
-            icon-name: "window-close-symbolic";
-            tooltip-text: _("Anhang entfernen");
-            valign: center;
-
-            styles [
-              "flat",
-              "circular",
-            ]
-
-            action-name: "composer.remove-attachment";
-            action-target: "'stand'";
-
-            accessibility {
-              label: _("Marktstand.jpg entfernen");
-            }
-          }
-        }
-      }
-
-      // Nachrichtentext: Platzhalter (Stamp: WebView, stamp-composer.blp:287-297).
+      // Nachrichtentext (Stamp: WebView, stamp-composer.blp:287-297), Editor folgt mit #359.
       // #402: große abgerundete Karte mit Abstand wie die Mail-Karte (style.css .html-mail).
       Adw.Bin {
         vexpand: true;
@@ -590,10 +426,6 @@ template $RevolutionComposer: Adw.ApplicationWindow {
             accessibility {
               label: _("Nachrichtentext");
             }
-
-            buffer: TextBuffer {
-              text: _("Hallo Jonas,\n\nfür das Hoffest am Samstag habe ich den Lageplan angehängt. Der Marktstand steht wie im letzten Jahr neben der Scheune, Aufbau ab 8 Uhr.\n\nKannst du bis Donnerstag Bescheid geben, ob ihr die Bänke mitbringt?\n\nViele Grüße\nLena\n\n-- \nLena Hoffmann\nHofladen Hoffmann · Lindenweg 4 · 12345 Musterstadt");
-            };
           };
         };
       }
@@ -611,8 +443,9 @@ template $RevolutionComposer: Adw.ApplicationWindow {
       margin-end: 12;
 
       // #402: Absatzformat (Arnd 22.10.), Auswahlliste in Nautilus-Optik wie Von/Signatur;
-      // Platzhalter-Aktion composer.heading (composer.c).
-      DropDown heading_dropdown {
+      // Funktion folgt mit #359, bis dahin ausgegraut wie die übrige Formatierung.
+      DropDown {
+        sensitive: false;
         tooltip-text: _("Absatzformat");
         valign: center;
 

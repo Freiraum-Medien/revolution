@@ -2,8 +2,9 @@
  *
  * Vorlage: quelltext/stamp/src/views/mail/composer/stamp-composer.c
  * (AdwApplicationWindow als Template-Klasse, Aktionsgruppe „composer“).
- * Oberfläche in composer.blp; hier nur Template-Anbindung und
- * Platzhalter-Aktionen ohne Logik.
+ * Oberfläche in composer.blp; hier nur Template-Anbindung. Aktionen ohne
+ * Funktion (Senden, Anhang, Formatierung) sind nicht registriert, ihre Knöpfe
+ * sind daher ausgegraut (#342); sie folgen mit #359 und #360.
  *
  * Copyright 2026 Arnd Messer
  *
@@ -22,14 +23,10 @@ struct _RevolutionComposer
   GtkWidget *cc_entry;
   GtkWidget *bcc_entry;
   GtkWidget *body_view;
-  GtkWidget *heading_dropdown;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionComposer, revolution_composer, ADW_TYPE_APPLICATION_WINDOW)
 
-/* Platzhalter ohne Logik, nur damit Knöpfe und Kürzel nicht ausgegraut sind.
- * Formatierungen sind boolesch zustandsbehaftet: ohne Handler schaltet die
- * Aktivierung nur den Zustand um (ToggleButton zeigt ihn an). */
 /* #402: Text-Mail blendet die Formatierungsleiste aus (Knopf „Formatierung anzeigen“
  * aus und gesperrt), HTML-Mail zeigt sie wieder. */
 static void
@@ -82,17 +79,6 @@ insert_emoji (GSimpleAction *action G_GNUC_UNUSED,
 }
 
 static const GActionEntry composer_actions[] = {
-  { "send", NULL, NULL, NULL, NULL, { 0 } },
-  { "attach", NULL, NULL, NULL, NULL, { 0 } },
-  { "open-attachment", NULL, "s", NULL, NULL, { 0 } },
-  { "remove-attachment", NULL, "s", NULL, NULL, { 0 } },
-  { "bold", NULL, NULL, "false", NULL, { 0 } },
-  { "italic", NULL, NULL, "false", NULL, { 0 } },
-  { "underline", NULL, NULL, "false", NULL, { 0 } },
-  { "strikethrough", NULL, NULL, "false", NULL, { 0 } },
-  { "bullet-list", NULL, NULL, "false", NULL, { 0 } },
-  { "numbered-list", NULL, NULL, "false", NULL, { 0 } },
-  { "insert-link", NULL, NULL, NULL, NULL, { 0 } },
   { "show-cc", NULL, NULL, "true", change_show_cc, { 0 } },
   { "show-bcc", NULL, NULL, "true", change_show_bcc, { 0 } },
   { "mail-format", NULL, "s", "'html'", change_mail_format, { 0 } },
@@ -127,28 +113,22 @@ revolution_composer_class_init (RevolutionComposerClass *klass)
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (klass);
 
   object_class->dispose = revolution_composer_dispose;
-  gtk_widget_class_set_template_from_resource (widget_class, "/org/revolution/Mail/composer.ui");
+  gtk_widget_class_set_template_from_resource (widget_class, "/de/freiraum_medien/Revolution/composer.ui");
   gtk_widget_class_bind_template_child (widget_class, RevolutionComposer, format_button);
   gtk_widget_class_bind_template_child (widget_class, RevolutionComposer, cc_entry);
   gtk_widget_class_bind_template_child (widget_class, RevolutionComposer, bcc_entry);
   gtk_widget_class_bind_template_child (widget_class, RevolutionComposer, body_view);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionComposer, heading_dropdown);
 }
 
 static void
 revolution_composer_init (RevolutionComposer *self)
 {
   g_autoptr (GSimpleActionGroup) group = g_simple_action_group_new ();
-  g_autoptr (GPropertyAction) heading = NULL;
   AdwStyleManager *style_manager = adw_style_manager_get_default ();
 
   gtk_widget_init_template (GTK_WIDGET (self));
 
   g_action_map_add_action_entries (G_ACTION_MAP (group), composer_actions, G_N_ELEMENTS (composer_actions), self);
-
-  /* #402: Platzhalter-Aktion Absatzformat, spiegelt die Auswahl der Liste. */
-  heading = g_property_action_new ("heading", self->heading_dropdown, "selected");
-  g_action_map_add_action (G_ACTION_MAP (group), G_ACTION (heading));
   gtk_widget_insert_action_group (GTK_WIDGET (self), "composer", G_ACTION_GROUP (group));
 
   g_signal_connect_object (style_manager, "notify::dark", G_CALLBACK (on_dark_changed), self, G_CONNECT_DEFAULT);

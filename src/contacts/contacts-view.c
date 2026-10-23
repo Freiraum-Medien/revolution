@@ -2,8 +2,9 @@
  *
  * Vorlage: quelltext/stamp/src/views/contact/stamp-contact-view.c (Template-
  * Klasse mit Eigenschaft „stack“ für den Ansichtsumschalter), Muster wie
- * mail-view.c. Oberfläche in contacts-view.blp; hier nur Template-Anbindung
- * und Befüllen mit Beispieldaten.
+ * mail-view.c. Oberfläche in contacts-view.blp; hier nur Template-Anbindung.
+ * Die Modelle sind leer bis M6; Aktionen ohne Funktion sind nicht registriert,
+ * ihre Knöpfe und Menüeinträge sind daher ausgegraut (#342).
  * #402: Suche, Seitenleiste und Klasse .dark
  * übernommen aus mail-view.c (#399–#401).
  *
@@ -29,64 +30,10 @@ struct _RevolutionContactsView
   GtkSearchEntry      *search_entry;
   GtkToggleButton     *search_button;
   AdwOverlaySplitView *split;
-  GtkWidget           *link_notice;
   GtkWidget           *letter_bar;
-  AdwViewStackPage    *firm_page;
-  GtkLabel            *firm_label;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionContactsView, revolution_contacts_view, ADW_TYPE_BREAKPOINT_BIN)
-
-/* Platzhalter ohne Logik, nur damit die Knöpfe nicht ausgegraut sind.
- * #402: call, invite, link, share-vcard, show-qr (Schnellaktionen, Teilen-Menü). */
-static const GActionEntry contact_actions[] = {
-  { "new", NULL, NULL, NULL, NULL, { 0 } },
-  { "edit", NULL, NULL, NULL, NULL, { 0 } },
-  { "write-mail", NULL, NULL, NULL, NULL, { 0 } },
-  { "call", NULL, NULL, NULL, NULL, { 0 } },
-  { "invite", NULL, NULL, NULL, NULL, { 0 } },
-  { "link", NULL, NULL, NULL, NULL, { 0 } },
-  { "share-vcard", NULL, NULL, NULL, NULL, { 0 } },
-  { "show-qr", NULL, NULL, NULL, NULL, { 0 } },
-};
-
-/* Wählt in der Kontaktliste den Eintrag mit diesem Namen (Firma-Reiter, Start). */
-static void
-select_contact (RevolutionContactsView *self,
-                const char             *title)
-{
-  GListModel *model = gtk_single_selection_get_model (self->contact_selection);
-  guint n = g_list_model_get_n_items (model);
-
-  for (guint i = 0; i < n; i++)
-    {
-      g_autoptr (GObject) entry = g_list_model_get_item (model, i);
-      g_autofree char *entry_title = NULL;
-
-      g_object_get (entry, "title", &entry_title, NULL);
-      if (g_strcmp0 (entry_title, title) == 0)
-        {
-          gtk_single_selection_set_selected (self->contact_selection, i);
-          return;
-        }
-    }
-}
-
-/* #402 Punkt 2: Klick auf einen Kollegen wählt ihn in der Liste, kein Dialog.
- * Der Zeilenname (contacts-view.blp) ist der Kontaktname. */
-static void
-on_colleague_activated (RevolutionContactsView *self,
-                        GtkListBoxRow          *row)
-{
-  select_contact (self, gtk_widget_get_name (GTK_WIDGET (row)));
-}
-
-/* #402 Punkt 3: Schließen-Knopf des Verknüpfungsvorschlags. */
-static void
-on_link_dismiss (RevolutionContactsView *self)
-{
-  gtk_widget_set_visible (self->link_notice, FALSE);
-}
 
 /* Fokus ins Suchfeld ohne alles zu markieren (wie mail-view.c). */
 static void
@@ -154,15 +101,9 @@ on_toggle_sidebar (GSimpleAction *action G_GNUC_UNUSED,
   adw_overlay_split_view_set_show_sidebar (self->split, !adw_overlay_split_view_get_show_sidebar (self->split));
 }
 
-/* preferences, shortcuts, about: Platzhalter des Primärmenüs wie mail-view.c. */
 static const GActionEntry contacts_actions[] = {
   { "search", on_search, NULL, NULL, NULL, { 0 } },
-  /* #402 Punkt 4: Buchstabenleiste, Platzhalter ohne Sprung. */
-  { "jump", NULL, "s", NULL, NULL, { 0 } },
   { "toggle-sidebar", on_toggle_sidebar, NULL, NULL, NULL, { 0 } },
-  { "preferences", NULL, NULL, NULL, NULL, { 0 } },
-  { "shortcuts", NULL, NULL, NULL, NULL, { 0 } },
-  { "about", NULL, NULL, NULL, NULL, { 0 } },
 };
 
 /* Klasse .dark für Regeln nur im dunklen Design (style.css), wie mail-view.c. */
@@ -234,45 +175,35 @@ revolution_contacts_view_class_init (RevolutionContactsViewClass *klass)
 
   g_type_ensure (REVOLUTION_TYPE_CONTACTS_SAMPLE_ENTRY);
 
-  gtk_widget_class_set_template_from_resource (widget_class, "/org/revolution/Mail/contacts-view.ui");
+  gtk_widget_class_set_template_from_resource (widget_class, "/de/freiraum_medien/Revolution/contacts-view.ui");
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, book_selection);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, contact_selection);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, header_stack);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, search_entry);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, search_button);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, split);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, link_notice);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, letter_bar);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, firm_page);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, firm_label);
   gtk_widget_class_bind_template_callback (widget_class, on_search_toggled);
   gtk_widget_class_bind_template_callback (widget_class, on_search_started);
   gtk_widget_class_bind_template_callback (widget_class, on_search_stop);
-  gtk_widget_class_bind_template_callback (widget_class, on_colleague_activated);
-  gtk_widget_class_bind_template_callback (widget_class, on_link_dismiss);
 }
 
 static void
 revolution_contacts_view_init (RevolutionContactsView *self)
 {
-  g_autoptr (GListModel) books = revolution_contacts_sample_books ();
-  g_autoptr (GListModel) contacts = revolution_contacts_sample_contacts ();
-  g_autoptr (GSimpleActionGroup) contact_group = g_simple_action_group_new ();
+  g_autoptr (GListStore) books = g_list_store_new (REVOLUTION_TYPE_CONTACTS_SAMPLE_ENTRY);
+  g_autoptr (GListStore) contacts = g_list_store_new (REVOLUTION_TYPE_CONTACTS_SAMPLE_ENTRY);
   g_autoptr (GSimpleActionGroup) contacts_group = g_simple_action_group_new ();
   g_autoptr (GPropertyAction) sidebar_action = NULL;
   AdwStyleManager *style_manager = adw_style_manager_get_default ();
 
   gtk_widget_init_template (GTK_WIDGET (self));
 
-  gtk_single_selection_set_model (self->book_selection, books);
-  gtk_single_selection_set_model (self->contact_selection, contacts);
-  /* #402: angezeigt wird Jana Albrecht (Mail- und Kalender-Beispiele). */
-  select_contact (self, _("Jana Albrecht"));
+  gtk_single_selection_set_model (self->book_selection, G_LIST_MODEL (books));
+  gtk_single_selection_set_model (self->contact_selection, G_LIST_MODEL (contacts));
 
-  /* #402 Punkt 2: Reiter „Firma“ nur mit eingetragener Firma. */
-  adw_view_stack_page_set_visible (self->firm_page, *gtk_label_get_text (self->firm_label) != '\0');
-
-  /* #402 Punkt 4: Buchstabenleiste A–Z, je Buchstabe ein Knopf auf contacts.jump. */
+  /* #402 Punkt 4: Buchstabenleiste A–Z, je Buchstabe ein Knopf auf contacts.jump
+   * (Sprung folgt in M6, bis dahin ausgegraut). */
   for (char letter = 'A'; letter <= 'Z'; letter++)
     {
       char text[2] = { letter, '\0' };
@@ -287,8 +218,6 @@ revolution_contacts_view_init (RevolutionContactsView *self)
       gtk_box_append (GTK_BOX (self->letter_bar), button);
     }
 
-  g_action_map_add_action_entries (G_ACTION_MAP (contact_group), contact_actions, G_N_ELEMENTS (contact_actions), NULL);
-  gtk_widget_insert_action_group (GTK_WIDGET (self), "contact", G_ACTION_GROUP (contact_group));
   g_action_map_add_action_entries (G_ACTION_MAP (contacts_group), contacts_actions, G_N_ELEMENTS (contacts_actions), self);
   /* contacts.sidebar für F9 wie mail.sidebar (mail-view.c). */
   sidebar_action = g_property_action_new ("sidebar", self->split, "show-sidebar");

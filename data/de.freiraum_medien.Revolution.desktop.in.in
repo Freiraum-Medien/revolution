@@ -1,8 +1,8 @@
 [Desktop Entry]
 Name=Revolution
-Comment=Read and write email
+Comment=E-Mails lesen und schreiben
 Exec=revolution
-Icon=mail-unread
+Icon=@APPLICATION_ID@
 Terminal=false
 Type=Application
 Categories=GNOME;GTK;Office;Email;

@@ -1,4 +1,4 @@
-/* contacts-sample.h – statische Beispieldaten für den Prototyp (#338)
+/* contacts-sample.h – Listeneintrag des Prototyps (#338), Daten entfernt (#342)
  *
  * Copyright 2026 Arnd Messer
  *
@@ -13,8 +13,5 @@ G_BEGIN_DECLS
 
 #define REVOLUTION_TYPE_CONTACTS_SAMPLE_ENTRY (revolution_contacts_sample_entry_get_type ())
 G_DECLARE_FINAL_TYPE (RevolutionContactsSampleEntry, revolution_contacts_sample_entry, REVOLUTION, CONTACTS_SAMPLE_ENTRY, GObject)
-
-GListModel *revolution_contacts_sample_books    (void);
-GListModel *revolution_contacts_sample_contacts (void);
 
 G_END_DECLS

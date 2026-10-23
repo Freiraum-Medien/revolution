@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <gresources>
-  <gresource prefix="/org/revolution/Mail">
+  <gresource prefix="/de/freiraum_medien/Revolution">
     <file>window.ui</file>
     <file>mail-view.ui</file>
     <file>composer.ui</file>

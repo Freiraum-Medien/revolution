@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Vorlage: quelltext/stamp/data/org.tabos.stamp.gschema.xml:4-18 (Fenstergröße).
+     Nur Schlüssel mit Nutzer im Code (main.c). -->
+<schemalist gettext-domain="revolution">
+  <schema id="de.freiraum_medien.Revolution" path="/de/freiraum_medien/Revolution/">
+    <key name="theme" type="s">
+      <choices>
+        <choice value="system"/>
+        <choice value="hell"/>
+        <choice value="dunkel-hell"/>
+        <choice value="dunkel"/>
+      </choices>
+      <default>'system'</default>
+      <summary>Darstellung</summary>
+      <description>system folgt dem System; hell, dunkel-hell (dunkel mit hellem Inhalt) oder dunkel wie im Hauptmenü gewählt.</description>
+    </key>
+    <key name="window-width" type="i">
+      <default>1200</default>
+      <summary>Fensterbreite</summary>
+      <description>Breite des Hauptfensters beim letzten Start.</description>
+    </key>
+    <key name="window-height" type="i">
+      <default>760</default>
+      <summary>Fensterhöhe</summary>
+      <description>Höhe des Hauptfensters beim letzten Start.</description>
+    </key>
+    <key name="window-maximized" type="b">
+      <default>false</default>
+      <summary>Fenster maximiert</summary>
+      <description>Ob das Hauptfenster beim letzten Start maximiert war.</description>
+    </key>
+  </schema>
+</schemalist>

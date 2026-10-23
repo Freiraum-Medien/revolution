@@ -1,5 +1,5 @@
 /* style.css – eigenes CSS der App (#399, #400), lädt AdwApplication automatisch aus
- * der GResource (/org/revolution/Mail/style.css, Adw-1.gir Zeile 7362).
+ * der GResource (/de/freiraum_medien/Revolution/style.css, Adw-1.gir Zeile 7362).
  *
  * Custom-CSS ausdrücklich gewünscht (Arnd, #400), Farben nur aus libadwaita-Variablen
  * (Palette --light-1 … --dark-4 und --blue-4 aus dem libadwaita-Stylesheet).
@@ -105,7 +105,7 @@
 }
 
 /* #400 Punkt 7: HTML-Mail behält ihren eigenen weißen Hintergrund, auch im
- * Dunkelmodus (Vorbild 03). Nachbildung einer typischen HTML-Mail. */
+ * Dunkelmodus (Vorbild 03). */
 .html-mail {
   border-radius: 12px;
   background-color: var(--light-1);
@@ -117,76 +117,11 @@
   background-color: color-mix(in srgb, var(--blue-4) 25%, transparent);
 }
 
-.html-brand {
-  font-weight: 800;
-  font-size: 18px;
-  color: var(--blue-4);
-}
-
-.html-title {
-  font-weight: 700;
-  font-size: 24px;
-}
-
-.html-small {
-  font-size: 12px;
-  color: var(--dark-1);
-}
-
-.html-rule {
-  min-height: 2px;
-  background-color: var(--blue-4);
-}
-
-.html-rule-thin {
-  background-color: var(--light-3);
-}
-
-.html-box {
-  padding: 16px 18px;
-  border-radius: 8px;
-  background-color: color-mix(in srgb, var(--blue-4) 7%, var(--light-1));
-}
-
-.html-credit {
-  color: var(--blue-4);
-}
-
-.html-button {
-  padding: 10px 20px;
-  border-radius: 6px;
-  background-color: var(--blue-4);
-  color: var(--light-1);
-  font-weight: 700;
-}
-
 /* Theme „Dunkel“ (#340, Arnd 22.10.2026): Klasse .content-dark am Fenster (main.c).
- * Mail-Karte in der Kartenfarbe des Designs wie .contact-card, Text hell; die
- * Nachbildung der HTML-Mail entsprechend dunkel, Blau aufgehellt (--blue-3). */
+ * Mail-Karte in der Kartenfarbe des Designs, Text hell. */
 .content-dark .html-mail {
   background-color: var(--card-bg-color);
   color: var(--card-fg-color);
-}
-
-.content-dark .html-brand,
-.content-dark .html-credit {
-  color: var(--blue-3);
-}
-
-.content-dark .html-rule {
-  background-color: var(--blue-3);
-}
-
-.content-dark .html-small {
-  color: var(--light-4);
-}
-
-.content-dark .html-rule-thin {
-  background-color: var(--border-color);
-}
-
-.content-dark .html-box {
-  background-color: color-mix(in srgb, var(--blue-3) 12%, transparent);
 }
 
 /* #401 Punkt 1: nur dunkel – Trennstrich zwischen Liste und Nachricht dunkler als
@@ -299,33 +234,6 @@ menubutton.primary-menu popover.menu separator {
   border-radius: 7px;
 }
 
-/* Anhänge als ruhige Pille wie der Hinweis (.mail-notice, #401 Punkt 4, Vorbild 12). */
-.composer-attachment {
-  padding: 3px;
-  border-radius: 999px;
-  background-color: color-mix(in srgb, currentColor 6%, transparent);
-}
-
-.composer-attachment > button {
-  min-height: 26px;
-  border-radius: 999px;
-  font-weight: 400;
-}
-
-.composer-attachment > button:first-child {
-  padding: 0 10px 0 9px;
-}
-
-.composer-attachment > button.circular {
-  min-width: 26px;
-  padding: 0;
-  opacity: 0.55;
-}
-
-.composer-attachment > button.circular:hover {
-  opacity: 1;
-}
-
 /* Schreibfläche als große abgerundete Karte mit Abstand wie die Mail-Karte (.html-mail,
  * #400 Punkt 7). Themes (#340): hell auch im Dunkelmodus wie die Mail-Karte, Schrift
  * --dark-3 (Textfarbe des hellen Stylesheets); nur Theme „Dunkel“ (.content-dark am
@@ -370,56 +278,6 @@ menubutton.primary-menu popover.menu separator {
   color: var(--accent-fg-color);
 }
 
-/* Karte wie .html-mail (Radius, Kontur, Schatten), Fläche in der Kartenfarbe
- * des Designs: ein Kontakt hat keinen eigenen weißen Hintergrund. */
-.contact-card {
-  border-radius: 12px;
-  background-color: var(--card-bg-color);
-  color: var(--card-fg-color);
-  box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
-}
-
-/* #402 Runde 2: Name im Kopf groß (title-1) und halbfett wie .mail-sender. */
-.contact-name {
-  font-weight: 600;
-}
-
-/* Runde Schnellaktionen, Tönung wie .mail-notice-button. */
-button.contact-action,
-menubutton.contact-action > button {
-  min-width: 40px;
-  min-height: 40px;
-  padding: 0;
-  border-radius: 999px;
-  background-color: color-mix(in srgb, var(--accent-bg-color) 16%, transparent);
-  color: var(--accent-color);
-}
-
-button.contact-action:hover,
-menubutton.contact-action > button:hover {
-  background-color: color-mix(in srgb, var(--accent-bg-color) 24%, transparent);
-}
-
-/* Eine Karte je Angabe, Verlauf als ruhige Liste in einer Karte. */
-.contact-field {
-  padding: 10px 10px 10px 16px;
-  min-height: 40px;
-}
-
-.contact-history {
-  padding: 14px 16px;
-}
-
-/* Kollegen: Zeilen ohne Trennlinien, Hover wie die Seitenleiste. */
-.contact-colleagues {
-  padding: 6px;
-}
-
-.contact-colleagues > row {
-  padding: 6px 10px;
-  border-radius: 9px;
-}
-
 /* Buchstabenleiste A–Z: klein, Akzentfarbe, ohne Knopfabstand. */
 .letter-bar button {
   min-height: 0;
@@ -428,11 +286,6 @@ menubutton.contact-action > button:hover {
   font-size: 11px;
   font-weight: 400;
   color: var(--accent-color);
-}
-
-/* #402: mehrere Angaben gleichen Typs in einer Karte, feiner Trenner wie boxed-list. */
-.contact-separator {
-  margin: 0 16px;
 }
 
 /* Kalender (#402) – Designsprache der Mail auf die Kalender-Ansicht übertragen.
@@ -465,34 +318,10 @@ calendar.date-chooser {
   font-weight: 600;
 }
 
-/* Termine schlank wie Vorbild 19 (Runde 2, Arnd 22.10.): geringe Höhe, normale Schrift,
- * kleiner Radius. Farbe, Tönung und Streifen setzt calendar-view.c (load_colors). */
-button.calendar-event {
-  min-height: 0;
-  padding: 2px 8px 2px 10px;
-  border-radius: 6px;
-  font-weight: 400;
-}
-
 /* Dunkel: Trennlinien dunkler als der Hintergrund wie der Trennstrich der Mail
  * (.dark .mail-split paned.horizontal > separator). */
 .dark .calendar-main separator {
   background-color: var(--shade-color);
-}
-
-/* Termin-Detail in Nautilus-Optik wie das Hauptmenü: Trennlinien dunkel und über
- * die volle Breite, Titel halbfett wie .mail-sender. */
-popover.event-popover > contents {
-  padding: 0;
-}
-
-popover.event-popover separator {
-  background-color: var(--shade-color);
-}
-
-.event-title {
-  font-size: 1.1em;
-  font-weight: 600;
 }
 
 /* Flach, ohne Verläufe (#336) – Arnd 22.10.2026: „alles flach“, Form unverändert.

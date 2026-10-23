@@ -5,7 +5,16 @@ project('revolution', 'c',
   default_options: [ 'warning_level=2', 'werror=false', 'c_std=gnu11' ],
 )
 
-application_id = 'org.revolution.Mail'
+# Profil wie GNOME Calendar 50.0 (quelltext/gnome-calendar/meson_options.txt:2,
+# meson.build:36-52): „development“ ergibt die Entwicklungsvariante mit eigener App-ID.
+base_id = 'de.freiraum_medien.Revolution'
+if get_option('profile') == 'development'
+  profile = 'Devel'
+  application_id = base_id + '.Devel'
+else
+  profile = ''
+  application_id = base_id
+endif
 
 i18n = import('i18n')
 gnome = import('gnome')
@@ -15,6 +24,8 @@ conf.set_quoted('APPLICATION_ID', application_id)
 conf.set_quoted('PACKAGE_VERSION', meson.project_version())
 conf.set_quoted('GETTEXT_PACKAGE', meson.project_name())
 conf.set_quoted('LOCALEDIR', get_option('prefix') / get_option('localedir'))
+# Wie Stamp (quelltext/stamp/meson.build:22): DEVEL schaltet die Stilklasse „devel“.
+conf.set('DEVEL', profile == 'Devel')
 configure_file(output: 'config.h', configuration: conf)
 
 subdir('data')
@@ -22,6 +33,7 @@ subdir('src')
 subdir('po')
 
 gnome.post_install(
+     glib_compile_schemas: true,
     gtk_update_icon_cache: true,
   update_desktop_database: true,
 )

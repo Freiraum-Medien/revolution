@@ -1,9 +1,8 @@
-/* calendar-sample.c – statische Beispieldaten für den Prototyp (#339)
+/* calendar-sample.c – Listeneintrag des Prototyps (#339): Kalender
  *
- * Nur Befüllen, Muster mail/mail-sample.c. Alle Kalender, Termine, Orte
- * und Namen sind erfunden. Die Farben stehen hier, weil sie Nutzerdaten
- * sind (später e_source_selectable_get_color, Briefing 3, Punkt 2).
- * Entfällt, sobald echte Daten aus EDS kommen.
+ * Die Blueprint-Zeilenvorlage (calendar-view.blp) bindet an diese Eigenschaften.
+ * Die statischen Beispieldaten sind entfernt (#342, Stand: Tag m2-prototyp);
+ * echte Einträge folgen in M7.
  *
  * Copyright 2026 Arnd Messer
  *
@@ -12,113 +11,7 @@
 
 #include "config.h"
 
-#include <glib/gi18n.h>
-#include <gtk/gtk.h>
-
 #include "calendar-sample.h"
-
-/* Kalender je Konto; color als „#rrggbb“ wie ESourceSelectable:color.
- * Der Index (Position) ist die Farbklasse calendar-color-N der Termine. */
-static const struct {
-  const char *group;
-  const char *title;
-  const char *color;
-  gboolean    visible;
-} calendars[] = {
-  { N_("Privat"), N_("Persönlich"),        "#3584e4", TRUE  },
-  { N_("Privat"), N_("Geburtstage"),       "#9141ac", TRUE  },
-  { N_("Privat"), N_("Feiertage"),         "#26a269", TRUE  },
-  { N_("Arbeit"), N_("Arbeit"),            "#e66100", TRUE  },
-  { N_("Arbeit"), N_("Projekt Nordlicht"), "#c01c28", TRUE  },
-  { N_("Arbeit"), N_("Urlaubsplanung"),    "#865e3c", FALSE },
-};
-
-/* Tag 0 = Mo 28.09.2026; 21. Oktober = Tag 23. Höchstens 2 Termine je Tag
- * (2 Zeilen je Monatszelle), Woche nur 07–21 Uhr. Urlaubsplanung ist
- * ausgeblendet und hat deshalb keine sichtbaren Termine. */
-static const RevolutionSampleEvent events[] = {
-  {  1, 1, 1110, 1200, 0, 0, "18:30",
-    N_("Chorprobe"), N_("Dienstag, 29. September, 18:30 – 20:00"),
-    N_("Gemeindehaus St. Marien"), NULL },
-  {  3, 1,  540,  660, 0, 3, "09:00",
-    N_("Quartalsplanung"), N_("Donnerstag, 1. Oktober, 09:00 – 11:00"),
-    N_("Besprechungsraum 3"), NULL },
-  {  5, 1,   -1,   -1, 0, 2, NULL,
-    N_("Tag der Deutschen Einheit"), N_("Samstag, 3. Oktober, ganztägig"),
-    NULL, NULL },
-  {  7, 1,  600,  660, 0, 4, "10:00",
-    N_("Jour fixe Nordlicht"), N_("Montag, 5. Oktober, 10:00 – 11:00"),
-    N_("Besprechungsraum 3"), NULL },
-  {  8, 1, 1110, 1200, 0, 0, "18:30",
-    N_("Chorprobe"), N_("Dienstag, 6. Oktober, 18:30 – 20:00"),
-    N_("Gemeindehaus St. Marien"), NULL },
-  { 10, 1,  840,  900, 0, 0, "14:00",
-    N_("Zahnarzt"), N_("Donnerstag, 8. Oktober, 14:00 – 15:00"),
-    N_("Praxis Dr. Hellwig, Lindenstraße 4"), NULL },
-  { 11, 1,   -1,   -1, 0, 1, NULL,
-    N_("Geburtstag Miriam"), N_("Freitag, 9. Oktober, ganztägig"),
-    NULL, NULL },
-  { 14, 1,  600,  660, 0, 4, "10:00",
-    N_("Jour fixe Nordlicht"), N_("Montag, 12. Oktober, 10:00 – 11:00"),
-    N_("Besprechungsraum 3"), NULL },
-  { 15, 1, 1110, 1200, 0, 0, "18:30",
-    N_("Chorprobe"), N_("Dienstag, 13. Oktober, 18:30 – 20:00"),
-    N_("Gemeindehaus St. Marien"), NULL },
-  { 16, 1,  570,  660, 0, 3, "09:30",
-    N_("Kundentermin Stadtwerke"), N_("Mittwoch, 14. Oktober, 09:30 – 11:00"),
-    N_("Stadtwerke Lindenau"), NULL },
-  { 18, 1, 1140, 1260, 0, 0, "19:00",
-    N_("Abendessen bei Sophie"), N_("Freitag, 16. Oktober, 19:00 – 21:00"),
-    NULL, NULL },
-  { 21, 1,  600,  660, 0, 4, "10:00",
-    N_("Jour fixe Nordlicht"), N_("Montag, 19. Oktober, 10:00 – 11:00"),
-    N_("Besprechungsraum 3"), NULL },
-  { 22, 1,  510,  600, 0, 3, "08:30",
-    N_("Budgetrunde"), N_("Dienstag, 20. Oktober, 08:30 – 10:00"),
-    N_("Besprechungsraum 1"), NULL },
-  { 22, 1, 1110, 1200, 1, 0, "18:30",
-    N_("Chorprobe"), N_("Dienstag, 20. Oktober, 18:30 – 20:00"),
-    N_("Gemeindehaus St. Marien"), NULL },
-  { 23, 1,  540,  630, 0, 4, "09:00",
-    N_("Abstimmung Bauamt"), N_("Mittwoch, 21. Oktober, 09:00 – 10:30"),
-    N_("Bauamt Lindenau, Raum 2.14"), N_("Unterlagen mitbringen: Pläne für Fassade und Außenanlagen, aktuelle Kostenschätzung.") },
-  { 23, 1,  750,  810, 1, 0, "12:30",
-    N_("Mittagessen mit Tobias"), N_("Mittwoch, 21. Oktober, 12:30 – 13:30"),
-    N_("Café am Rathaus"), NULL },
-  { 24, 2,   -1,   -1, 0, 3, NULL,
-    N_("Fachmesse Ausbau"), N_("Donnerstag, 22. Oktober bis Freitag, 23. Oktober"),
-    N_("Messe Leipzig"), NULL },
-  { 24, 1, 1140, 1260, 1, 0, "19:00",
-    N_("Vorstandssitzung Gartenfreunde"), N_("Donnerstag, 22. Oktober, 19:00 – 21:00"),
-    N_("Vereinsheim"), N_("Protokoll der letzten Sitzung prüfen.") },
-  { 25, 1,  960, 1050, 1, 4, "16:00",
-    N_("Review Fassadenpläne"), N_("Freitag, 23. Oktober, 16:00 – 17:30"),
-    N_("Videokonferenz"), N_("Agenda: Fassade, Außenanlagen, Zeitplan bis Jahresende.") },
-  { 26, 1,   -1,   -1, 0, 1, NULL,
-    N_("Geburtstag Jana"), N_("Samstag, 24. Oktober, ganztägig"),
-    NULL, NULL },
-  { 26, 1,  600,  690, 1, 0, "10:00",
-    N_("Wochenmarkt"), N_("Samstag, 24. Oktober, 10:00 – 11:30"),
-    N_("Marktplatz"), NULL },
-  { 27, 1,  900, 1020, 0, 0, "15:00",
-    N_("Kaffee bei den Eltern"), N_("Sonntag, 25. Oktober, 15:00 – 17:00"),
-    NULL, NULL },
-  { 28, 1,  600,  660, 0, 4, "10:00",
-    N_("Jour fixe Nordlicht"), N_("Montag, 26. Oktober, 10:00 – 11:00"),
-    N_("Besprechungsraum 3"), NULL },
-  { 29, 1, 1110, 1200, 0, 0, "18:30",
-    N_("Chorprobe"), N_("Dienstag, 27. Oktober, 18:30 – 20:00"),
-    N_("Gemeindehaus St. Marien"), NULL },
-  { 32, 1, 1170, 1260, 0, 0, "19:30",
-    N_("Lesung in der Bücherstube"), N_("Freitag, 30. Oktober, 19:30 – 21:00"),
-    N_("Bücherstube am Markt"), NULL },
-  { 33, 1,   -1,   -1, 0, 2, NULL,
-    N_("Reformationstag"), N_("Samstag, 31. Oktober, ganztägig"),
-    NULL, NULL },
-  { 34, 1,   -1,   -1, 0, 2, NULL,
-    N_("Allerheiligen"), N_("Sonntag, 1. November, ganztägig"),
-    NULL, NULL },
-};
 
 struct _RevolutionSampleCalendar
 {
@@ -184,42 +77,3 @@ revolution_sample_calendar_init (G_GNUC_UNUSED RevolutionSampleCalendar *self)
 {
 }
 
-/* Je Konto ein GListStore; das GtkFlattenListModel macht daraus
- * Abschnitte (GtkSectionModel) für die Abschnittsköpfe der GtkListView. */
-GListModel *
-revolution_calendar_sample_calendars (void)
-{
-  GListStore *groups = g_list_store_new (G_TYPE_LIST_STORE);
-  GListStore *group = NULL;
-
-  for (guint i = 0; i < G_N_ELEMENTS (calendars); i++)
-    {
-      RevolutionSampleCalendar *calendar;
-
-      if (i == 0 || g_strcmp0 (calendars[i].group, calendars[i - 1].group) != 0)
-        {
-          group = g_list_store_new (REVOLUTION_TYPE_SAMPLE_CALENDAR);
-          g_list_store_append (groups, group);
-          g_object_unref (group);
-        }
-
-      calendar = g_object_new (REVOLUTION_TYPE_SAMPLE_CALENDAR, NULL);
-      calendar->title = _(calendars[i].title);
-      calendar->group = _(calendars[i].group);
-      calendar->color = calendars[i].color;
-      calendar->color_class = g_strdup_printf ("calendar-color-%u", i);
-      calendar->visible = calendars[i].visible;
-      g_list_store_append (group, calendar);
-      g_object_unref (calendar);
-    }
-
-  return G_LIST_MODEL (gtk_flatten_list_model_new (G_LIST_MODEL (groups)));
-}
-
-const RevolutionSampleEvent *
-revolution_calendar_sample_events (guint *n_events)
-{
-  *n_events = G_N_ELEMENTS (events);
-
-  return events;
-}

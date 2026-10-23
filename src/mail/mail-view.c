@@ -66,6 +66,11 @@ struct _RevolutionMailView
   GtkWidget           *row_popover;
   GQueue               flag_jobs;
   gboolean             flags_running;
+  /* Anwendung gehalten, solange Flag-Aufträge laufen; Obergrenze nach dem Schließen. */
+  GApplication        *flags_hold;
+  guint                flags_deadline_id;
+  CamelFolder         *running_folder;
+  gboolean             flags_saving;
   GCancellable        *cancellable;
 };
 
@@ -1104,11 +1109,103 @@ set_flags_thread (GTask        *task,
       return;
     }
 
-  /* Ohne Cancellable: ein begonnener Auftrag läuft auch beim Beenden zu Ende. */
+  /* Ohne Cancellable: die Anwendung bleibt gehalten, bis der letzte Auftrag durch ist
+   * (start_flags), auch nach dem Schließen des Fensters (Obergrenze flags_deadline). Bei einem
+   * Fehler die Summary lokal speichern, damit der nächste Abgleich die Änderung nachholt. */
   if (!camel_folder_synchronize_sync (data->folder, FALSE, NULL, &error))
-    g_task_return_error (task, error);
+    {
+      camel_folder_summary_save (camel_folder_get_folder_summary (data->folder), NULL);
+      g_task_return_error (task, error);
+    }
   else
     g_task_return_int (task, FLAGS_SAVED);
+}
+
+/* Anwendung halten bzw. freigeben (g_application_hold), damit das Beenden die Aufträge abwartet
+ * wie Evolution, das beim Beenden synchronisiert (mail_backend_prepare_for_quit_cb,
+ * e-mail-backend.c:407-491). */
+static void
+hold_for_flags (RevolutionMailView *self,
+                gboolean            hold)
+{
+  if (hold && self->flags_hold == NULL)
+    {
+      self->flags_hold = g_application_get_default ();
+      if (self->flags_hold != NULL)
+        g_application_hold (g_object_ref (self->flags_hold));
+    }
+  else if (!hold && self->flags_hold != NULL)
+    {
+      g_clear_handle_id (&self->flags_deadline_id, g_source_remove);
+      g_application_release (self->flags_hold);
+      g_clear_object (&self->flags_hold);
+    }
+}
+
+/* Obergrenze nach dem Schließen: hängt der laufende Auftrag (z. B. Server antwortet nicht), die
+ * wartenden nur lokal setzen und alle Summaries speichern; der nächste Start holt sie nach
+ * (refresh_info schickt zuerst die Änderungen, camel-imapx-conn-manager.c:1548). */
+#define FLAGS_DEADLINE_SECONDS 10
+
+static void
+flags_save_local_thread (GTask        *task,
+                         gpointer      source_object G_GNUC_UNUSED,
+                         gpointer      task_data,
+                         GCancellable *cancellable G_GNUC_UNUSED)
+{
+  GPtrArray *jobs = task_data;
+
+  for (guint i = 0; i < jobs->len; i++)
+    {
+      SetFlags *data = jobs->pdata[i];
+
+      if (data->uid != NULL)
+        camel_folder_set_message_flags (data->folder, data->uid, data->mask, data->set);
+      camel_folder_summary_save (camel_folder_get_folder_summary (data->folder), NULL);
+    }
+  g_task_return_boolean (task, TRUE);
+}
+
+static void
+on_flags_saved_local (GObject      *source_object,
+                      GAsyncResult *result G_GNUC_UNUSED,
+                      gpointer      user_data G_GNUC_UNUSED)
+{
+  RevolutionMailView *self = REVOLUTION_MAIL_VIEW (source_object);
+
+  self->flags_saving = FALSE;
+  g_debug ("Flags: lokal gespeichert, Beenden");
+  hold_for_flags (self, FALSE);
+}
+
+static gboolean
+flags_deadline (gpointer user_data)
+{
+  RevolutionMailView *self = user_data;
+  g_autoptr (GTask) task = NULL;
+  GPtrArray *jobs = g_ptr_array_new_with_free_func ((GDestroyNotify) set_flags_free);
+  SetFlags *data;
+
+  self->flags_deadline_id = 0;
+  self->flags_saving = TRUE;
+  g_debug ("Flags: nach %d s noch nicht gespeichert, %u Aufträge nur lokal", FLAGS_DEADLINE_SECONDS,
+           g_queue_get_length (&self->flag_jobs));
+  while ((data = g_queue_pop_head (&self->flag_jobs)) != NULL)
+    g_ptr_array_add (jobs, data);
+  /* Der laufende Auftrag hat seine Flags schon gesetzt; seinen Ordner ebenfalls speichern. */
+  if (self->running_folder != NULL)
+    {
+      data = g_new0 (SetFlags, 1);
+      data->folder = g_object_ref (self->running_folder);
+      g_ptr_array_add (jobs, data);
+    }
+
+  task = g_task_new (self, NULL, on_flags_saved_local, NULL);
+  g_task_set_source_tag (task, flags_deadline);
+  g_task_set_task_data (task, jobs, (GDestroyNotify) g_ptr_array_unref);
+  g_task_run_in_thread (task, flags_save_local_thread);
+
+  return G_SOURCE_REMOVE;
 }
 
 static void start_flags (RevolutionMailView *self);
@@ -1139,7 +1236,10 @@ on_flags_set (GObject      *source_object,
       detail = g_strdup_printf ("%s: %s", gtk_label_get_label (self->list_title), error->message);
       revolution_mail_view_show_error (self, _("Markierung nicht gespeichert"), detail, FALSE);
     }
+  g_clear_object (&self->running_folder);
   start_flags (self);
+  if (!self->flags_running && !self->flags_saving)
+    hold_for_flags (self, FALSE);
   if (!self->flags_running && self->cancellable != NULL)
     start_folder_changes (self);
 }
@@ -1153,9 +1253,11 @@ start_flags (RevolutionMailView *self)
     return;
 
   self->flags_running = TRUE;
+  hold_for_flags (self, TRUE);
   task = g_task_new (self, self->cancellable, on_flags_set, NULL);
   g_task_set_source_tag (task, start_flags);
   g_task_set_task_data (task, g_queue_pop_head (&self->flag_jobs), (GDestroyNotify) set_flags_free);
+  g_set_object (&self->running_folder, ((SetFlags *) g_task_get_task_data (task))->folder);
   g_task_run_in_thread (task, set_flags_thread);
 }
 
@@ -1699,7 +1801,10 @@ revolution_mail_view_dispose (GObject *object)
   self->load_generation++;
   g_cancellable_cancel (self->load_cancellable);
   g_clear_object (&self->load_cancellable);
-  /* #353 */
+  /* #353: laufende Flag-Aufträge dürfen zu Ende laufen (Anwendung gehalten), höchstens
+   * FLAGS_DEADLINE_SECONDS lang. */
+  if (self->flags_running && self->flags_deadline_id == 0)
+    self->flags_deadline_id = g_timeout_add_seconds (FLAGS_DEADLINE_SECONDS, flags_deadline, self);
   g_cancellable_cancel (self->cancellable);
   g_clear_object (&self->cancellable);
   g_signal_handlers_disconnect_by_data (self->message_selection, self);
@@ -1729,6 +1834,7 @@ revolution_mail_view_finalize (GObject *object)
   RevolutionMailView *self = REVOLUTION_MAIL_VIEW (object);
 
   g_queue_clear_full (&self->flag_jobs, (GDestroyNotify) set_flags_free);
+  g_clear_object (&self->running_folder);
 
   G_OBJECT_CLASS (revolution_mail_view_parent_class)->finalize (object);
 }

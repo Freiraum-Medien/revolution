@@ -6,6 +6,7 @@
 #   KONTEN   Testkonten, Standard „KONTO_IMAP_1@example.invalid KONTO_M365@example.invalid KONTO_GOOGLE@example.invalid“
 #   LAST     1 (Standard): zusätzlich Lauf in Revolution-Last von privat@ (Auswahl/Scrollposition)
 #   IDLE     1 (Standard): zusätzlich Lauf im Posteingang von privat@ (neue/gelöschte Mail per IDLE)
+#   BEENDEN  1 (Standard): Strg+K und Umschalt+Strg+L, sofort schließen; beide am Server (privat@)
 #   OFFLINE  1 (Standard): Markieren ohne Netz (unshare -n, Bus bleibt erreichbar) in privat@, danach
 #            Start mit Netz: die Markierung erreicht den Server; Ausgangszustand wiederhergestellt
 #
@@ -106,6 +107,29 @@ if [ "${OFFLINE:-1}" = 1 ]; then
     echo "FEHLER  m4-353-offline: Einladung in privat@ schon markiert, Lauf übersprungen" | tee "$OUT/m4-353-offline.txt"
   fi
   FEHLER=$((FEHLER + $(cat "$OUT/m4-353-offline.txt" "$OUT/m4-353-nachholen.txt" 2>/dev/null | grep -c '^FEHLER')))
+fi
+
+# Beenden mit wartenden Flag-Aufträgen (privat@): Strg+K, 30 ms später Umschalt+Strg+L, sofort
+# schließen; die Anwendung bleibt gehalten, bis beide am Server sind (mail-view.c, hold_for_flags).
+if [ "${BEENDEN:-1}" = 1 ]; then
+  ordner="$(python3 "$APP_DIR/tests/testdaten.py" --flags KONTO_IMAP_1@example.invalid | sed -n 's/^ORDNER //p')"
+  g0="$(server_gelesen)"; m0="$(server_markiert)"
+  if [ "$g0" = 0 ] && [ "$m0" = 0 ]; then
+    lauf m4-353-beenden KONTO_IMAP_1@example.invalid "$ordner" "$SCHEMA" | tee "$OUT/m4-353-beenden.txt"
+    g="$(server_gelesen)"; m="$(server_markiert)"
+    if [ "$g" = 1 ] && [ "$m" = 1 ]; then echo "OK      m4-353-beenden: Server nach dem Schließen gelesen=1 markiert=1"
+    else echo "FEHLER  m4-353-beenden: Server gelesen=$g markiert=$m, erwartet 1/1"; fi | tee -a "$OUT/m4-353-beenden.txt"
+    if pgrep -f "^$BIN" >/dev/null; then echo "FEHLER  m4-353-beenden: Rest-Prozess $BIN"
+    else echo "OK      m4-353-beenden: kein Rest-Prozess"; fi | tee -a "$OUT/m4-353-beenden.txt"
+    python3 "$APP_DIR/tests/testdaten.py" --server KONTO_IMAP_1@example.invalid ungelesen >/dev/null
+    python3 "$APP_DIR/tests/testdaten.py" --server KONTO_IMAP_1@example.invalid unmarkiert >/dev/null
+    g="$(server_gelesen)"; m="$(server_markiert)"
+    if [ "$g" = 0 ] && [ "$m" = 0 ]; then echo "OK      m4-353-beenden: Ausgangszustand am Server (0/0)"
+    else echo "FEHLER  m4-353-beenden: Ausgangszustand nicht erreicht ($g/$m)"; fi | tee -a "$OUT/m4-353-beenden.txt"
+  else
+    echo "FEHLER  m4-353-beenden: Einladung in privat@ nicht ungelesen/unmarkiert ($g0/$m0), Lauf übersprungen" | tee "$OUT/m4-353-beenden.txt"
+  fi
+  FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/m4-353-beenden.txt")))
 fi
 
 # IDLE: imapx startet IDLE bevorzugt am Posteingang; der gewählte Ordner bekommt IDLE nur, wenn der

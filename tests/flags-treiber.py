@@ -395,6 +395,15 @@ def offline():
     bild('1-markiert-ohne-netz')
 
 
+def beenden():
+    """Strg+K, 30 ms später Umschalt+Strg+L, sofort schließen (main): beide Aufträge müssen den
+    Server erreichen, bevor der Prozess endet (prüft tests/flags.sh)."""
+    klick(ZEILE)
+    time.sleep(0.5)
+    taste('Control_L+k', 0.03)
+    taste('Control_L+Shift_L+l', 0)
+
+
 def nachholen():
     """Mit Netz: das Laden des Ordners (refresh_info) schickt die offline gesetzten Flags."""
     time.sleep(5)
@@ -421,6 +430,8 @@ def main():
             idle()
         elif NAME.endswith('-offline'):
             offline()
+        elif NAME.endswith('-beenden'):
+            beenden()
         elif NAME.endswith(('-nachholen', '-vorbereiten')):
             nachholen()
         else:
@@ -429,12 +440,17 @@ def main():
             window=w, client_type=d.intern_atom('WM_PROTOCOLS'),
             data=(32, [d.intern_atom('WM_DELETE_WINDOW'), X.CurrentTime, 0, 0, 0])), event_mask=X.NoEventMask)
         d.sync()
+        geschlossen = time.monotonic()
         try:
             rc = app.wait(30)
             (ok if rc == 0 else falsch)('Beenden: Exit %d' % rc)
+            wert('Prozessende %.0f ms nach dem Schließen' % ((time.monotonic() - geschlossen) * 1000))
+            if NAME.endswith('-beenden'):
+                fertig = [t for _, t in log_zeilen() if t.startswith('Flags:') and 'gespeichert' in t]
+                (ok if len(fertig) == 2 else falsch)('vor Prozessende gespeichert: %s' % fertig)
         except subprocess.TimeoutExpired:
             falsch('Beenden: nach 30 s nicht beendet')
-        if not NAME.endswith(('-last', '-idle', '-offline', '-nachholen', '-vorbereiten')):
+        if not NAME.endswith(('-last', '-idle', '-offline', '-nachholen', '-vorbereiten', '-beenden')):
             nachher = server_flags()
             (ok if nachher == vorher else falsch)('Server nach dem Lauf gelesen=%d markiert=%d, vorher %d/%d'
                                                   % (nachher + vorher))

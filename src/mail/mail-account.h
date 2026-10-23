@@ -8,6 +8,7 @@
 #pragma once
 
 #include <gio/gio.h>
+#include <libedataserver/libedataserver.h>
 
 G_BEGIN_DECLS
 
@@ -19,5 +20,7 @@ RevolutionMailAccount *revolution_mail_account_new              (const char     
 const char            *revolution_mail_account_get_uid          (RevolutionMailAccount *self);
 void                   revolution_mail_account_set_display_name (RevolutionMailAccount *self,
                                                                  const char            *display_name);
+const char            *revolution_mail_account_hidden_reason    (ESourceRegistry       *registry,
+                                                                 ESource               *source);
 
 G_END_DECLS

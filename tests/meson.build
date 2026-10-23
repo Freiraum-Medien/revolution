@@ -18,5 +18,5 @@ test('smoke', find_program('smoke.sh'),
   suite: 'smoke',
   env: ['BUILD=' + meson.project_build_root()],
   is_parallel: false,
-  timeout: 900,
+  timeout: 1200,
 )

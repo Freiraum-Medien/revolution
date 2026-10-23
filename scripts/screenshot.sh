@@ -46,7 +46,7 @@ BIN="$BUILD/src/revolution"
 OUT_DIR="${OUT_DIR:-$APP_DIR/../Design/Prototyp}"
 
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
-  sed -n '3,23p' "$0" >&2
+  sed -n '3,29p' "$0" >&2
   exit 1
 fi
 NAME="$1"
@@ -147,6 +147,8 @@ time.sleep(600)
         if [ -n "$READY" ]; then
           for _ in $(seq "$WAIT"); do [ -e "$READY" ] && break; sleep 1; done
           [ -e "$READY" ] || echo "READY nach $WAIT s nicht erreicht: $READY"
+          # Eine Sekunde, damit GTK die zuletzt geladenen Zeilen auch zeichnet.
+          sleep 1
         else
           sleep "$WAIT"
         fi
@@ -231,6 +233,8 @@ d.sync()
         if [ "$state" = Z ]; then
           rc=0; wait "$pid" || rc=$?
           echo "$pid $rc" >"$QUIT"
+          # Abgeholt: die PID kann neu vergeben werden, kein kill mehr darauf.
+          pid=""
         else
           echo "$pid Zeitlimit" >"$QUIT"
         fi

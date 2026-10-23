@@ -35,10 +35,10 @@ Ablauf: vier App-Starts über `scripts/screenshot.sh` (Mail hell und dunkel in 1
 - (a) Konten: angezeigte Konten = Regel aus `src/mail/mail-account.c`, unabhängig per Python-GI gegen die Registry ausgewertet
 - (b) Anmeldung: je Konto `angemeldet: <UID> … angenommen`
 - (c) Ordner: Log `Ordner: <UID> <Name>` und Anzahl = `tests/testdaten.py --ordner` (nur lesend)
-- (d) Log: keine WARNING/CRITICAL; übergangen werden nur zwei feste `libEGL warning: …DRI3…`-Zeilen von Mesa unter Xvfb
-- (e) Beenden: Exit 0, kein Rest-Prozess, App-ID nicht mehr auf dem Bus
+- (d) Log: Positivliste, nur DEBUG-Zeilen der App; ausgenommen zwei feste `libEGL warning: …DRI3…`-Zeilen von Mesa unter Xvfb, jede andere Zeile ist ein Fehler
+- (e) Beenden: Exit 0, kein Rest-Prozess (App, Xvfb, Compositing-Attrappe), App-ID nicht mehr auf dem Bus
 
-Am Ende (f): PIDs von `evolution-source-registry` und `goa-daemon` sowie sha256 von `~/.config/evolution/sources` unverändert. Je Prüfung eine Zeile `OK …` bzw. `FEHLER …`, Exit 0 nur ohne Fehler. Gegenprobe ohne Netz (Bus bleibt erreichbar): `unshare -n --map-current-user tests/smoke.sh` meldet FEHLER und Exit 1.
+Am Ende (f): PIDs von `evolution-source-registry` und `goa-daemon` sowie sha256, Änderungszeit und Inode jeder Datei in `~/.config/evolution/sources` unverändert. Je Prüfung eine Zeile `OK …` bzw. `FEHLER …`, Exit 0 nur ohne Fehler. Gegenprobe ohne Netz (Bus bleibt erreichbar): `unshare -n --map-current-user tests/smoke.sh` meldet FEHLER und Exit 1.
 
 Starten aus dem Build-Ordner: Das Schema liegt kompiliert in `build/data`.
 

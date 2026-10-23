@@ -18,10 +18,12 @@
 #       unabhängig in Python-GI gegen die ESourceRegistry ausgewertet
 #   (b) Anmeldung: je angezeigtem Konto „angemeldet: UID … angenommen“
 #   (c) Ordner: Log „Ordner: UID Name“ = tests/testdaten.py --ordner (nur lesend), je Konto
-#   (d) Log: keine WARNING/CRITICAL/ERROR (G_DEBUG=fatal-criticals bricht bei CRITICAL ab)
-#   (e) Beenden: Exit 0 nach WM_DELETE_WINDOW, kein Rest-Prozess, App-ID nicht mehr auf dem Bus
-# Am Ende (f): PIDs von evolution-source-registry und goa-daemon und sha256 von
-# ~/.config/evolution/sources unverändert (keine zweite Registry, nichts neu geschrieben, #343).
+#   (d) Log: nur DEBUG-Zeilen der App (Positivliste, G_DEBUG=fatal-criticals bricht bei
+#       CRITICAL ab)
+#   (e) Beenden: Exit 0 nach WM_DELETE_WINDOW, kein Rest-Prozess (App, Xvfb, Helfer), App-ID
+#       nicht mehr auf dem Bus
+# Am Ende (f): PIDs von evolution-source-registry und goa-daemon sowie sha256, Änderungszeit und
+# Inode in ~/.config/evolution/sources unverändert (keine zweite Registry, nichts neu geschrieben, #343).
 # Schreibt nichts auf Server: die App lädt in M3 nur Ordnerlisten, testdaten.py --ordner liest.
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 nur, wenn alle Prüfungen OK sind.
 #
@@ -87,7 +89,10 @@ pids () {
   echo "evolution-source-registry $(pgrep -d, -f '^/usr/libexec/evolution-source-registry') goa-daemon $(pgrep -d, -f '^/usr/libexec/goa-daemon')"
 }
 PIDS_VORHER="$(pids)"
-sha256sum "$SOURCES"/* >"$OUT/sources-vorher.txt" 2>&1
+# Inhalt (sha256) und Datei-Kennung (Änderungszeit, Inode): auch ein Neuschreiben mit gleichem
+# Inhalt fiele auf.
+quellen () { sha256sum "$SOURCES"/*; stat -c '%n %Y %i' "$SOURCES"/*; }
+quellen >"$OUT/sources-vorher.txt" 2>&1
 
 # Regel aus src/mail/mail-account.c (revolution_mail_account_hidden_reason), hier unabhängig
 # über Python-GI: eingebaute Speicher nie; Online-Konto (GOA/UOA) mit Mail aus nie; sonst
@@ -153,7 +158,7 @@ angezeigt () {
 }
 
 pruefe_lauf () {
-  local name="$1" log="$OUT/$1.log" quit="$OUT/$1.quit" uid fehlt rest pid rc n_app n_ref
+  local name="$1" log="$OUT/$1.log" quit="$OUT/$1.quit" uid fehlt rest pid rc n_app n_ref disp p
 
   # Anzeige: screenshot.sh bricht ab, wenn DISPLAY die echte Sitzung wäre oder WAYLAND_DISPLAY
   # gesetzt ist; sonst nennt es den eigenen Xvfb.
@@ -209,19 +214,28 @@ pruefe_lauf () {
     fehler "$name (c) Ordner: abweichend (UID(Anzahl App/testdaten.py)):${fehlt:- keine Konten}, Namen in $OUT/$name-ordner-*.diff"
   fi
 
-  # (d) Log: alles außer DEBUG-Zeilen und dem Mesa-Rauschen; darin keine Warnung.
+  # (d) Log: Positivliste. Erlaubt sind nur DEBUG-Zeilen der App und die zwei Zeilen
+  # Mesa-Rauschen; jede andere Zeile (WARNING, CRITICAL, Gtk-Message, …) ist ein Fehler.
   grep -vE '^\(revolution:[0-9]+\): revolution-DEBUG: ' "$log" | grep -vxF "$EGL_RAUSCHEN" >"$OUT/$name-rest.txt"
-  if grep -qE 'WARNING|CRITICAL|ERROR|[Ww]arning|[Ee]rror' "$OUT/$name-rest.txt"; then
-    fehler "$name (d) Log: $(grep -cE 'WARNING|CRITICAL|ERROR|[Ww]arning|[Ee]rror' "$OUT/$name-rest.txt") Warnungen, z. B. $(grep -m1 -E 'WARNING|CRITICAL|ERROR|[Ww]arning|[Ee]rror' "$OUT/$name-rest.txt" | cut -c1-200)"
+  if [ -s "$OUT/$name-rest.txt" ]; then
+    fehler "$name (d) Log: $(wc -l <"$OUT/$name-rest.txt") unerwartete Zeilen, z. B. $(grep -m1 . "$OUT/$name-rest.txt" | cut -c1-200) (siehe $OUT/$name-rest.txt)"
   else
-    ok "$name (d) Log: 0 WARNING/CRITICAL ($(grep -cxF "$EGL_RAUSCHEN" "$log") Zeilen Mesa-Rauschen übergangen, $(wc -l <"$OUT/$name-rest.txt") übrige Zeilen)"
+    ok "$name (d) Log: nur DEBUG-Zeilen, 0 WARNING/CRITICAL ($(grep -cxF "$EGL_RAUSCHEN" "$log") Zeilen Mesa-Rauschen übergangen)"
   fi
 
   # (e) Beenden
   read -r pid rc 2>/dev/null <"$quit" || { pid=""; rc="keine QUIT-Datei"; }
   rest="$(pgrep -a -f "^$BIN( |$)")"
+  # Auch Xvfb und die Compositing-Attrappe dieses Laufs (Anzeige aus screenshot.sh) müssen weg.
+  disp="$(sed -nE 's/^Xvfb-Anzeige: (:[0-9]+) .*/\1/p' "$OUT/$name.out")"
+  if [ -n "$disp" ]; then
+    rest="$rest$(pgrep -a -f "^Xvfb $disp( |$)")"
+    for p in $(pgrep -f _NET_WM_CM_S0); do
+      tr '\0' '\n' <"/proc/$p/environ" 2>/dev/null | grep -qx "DISPLAY=$disp" && rest="$rest Helfer:$p"
+    done
+  fi
   if [ "$rc" = 0 ] && [ -n "$pid" ] && [ ! -e "/proc/$pid" ] && [ -z "$rest" ] && [ "$(bus_hat_app)" = "(false,)" ]; then
-    ok "$name (e) Beenden: WM_DELETE_WINDOW → Exit 0 (PID $pid), kein Rest-Prozess, NameHasOwner = false"
+    ok "$name (e) Beenden: WM_DELETE_WINDOW → Exit 0 (PID $pid), kein Rest-Prozess (App, Xvfb $disp, Helfer), NameHasOwner = false"
   else
     fehler "$name (e) Beenden: Exit ${rc:-?} (PID ${pid:-?}), Rest: ${rest:-keiner}, Bus: $(bus_hat_app)"
   fi
@@ -251,9 +265,9 @@ lauf kontakte-hell prefer-light "Control_L+3" 1200x760
 
 PIDS_NACHHER="$(pids)"
 if [ "$PIDS_NACHHER" = "$PIDS_VORHER" ]; then ok "(f) PIDs unverändert: $PIDS_NACHHER"; else fehler "(f) PIDs: vorher $PIDS_VORHER, nachher $PIDS_NACHHER"; fi
-sha256sum "$SOURCES"/* >"$OUT/sources-nachher.txt" 2>&1
+quellen >"$OUT/sources-nachher.txt" 2>&1
 if diff -q "$OUT/sources-vorher.txt" "$OUT/sources-nachher.txt" >/dev/null; then
-  ok "(f) ~/.config/evolution/sources unverändert: $(wc -l <"$OUT/sources-nachher.txt") Dateien, sha256 gleich"
+  ok "(f) ~/.config/evolution/sources unverändert: $(ls "$SOURCES" | wc -l) Dateien, sha256, Änderungszeit und Inode gleich"
 else
   fehler "(f) ~/.config/evolution/sources geändert: $(diff "$OUT/sources-vorher.txt" "$OUT/sources-nachher.txt" | grep -c '^[<>]') Zeilen abweichend"
 fi

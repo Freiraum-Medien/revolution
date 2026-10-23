@@ -937,6 +937,10 @@ create_settings (gpointer data G_GNUC_UNUSED)
                                                 NULL);
   pango_font_description_free (font);
 
+  /* Hyperlink-Auditing (<a ping>): „enable-hyperlink-auditing“ ist in WebKitGTK 2.52.6 ohne Wirkung
+   * (Laufzeit: „webkit_settings_set_enable_hyperlink_auditing is deprecated and does nothing“, Wert
+   * bleibt TRUE), daher nicht gesetzt. Die ping-Anfrage läuft über send-request und wird gesperrt
+   * (Beleg build/m4-354/m4-354-ping.log, -ping-strace.txt: 0 connect zum ping-Host). */
   /* Vorab-Verbindungen aus <link rel=preconnect|dns-prefetch|preload|prefetch> und Speculation
    * Rules laufen nicht über WebKitWebPage::send-request: im ersten Lauf unter strace baute der
    * Netzwerkprozess für <link rel=preconnect> eine TCP-Verbindung zum Bildserver auf. Daher aus. */

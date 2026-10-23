@@ -31,38 +31,50 @@ Adw.ApplicationWindow window {
     }
   }
 
-  // Briefing 0: AdwViewStack Mail/Kontakte/Kalender (stamp-window.blp:88-118).
-  content: Adw.ViewStack app_stack {
-    Adw.ViewStackPage {
-      name: "mail";
-      title: _("Mail");
-      icon-name: "mail-unread-symbolic";
+  content: Gtk.Box {
+    orientation: vertical;
 
-      child: $RevolutionMailView {
-        stack: app_stack;
-      };
+    // #343: Fehler als AdwBanner, kein Dialog (CLAUDE.md Architektur-Festlegung 3).
+    // Titel setzt main.c; ohne Markup, weil Fehlertexte <, & enthalten können.
+    Adw.Banner banner {
+      use-markup: false;
     }
 
-    // Kalender: #339
-    Adw.ViewStackPage {
-      name: "calendar";
-      title: _("Kalender");
-      icon-name: "x-office-calendar-symbolic";
+    // Briefing 0: AdwViewStack Mail/Kontakte/Kalender (stamp-window.blp:88-118).
+    Adw.ViewStack app_stack {
+      vexpand: true;
 
-      child: $RevolutionCalendarView {
-        stack: app_stack;
-      };
-    }
+      Adw.ViewStackPage {
+        name: "mail";
+        title: _("Mail");
+        icon-name: "mail-unread-symbolic";
 
-    // Kontakte: #338
-    Adw.ViewStackPage {
-      name: "contacts";
-      title: _("Kontakte");
-      icon-name: "system-users-symbolic";
+        child: $RevolutionMailView {
+          stack: app_stack;
+        };
+      }
 
-      child: $RevolutionContactsView {
-        stack: app_stack;
-      };
+      // Kalender: #339
+      Adw.ViewStackPage {
+        name: "calendar";
+        title: _("Kalender");
+        icon-name: "x-office-calendar-symbolic";
+
+        child: $RevolutionCalendarView {
+          stack: app_stack;
+        };
+      }
+
+      // Kontakte: #338
+      Adw.ViewStackPage {
+        name: "contacts";
+        title: _("Kontakte");
+        icon-name: "system-users-symbolic";
+
+        child: $RevolutionContactsView {
+          stack: app_stack;
+        };
+      }
     }
   };
 }

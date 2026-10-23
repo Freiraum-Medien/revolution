@@ -5,10 +5,14 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+#define G_LOG_DOMAIN "revolution"
+
 #include "config.h"
 
+#include <errno.h>
 #include <glib/gi18n.h>
 #include <adwaita.h>
+#include <libedataserver/libedataserver.h>
 
 #include "contacts/contacts-view.h"
 #include "calendar/calendar-view.h"
@@ -106,12 +110,96 @@ on_startup (GtkApplication *app,
     g_action_change_state (action, g_variant_new_string (theme));
 }
 
+/* #343: eigene Verzeichnisse getrennt von Evolution (CLAUDE.md Architektur-Festlegung 4),
+ * angelegt wie e_get_user_data_dir/e_get_user_cache_dir (EDS e-data-server-util.c:70-135,
+ * g_mkdir_with_parents 0700) und Stamp (stamp-helper.c:46-58). Beide Profile nutzen
+ * dieselben Ordner wie bei Stamp, das den Ordner „stamp“ fest verwendet. */
+static void
+create_user_dirs (AdwBanner *banner)
+{
+  const char *bases[] = { g_get_user_data_dir (), g_get_user_cache_dir () };
+
+  for (gsize i = 0; i < G_N_ELEMENTS (bases); i++)
+    {
+      g_autofree char *dir = g_build_filename (bases[i], "revolution", NULL);
+      g_autofree char *message = NULL;
+
+      if (g_mkdir_with_parents (dir, 0700) == 0)
+        {
+          g_debug ("Verzeichnis bereit: %s", dir);
+          continue;
+        }
+
+      message = g_strdup_printf (_("Ordner „%s“ konnte nicht angelegt werden: %s"), dir, g_strerror (errno));
+      g_warning ("%s", message);
+      adw_banner_set_title (banner, message);
+      adw_banner_set_revealed (banner, TRUE);
+    }
+}
+
+/* #343 Worker-Muster (README „Architektur“): EDS-Aufruf im Worker-Thread, Ergebnis im
+ * Rückruf im UI-Thread. Vorlage Evolution libemail-engine e-mail-session.c:2538-2618
+ * (mail_session_get_inbox_thread, e_mail_session_get_inbox). task_data ist der UI-Thread,
+ * nur für den Vergleich im Log. */
+static void
+load_registry_thread (GTask        *task,
+                      gpointer      source_object G_GNUC_UNUSED,
+                      gpointer      task_data,
+                      GCancellable *cancellable)
+{
+  GError *error = NULL;
+  ESourceRegistry *registry;
+
+  g_debug ("ESourceRegistry: lädt im Thread %p, UI-Thread %p, Worker: %s",
+           (gpointer) g_thread_self (), task_data, g_thread_self () != task_data ? "ja" : "nein");
+  registry = e_source_registry_new_sync (cancellable, &error);
+
+  if (registry == NULL)
+    g_task_return_error (task, error);
+  else
+    g_task_return_pointer (task, registry, g_object_unref);
+}
+
+static void
+on_registry_loaded (GObject      *source_object,
+                    GAsyncResult *result,
+                    gpointer      user_data)
+{
+  g_autoptr (AdwBanner) banner = user_data;
+  g_autoptr (GError) error = NULL;
+  g_autofree char *message = NULL;
+  ESourceRegistry *registry;
+
+  registry = g_task_propagate_pointer (G_TASK (result), &error);
+  if (registry != NULL)
+    {
+      g_autolist (ESource) accounts = e_source_registry_list_sources (registry, E_SOURCE_EXTENSION_MAIL_ACCOUNT);
+
+      g_debug ("ESourceRegistry: geladen, Rückruf im Thread %p, %u Mail-Konten",
+               (gpointer) g_thread_self (), g_list_length (accounts));
+      /* An der Anwendung gehalten; #345 liest sie mit g_object_get_data (app, "registry"). */
+      g_object_set_data_full (source_object, "registry", registry, g_object_unref);
+      return;
+    }
+
+  if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+    return;
+
+  message = g_strdup_printf (_("Konten konnten nicht geladen werden: %s"), error->message);
+  g_warning ("%s", message);
+  adw_banner_set_title (banner, message);
+  adw_banner_set_revealed (banner, TRUE);
+}
+
 static void
 on_activate (GtkApplication *app,
              GSettings      *settings)
 {
   g_autoptr (GtkBuilder) builder = NULL;
   g_autoptr (GPropertyAction) view_action = NULL;
+  g_autoptr (GCancellable) cancellable = NULL;
+  g_autoptr (GTask) task = NULL;
+  AdwBanner *banner;
   GtkWindow *window;
 
   window = gtk_application_get_active_window (app);
@@ -135,6 +223,17 @@ on_activate (GtkApplication *app,
       /* Entwicklungsvariante gestreift wie Stamp (stamp-window.c:221-223). */
       gtk_widget_add_css_class (GTK_WIDGET (window), "devel");
 #endif
+
+      banner = ADW_BANNER (gtk_builder_get_object (builder, "banner"));
+      create_user_dirs (banner);
+
+      /* Beim Beenden abbrechen; der Task hält den GCancellable bis zum Rückruf. */
+      cancellable = g_cancellable_new ();
+      g_signal_connect_object (app, "shutdown", G_CALLBACK (g_cancellable_cancel), cancellable, G_CONNECT_SWAPPED);
+      task = g_task_new (app, cancellable, on_registry_loaded, g_object_ref (banner));
+      g_task_set_source_tag (task, on_activate);
+      g_task_set_task_data (task, g_thread_self (), NULL);
+      g_task_run_in_thread (task, load_registry_thread);
     }
 
   gtk_window_present (window);

@@ -1177,6 +1177,8 @@ apply_folder_changes (RevolutionMailView *self,
   g_debug ("Nachrichten: %s Änderung %u neu, %u entfernt, %u geändert, Liste %u, %u verschiedene UIDs",
            self->loading, n_added, n_removed, n_changed,
            g_list_model_get_n_items (model), distinct_uids (self));
+  /* #414: Test-Hook auch für Einträge aus Live-Änderungen (Auswahl vor dem Abgleich). */
+  select_message_from_env (self);
 }
 
 static void

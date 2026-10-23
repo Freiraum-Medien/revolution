@@ -49,10 +49,10 @@ template $RevolutionMailReader: Adw.Bin {
         ellipsize: end;
       }
 
-      Adw.SplitButton {
+      // Tooltip mit Kürzel setzt mail-reader.c (revolution_mail_reader_init).
+      Adw.SplitButton notice_button {
         label: _("Laden");
         action-name: "reader.load-remote";
-        tooltip-text: _("Entfernte Inhalte dieser E-Mail laden (Strg+I)");
         dropdown-tooltip: _("Entfernte Inhalte immer laden");
         menu-model: notice_menu;
         valign: center;

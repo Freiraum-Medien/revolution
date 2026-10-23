@@ -66,6 +66,7 @@ struct _RevolutionMailReader
   GtkLabel       *date_full;
   GtkWidget      *notice;
   GMenu          *notice_menu;
+  GtkWidget      *notice_button;
   GtkOverlay     *content_overlay;
   AdwSpinner     *spinner;
   RevolutionMailAttachmentBar *attachments;
@@ -657,6 +658,13 @@ remote_list_add_thread (GTask        *task,
   g_auto (GStrv) list = NULL;
   GError *error = NULL;
   gboolean saved = TRUE;
+
+  /* Ein Eintrag ist eine Zeile: Zeilenumbrüche würden weitere Einträge anlegen. */
+  if (*entry == '\0' || strpbrk (entry, "\r\n") != NULL)
+    {
+      g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, _("Ungültiger Eintrag „%s“"), entry);
+      return;
+    }
 
   g_mutex_lock (&remote_list_lock);
   g_file_get_contents (path, &text, NULL, NULL);
@@ -1585,6 +1593,7 @@ revolution_mail_reader_class_init (RevolutionMailReaderClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, date_full);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, notice);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, notice_menu);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, notice_button);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, content_overlay);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, spinner);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, attachments);
@@ -1600,6 +1609,14 @@ revolution_mail_reader_init (RevolutionMailReader *self)
   g_action_map_add_action_entries (G_ACTION_MAP (self->actions), reader_actions, G_N_ELEMENTS (reader_actions), self);
   gtk_widget_insert_action_group (GTK_WIDGET (self), "reader", G_ACTION_GROUP (self->actions));
   set_notice (self, FALSE);
+  {
+    /* Kürzel aus dem Accelerator (mail-reader.blp, Strg+I), nicht als fester Text in der Übersetzung. */
+    g_autofree char *accel = gtk_accelerator_get_label (GDK_KEY_i, GDK_CONTROL_MASK);
+    /* Translators: Tooltip des Knopfs „Laden“ im Hinweis, %s ist das Tastenkürzel, z. B. „Strg+I“. */
+    g_autofree char *tooltip = g_strdup_printf (_("Entfernte Inhalte dieser E-Mail laden (%s)"), accel);
+
+    gtk_widget_set_tooltip_text (self->notice_button, tooltip);
+  }
 
   self->web_view = create_web_view (self);
   gtk_overlay_set_child (self->content_overlay, GTK_WIDGET (self->web_view));

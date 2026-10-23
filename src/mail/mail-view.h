@@ -18,9 +18,12 @@ G_DECLARE_FINAL_TYPE (RevolutionMailView, revolution_mail_view, REVOLUTION, MAIL
 
 void revolution_mail_view_set_registry (RevolutionMailView *self,
                                         ESourceRegistry    *registry);
+void revolution_mail_view_set_session (RevolutionMailView *self,
+                                       CamelSession       *session);
 void revolution_mail_view_show_error   (RevolutionMailView *self,
                                         const char         *title,
-                                        const char         *detail);
+                                        const char         *detail,
+                                        gboolean            per_account);
 void revolution_mail_view_set_folders  (RevolutionMailView *self,
                                         const char         *uid,
                                         CamelFolderInfo    *info);

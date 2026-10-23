@@ -182,6 +182,15 @@ revolution_mail_folder_get_full_name (RevolutionMailFolder *self)
   return self->full_name;
 }
 
+/* #352: CamelFolderInfo-Flags, z. B. CAMEL_FOLDER_NOSELECT. */
+guint32
+revolution_mail_folder_get_flags (RevolutionMailFolder *self)
+{
+  g_return_val_if_fail (REVOLUTION_IS_MAIL_FOLDER (self), 0);
+
+  return self->flags;
+}
+
 GListModel *
 revolution_mail_folder_get_children (RevolutionMailFolder *self)
 {

@@ -17,6 +17,8 @@
 #     logisch (wie ohne SCALE), das Skript rechnet sie um. Werte über 2 wären hochskaliert.
 #   AFTER_KEYS="Down …" (optional, Umgebung): wie KEYS, aber nach CLICK, z. B. Tastatur in einer
 #     angeklickten Liste (#348)
+#   KEY_DELAY=0.02 (optional, Umgebung, #352): Sekunden zwischen zwei Einträgen in KEYS bzw.
+#     AFTER_KEYS (wie Tastenwiederholung), Standard 0
 #   WAIT=40 (optional, Umgebung): Sekunden zusätzlich warten vor KEYS/CLICK und Aufnahme,
 #     z. B. bis die Ordner aller Konten geladen sind (#348); Standard 0
 #   BUILD=Pfad (optional, Umgebung): Build-Ordner, Standard build/ im Repo. GSettings-Schema
@@ -46,7 +48,7 @@ BIN="$BUILD/src/revolution"
 OUT_DIR="${OUT_DIR:-$APP_DIR/../Design/Prototyp}"
 
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
-  sed -n '3,29p' "$0" >&2
+  sed -n '3,31p' "$0" >&2
   exit 1
 fi
 NAME="$1"
@@ -62,6 +64,8 @@ CLICK="${CLICK:-}"
 KEYS="${KEYS:-}"
 [ -z "$KEYS" ] || [[ "$KEYS" =~ ^[A-Za-z0-9_+\ ]+$ ]] || { echo "KEYS als Keysym-Namen angeben, z. B. Control_L+3" >&2; exit 1; }
 AFTER_KEYS="${AFTER_KEYS:-}"
+KEY_DELAY="${KEY_DELAY:-0}"
+[[ "$KEY_DELAY" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "KEY_DELAY als Sekunden angeben, z. B. 0.02" >&2; exit 1; }
 [ -z "$AFTER_KEYS" ] || [[ "$AFTER_KEYS" =~ ^[A-Za-z0-9_+\ ]+$ ]] || { echo "AFTER_KEYS als Keysym-Namen angeben, z. B. Down" >&2; exit 1; }
 ROUND="${ROUND:-}"
 WAIT="${WAIT:-0}"
@@ -110,7 +114,7 @@ shoot () {
   env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
     XDG_RUNTIME_DIR="$RUNDIR" GSETTINGS_SCHEMA_DIR="$BUILD/data" GSETTINGS_BACKEND=memory \
     REAL_DISPLAY="$REAL_DISPLAY" BIN="$BIN" OUT="$out" WIDTH="$((WIDTH * RENDER))" HEIGHT="$((HEIGHT * RENDER))" \
-    CLICK="$CLICK" KEYS="$KEYS" AFTER_KEYS="$AFTER_KEYS" WAIT="$WAIT" RENDER="$RENDER" ${SCALE:+GDK_SCALE=$RENDER} \
+    CLICK="$CLICK" KEYS="$KEYS" AFTER_KEYS="$AFTER_KEYS" KEY_DELAY="$KEY_DELAY" WAIT="$WAIT" RENDER="$RENDER" ${SCALE:+GDK_SCALE=$RENDER} \
     LOG="$LOG" READY="$READY" QUIT="$QUIT" \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo GTK_A11Y=none NO_AT_BRIDGE=1 \
     ADW_DEBUG_COLOR_SCHEME="$scheme" \
@@ -154,7 +158,7 @@ time.sleep(600)
         fi
         # Je Eintrag in KEYS bzw. AFTER_KEYS: Tasten nacheinander drücken, rückwärts loslassen.
         press_keys="
-import os, sys
+import os, sys, time
 from Xlib import display, X, XK
 from Xlib.ext import xtest
 d = display.Display()
@@ -167,6 +171,7 @@ for combo in os.environ[\"KEYS\"].split():
     for c in reversed(codes):
         xtest.fake_input(d, X.KeyRelease, c)
     d.sync()
+    time.sleep(float(os.environ[\"KEY_DELAY\"]))
 "
         if [ -n "$KEYS" ]; then
           python3 -c "$press_keys"

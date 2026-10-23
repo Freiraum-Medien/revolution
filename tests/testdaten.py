@@ -13,6 +13,9 @@
 #   tests/testdaten.py --ordner   nur lesend: Ordnerliste aller Mail-Konten aus GOA (#348),
 #                                 auch der nur lesend freigegebenen; Vergleich mit dem Log
 #                                 der App (G_MESSAGES_DEBUG=revolution, „Ordner: UID Name“)
+#   tests/testdaten.py --last N   #352: N Lastmails per IMAP-APPEND (kein Versand) in den Ordner
+#                                 „Revolution-Last“ von privat@ (fehlende ergänzen); letzte
+#                                 Zeile „LAST <UID>/<voller Ordnername> <Anzahl>“
 #
 # Copyright 2026 Arnd Messer
 #
@@ -20,6 +23,8 @@
 
 import argparse
 import ctypes
+import datetime
+import re
 import email.policy
 import email.utils
 import os
@@ -42,6 +47,8 @@ TESTKONTEN = ('KONTO_IMAP_1@example.invalid', 'KONTO_IMAP_2@example.invalid',
 NUR_LESEND = ('NUR_LESEND_1@example.invalid', 'NUR_LESEND_2@example.invalid', 'NUR_LESEND_3@example.invalid')
 ABSENDER = ('KONTO_IMAP_1@example.invalid', 'KONTO_IMAP_2@example.invalid')
 ORDNER = 'Revolution-Test'
+LAST_ORDNER = 'Revolution-Last'
+LAST_KONTO = 'KONTO_IMAP_1@example.invalid'
 UNTERORDNER = ORDNER + '/Archiv-Test'
 REMOTE_BILD = 'https://upload.wikimedia.org/wikipedia/commons/a/a9/Example.jpg'
 TIMEOUT = 90
@@ -162,6 +169,89 @@ def camel_nachricht(key, absender, betreff, an):
     msg = Camel.MimeMessage.new()
     msg.construct_from_stream_sync(Camel.StreamMem.new_with_buffer(data), None)
     return msg
+
+
+# #352: Lastmails für die Nachrichtenliste. Absender erfunden (example.org, RFC 2606), nur als
+# Kopfzeile; es wird nichts versendet. Datum alle 173 Minuten rückwärts (rund ein Jahr), damit
+# alle Formen des relativen Datums vorkommen; jede 5. ungelesen, jede 11. markiert, jede 9. mit
+# PNG-Anhang.
+LAST_ABSENDER = ['Jana Albrecht', 'Tobias Krämer', 'Stadtwerke Lindenau', 'Miriam Okafor',
+                 'Reisebüro Nordwind', 'Felix Brandt', 'Sophie Lange', 'Bücherstube am Markt',
+                 'Hausverwaltung Kerner', 'Lukas Weber', 'Emma Schulze', 'Jonas Becker',
+                 'Leonie Hoffmann', 'Paul Richter', 'Clara Neumann', 'Ben Wolf', 'Mia Schröder',
+                 'Elias Zimmermann', 'Lina Braun', 'Noah Hartmann']
+LAST_THEMEN = [
+    ('Unterlagen für das Projekt Nordlicht', 'Hallo, anbei die überarbeiteten Pläne und die '
+     'Kostenschätzung. Kannst du bis Freitag einen Blick darauf werfen?'),
+    ('Kurze Frage zum Termin', 'Passt dir 14 Uhr statt 10 Uhr? Ich hänge morgens noch in einer '
+     'Besprechung fest und würde sonst nur halb vorbereitet kommen.'),
+    ('Ihre Rechnung', 'Sehr geehrte Kundin, sehr geehrter Kunde, Ihre Rechnung steht ab sofort im '
+     'Kundenportal bereit. Den Abschlag haben wir angepasst.'),
+    ('Fotos vom Sommerfest', 'Die Bilder sind wirklich schön geworden! Ich habe dir die Auswahl '
+     'für die Vereinszeitung in den gemeinsamen Ordner gelegt.'),
+    ('Protokoll der Sitzung', 'Liebe Mitglieder, hier das Protokoll vom Montag. Bitte gebt '
+     'Korrekturen bis Ende der Woche durch.'),
+    ('Abendessen am Samstag?', 'Wir haben spontan einen Tisch beim Italiener an der Ecke '
+     'reserviert. Habt ihr Lust mitzukommen?'),
+]
+
+
+def last_nachricht(nr, jetzt):
+    name = LAST_ABSENDER[nr % len(LAST_ABSENDER)]
+    thema, text = LAST_THEMEN[nr % len(LAST_THEMEN)]
+    m = EmailMessage(policy=email.policy.SMTP)
+    m.set_content('%s\n\nLastmail %04d für die Nachrichtenliste (#352).\n' % (text, nr))
+    if nr % 9 == 0:
+        m.add_attachment(png_bytes(), maintype='image', subtype='png', filename='last-%04d.png' % nr)
+    lokal = re.sub(r'[^a-z]+', '.', name.lower().translate(str.maketrans('äöüß', 'aous'))).strip('.')
+    m['Subject'] = '%s Last %04d: %s' % (PREFIX, nr, thema)
+    m['From'] = email.utils.formataddr((name, '%s@example.org' % lokal))
+    m['To'] = LAST_KONTO
+    m['Date'] = email.utils.format_datetime(jetzt - datetime.timedelta(minutes=173 * nr))
+    m['Message-ID'] = '<revolution-last-%04d@example.invalid>' % nr
+    msg = Camel.MimeMessage.new()
+    msg.construct_from_stream_sync(Camel.StreamMem.new_with_buffer(m.as_bytes()), None)
+    return msg
+
+
+def last(k, anzahl, dry):
+    """#352: fehlende Lastmails 1..anzahl per APPEND in LAST_ORDNER (idempotent)."""
+    nur_testkonten([k.adresse])
+    folder = ordner_holen(k.store, LAST_ORDNER, not dry)
+    if folder is None:
+        print('  %s: Ordner %s anlegen, %d Lastmails einspielen' % (k.adresse, LAST_ORDNER, anzahl))
+        return 0
+    folder.refresh_info_sync(cancellable())
+    vorhanden = set()
+    for betreff, _ in testmails(folder):
+        treffer = re.match(re.escape(PREFIX) + r' Last (\d{4}):', betreff)
+        if treffer:
+            vorhanden.add(int(treffer.group(1)))
+    fehlt = [nr for nr in range(1, anzahl + 1) if nr not in vorhanden]
+    print('  %s/%s: %d vorhanden, %d fehlen' % (k.adresse, folder.get_full_name(), len(vorhanden), len(fehlt)))
+    jetzt = datetime.datetime.now().astimezone()
+    for i, nr in enumerate(fehlt):
+        if dry:
+            break
+        info = Camel.MessageInfo.new(None)
+        flags = (0 if nr % 5 == 0 else Camel.MessageFlags.SEEN) | (Camel.MessageFlags.FLAGGED if nr % 11 == 0 else 0)
+        info.set_flags(Camel.MessageFlags.SEEN | Camel.MessageFlags.FLAGGED, flags)
+        # Je APPEND eigenes Zeitlimit; Timer danach beenden (sonst liefen Tausende Threads).
+        c = Gio.Cancellable()
+        t = threading.Timer(TIMEOUT, c.cancel)
+        t.daemon = True
+        t.start()
+        try:
+            folder.append_message_sync(last_nachricht(nr, jetzt), info, c)
+        finally:
+            t.cancel()
+        if (i + 1) % 250 == 0:
+            print('  %d von %d eingespielt' % (i + 1, len(fehlt)), flush=True)
+    if fehlt and not dry:
+        folder.synchronize_sync(False, cancellable())
+        folder.refresh_info_sync(cancellable())
+    print('LAST %s/%s %d' % (k.account.get_uid(), folder.get_full_name(), folder.get_message_count()))
+    return 0
 
 
 # ---------------------------------------------------------------- Camel/GOA
@@ -551,6 +641,8 @@ def main():
     ap.add_argument('--dry-run', action='store_true', help='nur anzeigen, nichts senden/schreiben')
     ap.add_argument('--pruefen', action='store_true', help='nur lesend prüfen')
     ap.add_argument('--ordner', action='store_true', help='nur lesend: Ordnerliste aller Konten')
+    ap.add_argument('--last', type=int, metavar='N',
+                    help='N Lastmails per APPEND in %s von %s (#352)' % (LAST_ORDNER, LAST_KONTO))
     args = ap.parse_args()
 
     os.makedirs(os.path.join(CACHE, 'data'), exist_ok=True)
@@ -576,6 +668,14 @@ def main():
     session.setup({s.get_uid(): k.goa for k in konten.values()
                    for s in (k.account, k.transport) if s})
     session.set_online(True)
+    if args.last:
+        k = konten[LAST_KONTO]
+        k.store = dienst(session, k.account, EDataServer.SOURCE_EXTENSION_MAIL_ACCOUNT,
+                         Camel.ProviderType.STORE)
+        ordnerbaum(k.store)
+        n = last(k, args.last, args.dry_run)
+        k.store.disconnect_sync(True, None)
+        return n
     for k in konten.values():
         store_oeffnen(session, k)
 

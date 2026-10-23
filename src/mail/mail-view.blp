@@ -256,8 +256,8 @@ template $RevolutionMailView: Adw.BreakpointBin {
           valign: center;
           hexpand: true;
 
-          Label {
-            // Name des gewählten Ordners folgt mit #352.
+          // #352: Name des gewählten Ordners (mail-view.c, on_folder_selected).
+          Label list_title {
             label: _("Mail");
             xalign: 0;
             ellipsize: end;
@@ -267,8 +267,8 @@ template $RevolutionMailView: Adw.BreakpointBin {
             ]
           }
 
-          // Anzahl folgt mit #352.
-          Label {
+          // #352: Anzahl wie der Prototyp „10 E-Mails, 4 ungelesen“ (set_list_subtitle).
+          Label list_subtitle {
             visible: false;
             xalign: 0;
             ellipsize: end;
@@ -302,8 +302,8 @@ template $RevolutionMailView: Adw.BreakpointBin {
         use-markup: false;
       }
 
-      // Ohne Ordner: Leerzustand wie Stamp (stamp-conversation-list.blp:252-259).
-      // Liste füllt #352.
+      // Ohne Ordner und bei leerem Ordner: Leerzustand wie Stamp (stamp-conversation-list.blp:252-259).
+      // #352: Seite „list“ während des Ladens und mit Nachrichten (mail-view.c).
       content: Stack list_stack {
         // Erste Seite „empty“ ist sichtbar (Gtk.Stack zeigt das erste Kind).
         StackPage {
@@ -337,6 +337,9 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
               factory: BuilderListItemFactory {
                 template ListItem {
+                  // #352: Zugänglicher Name der Zeile: Absender, Betreff, Datum, ungelesen (Architektur 8).
+                  accessible-label: bind template.item as <$RevolutionMailMessage>.accessible-label;
+
                   child: Box {
                     spacing: 6;
 
@@ -349,7 +352,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
                       Image {
                         icon-name: "media-record-symbolic";
                         pixel-size: 10;
-                        visible: bind template.item as <$RevolutionSampleMessage>.unread;
+                        visible: bind template.item as <$RevolutionMailMessage>.unread;
                         tooltip-text: _("Ungelesen");
 
                         accessibility {
@@ -366,7 +369,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
                       size: 40;
                       valign: start;
                       show-initials: true;
-                      text: bind template.item as <$RevolutionSampleMessage>.sender;
+                      text: bind template.item as <$RevolutionMailMessage>.sender;
                       margin-end: 6;
                     }
 
@@ -379,8 +382,8 @@ template $RevolutionMailView: Adw.BreakpointBin {
                         spacing: 6;
 
                         Label sender_unread {
-                          label: bind template.item as <$RevolutionSampleMessage>.sender;
-                          visible: bind template.item as <$RevolutionSampleMessage>.unread;
+                          label: bind template.item as <$RevolutionMailMessage>.sender;
+                          visible: bind template.item as <$RevolutionMailMessage>.unread;
                           hexpand: true;
                           xalign: 0;
                           ellipsize: end;
@@ -391,7 +394,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
                         }
 
                         Label {
-                          label: bind template.item as <$RevolutionSampleMessage>.sender;
+                          label: bind template.item as <$RevolutionMailMessage>.sender;
                           visible: bind sender_unread.visible inverted;
                           hexpand: true;
                           xalign: 0;
@@ -399,7 +402,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
                         }
 
                         Label {
-                          label: bind template.item as <$RevolutionSampleMessage>.date;
+                          label: bind template.item as <$RevolutionMailMessage>.date;
 
                           styles [
                             "caption",
@@ -413,7 +416,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
                         spacing: 6;
 
                         Label {
-                          label: bind template.item as <$RevolutionSampleMessage>.subject;
+                          label: bind template.item as <$RevolutionMailMessage>.subject;
                           hexpand: true;
                           xalign: 0;
                           ellipsize: end;
@@ -423,7 +426,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
                         Image {
                           icon-name: "mail-attachment-symbolic";
                           pixel-size: 12;
-                          visible: bind template.item as <$RevolutionSampleMessage>.attachment;
+                          visible: bind template.item as <$RevolutionMailMessage>.attachment;
                           tooltip-text: _("Mit Anhang");
 
                           accessibility {
@@ -439,7 +442,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
                         Image {
                           icon-name: "starred-symbolic";
                           pixel-size: 12;
-                          visible: bind template.item as <$RevolutionSampleMessage>.starred;
+                          visible: bind template.item as <$RevolutionMailMessage>.starred;
                           tooltip-text: _("Markiert");
 
                           accessibility {
@@ -454,7 +457,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
                       }
 
                       Label {
-                        label: bind template.item as <$RevolutionSampleMessage>.preview;
+                        label: bind template.item as <$RevolutionMailMessage>.preview;
                         xalign: 0;
                         wrap: true;
                         wrap-mode: word_char;

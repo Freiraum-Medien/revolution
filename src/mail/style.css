@@ -188,6 +188,34 @@ menubutton.primary-menu popover.menu separator {
   font-weight: 400;
 }
 
+/* #356: Anhänge als Pillen (Dokument #5, wie die Pillen im Composer, composer-hell.png) in einer
+ * waagrechten Liste ohne Hintergrund; Auswahl als Akzentfläche wie die Hinweis-Pille. */
+.mail-attachments {
+  background: none;
+}
+
+.mail-attachments > row {
+  padding: 0;
+  margin: 2px 8px 2px 0;
+  border-radius: 999px;
+}
+
+.mail-attachment {
+  min-height: 32px;
+  padding: 0 14px 0 12px;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.mail-attachments > row:hover .mail-attachment {
+  background-color: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.mail-attachments > row:selected .mail-attachment {
+  background-color: color-mix(in srgb, var(--accent-bg-color) 16%, transparent);
+  color: var(--accent-color);
+}
+
 /* Composer (#402) */
 /* Designsprache der Mail-Ansicht (#400, #401) auf das Fenster „Neue E-Mail“ übertragen.
  * Klasse .composer am Fenster (composer.blp), .dark setzt composer.c wie mail-view.c. */

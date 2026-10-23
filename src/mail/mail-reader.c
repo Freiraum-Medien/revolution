@@ -34,6 +34,7 @@
 #include <webkit/webkit.h>
 
 #include "mail-account.h"
+#include "mail-attachment.h"
 #include "mail-reader.h"
 #include "mail-view.h"
 
@@ -64,6 +65,7 @@ struct _RevolutionMailReader
   GtkLabel       *date_full;
   GtkOverlay     *content_overlay;
   AdwSpinner     *spinner;
+  RevolutionMailAttachmentBar *attachments;
   WebKitWebView  *web_view;
   GCancellable   *cancellable;
   guint           generation;
@@ -120,6 +122,7 @@ typedef struct _LoadMessage
   gboolean      own_dark;
   guint         scheme_queries;
   GHashTable   *parts;
+  GPtrArray    *attachments;
   char         *to_short;
   char         *to_full;
   char         *cc_full;
@@ -137,6 +140,7 @@ load_message_free (LoadMessage *load)
   g_free (load->html);
   g_free (load->html_light);
   g_clear_pointer (&load->parts, g_hash_table_unref);
+  g_clear_pointer (&load->attachments, g_ptr_array_unref);
   g_free (load->to_short);
   g_free (load->to_full);
   g_free (load->cc_full);
@@ -220,6 +224,7 @@ typedef struct
   GString      *body;
   gboolean      html;
   GHashTable   *parts;
+  GPtrArray    *attachments;
   GCancellable *cancellable;
 } Collect;
 
@@ -316,8 +321,11 @@ related_root (CamelMultipart   *multipart,
 }
 
 /* Zerlegen wie Stamp stamp-mime-parser.c:850-893, 959-1003, 1192-1234 (Tabelle Typ → Behandlung),
- * ohne Signatur/Verschlüsselung, Kalender und Anhänge (Anhänge: #356). Darstellbare Texte
- * kommen der Reihe nach in den Körper, HTML unverändert, Text über append_plain. */
+ * ohne Signatur/Verschlüsselung und Kalender. Darstellbare Texte kommen der Reihe nach in den
+ * Körper, HTML unverändert, Text über append_plain. Anhänge (#356, Liste collect->attachments):
+ * angehängte Nachrichten, Teile mit Content-Disposition „attachment“ und alle Blätter, die weder
+ * text/plain noch text/html sind (Evolution: Teile ohne eigenen Parser werden Anhang,
+ * e-mail-parser.c:760-763; message/rfc822 immer, e-mail-parser-multipart-mixed.c:314-319). */
 static void
 collect_part (Collect       *collect,
               CamelMimePart *part,
@@ -351,8 +359,19 @@ collect_part (Collect       *collect,
               if (i == root)
                 collect_part (collect, child, depth + 1);
               else if (!CAMEL_IS_MULTIPART (camel_medium_get_content (CAMEL_MEDIUM (child))))
-                store_part (collect, child);
+                {
+                  store_part (collect, child);
+                  /* #356: Anhang, wenn der Körper ihn nicht über cid: nutzt (drop_used_parts). */
+                  g_ptr_array_add (collect->attachments, g_object_ref (child));
+                }
             }
+        }
+      else if (camel_content_type_is (type, "multipart", "signed"))
+        {
+          /* #356: nur der signierte Inhalt; die Signatur ist kein Anhang (Evolution
+           * e-mail-parser-multipart-signed.c behandelt sie als Signatur, nicht als Anhang). */
+          if (camel_multipart_get_number (multipart) > 0)
+            collect_part (collect, camel_multipart_get_part (multipart, 0), depth + 1);
         }
       else
         {
@@ -364,9 +383,12 @@ collect_part (Collect       *collect,
 
   store_part (collect, part);
 
-  /* Angehängte Nachrichten und Anhänge zeigt #356. */
-  if (CAMEL_IS_MIME_MESSAGE (content) || g_strcmp0 (camel_mime_part_get_disposition (part), "attachment") == 0)
-    return;
+  if (CAMEL_IS_MIME_MESSAGE (content) || g_strcmp0 (camel_mime_part_get_disposition (part), "attachment") == 0 ||
+      !(camel_content_type_is (type, "text", "html") || camel_content_type_is (type, "text", "plain")))
+    {
+      g_ptr_array_add (collect->attachments, g_object_ref (part));
+      return;
+    }
 
   if (camel_content_type_is (type, "text", "html"))
     {
@@ -377,6 +399,51 @@ collect_part (Collect       *collect,
     }
   else if (camel_content_type_is (type, "text", "plain"))
     append_plain (collect, part);
+}
+
+/* Nutzt der Körper „cid:<cid>“? Jede Fundstelle bis zum Ende der Adresse (Anführungszeichen,
+ * Klammer, Leerraum, Tag-Ende) genau vergleichen, %-kodiert wie on_cid_request entschlüsselt;
+ * „cid:bild1“ zählt nicht für „bild“. */
+static gboolean
+cid_used (const char *body,
+          const char *cid)
+{
+  for (const char *p = strstr (body, "cid:"); p != NULL; p = strstr (p, "cid:"))
+    {
+      g_autofree char *token = NULL, *unescaped = NULL;
+      gsize length;
+
+      p += 4;
+      length = strcspn (p, "\"' )<>\t\r\n");
+      token = g_strndup (p, length);
+      unescaped = g_uri_unescape_string (token, NULL);
+      if (g_strcmp0 (unescaped != NULL ? unescaped : token, cid) == 0)
+        return TRUE;
+    }
+
+  return FALSE;
+}
+
+/* #356: Teile, die der Körper über cid: einbindet (Inline-Bilder), sind kein Anhang, außer mit
+ * Content-Disposition „attachment“. Übrige als RevolutionMailAttachment (Name, Typ, Größe). */
+static GPtrArray *
+attachments_for (Collect *collect)
+{
+  GPtrArray *attachments = g_ptr_array_new_with_free_func (g_object_unref);
+
+  for (guint i = 0; i < collect->attachments->len; i++)
+    {
+      CamelMimePart *part = g_ptr_array_index (collect->attachments, i);
+      const char *cid = camel_mime_part_get_content_id (part);
+
+      if (cid != NULL && *cid != '\0' && g_strcmp0 (camel_mime_part_get_disposition (part), "attachment") != 0 &&
+          cid_used (collect->body->str, cid))
+        continue;
+
+      g_ptr_array_add (attachments, revolution_mail_attachment_new (part, collect->cancellable));
+    }
+
+  return attachments;
 }
 
 /* Anzeigenamen der Empfänger für die Zeile „An:“, sonst die Adresse. Ein Name in spitzen
@@ -542,8 +609,11 @@ load_message_thread (GTask        *task,
 
   collect.body = g_string_new (NULL);
   collect.parts = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, (GDestroyNotify) reader_part_free);
+  collect.attachments = g_ptr_array_new_with_free_func (g_object_unref);
   collect.cancellable = cancellable;
   collect_part (&collect, CAMEL_MIME_PART (message), 0);
+  load->attachments = attachments_for (&collect);
+  g_ptr_array_unref (collect.attachments);
 
   if (!collect.html)
     {
@@ -1105,13 +1175,14 @@ on_message_loaded (GObject      *source_object,
     }
 
   g_debug ("Nachricht: %s %s %s geladen nach %.0f ms (%s, %zu Bytes, %u Teile mit Content-ID, "
-           "%u Abfragen prefers-color-scheme, eigene Dunkel-Fassung %s)",
+           "%u Abfragen prefers-color-scheme, eigene Dunkel-Fassung %s, %u Anhänge)",
            load->account_uid, load->full_name, load->message_uid,
            (g_get_monotonic_time () - load->started) / 1000.0, load->is_html ? "HTML" : "Text",
            strlen (load->html), g_hash_table_size (load->parts), load->scheme_queries,
-           load->own_dark ? "ja" : "nein");
+           load->own_dark ? "ja" : "nein", load->attachments->len);
 
   set_header (self, load);
+  revolution_mail_attachment_bar_set (self->attachments, load->attachments);
   g_clear_pointer (&self->parts, g_hash_table_unref);
   self->parts = g_steal_pointer (&load->parts);
   g_free (self->html);
@@ -1190,6 +1261,7 @@ revolution_mail_reader_class_init (RevolutionMailReaderClass *klass)
   widget_class->root = revolution_mail_reader_root;
   widget_class->unroot = revolution_mail_reader_unroot;
 
+  g_type_ensure (REVOLUTION_TYPE_MAIL_ATTACHMENT_BAR);
   shown_signal = g_signal_new ("shown", G_TYPE_FROM_CLASS (klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
                                G_TYPE_NONE, 0);
 
@@ -1209,6 +1281,7 @@ revolution_mail_reader_class_init (RevolutionMailReaderClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, date_full);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, content_overlay);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, spinner);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, attachments);
 }
 
 static void
@@ -1306,6 +1379,7 @@ revolution_mail_reader_clear (RevolutionMailReader *self)
   g_clear_pointer (&self->parts, g_hash_table_unref);
   self->showing = FALSE;
   gtk_widget_set_visible (GTK_WIDGET (self->spinner), FALSE);
+  revolution_mail_attachment_bar_set (self->attachments, NULL);
 
   gtk_label_set_label (self->date_label, "");
   gtk_label_set_label (self->to_label, "");

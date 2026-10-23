@@ -451,10 +451,13 @@ revolution_mail_folder_watch (RevolutionMailFolder *self,
     count_unread (self);
 }
 
-/* #350: folder://UID/PFAD (e_mail_folder_uri_build, Evolution e-mail-folder-utils.c:1808-1835)
- * → voller Name, wenn die URI in den Store mit store_uid zeigt, sonst NULL. Auslegung nach
- * e_mail_folder_uri_parse (dort 1862-1900), nur das heutige Format „folder://“; die alten
- * Formate „email://“ und Store-URIs aus Evolution 2.x (dort 1901-1970) nicht. */
+/* #350: Nach Vorlage Evolution 3.56.2 libemail-engine/e-mail-folder-utils.c:1862-1900
+ * (e_mail_folder_uri_parse, Zweig „folder://“), nachgebildet statt übernommen (#346-Entscheidung,
+ * die Datei wird nicht übernommen). folder://UID/PFAD (Format e_mail_folder_uri_build, dort
+ * 1808-1835) → voller Name, wenn die URI in den Store mit store_uid zeigt, sonst NULL. Die alten
+ * Formate „email://“ und Store-URIs aus Evolution 2.x (dort 1901-1970) nicht. Vergleich der
+ * Namen wie e_mail_folder_uri_equal (dort 2026-2070) über CamelStoreClass::equal_folder_name
+ * (apply_special). */
 static char *
 folder_uri_to_name (const char *uri,
                     const char *store_uid)

@@ -742,6 +742,37 @@ typedef struct
 static gboolean use_folder (gpointer data);
 static void folder_ready_free (FolderReady *ready);
 
+/* #350: Höchstens ein Server-Abgleich je Ordner gleichzeitig (Prüf-Lauf #350): da ein Wechsel ihn
+ * nicht mehr abbricht, startet ein erneutes Wählen sonst einen zweiten. Läuft schon einer, zeigt
+ * die Liste den Cache; den Server-Stand bringt CamelFolder::changed (#353) und der Zähler
+ * (folder_refreshed) nach dem laufenden Abgleich. Schlüssel „<UID>/<Ordner>“, aus Worker-Threads. */
+static GMutex refreshing_lock;
+static GHashTable *refreshing;
+
+static gboolean
+refresh_begin (const char *key)
+{
+  gboolean begun;
+
+  g_mutex_lock (&refreshing_lock);
+  if (refreshing == NULL)
+    refreshing = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  begun = !g_hash_table_contains (refreshing, key);
+  if (begun)
+    g_hash_table_add (refreshing, g_strdup (key));
+  g_mutex_unlock (&refreshing_lock);
+
+  return begun;
+}
+
+static void
+refresh_end (const char *key)
+{
+  g_mutex_lock (&refreshing_lock);
+  g_hash_table_remove (refreshing, key);
+  g_mutex_unlock (&refreshing_lock);
+}
+
 static gboolean
 folder_refreshed (gpointer data)
 {
@@ -761,8 +792,10 @@ load_messages_thread (GTask        *task,
   LoadMessages *load = task_data;
   g_autoptr (CamelService) service = camel_session_ref_service (load->session, load->uid);
   g_autoptr (CamelFolder) folder = NULL;
+  g_autofree char *key = NULL;
   GError *error = NULL;
   guint signature = 0;
+  gboolean refreshed_ok;
 
   if (!CAMEL_IS_STORE (service))
     {
@@ -794,8 +827,24 @@ load_messages_thread (GTask        *task,
    * Zählerstand des Stores (gemessen: 63 statt 100 ungelesen, auch nach Neustart; EDS
    * camel-imapx-server.c:6590-6600, camel-store-summary.c:1011-1050). Nach dem Wechsel läuft er
    * zu Ende, die Liste bekommt ihn nicht mehr (send_messages prüft cancellable). */
-  if (!send_messages (task, folder, "Cache", &signature) ||
-      !camel_folder_refresh_info_sync (folder, load->refresh_cancellable, &error))
+  if (!send_messages (task, folder, "Cache", &signature))
+    {
+      g_task_return_error_if_cancelled (task);
+      return;
+    }
+
+  key = g_strdup_printf ("%s/%s", load->uid, load->full_name);
+  if (!refresh_begin (key))
+    {
+      g_debug ("Nachrichten: %s %s Abgleich läuft schon", load->uid, load->full_name);
+      if (!g_task_return_error_if_cancelled (task))
+        g_task_return_boolean (task, TRUE);
+      return;
+    }
+
+  refreshed_ok = camel_folder_refresh_info_sync (folder, load->refresh_cancellable, &error);
+  refresh_end (key);
+  if (!refreshed_ok)
     {
       if (error == NULL)
         g_task_return_error_if_cancelled (task);

@@ -1,8 +1,8 @@
-/* mail-sample.c – statische Beispieldaten für den Prototyp (#336)
+/* mail-sample.c – Listeneinträge des Prototyps (#336): Ordner und Nachricht
  *
- * Nur Befüllen: Blueprint kann weder Objekte in ein GListStore legen noch
- * die create_func des GtkTreeListModel ausdrücken. Alle Namen und Adressen
- * sind erfunden. Entfällt, sobald echte Daten aus EDS kommen.
+ * Die Blueprint-Zeilenvorlagen (mail-view.blp) binden an diese Eigenschaften.
+ * Die statischen Beispieldaten sind entfernt (#342, Stand: Tag m2-prototyp);
+ * echte Einträge folgen mit #343, #348 und #352.
  *
  * Copyright 2026 Arnd Messer
  *
@@ -11,85 +11,7 @@
 
 #include "config.h"
 
-#include <glib/gi18n.h>
-#include <gtk/gtk.h>
-
 #include "mail-sample.h"
-
-/* Ordner: icon NULL beginnt eine neue Gruppe (Favoriten bzw. Konto). */
-static const struct {
-  const char *icon_name;
-  const char *title;
-  const char *unread;
-  guint       depth;
-} folders[] = {
-  { NULL,                      N_("Favoriten"),     NULL, 0 },
-  { "inbox-symbolic",          N_("Alle Eingänge"), "4",  0 },
-  { "starred-symbolic",        N_("Markiert"),      "3",  0 },
-  { "drafts-symbolic",         N_("Entwürfe"),      "2",  0 },
-  { "mail-send-symbolic",      N_("Gesendet"),      "",   0 },
-  { NULL,                      N_("Privat"),        NULL, 0 },
-  { "inbox-symbolic",          N_("Eingang"),       "3",  0 },
-  { "drafts-symbolic",         N_("Entwürfe"),      "1",  0 },
-  { "mail-send-symbolic",      N_("Gesendet"),      "",   0 },
-  { "mail-mark-junk-symbolic", N_("Spam"),          "2",  0 },
-  { "user-trash-symbolic",     N_("Papierkorb"),    "",   0 },
-  { "archive-symbolic",        N_("Archiv"),        "",   0 },
-  { "folder-symbolic",         N_("Reisen"),        "",   0 },
-  { "folder-symbolic",         N_("Lissabon"),      "1",  1 },
-  { "folder-symbolic",         N_("Norwegen"),      "",   1 },
-  { NULL,                      N_("Arbeit"),        NULL, 0 },
-  { "inbox-symbolic",          N_("Eingang"),       "1",  0 },
-  { "drafts-symbolic",         N_("Entwürfe"),      "1",  0 },
-  { "mail-send-symbolic",      N_("Gesendet"),      "",   0 },
-  { "mail-mark-junk-symbolic", N_("Spam"),          "",   0 },
-  { "user-trash-symbolic",     N_("Papierkorb"),    "",   0 },
-  { "archive-symbolic",        N_("Archiv"),        "",   0 },
-  { "folder-symbolic",         N_("Projekte"),      "",   0 },
-  { "folder-symbolic",         N_("Angebote"),      "2",  1 },
-  { "folder-symbolic",         N_("Rechnungen"),    "",   1 },
-};
-
-static const struct {
-  const char *sender;
-  const char *subject;
-  const char *preview;
-  const char *date;
-  gboolean    unread;
-  gboolean    starred;
-  gboolean    attachment;
-} messages[] = {
-  { N_("Jana Albrecht"), N_("Unterlagen für das Projekt Nordlicht"),
-    N_("Hallo Lena, anbei die überarbeiteten Pläne und die Kostenschätzung. Kannst du bis Freitag einen Blick darauf werfen? Die Abstimmung mit dem Bauamt ist für nächste Woche angesetzt."),
-    N_("09:14"), FALSE, TRUE, TRUE },
-  { N_("Tobias Krämer"), N_("Kurze Frage zum Termin am Donnerstag"),
-    N_("Passt dir 14 Uhr statt 10 Uhr? Ich hänge morgens noch in einer Besprechung fest und würde sonst nur halb vorbereitet kommen."),
-    N_("08:52"), TRUE, FALSE, FALSE },
-  { N_("Stadtwerke Lindenau"), N_("Ihre Jahresabrechnung 2026"),
-    N_("Sehr geehrte Kundin, Ihre Jahresabrechnung steht ab sofort im Kundenportal bereit. Den Abschlag für das kommende Jahr haben wir angepasst."),
-    N_("07:30"), TRUE, FALSE, TRUE },
-  { N_("Miriam Okafor"), N_("Re: Fotos vom Sommerfest"),
-    N_("Die Bilder sind wirklich schön geworden! Ich habe dir die Auswahl für die Vereinszeitung in den gemeinsamen Ordner gelegt."),
-    N_("Gestern"), TRUE, TRUE, FALSE },
-  { N_("Reisebüro Nordwind"), N_("Buchungsbestätigung Lissabon"),
-    N_("Vielen Dank für Ihre Buchung. Im Anhang finden Sie Ihre Reiseunterlagen mit Flugzeiten, Hotelanschrift und den Hinweisen zur Anreise."),
-    N_("Gestern"), FALSE, FALSE, TRUE },
-  { N_("Dr. Felix Brandt"), N_("Protokoll der Vorstandssitzung"),
-    N_("Liebe Vorstandsmitglieder, hier das Protokoll vom Montag. Bitte gebt Korrekturen bis Ende der Woche durch, danach geht es an alle Mitglieder."),
-    N_("Mo."), FALSE, FALSE, TRUE },
-  { N_("Sophie Lange"), N_("Abendessen am Samstag?"),
-    N_("Wir haben spontan einen Tisch beim Italiener an der Ecke reserviert. Habt ihr Lust mitzukommen? Gegen 19 Uhr würde gut passen."),
-    N_("Mo."), TRUE, FALSE, FALSE },
-  { N_("Bücherstube am Markt"), N_("Neuerscheinungen im Oktober"),
-    N_("Der Herbst ist da und mit ihm unsere Lieblingsromane der Saison. Dazu eine Lesung am 30. Oktober, zu der wir Sie herzlich einladen."),
-    N_("So."), FALSE, FALSE, FALSE },
-  { N_("Hausverwaltung Kerner"), N_("Ablesung der Heizkörper"),
-    N_("Am 4. November werden die Heizkostenverteiler abgelesen. Bitte sorgen Sie dafür, dass alle Räume zwischen 8 und 12 Uhr zugänglich sind."),
-    N_("17.10.26"), FALSE, TRUE, FALSE },
-  { N_("Lukas Weber"), N_("Angebot Webseite Gartenfreunde"),
-    N_("Wie besprochen schicke ich dir das Angebot für die neue Vereinsseite. Die Pflege durch den Vorstand ist im Preis enthalten."),
-    N_("15.10.26"), FALSE, FALSE, TRUE },
-};
 
 struct _RevolutionSampleFolder
 {
@@ -212,97 +134,4 @@ revolution_sample_message_class_init (RevolutionSampleMessageClass *klass)
 static void
 revolution_sample_message_init (G_GNUC_UNUSED RevolutionSampleMessage *self)
 {
-}
-
-/* create_func des GtkTreeListModel: Unterordner oder NULL (kein Aufklapper). */
-static GListModel *
-folder_children (gpointer item,
-                 G_GNUC_UNUSED gpointer user_data)
-{
-  RevolutionSampleFolder *folder = item;
-
-  return folder->children ? g_object_ref (G_LIST_MODEL (folder->children)) : NULL;
-}
-
-static void
-append_group (GListStore *groups,
-              GListStore *group)
-{
-  g_autoptr (GtkTreeListModel) tree = NULL;
-
-  if (group == NULL)
-    return;
-
-  tree = gtk_tree_list_model_new (G_LIST_MODEL (group), FALSE, TRUE, folder_children, NULL, NULL);
-  g_list_store_append (groups, tree);
-}
-
-/* Je Gruppe ein GtkTreeListModel; das GtkFlattenListModel macht daraus
- * Abschnitte (GtkSectionModel) für die Abschnittsköpfe der GtkListView. */
-GListModel *
-revolution_mail_sample_folders (void)
-{
-  GListStore *groups = g_list_store_new (GTK_TYPE_TREE_LIST_MODEL);
-  GListStore *group = NULL;
-  RevolutionSampleFolder *parent = NULL;
-  const char *group_name = NULL;
-
-  for (guint i = 0; i < G_N_ELEMENTS (folders); i++)
-    {
-      RevolutionSampleFolder *folder;
-
-      if (folders[i].icon_name == NULL)
-        {
-          append_group (groups, group);
-          group = g_list_store_new (REVOLUTION_TYPE_SAMPLE_FOLDER);
-          group_name = _(folders[i].title);
-          continue;
-        }
-
-      folder = g_object_new (REVOLUTION_TYPE_SAMPLE_FOLDER, NULL);
-      folder->title = _(folders[i].title);
-      folder->icon_name = folders[i].icon_name;
-      folder->unread = folders[i].unread;
-      folder->group = group_name;
-
-      if (folders[i].depth == 0)
-        {
-          g_list_store_append (group, folder);
-          parent = folder;
-        }
-      else
-        {
-          if (parent->children == NULL)
-            parent->children = g_list_store_new (REVOLUTION_TYPE_SAMPLE_FOLDER);
-          g_list_store_append (parent->children, folder);
-        }
-
-      g_object_unref (folder);
-    }
-  append_group (groups, group);
-
-  return G_LIST_MODEL (gtk_flatten_list_model_new (G_LIST_MODEL (groups)));
-}
-
-GListModel *
-revolution_mail_sample_messages (void)
-{
-  GListStore *store = g_list_store_new (REVOLUTION_TYPE_SAMPLE_MESSAGE);
-
-  for (guint i = 0; i < G_N_ELEMENTS (messages); i++)
-    {
-      RevolutionSampleMessage *message = g_object_new (REVOLUTION_TYPE_SAMPLE_MESSAGE, NULL);
-
-      message->sender = _(messages[i].sender);
-      message->subject = _(messages[i].subject);
-      message->preview = _(messages[i].preview);
-      message->date = _(messages[i].date);
-      message->unread = messages[i].unread;
-      message->starred = messages[i].starred;
-      message->attachment = messages[i].attachment;
-      g_list_store_append (store, message);
-      g_object_unref (message);
-    }
-
-  return G_LIST_MODEL (store);
 }

@@ -1,4 +1,4 @@
-/* mail-sample.h – statische Beispieldaten für den Prototyp (#336)
+/* mail-sample.h – Listeneinträge des Prototyps (#336), Daten entfernt (#342)
  *
  * Copyright 2026 Arnd Messer
  *
@@ -16,8 +16,5 @@ G_DECLARE_FINAL_TYPE (RevolutionSampleFolder, revolution_sample_folder, REVOLUTI
 
 #define REVOLUTION_TYPE_SAMPLE_MESSAGE (revolution_sample_message_get_type ())
 G_DECLARE_FINAL_TYPE (RevolutionSampleMessage, revolution_sample_message, REVOLUTION, SAMPLE_MESSAGE, GObject)
-
-GListModel *revolution_mail_sample_folders  (void);
-GListModel *revolution_mail_sample_messages (void);
 
 G_END_DECLS

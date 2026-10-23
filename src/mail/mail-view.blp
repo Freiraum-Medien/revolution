@@ -1,4 +1,4 @@
-// Mail-Ansicht dreispaltig, Prototyp #336. Ohne Logik, Beispieldaten aus mail-sample.c.
+// Mail-Ansicht dreispaltig (Prototyp #336). Daten folgen mit #345, #348, #352, #354.
 // Aufbau nach quelltext/stamp/src/views/mail/stamp-mail-view.blp:4-193 (Briefing 1.1, 1.2).
 using Gtk 4.0;
 using Adw 1;
@@ -239,7 +239,8 @@ template $RevolutionMailView: Adw.BreakpointBin {
           hexpand: true;
 
           Label {
-            label: _("Alle Eingänge");
+            // Name des gewählten Ordners folgt mit #352.
+            label: _("Mail");
             xalign: 0;
             ellipsize: end;
 
@@ -248,8 +249,9 @@ template $RevolutionMailView: Adw.BreakpointBin {
             ]
           }
 
+          // Anzahl folgt mit #352.
           Label {
-            label: _("10 E-Mails, 4 ungelesen");
+            visible: false;
             xalign: 0;
             ellipsize: end;
 
@@ -272,160 +274,177 @@ template $RevolutionMailView: Adw.BreakpointBin {
         }
       }
 
-      content: ScrolledWindow {
-        hscrollbar-policy: never;
+      // Ohne Ordner: Leerzustand wie Stamp (stamp-conversation-list.blp:252-259).
+      // Liste füllt #352.
+      content: Stack list_stack {
+        // Erste Seite „empty“ ist sichtbar (Gtk.Stack zeigt das erste Kind).
+        StackPage {
+          name: "empty";
 
-        // #400 Punkt 4: Auswahl als abgerundete Akzentfläche mit Abstand zum Rand,
-        // ohne Trennlinien (Vorbild 04/05, style.css).
-        child: ListView message_list {
-          tab-behavior: item;
+          child: Adw.StatusPage {
+            icon-name: "inbox-symbolic";
+            title: _("Keine Nachrichten");
+          };
+        }
 
-          styles [
-            "message-list",
-          ]
+        StackPage {
+          name: "list";
+          child: ScrolledWindow {
+            hscrollbar-policy: never;
 
-          accessibility {
-            label: _("Nachrichten");
-          }
+            // #400 Punkt 4: Auswahl als abgerundete Akzentfläche mit Abstand zum Rand,
+            // ohne Trennlinien (Vorbild 04/05, style.css).
+            child: ListView message_list {
+              tab-behavior: item;
 
-          model: SingleSelection message_selection {};
+              styles [
+                "message-list",
+              ]
 
-          factory: BuilderListItemFactory {
-            template ListItem {
-              child: Box {
-                spacing: 6;
+              accessibility {
+                label: _("Nachrichten");
+              }
 
-                // Platz für den Ungelesen-Punkt bleibt auch ohne Punkt frei.
-                Box {
-                  width-request: 10;
-                  valign: start;
-                  margin-top: 4;
+              model: SingleSelection message_selection {};
 
-                  Image {
-                    icon-name: "media-record-symbolic";
-                    pixel-size: 10;
-                    visible: bind template.item as <$RevolutionSampleMessage>.unread;
-                    tooltip-text: _("Ungelesen");
-
-                    accessibility {
-                      label: _("Ungelesen");
-                    }
-
-                    styles [
-                      "accent",
-                    ]
-                  }
-                }
-
-                Adw.Avatar {
-                  size: 40;
-                  valign: start;
-                  show-initials: true;
-                  text: bind template.item as <$RevolutionSampleMessage>.sender;
-                  margin-end: 6;
-                }
-
-                Box {
-                  orientation: vertical;
-                  hexpand: true;
-                  spacing: 2;
-
-                  Box {
+              factory: BuilderListItemFactory {
+                template ListItem {
+                  child: Box {
                     spacing: 6;
 
-                    Label sender_unread {
-                      label: bind template.item as <$RevolutionSampleMessage>.sender;
-                      visible: bind template.item as <$RevolutionSampleMessage>.unread;
+                    // Platz für den Ungelesen-Punkt bleibt auch ohne Punkt frei.
+                    Box {
+                      width-request: 10;
+                      valign: start;
+                      margin-top: 4;
+
+                      Image {
+                        icon-name: "media-record-symbolic";
+                        pixel-size: 10;
+                        visible: bind template.item as <$RevolutionSampleMessage>.unread;
+                        tooltip-text: _("Ungelesen");
+
+                        accessibility {
+                          label: _("Ungelesen");
+                        }
+
+                        styles [
+                          "accent",
+                        ]
+                      }
+                    }
+
+                    Adw.Avatar {
+                      size: 40;
+                      valign: start;
+                      show-initials: true;
+                      text: bind template.item as <$RevolutionSampleMessage>.sender;
+                      margin-end: 6;
+                    }
+
+                    Box {
+                      orientation: vertical;
                       hexpand: true;
-                      xalign: 0;
-                      ellipsize: end;
+                      spacing: 2;
 
-                      styles [
-                        "heading",
-                      ]
-                    }
+                      Box {
+                        spacing: 6;
 
-                    Label {
-                      label: bind template.item as <$RevolutionSampleMessage>.sender;
-                      visible: bind sender_unread.visible inverted;
-                      hexpand: true;
-                      xalign: 0;
-                      ellipsize: end;
-                    }
+                        Label sender_unread {
+                          label: bind template.item as <$RevolutionSampleMessage>.sender;
+                          visible: bind template.item as <$RevolutionSampleMessage>.unread;
+                          hexpand: true;
+                          xalign: 0;
+                          ellipsize: end;
 
-                    Label {
-                      label: bind template.item as <$RevolutionSampleMessage>.date;
+                          styles [
+                            "heading",
+                          ]
+                        }
 
-                      styles [
-                        "caption",
-                        "numeric",
-                        "dimmed",
-                      ]
-                    }
-                  }
+                        Label {
+                          label: bind template.item as <$RevolutionSampleMessage>.sender;
+                          visible: bind sender_unread.visible inverted;
+                          hexpand: true;
+                          xalign: 0;
+                          ellipsize: end;
+                        }
 
-                  Box {
-                    spacing: 6;
+                        Label {
+                          label: bind template.item as <$RevolutionSampleMessage>.date;
 
-                    Label {
-                      label: bind template.item as <$RevolutionSampleMessage>.subject;
-                      hexpand: true;
-                      xalign: 0;
-                      ellipsize: end;
-                    }
-
-                    // #401: Symbole dezent wie Apple Mail (Vorbild 17): 12px, grau (style.css).
-                    Image {
-                      icon-name: "mail-attachment-symbolic";
-                      pixel-size: 12;
-                      visible: bind template.item as <$RevolutionSampleMessage>.attachment;
-                      tooltip-text: _("Mit Anhang");
-
-                      accessibility {
-                        label: _("Mit Anhang");
+                          styles [
+                            "caption",
+                            "numeric",
+                            "dimmed",
+                          ]
+                        }
                       }
 
-                      styles [
-                        "dimmed",
-                        "list-icon",
-                      ]
-                    }
+                      Box {
+                        spacing: 6;
 
-                    Image {
-                      icon-name: "starred-symbolic";
-                      pixel-size: 12;
-                      visible: bind template.item as <$RevolutionSampleMessage>.starred;
-                      tooltip-text: _("Markiert");
+                        Label {
+                          label: bind template.item as <$RevolutionSampleMessage>.subject;
+                          hexpand: true;
+                          xalign: 0;
+                          ellipsize: end;
+                        }
 
-                      accessibility {
-                        label: _("Markiert");
+                        // #401: Symbole dezent wie Apple Mail (Vorbild 17): 12px, grau (style.css).
+                        Image {
+                          icon-name: "mail-attachment-symbolic";
+                          pixel-size: 12;
+                          visible: bind template.item as <$RevolutionSampleMessage>.attachment;
+                          tooltip-text: _("Mit Anhang");
+
+                          accessibility {
+                            label: _("Mit Anhang");
+                          }
+
+                          styles [
+                            "dimmed",
+                            "list-icon",
+                          ]
+                        }
+
+                        Image {
+                          icon-name: "starred-symbolic";
+                          pixel-size: 12;
+                          visible: bind template.item as <$RevolutionSampleMessage>.starred;
+                          tooltip-text: _("Markiert");
+
+                          accessibility {
+                            label: _("Markiert");
+                          }
+
+                          styles [
+                            "accent",
+                            "list-icon",
+                          ]
+                        }
                       }
 
-                      styles [
-                        "accent",
-                        "list-icon",
-                      ]
+                      Label {
+                        label: bind template.item as <$RevolutionSampleMessage>.preview;
+                        xalign: 0;
+                        wrap: true;
+                        wrap-mode: word_char;
+                        lines: 2;
+                        ellipsize: end;
+                        width-chars: 10;
+
+                        styles [
+                          "dimmed",
+                        ]
+                      }
                     }
-                  }
-
-                  Label {
-                    label: bind template.item as <$RevolutionSampleMessage>.preview;
-                    xalign: 0;
-                    wrap: true;
-                    wrap-mode: word_char;
-                    lines: 2;
-                    ellipsize: end;
-                    width-chars: 10;
-
-                    styles [
-                      "dimmed",
-                    ]
-                  }
+                  };
                 }
               };
-            }
+            };
           };
-        };
+        }
       };
     }
 
@@ -482,6 +501,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                 Button {
                   icon-name: "mail-reply-sender-symbolic";
+                  action-name: "message.reply";
                   tooltip-text: _("Antworten");
 
                   accessibility {
@@ -491,6 +511,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                 Button {
                   icon-name: "mail-reply-all-symbolic";
+                  action-name: "message.reply-all";
                   tooltip-text: _("Allen antworten");
 
                   accessibility {
@@ -500,6 +521,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                 Button {
                   icon-name: "mail-forward-symbolic";
+                  action-name: "message.forward";
                   tooltip-text: _("Weiterleiten");
 
                   accessibility {
@@ -513,6 +535,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                 Button {
                   icon-name: "archive-symbolic";
+                  action-name: "message.archive";
                   tooltip-text: _("Archivieren");
 
                   accessibility {
@@ -522,6 +545,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                 Button {
                   icon-name: "user-trash-symbolic";
+                  action-name: "message.delete";
                   tooltip-text: _("Löschen");
 
                   accessibility {
@@ -531,6 +555,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                 Button {
                   icon-name: "mail-mark-junk-symbolic";
+                  action-name: "message.junk";
                   tooltip-text: _("Als Spam markieren");
 
                   accessibility {
@@ -541,8 +566,9 @@ template $RevolutionMailView: Adw.BreakpointBin {
                 MenuButton {
                   icon-name: "folder-symbolic";
                   always-show-arrow: true;
+                  // Ziele (Ordner) folgen mit #363.
+                  sensitive: false;
                   tooltip-text: _("Verschieben");
-                  menu-model: move_menu;
 
                   accessibility {
                     label: _("Verschieben");
@@ -551,6 +577,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                 ToggleButton {
                   icon-name: "starred-symbolic";
+                  action-name: "message.star";
                   tooltip-text: _("Markieren");
 
                   accessibility {
@@ -610,390 +637,207 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
       // #400 Punkt 7: Kopf frei auf dem Hintergrund, darunter der Mailtext als große
       // abgerundete Karte bis zum unteren Rand (Vorbild 03). Nur der Inhalt scrollt.
-      content: Box {
-        orientation: vertical;
+      // Ohne Auswahl: Leerzustand wie Stamp (stamp-message-list.blp:119-135).
+      // Nachrichtenkopf und Inhalt füllt #354.
+      content: Stack message_stack {
+        // Erste Seite „empty“ ist sichtbar (Gtk.Stack zeigt das erste Kind).
+        StackPage {
+          name: "empty";
 
-        // #401 Punkt 4: Hinweis im Apple-Stil (Vorbild 12) statt Adw.Banner über die
-        // volle Breite: abgerundete Pille mit Abstand, Symbol links, Knopf in Akzentfarbe.
-        Box {
-          spacing: 12;
-          margin-start: 12;
-          margin-end: 12;
-          // #340: 13px, Oberkante auf der Linie 63px (style.css „Eine Linie“).
-          margin-top: 13;
-
-          styles [
-            "mail-notice",
-          ]
-
-          Image {
-            icon-name: "preferences-system-privacy-symbolic";
-            accessible-role: presentation;
-          }
-
-          Label {
-            label: _("Entfernte Inhalte gesperrt");
-            hexpand: true;
-            xalign: 0;
-            ellipsize: end;
-          }
-
-          Button {
-            label: _("Laden");
-            tooltip-text: _("Entfernte Inhalte dieser E-Mail laden");
-            valign: center;
-
-            styles [
-              "mail-notice-button",
-            ]
-          }
+          child: Adw.StatusPage {
+            icon-name: "mail-unread-symbolic";
+            title: _("Keine Nachricht ausgewählt");
+          };
         }
 
-        // Nachrichtenkopf, Vorlage stamp-message-header.blp:4-150.
-        // #401 Punkt 5: graziler (Vorbild 13): nur der Absender halbfett, Betreff gleich groß.
-        Grid {
-          column-spacing: 12;
-          row-spacing: 2;
-          margin-start: 24;
-          margin-end: 18;
-          margin-top: 14;
-          margin-bottom: 14;
+        StackPage {
+          name: "content";
 
-          Adw.Avatar {
-            size: 48;
-            valign: start;
-            show-initials: true;
-            text: _("Stadtwerke Lindenau");
+          child: Box {
+            orientation: vertical;
 
-            layout {
-              column: 0;
-              row: 0;
-              row-span: 3;
-            }
-          }
-
-          Box {
-            spacing: 6;
-
-            layout {
-              column: 1;
-              row: 0;
-            }
-
-            Label {
-              label: _("Stadtwerke Lindenau");
-              hexpand: true;
-              xalign: 0;
-              ellipsize: end;
-              selectable: true;
+            // #401 Punkt 4: Hinweis im Apple-Stil (Vorbild 12) statt Adw.Banner über die
+            // volle Breite: abgerundete Pille mit Abstand, Symbol links, Knopf in Akzentfarbe.
+            // Sichtbar erst mit #355 (Remote-Bilder-Sperre).
+            Box {
+              visible: false;
+              spacing: 12;
+              margin-start: 12;
+              margin-end: 12;
+              // #340: 13px, Oberkante auf der Linie 63px (style.css „Eine Linie“).
+              margin-top: 13;
 
               styles [
-                "mail-sender",
+                "mail-notice",
               ]
-            }
 
-            Image {
-              icon-name: "inbox-symbolic";
-              tooltip-text: _("Ordner");
-
-              accessibility {
-                label: _("Ordner");
+              Image {
+                icon-name: "preferences-system-privacy-symbolic";
+                accessible-role: presentation;
               }
 
-              styles [
-                "dimmed",
-              ]
+              Label {
+                label: _("Entfernte Inhalte gesperrt");
+                hexpand: true;
+                xalign: 0;
+                ellipsize: end;
+              }
+
+              Button {
+                label: _("Laden");
+                tooltip-text: _("Entfernte Inhalte dieser E-Mail laden");
+                valign: center;
+
+                styles [
+                  "mail-notice-button",
+                ]
+              }
             }
 
-            Label {
-              label: _("Eingang — Privat");
+            // Nachrichtenkopf, Vorlage stamp-message-header.blp:4-150.
+            // #401 Punkt 5: graziler (Vorbild 13): nur der Absender halbfett, Betreff gleich groß.
+            Grid {
+              column-spacing: 12;
+              row-spacing: 2;
+              margin-start: 24;
+              margin-end: 18;
+              margin-top: 14;
+              margin-bottom: 14;
 
-              styles [
-                "dimmed",
-              ]
-            }
+              Adw.Avatar {
+                size: 48;
+                valign: start;
+                show-initials: true;
+                text: "";
 
-            Label {
-              label: _("Heute, 07:30");
-              margin-start: 6;
-
-              styles [
-                "numeric",
-                "dimmed",
-              ]
-            }
-          }
-
-          Label {
-            label: _("Ihre Jahresabrechnung 2026");
-            xalign: 0;
-            wrap: true;
-            selectable: true;
-
-            layout {
-              column: 1;
-              row: 1;
-            }
-
-            styles [
-              "mail-subject",
-            ]
-          }
-
-          Box {
-            spacing: 6;
-
-            layout {
-              column: 1;
-              row: 2;
-            }
-
-            Label {
-              label: _("An:");
-
-              styles [
-                "dimmed",
-              ]
-            }
-
-            Label {
-              label: _("Lena Vogt");
-              hexpand: true;
-              xalign: 0;
-              ellipsize: end;
-
-              styles [
-                "dimmed",
-              ]
-            }
-
-            Button {
-              label: _("Details");
-              tooltip-text: _("Alle Kopfzeilen anzeigen");
-              valign: center;
-
-              styles [
-                "flat",
-                "mail-details",
-              ]
-            }
-          }
-        }
-
-        // HTML-Mail: eigener weißer Hintergrund auch im Dunkelmodus (style.css .html-mail).
-        // Platzhalter für WebKitGTK (#354), Inhalt nachgebildet mit Labels.
-        Adw.Bin {
-          vexpand: true;
-          overflow: hidden;
-          margin-start: 12;
-          margin-end: 12;
-          margin-bottom: 12;
-
-          styles [
-            "html-mail",
-          ]
-
-          child: ScrolledWindow {
-            hscrollbar-policy: never;
-
-            child: Adw.Clamp {
-              maximum-size: 620;
-              tightening-threshold: 480;
-              margin-start: 28;
-              margin-end: 28;
-              margin-top: 28;
-              margin-bottom: 36;
-
-              child: Box {
-                orientation: vertical;
-                spacing: 18;
-
-                Box {
-                  spacing: 12;
-
-                  Label {
-                    label: _("Stadtwerke Lindenau");
-                    hexpand: true;
-                    xalign: 0;
-
-                    styles [
-                      "html-brand",
-                    ]
-                  }
-
-                  Label {
-                    label: _("Kundennummer 104 227 1");
-                    xalign: 1;
-
-                    styles [
-                      "html-small",
-                    ]
-                  }
+                layout {
+                  column: 0;
+                  row: 0;
+                  row-span: 3;
                 }
+              }
 
-                Separator {
-                  styles [
-                    "html-rule",
-                  ]
+              Box {
+                spacing: 6;
+
+                layout {
+                  column: 1;
+                  row: 0;
                 }
 
                 Label {
-                  label: _("Ihre Jahresabrechnung 2026 ist da");
+                  label: "";
+                  hexpand: true;
                   xalign: 0;
-                  wrap: true;
+                  ellipsize: end;
                   selectable: true;
 
                   styles [
-                    "html-title",
+                    "mail-sender",
                   ]
                 }
 
-                Label {
-                  label: _("Sehr geehrte Frau Vogt,\n\nvielen Dank, dass Sie Ihre Energie von uns beziehen. Ihre <b>Jahresabrechnung für 2026</b> steht ab sofort in Ihrem Kundenportal bereit. Die gute Nachricht vorweg: Sie haben weniger verbraucht als im Vorjahr und erhalten ein <b>Guthaben</b>.");
-                  use-markup: true;
-                  xalign: 0;
-                  wrap: true;
-                  selectable: true;
-                }
+                Image {
+                  icon-name: "inbox-symbolic";
+                  tooltip-text: _("Ordner");
 
-                Grid {
-                  column-spacing: 24;
-                  row-spacing: 8;
+                  accessibility {
+                    label: _("Ordner");
+                  }
 
                   styles [
-                    "html-box",
+                    "dimmed",
                   ]
-
-                  Label {
-                    label: _("Abrechnungszeitraum");
-                    xalign: 0;
-                    hexpand: true;
-
-                    layout {
-                      column: 0;
-                      row: 0;
-                    }
-                  }
-
-                  Label {
-                    label: _("01.01. – 31.12.2026");
-                    xalign: 1;
-
-                    layout {
-                      column: 1;
-                      row: 0;
-                    }
-                  }
-
-                  Label {
-                    label: _("Verbrauch Strom");
-                    xalign: 0;
-
-                    layout {
-                      column: 0;
-                      row: 1;
-                    }
-                  }
-
-                  Label {
-                    label: _("2.418 kWh");
-                    xalign: 1;
-
-                    layout {
-                      column: 1;
-                      row: 1;
-                    }
-                  }
-
-                  Label {
-                    label: _("Neuer Abschlag ab Januar");
-                    xalign: 0;
-
-                    layout {
-                      column: 0;
-                      row: 2;
-                    }
-                  }
-
-                  Label {
-                    label: _("72,00 € monatlich");
-                    xalign: 1;
-
-                    layout {
-                      column: 1;
-                      row: 2;
-                    }
-                  }
-
-                  Label {
-                    label: _("<b>Ihr Guthaben</b>");
-                    use-markup: true;
-                    xalign: 0;
-
-                    layout {
-                      column: 0;
-                      row: 3;
-                    }
-                  }
-
-                  Label {
-                    label: _("<b>84,20 €</b>");
-                    use-markup: true;
-                    xalign: 1;
-
-                    layout {
-                      column: 1;
-                      row: 3;
-                    }
-
-                    styles [
-                      "html-credit",
-                    ]
-                  }
                 }
 
                 Label {
-                  label: _("Das Guthaben überweisen wir in den nächsten Tagen auf Ihr Konto. Den neuen Abschlag haben wir an Ihren Verbrauch angepasst.");
-                  xalign: 0;
-                  wrap: true;
-                  selectable: true;
-                }
-
-                Label {
-                  label: _("Zur Rechnung im Kundenportal");
-                  halign: start;
+                  label: "";
 
                   styles [
-                    "html-button",
+                    "dimmed",
                   ]
                 }
 
                 Label {
-                  label: _("Freundliche Grüße\nIhr Kundenservice der Stadtwerke Lindenau");
-                  xalign: 0;
-                  wrap: true;
-                  selectable: true;
-                }
-
-                Separator {
-                  margin-top: 12;
+                  label: "";
+                  margin-start: 6;
 
                   styles [
-                    "html-rule-thin",
+                    "numeric",
+                    "dimmed",
+                  ]
+                }
+              }
+
+              Label {
+                label: "";
+                xalign: 0;
+                wrap: true;
+                selectable: true;
+
+                layout {
+                  column: 1;
+                  row: 1;
+                }
+
+                styles [
+                  "mail-subject",
+                ]
+              }
+
+              Box {
+                spacing: 6;
+
+                layout {
+                  column: 1;
+                  row: 2;
+                }
+
+                Label {
+                  label: _("An:");
+
+                  styles [
+                    "dimmed",
                   ]
                 }
 
                 Label {
-                  label: _("Stadtwerke Lindenau GmbH · Am Wasserturm 4 · 04179 Lindenau\nSie erhalten diese E-Mail, weil Sie Kundin der Stadtwerke Lindenau sind.");
+                  label: "";
+                  hexpand: true;
                   xalign: 0;
-                  wrap: true;
+                  ellipsize: end;
 
                   styles [
-                    "html-small",
+                    "dimmed",
                   ]
                 }
-              };
-            };
+
+                Button {
+                  label: _("Details");
+                  tooltip-text: _("Alle Kopfzeilen anzeigen");
+                  valign: center;
+
+                  styles [
+                    "flat",
+                    "mail-details",
+                  ]
+                }
+              }
+            }
+
+            // HTML-Mail: eigener weißer Hintergrund auch im Dunkelmodus (style.css .html-mail).
+            // Inhalt folgt mit WebKitGTK (#354).
+            Adw.Bin {
+              vexpand: true;
+              overflow: hidden;
+              margin-start: 12;
+              margin-end: 12;
+              margin-bottom: 12;
+
+              styles [
+                "html-mail",
+              ]
+            }
           };
         }
       };
@@ -1123,24 +967,6 @@ menu filter_menu {
   }
 }
 
-menu move_menu {
-  section {
-    label: _("Privat");
-
-    item {
-      label: _("Archiv");
-      action: "message.move";
-      target: "privat/archiv";
-    }
-
-    item {
-      label: _("Reisen");
-      action: "message.move";
-      target: "privat/reisen";
-    }
-  }
-}
-
 menu message_menu {
   section {
     item {
@@ -1158,7 +984,7 @@ menu message_menu {
   }
 }
 
-// Inhalt Platzhalter, Aktionen ohne Logik (mail-view.c).
+// Einstellungen, Tastenkürzel, Info: Aktionen folgen in eigenen Tasks, bis dahin ausgegraut.
 menu primary_menu {
   section {
     item {

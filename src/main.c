@@ -19,9 +19,11 @@
  *   hell         force-light
  *   dunkel-hell  force-dark, Mail-Inhalt und Schreibfläche bleiben hell
  *   dunkel       force-dark und Klasse .content-dark an allen Fenstern (style.css)
- * Startwert: dem System folgen (color-scheme default). Bis zur ersten Wahl zeigt die
- * Radio-Marke das Aussehen des Systems (hell bzw. dunkel-hell, wie bisher).
- * Zum Testen überschreibt die Umgebungsvariable REVOLUTION_THEME den Startwert. */
+ * Die Wahl wird im GSettings-Schlüssel „theme“ gespeichert (#342) und beim Start
+ * gesetzt; „system“ (Vorgabe) folgt dem System (color-scheme default). Bis zur ersten
+ * Wahl zeigt die Radio-Marke das Aussehen des Systems (hell bzw. dunkel-hell).
+ * Zum Testen überschreibt die Umgebungsvariable REVOLUTION_THEME den Startwert; die
+ * Wahl wird dann nicht gespeichert. */
 static void
 apply_content_class (GtkWindow  *window,
                      const char *theme)
@@ -37,7 +39,8 @@ change_theme (GSimpleAction *action,
               GVariant      *state,
               gpointer       user_data)
 {
-  GtkApplication *app = GTK_APPLICATION (user_data);
+  GSettings *settings = G_SETTINGS (user_data);
+  GtkApplication *app = GTK_APPLICATION (g_application_get_default ());
   const char *theme = g_variant_get_string (state, NULL);
   AdwColorScheme scheme;
 
@@ -51,6 +54,8 @@ change_theme (GSimpleAction *action,
   /* Erst das Schema, dann der Zustand: on_system_dark_changed greift dann nicht mehr. */
   adw_style_manager_set_color_scheme (adw_style_manager_get_default (), scheme);
   g_simple_action_set_state (action, state);
+  if (g_getenv ("REVOLUTION_THEME") == NULL)
+    g_settings_set_string (settings, "theme", theme);
 
   for (GList *l = gtk_application_get_windows (app); l != NULL; l = l->next)
     apply_content_class (GTK_WINDOW (l->data), theme);
@@ -78,27 +83,32 @@ on_system_dark_changed (AdwStyleManager *manager,
 }
 
 static void
-on_startup (GtkApplication *app)
+on_startup (GtkApplication *app,
+            GSettings      *settings)
 {
   const GActionEntry app_actions[] = {
     { "theme", NULL, "s", "'hell'", change_theme, { 0 } },
   };
   AdwStyleManager *style_manager = adw_style_manager_get_default ();
+  g_autofree char *saved = g_settings_get_string (settings, "theme");
   const char *theme = g_getenv ("REVOLUTION_THEME");
   GAction *action;
 
-  g_action_map_add_action_entries (G_ACTION_MAP (app), app_actions, G_N_ELEMENTS (app_actions), app);
+  g_action_map_add_action_entries (G_ACTION_MAP (app), app_actions, G_N_ELEMENTS (app_actions), settings);
   action = g_action_map_lookup_action (G_ACTION_MAP (app), "theme");
   g_signal_connect_object (style_manager, "notify::dark", G_CALLBACK (on_system_dark_changed), action, G_CONNECT_DEFAULT);
   on_system_dark_changed (style_manager, NULL, G_SIMPLE_ACTION (action));
   g_signal_connect (app, "window-added", G_CALLBACK (on_window_added), NULL);
 
+  if (theme == NULL && g_strcmp0 (saved, "system") != 0)
+    theme = saved;
   if (theme != NULL)
     g_action_change_state (action, g_variant_new_string (theme));
 }
 
 static void
-on_activate (GtkApplication *app)
+on_activate (GtkApplication *app,
+             GSettings      *settings)
 {
   g_autoptr (GtkBuilder) builder = NULL;
   g_autoptr (GPropertyAction) view_action = NULL;
@@ -110,13 +120,21 @@ on_activate (GtkApplication *app)
       g_type_ensure (REVOLUTION_TYPE_MAIL_VIEW);
       g_type_ensure (REVOLUTION_TYPE_CONTACTS_VIEW);
       g_type_ensure (REVOLUTION_TYPE_CALENDAR_VIEW);
-      builder = gtk_builder_new_from_resource ("/org/revolution/Mail/window.ui");
+      builder = gtk_builder_new_from_resource ("/de/freiraum_medien/Revolution/window.ui");
       window = GTK_WINDOW (gtk_builder_get_object (builder, "window"));
       /* win.view für Strg+1/2/3 (window.blp): wechselt die AdwViewStack-Seite. */
       view_action = g_property_action_new ("view", gtk_builder_get_object (builder, "app_stack"),
                                            "visible-child-name");
       g_action_map_add_action (G_ACTION_MAP (window), G_ACTION (view_action));
       gtk_window_set_application (window, app);
+      /* Fenstergröße und maximiert wie Stamp (stamp-window.c:216-218). */
+      g_settings_bind (settings, "window-width", window, "default-width", G_SETTINGS_BIND_DEFAULT);
+      g_settings_bind (settings, "window-height", window, "default-height", G_SETTINGS_BIND_DEFAULT);
+      g_settings_bind (settings, "window-maximized", window, "maximized", G_SETTINGS_BIND_DEFAULT);
+#ifdef DEVEL
+      /* Entwicklungsvariante gestreift wie Stamp (stamp-window.c:221-223). */
+      gtk_widget_add_css_class (GTK_WIDGET (window), "devel");
+#endif
     }
 
   gtk_window_present (window);
@@ -127,6 +145,7 @@ main (int    argc,
       char **argv)
 {
   g_autoptr (AdwApplication) app = NULL;
+  g_autoptr (GSettings) settings = NULL;
 
   bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR);
   bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
@@ -134,9 +153,14 @@ main (int    argc,
 
   g_set_application_name (_("Revolution"));
 
+  /* Ein Schema für beide Profile wie GNOME Calendar (org.gnome.calendar). */
+  settings = g_settings_new ("de.freiraum_medien.Revolution");
   app = adw_application_new (APPLICATION_ID, G_APPLICATION_DEFAULT_FLAGS);
-  g_signal_connect (app, "startup", G_CALLBACK (on_startup), NULL);
-  g_signal_connect (app, "activate", G_CALLBACK (on_activate), NULL);
+  /* Fester Pfad für beide Profile (style.css, Icons), wie GNOME Calendar
+   * (gcal-application.c:614) und Stamp (stamp-application.c:57). */
+  g_application_set_resource_base_path (G_APPLICATION (app), "/de/freiraum_medien/Revolution");
+  g_signal_connect (app, "startup", G_CALLBACK (on_startup), settings);
+  g_signal_connect (app, "activate", G_CALLBACK (on_activate), settings);
 
   return g_application_run (G_APPLICATION (app), argc, argv);
 }

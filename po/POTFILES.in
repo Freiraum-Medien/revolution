@@ -1,12 +1,10 @@
-data/org.revolution.Mail.desktop.in
+data/de.freiraum_medien.Revolution.desktop.in.in
+data/de.freiraum_medien.Revolution.metainfo.xml.in.in
+data/de.freiraum_medien.Revolution.gschema.xml
 src/main.c
 src/window.blp
 src/composer/composer.blp
-src/calendar/calendar-sample.c
-src/calendar/calendar-view.blp
-src/calendar/calendar-view.c
-src/mail/mail-sample.c
 src/mail/mail-view.blp
-src/contacts/contacts-sample.c
 src/contacts/contacts-view.blp
 src/contacts/contacts-view.c
+src/calendar/calendar-view.blp

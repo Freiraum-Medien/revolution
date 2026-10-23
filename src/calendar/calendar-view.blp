@@ -1,4 +1,4 @@
-// Kalender-Ansicht, Prototyp #339. Ohne Logik, Beispieldaten aus calendar-sample.c.
+// Kalender-Ansicht (Prototyp #339). Raster ab heute, Termine und Kalender folgen in M7.
 // Aufbau nach quelltext/gnome-calendar/src/gui/gcal-window.blp:135-348 (GNOME Calendar 50.0,
 // Briefing 1.5); Seitenleiste und Umschalter wie mail/mail-view.blp.
 // Monatsraster, Wochenkopf und Wochenraster sind in GNOME Calendar eigene C-Widgets
@@ -162,10 +162,8 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
             // GcalDateChooser ist ein eigenes C-Widget; hier Gtk.Calendar.
             // #340: oben 2px statt 6px, Monatsname auf der Linie 63px (style.css „Eine Linie“).
             // #402: ohne eigenen Rahmen auf der Seitenleisten-Fläche (style.css .date-chooser).
+            // Ohne year/month/day zeigt Gtk.Calendar den heutigen Tag.
             Calendar date_chooser {
-              year: 2026;
-              month: 9;
-              day: 21;
               margin-start: 12;
               margin-end: 12;
               margin-top: 2;
@@ -283,8 +281,8 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
                   }
                 }
 
-                Label {
-                  label: _("Oktober 2026");
+                // Monat und Jahr setzt calendar-view.c (heute).
+                Label month_title {
                   hexpand: true;
                   xalign: 0;
                   ellipsize: end;
@@ -582,139 +580,6 @@ SizeGroup {
   ]
 }
 
-// Termin-Detail (gcal-event-popover.blp:3-158), Inhalt setzt calendar-view.c.
-// #402: Nautilus-Optik wie das Hauptmenü der Mail (style.css .event-popover).
-Popover event_popover {
-  default-widget: edit_button;
-  position: top;
-  width-request: 250;
-
-  styles [
-    "event-popover",
-  ]
-
-  child: Box {
-    orientation: vertical;
-
-    Box {
-      spacing: 18;
-      margin-top: 18;
-      margin-bottom: 12;
-      margin-start: 18;
-      margin-end: 18;
-
-      Box {
-        hexpand: true;
-        orientation: vertical;
-        spacing: 6;
-        // Nicht wählbar: sonst erhält der Titel beim Öffnen den Fokus und erscheint markiert.
-        Label event_summary {
-          wrap: true;
-          wrap-mode: word_char;
-          xalign: 0;
-          max-width-chars: 23;
-          lines: 6;
-          ellipsize: end;
-          // #402: halbfett wie der Absender im Mailkopf (.mail-sender, style.css).
-          styles [
-            "event-title",
-          ]
-        }
-
-        Label event_when {
-          xalign: 0;
-          wrap: true;
-
-          styles [
-            "dimmed",
-          ]
-        }
-      }
-
-      // #402 Runde 2: Teilen-Knopf neben dem Stift (Arnd 22.10.), Menü in Nautilus-Optik
-      // über die Klasse .primary-menu wie das Hauptmenü (style.css).
-      Box {
-        valign: start;
-        spacing: 6;
-
-        MenuButton {
-          icon-name: "share-nodes-symbolic";
-          tooltip-text: _("Teilen");
-          menu-model: share_menu;
-
-          accessibility {
-            label: _("Teilen");
-          }
-
-          styles [
-            "circular",
-            "primary-menu",
-          ]
-        }
-
-        Button edit_button {
-          icon-name: "document-edit-symbolic";
-          tooltip-text: _("Termin bearbeiten");
-          action-name: "calendar.edit-event";
-
-          accessibility {
-            label: _("Termin bearbeiten");
-          }
-
-          styles [
-            "circular",
-          ]
-        }
-      }
-    }
-
-    Separator {}
-
-    Label event_notes {
-      xalign: 0;
-      wrap: true;
-      wrap-mode: word_char;
-      max-width-chars: 35;
-      selectable: true;
-      margin-top: 12;
-      margin-bottom: 12;
-      margin-start: 18;
-      margin-end: 18;
-    }
-
-    Box event_location_box {
-      orientation: vertical;
-
-      Separator {}
-
-      Box {
-        orientation: vertical;
-        margin-top: 12;
-        margin-bottom: 12;
-        margin-start: 18;
-        margin-end: 18;
-
-        Label {
-          halign: start;
-          label: _("Ort");
-
-          styles [
-            "caption-heading",
-            "dimmed",
-          ]
-        }
-
-        Label event_location {
-          halign: start;
-          selectable: true;
-          ellipsize: end;
-          max-width-chars: 35;
-        }
-      }
-    }
-  };
-}
-
 // #402: Hauptmenü mit Inhalt wie Mail (mail-view.blp:1199-1243); erster Eintrag Neuer Termin
 // statt Neue E-Mail, weil Strg+N hier calendar.new-event auslöst. Aktionen in calendar-view.c.
 menu primary_menu {
@@ -780,21 +645,6 @@ menu primary_menu {
     item {
       label: _("_Info zu Revolution");
       action: "calendar.about";
-    }
-  }
-}
-
-// #402 Runde 2: Teilen-Menü des Termin-Details, Platzhalter-Aktionen in calendar-view.c.
-menu share_menu {
-  section {
-    item {
-      label: _("Per E-Mail _einladen…");
-      action: "calendar.invite-email";
-    }
-
-    item {
-      label: _("Als _Datei teilen (.ics)");
-      action: "calendar.share-ics";
     }
   }
 }

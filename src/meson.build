@@ -27,6 +27,10 @@ executable('revolution',
   dependencies: [
     dependency('gtk4', version: '>= 4.22'),
     dependency('libadwaita-1', version: '>= 1.9'),
+    # Unterbau laut #342, genutzt ab #343 (EDS 3.56.2, WebKitGTK für #354).
+    dependency('camel-1.2', version: '>= 3.56'),
+    dependency('libedataserver-1.2', version: '>= 3.56'),
+    dependency('webkitgtk-6.0', version: '>= 2.52'),
   ],
   include_directories: include_directories('..'),
   install: true,

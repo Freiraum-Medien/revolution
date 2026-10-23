@@ -2,7 +2,9 @@
  *
  * Vorlage: quelltext/stamp/src/views/mail/stamp-mail-view.c (Template-Klasse
  * mit Eigenschaft „stack“ für den Ansichtsumschalter). Oberfläche in
- * mail-view.blp; hier nur Template-Anbindung und Befüllen mit Beispieldaten.
+ * mail-view.blp; hier nur Template-Anbindung. Die Modelle sind leer, bis #345,
+ * #348 und #352 sie füllen. Aktionen ohne Funktion sind nicht registriert, ihre
+ * Knöpfe und Menüeinträge sind daher ausgegraut (#342).
  *
  * Copyright 2026 Arnd Messer
  *
@@ -40,11 +42,7 @@ on_compose (GSimpleAction *action G_GNUC_UNUSED,
   gtk_window_present (revolution_composer_new (gtk_window_get_application (GTK_WINDOW (root))));
 }
 
-/* Platzhalter ohne Logik, nur damit die Menüeinträge nicht ausgegraut sind.
- * list.filter ist zustandsbehaftet: ohne Handler setzt die Aktivierung nur
- * den Zustand (Radio-Marke im Menü), gefiltert wird nichts. */
 static const GActionEntry list_actions[] = {
-  { "filter", NULL, "s", "'all'", NULL, { 0 } },
   { "compose", on_compose, NULL, NULL, NULL, { 0 } },
 };
 
@@ -117,19 +115,9 @@ on_toggle_sidebar (GSimpleAction *action G_GNUC_UNUSED,
   adw_overlay_split_view_set_show_sidebar (self->split, !adw_overlay_split_view_get_show_sidebar (self->split));
 }
 
-/* preferences, shortcuts, about: Platzhalter des Primärmenüs (#399 Punkt 3). */
 static const GActionEntry mail_actions[] = {
   { "search", on_search, NULL, NULL, NULL, { 0 } },
   { "toggle-sidebar", on_toggle_sidebar, NULL, NULL, NULL, { 0 } },
-  { "preferences", NULL, NULL, NULL, NULL, { 0 } },
-  { "shortcuts", NULL, NULL, NULL, NULL, { 0 } },
-  { "about", NULL, NULL, NULL, NULL, { 0 } },
-};
-
-static const GActionEntry message_actions[] = {
-  { "move", NULL, "s", NULL, NULL, { 0 } },
-  { "mark-unread", NULL, NULL, NULL, NULL, { 0 } },
-  { "print", NULL, NULL, NULL, NULL, { 0 } },
 };
 
 /* #401 Punkt 1: Klasse .dark für Regeln nur im dunklen Design (style.css). */
@@ -202,7 +190,7 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   g_type_ensure (REVOLUTION_TYPE_SAMPLE_FOLDER);
   g_type_ensure (REVOLUTION_TYPE_SAMPLE_MESSAGE);
 
-  gtk_widget_class_set_template_from_resource (widget_class, "/org/revolution/Mail/mail-view.ui");
+  gtk_widget_class_set_template_from_resource (widget_class, "/de/freiraum_medien/Revolution/mail-view.ui");
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, folder_selection);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, message_selection);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, header_stack);
@@ -217,25 +205,20 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
 static void
 revolution_mail_view_init (RevolutionMailView *self)
 {
-  g_autoptr (GListModel) folders = revolution_mail_sample_folders ();
-  g_autoptr (GListModel) messages = revolution_mail_sample_messages ();
+  g_autoptr (GListStore) folders = g_list_store_new (REVOLUTION_TYPE_SAMPLE_FOLDER);
+  g_autoptr (GListStore) messages = g_list_store_new (REVOLUTION_TYPE_SAMPLE_MESSAGE);
   g_autoptr (GSimpleActionGroup) list_group = g_simple_action_group_new ();
-  g_autoptr (GSimpleActionGroup) message_group = g_simple_action_group_new ();
   g_autoptr (GSimpleActionGroup) mail_group = g_simple_action_group_new ();
   g_autoptr (GPropertyAction) sidebar_action = NULL;
   AdwStyleManager *style_manager = adw_style_manager_get_default ();
 
   gtk_widget_init_template (GTK_WIDGET (self));
 
-  gtk_single_selection_set_model (self->folder_selection, folders);
-  gtk_single_selection_set_model (self->message_selection, messages);
-  /* #400 Punkt 7: angezeigt wird die HTML-Mail der Stadtwerke (3. Zeile, mail-sample.c). */
-  gtk_single_selection_set_selected (self->message_selection, 2);
+  gtk_single_selection_set_model (self->folder_selection, G_LIST_MODEL (folders));
+  gtk_single_selection_set_model (self->message_selection, G_LIST_MODEL (messages));
 
   g_action_map_add_action_entries (G_ACTION_MAP (list_group), list_actions, G_N_ELEMENTS (list_actions), self);
-  g_action_map_add_action_entries (G_ACTION_MAP (message_group), message_actions, G_N_ELEMENTS (message_actions), NULL);
   gtk_widget_insert_action_group (GTK_WIDGET (self), "list", G_ACTION_GROUP (list_group));
-  gtk_widget_insert_action_group (GTK_WIDGET (self), "message", G_ACTION_GROUP (message_group));
   g_action_map_add_action_entries (G_ACTION_MAP (mail_group), mail_actions, G_N_ELEMENTS (mail_actions), self);
   /* mail.sidebar für F9 wie calendar.sidebar (calendar-view.c:426-431). */
   sidebar_action = g_property_action_new ("sidebar", self->split, "show-sidebar");

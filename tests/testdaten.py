@@ -32,7 +32,9 @@
 #                                 #353, schreibend nur in Testkonten: serverseitig an der Einladung
 #                                 in Revolution-Test gelesen|ungelesen|markiert|unmarkiert (IMAP UID
 #                                 STORE bzw. Graph PATCH), neu (IMAP APPEND einer Live-Mail) oder
-#                                 weg (Live-Mails löschen: UID STORE \Deleted + EXPUNGE)
+#                                 weg (Live-Mails löschen: UID STORE \Deleted + EXPUNGE); #414: mit
+#                                 --warte DATEI erst anmelden, „BEREIT“ ausgeben, dann ablegen,
+#                                 sobald DATEI existiert (Live-Mail während des ersten Ladens)
 #   tests/testdaten.py --ungelesen KONTO ORDNER [--soll DATEI]
 #                                 #353: Zeile „UNGELESEN <Anzahl> <UID …>“ (IMAP EXAMINE + UID SEARCH
 #                                 UNSEEN, nur lesend); mit --soll (Datei mit einer solchen Zeile)
@@ -1086,7 +1088,7 @@ def ungelesen(k, ziel, soll=None):
     return 0
 
 
-def server(k, aktion, ziel=ORDNER):
+def server(k, aktion, ziel=ORDNER, warte=None):
     """#353: serverseitige Änderung in einem Testkonto, während die App läuft; neu/weg auch im
     Posteingang (ziel INBOX, Beleg für IDLE)."""
     nur_testkonten([k.adresse])
@@ -1094,6 +1096,10 @@ def server(k, aktion, ziel=ORDNER):
         c = imap_verbinden(k)
         name, _ = imap_ordner(c, ziel)
         c.select('"%s"' % name)
+        if warte:
+            print('BEREIT', flush=True)
+            while not os.path.exists(warte):
+                time.sleep(0.005)
         if aktion == 'neu':
             m = EmailMessage(policy=email.policy.SMTP)
             m.set_content('Live-Mail für #353 (APPEND, wird danach gelöscht).\n')
@@ -1350,6 +1356,7 @@ def main():
                     help='#350: nur lesend Ungelesene je Ordner (IMAP STATUS, Graph), Vergleich mit LOG')
     ap.add_argument('--anzahl', nargs=2, metavar=('UID', 'ORDNER'),
                     help='#410: nur lesend Nachrichten eines Ordners (IMAP EXAMINE, UID SEARCH; #414 Graph)')
+    ap.add_argument('--warte', metavar='DATEI', help='#414: --server erst ausführen, wenn DATEI existiert')
     ap.add_argument('--soll', metavar='DATEI', help='#353: Ausgabe von --ungelesen als Sollstand')
     ap.add_argument('--server', nargs='+', metavar='KONTO AKTION [INBOX]',
                     help='#353: serverseitig gelesen|ungelesen|markiert|unmarkiert|neu|weg [im Posteingang]')
@@ -1382,7 +1389,7 @@ def main():
         k = konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse]
         if args.server and (len(args.server) not in (2, 3) or args.server[2:] not in ([], ['INBOX'])):
             ap.error('--server KONTO AKTION [INBOX]')
-        return flags(k) if args.flags else server(k, *args.server[1:])
+        return flags(k) if args.flags else server(k, *args.server[1:], warte=args.warte)
 
     os.makedirs(os.path.join(CACHE, 'data'), exist_ok=True)
     os.makedirs(os.path.join(CACHE, 'cache'), exist_ok=True)

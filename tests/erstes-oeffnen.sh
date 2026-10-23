@@ -9,9 +9,9 @@
 #   TIMEOUT           Sekunden je Start bis „vollständig“, Standard 300
 #   NACHLAUF          Sekunden nach „vollständig“ für spätere Live-Änderungen, Standard 20
 #   LIVE              #414: Adresse eines Testkontos (nicht privat@, nicht nur lesend); ORDNER muss
-#                     dessen INBOX sein. Sobald das Log „Nachrichten: … lädt“ zeigt, legt
-#                     tests/testdaten.py --server LIVE neu INBOX eine Live-Mail per APPEND ab; nach
-#                     dem Start löscht --server LIVE weg INBOX sie wieder
+#                     dessen INBOX sein. tests/testdaten.py --server LIVE neu INBOX --warte meldet
+#                     sich vor dem App-Start an; sobald das Log „Nachrichten: … lädt“ zeigt, legt es
+#                     eine Live-Mail per APPEND ab; nach dem Start löscht --server LIVE weg INBOX sie
 #
 # Je Start ein frisches XDG_CACHE_HOME (Ordner im Ausgabeordner, danach gelöscht), also ohne
 # Camel-Summary (~/.cache/revolution bleibt unberührt). Start über scripts/screenshot.sh (eigener
@@ -74,17 +74,25 @@ server () {
 
 debug () { sed -nE 's/^\(revolution:[0-9]+\): revolution-DEBUG: [0-9:.]+: //p' "$1"; }
 
-# #414: Live-Mail ablegen, sobald das Laden beginnt; Uhrzeit danach in $2 (Vergleich mit dem Log).
+# #414: Live-Mail ablegen, sobald das Laden beginnt. Der Helfer meldet sich vorher an (BEREIT in
+# $2.out, dann $2.bereit), damit nur das APPEND in das kurze Laden fällt; Uhrzeit danach in $2.
 live_ablegen () {
-  local log="$1" zeit="$2"
-  for _ in $(seq $((TIMEOUT * 10))); do
-    if [ -f "$log" ] && debug "$log" | grep -qF "Nachrichten: $KEY lädt"; then
-      timeout 120 python3 "$APP_DIR/tests/testdaten.py" --server "$LIVE" neu INBOX >"$zeit.out" 2>&1
+  local log="$1" zeit="$2" helfer
+  rm -f "$zeit.los" "$zeit.bereit"
+  timeout $((TIMEOUT + 120)) python3 "$APP_DIR/tests/testdaten.py" --server "$LIVE" neu INBOX \
+    --warte "$zeit.los" >"$zeit.out" 2>&1 & helfer=$!
+  for _ in $(seq 600); do grep -q '^BEREIT' "$zeit.out" 2>/dev/null && break; sleep 0.1; done
+  touch "$zeit.bereit"
+  for _ in $(seq $((TIMEOUT * 100))); do
+    if [ -f "$log" ] && grep -qF "Nachrichten: $KEY lädt" "$log"; then
+      touch "$zeit.los"
+      wait "$helfer"
       date +%H:%M:%S.%3N >"$zeit"
       return
     fi
-    sleep 0.1
+    sleep 0.01
   done
+  kill "$helfer" 2>/dev/null
 }
 
 warte () {
@@ -104,9 +112,12 @@ lauf () {
   mkdir -p "$cache"
   [ "$(bus_hat_app)" = "(false,)" ] || { fehler "$name Session-Bus: $APP_ID läuft schon"; return; }
   vorher="$(server)"
+  rm -f "$OUT/$name.live" "$OUT/$name.live.out" "$OUT/$name.live.bereit"
+  if [ -n "$LIVE" ]; then
+    live_ablegen "$log" "$OUT/$name.live" & live=$!
+    for _ in $(seq 650); do [ -f "$OUT/$name.live.bereit" ] && break; sleep 0.1; done
+  fi
   warte "$log" "$OUT/$name.ready" & watcher=$!
-  rm -f "$OUT/$name.live" "$OUT/$name.live.out"
-  [ -n "$LIVE" ] && { live_ablegen "$log" "$OUT/$name.live" & live=$!; }
   env XDG_CACHE_HOME="$cache" G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER="$ORDNER" \
     BUILD="$BUILD" OUT_DIR="$OUT" LOG="$log" READY="$OUT/$name.ready" QUIT="$OUT/$name.quit" \
     WAIT=$((TIMEOUT + NACHLAUF + 5)) \
@@ -139,7 +150,7 @@ lauf () {
     local abgelegt fertig
     abgelegt="$(cat "$OUT/$name.live" 2>/dev/null)"
     fertig="$(sed -nE "s/^\(revolution:[0-9]+\): revolution-DEBUG: ([0-9:.]+): Nachrichten: $KEY vollständig .*/\1/p" "$log" | head -1)"
-    wert "$name Live-Mail: abgelegt $abgelegt, vollständig $fertig; $(tr '\n' ' ' <"$OUT/$name.live.out" 2>/dev/null)"
+    wert "$name Live-Mail: lädt $(sed -nE "s/^\(revolution:[0-9]+\): revolution-DEBUG: ([0-9:.]+): Nachrichten: $KEY lädt$/\1/p" "$log" | head -1), abgelegt $abgelegt, vollständig $fertig; $(tr '\n' ' ' <"$OUT/$name.live.out" 2>/dev/null)"
     if [ -n "$abgelegt" ] && [ -n "$fertig" ] && [[ "$abgelegt" < "$fertig" ]]; then
       ok "$name Live-Mail während des ersten Ladens abgelegt ($abgelegt vor vollständig $fertig)"
     else

@@ -17,6 +17,7 @@
 
 #include "contacts/contacts-view.h"
 #include "calendar/calendar-view.h"
+#include "mail/mail-favorites.h"
 #include "mail/mail-folder.h"
 #include "mail/mail-session.h"
 #include "mail/mail-view.h"
@@ -177,9 +178,13 @@ load_session_thread (GTask        *task,
 {
   g_autofree char *camel_dir = g_build_filename (g_get_user_data_dir (), "revolution", NULL);
   RevolutionMailSession *session;
+  g_autoptr (GError) error = NULL;
 
   camel_init (camel_dir, FALSE);
   session = revolution_mail_session_new (task_data);
+  /* #351: Suchordner der Favoriten, bevor die Konten ihre Quellen melden (on_store_noted). */
+  if (!revolution_mail_favorites_setup (CAMEL_SESSION (session), &error))
+    g_warning ("Favoriten: %s", error->message);
 
   camel_session_set_online (CAMEL_SESSION (session), TRUE);
   g_task_return_pointer (task, session, g_object_unref);
@@ -386,6 +391,9 @@ on_store_noted (GObject      *source_object,
       const char *inbox = find_inbox (noted->info);
 
       revolution_mail_view_set_folders (mail_view, camel_service_get_uid (service), noted->info);
+      /* #351: Posteingang, Entwürfe und Gesendet dieses Kontos in die Favoriten. */
+      revolution_mail_favorites_add_store (mail_view, CAMEL_STORE (service), noted->info,
+                                           g_task_get_cancellable (G_TASK (result)));
       if (inbox != NULL)
         {
           g_autoptr (GTask) task = g_task_new (service, g_task_get_cancellable (G_TASK (result)),
@@ -437,7 +445,9 @@ note_stores (RevolutionMailSession *session,
     {
       g_autoptr (GTask) task = NULL;
 
-      if (!CAMEL_IS_STORE (l->data) || g_object_get_data (l->data, "revolution-noted") != NULL)
+      /* #351: der Suchordner-Store der Favoriten hat kein Konto (mail-favorites.c). */
+      if (!CAMEL_IS_STORE (l->data) || CAMEL_IS_VEE_STORE (l->data) ||
+          g_object_get_data (l->data, "revolution-noted") != NULL)
         continue;
 
       g_object_set_data (l->data, "revolution-noted", GINT_TO_POINTER (TRUE));

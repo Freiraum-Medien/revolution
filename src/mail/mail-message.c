@@ -31,6 +31,8 @@ struct _RevolutionMailMessage
   char     *date;
   gint64    timestamp;
   char     *accessible_label;
+  /* #351: Konto der Nachricht im Suchordner (Favoriten), sonst NULL. */
+  char     *account;
   gboolean  unread;
   gboolean  starred;
   gboolean  attachment;
@@ -49,6 +51,8 @@ enum
   PROP_UNREAD,
   PROP_STARRED,
   PROP_ATTACHMENT,
+  PROP_ACCOUNT,
+  PROP_SHOW_ACCOUNT,
   N_PROPS
 };
 
@@ -72,6 +76,8 @@ revolution_mail_message_get_property (GObject    *object,
     case PROP_UNREAD:           g_value_set_boolean (value, self->unread); break;
     case PROP_STARRED:          g_value_set_boolean (value, self->starred); break;
     case PROP_ATTACHMENT:       g_value_set_boolean (value, self->attachment); break;
+    case PROP_ACCOUNT:          g_value_set_string (value, self->account); break;
+    case PROP_SHOW_ACCOUNT:     g_value_set_boolean (value, self->account != NULL); break;
     default: G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
 }
@@ -87,6 +93,7 @@ revolution_mail_message_finalize (GObject *object)
   g_free (self->preview);
   g_free (self->date);
   g_free (self->accessible_label);
+  g_free (self->account);
 
   G_OBJECT_CLASS (revolution_mail_message_parent_class)->finalize (object);
 }
@@ -108,6 +115,8 @@ revolution_mail_message_class_init (RevolutionMailMessageClass *klass)
   props[PROP_UNREAD] = g_param_spec_boolean ("unread", NULL, NULL, FALSE, flags);
   props[PROP_STARRED] = g_param_spec_boolean ("starred", NULL, NULL, FALSE, flags);
   props[PROP_ATTACHMENT] = g_param_spec_boolean ("attachment", NULL, NULL, FALSE, flags);
+  props[PROP_ACCOUNT] = g_param_spec_string ("account", NULL, NULL, NULL, flags);
+  props[PROP_SHOW_ACCOUNT] = g_param_spec_boolean ("show-account", NULL, NULL, FALSE, flags);
   g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -203,14 +212,17 @@ preview_for (const char *preview)
   return text;
 }
 
-/* Zugänglicher Name der Zeile (Architektur 8): Absender, Betreff, Datum, Zustände. */
+/* Zugänglicher Name der Zeile (Architektur 8): Absender, Betreff, Datum, Zustände, #351 Konto. */
 static char *
 accessible_label_for (RevolutionMailMessage *self)
 {
-  return g_strdup_printf ("%s, %s, %s%s%s%s", self->sender, self->subject, self->date,
+  g_autofree char *account = self->account != NULL ? g_strdup_printf (_(", Konto %s"), self->account) : NULL;
+
+  return g_strdup_printf ("%s, %s, %s%s%s%s%s", self->sender, self->subject, self->date,
                           self->unread ? _(", ungelesen") : "",
                           self->starred ? _(", markiert") : "",
-                          self->attachment ? _(", mit Anhang") : "");
+                          self->attachment ? _(", mit Anhang") : "",
+                          account != NULL ? account : "");
 }
 
 /* Im Worker: Kopie der Felder aus info. now ist der Stichtag fürs relative Datum. */
@@ -241,6 +253,18 @@ revolution_mail_message_new (CamelMessageInfo *info,
   self->unread = (flags & CAMEL_MESSAGE_SEEN) == 0;
   self->starred = (flags & CAMEL_MESSAGE_FLAGGED) != 0;
   self->attachment = (flags & CAMEL_MESSAGE_ATTACHMENTS) != 0;
+
+  /* #351: Im Suchordner das Konto des Quellordners wie Evolution die Spalte „Ort“ (message-list.c:
+   * 2014-2020, camel_vee_folder_get_location); Name wie der Abschnittskopf der Seitenleiste
+   * (Anzeigename der ESource, an den Store gebunden, mail-session.c add_service). */
+  if (CAMEL_IS_VEE_MESSAGE_INFO (info))
+    {
+      CamelFolder *original = camel_vee_message_info_get_original_folder (CAMEL_VEE_MESSAGE_INFO (info));
+      CamelStore *store = original != NULL ? camel_folder_get_parent_store (original) : NULL;
+
+      if (store != NULL)
+        self->account = camel_service_dup_display_name (CAMEL_SERVICE (store));
+    }
 
   self->accessible_label = accessible_label_for (self);
 

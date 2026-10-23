@@ -56,6 +56,18 @@
 #                                 GET …/attachments) nach ORDNER schreiben; je Anhang eine Zeile
 #                                 „TEIL <sha256> <Bytes> <Dateiname>“, für Text zusätzlich „TEIL-TEXT …“
 #                                 mit Zeilenenden CRLF → LF (so dekodiert Camel text/*)
+#   tests/testdaten.py --kombiniert [LOG]
+#                                 #351, nur lesend, unabhängig von Camel, jedes Konto aus GOA: je
+#                                 Posteingang sichtbare und ungelesene Nachrichten (IMAP EXAMINE +
+#                                 UID SEARCH UNDELETED ohne Junk, Graph GET); Zeilen „KOMBINIERT <UID>
+#                                 <Adresse> <sichtbar> <ungelesen>“ und „SUMME …“. Mit LOG Vergleich mit
+#                                 dem letzten „Favoriten: Anzahl inbox <UID> …“ je Konto, der Summe der
+#                                 Liste und „Ungelesen: revolution-favoriten inbox <N>“; Exit 1 bei
+#                                 Abweichung
+#   tests/testdaten.py --live-flags KONTO
+#                                 #351, nur lesend: Flags der Live-Mails (--server KONTO neu INBOX) im
+#                                 Posteingang (IMAP EXAMINE + UID SEARCH SUBJECT + UID FETCH FLAGS);
+#                                 Zeilen „FLAGS <gelesen 0|1> <markiert 0|1> <UID>“
 #
 # Copyright 2026 Arnd Messer
 #
@@ -1227,6 +1239,86 @@ def zaehler(konten, log):
     return 1 if fehler else 0
 
 
+# ---------------------------------------------------------------- #351: Kombinierter Eingang
+
+FAVORITEN = 'revolution-favoriten'
+SICHTBAR = ('UNDELETED', 'UNKEYWORD', 'Junk', 'UNKEYWORD', '$Junk')
+
+
+def posteingang(k):
+    """(sichtbar, ungelesen) im Posteingang, nur lesend: IMAP EXAMINE + UID SEARCH ohne Gelöschte und
+    Junk wie die Liste der App (mail-favorites.c VISIBLE), microsoft365 Graph GET."""
+    backend = k.account.get_extension(EDataServer.SOURCE_EXTENSION_MAIL_ACCOUNT).get_backend_name()
+    if backend == 'microsoft365':
+        d = graph(k, 'GET', '/me/mailFolders/inbox?$select=totalItemCount,unreadItemCount')
+        return d['totalItemCount'], d['unreadItemCount']
+    c = imap_verbinden(k)
+    try:
+        c.select('INBOX', readonly=True)
+        n = len(c.uid('SEARCH', None, *SICHTBAR)[1][0].split())
+        u = len(c.uid('SEARCH', None, 'UNSEEN', *SICHTBAR)[1][0].split())
+    finally:
+        c.logout()
+    return n, u
+
+
+def kombiniert(konten, log):
+    """#351: nur lesend. Je Konto Posteingang vom Server; mit log Vergleich mit der App."""
+    app, liste, fav_u = {}, None, None
+    if log:
+        for z in open(log, encoding='utf-8', errors='replace'):
+            m = re.search(r'revolution-DEBUG: [0-9:.]+: (.*)$', z.rstrip('\n'))
+            if not m:
+                continue
+            t = m.group(1)
+            a = re.match(r'Favoriten: Anzahl inbox (\S+) (.+) (\d+)$', t)
+            if a:
+                app[a.group(1)] = int(a.group(3))
+            a = re.match(r'Nachrichten: %s inbox (?:Cache |Server |vollständig |.*Liste )(\d+)' % FAVORITEN, t)
+            if a:
+                liste = int(a.group(1))
+            a = re.match(r'Ungelesen: %s inbox (\d+)$' % FAVORITEN, t)
+            if a:
+                fav_u = int(a.group(1))
+    fehler = 0
+    summe_n = summe_u = 0
+    for k in konten:
+        uid = k.account.get_uid()
+        n, u = posteingang(k)
+        summe_n += n
+        summe_u += u
+        print('KOMBINIERT %s %s %d %d' % (uid, k.adresse, n, u))
+        if log:
+            if app.get(uid) != n:
+                print('  ABWEICHUNG %s: App %s, Server %d' % (k.adresse, app.get(uid), n))
+                fehler += 1
+            else:
+                print('  GLEICH %s: App %d = Server %d' % (k.adresse, n, n))
+    print('SUMME %d Konten, %d sichtbar, %d ungelesen' % (len(konten), summe_n, summe_u))
+    if log:
+        for was, ist, soll in (('Liste „Alle Eingänge“', liste, summe_n), ('Ungelesen „Alle Eingänge“', fav_u, summe_u)):
+            print('  %s %s: App %s, Server %d' % ('GLEICH' if ist == soll else 'ABWEICHUNG', was, ist, soll))
+            fehler += ist != soll
+        if len(app) != len(konten):
+            print('  ABWEICHUNG Konten in „Alle Eingänge“: App %d, GOA %d' % (len(app), len(konten)))
+            fehler += 1
+        print('Vergleich: %d Abweichungen' % fehler)
+    return 1 if fehler else 0
+
+
+def live_flags(k):
+    """#351: nur lesend (EXAMINE INBOX)."""
+    c = imap_verbinden(k)
+    try:
+        c.select('INBOX', readonly=True)
+        for uid in c.uid('SEARCH', None, 'SUBJECT', '"%s"' % LIVE)[1][0].split():
+            flags = c.uid('FETCH', uid, '(FLAGS)')[1][0].decode()
+            print('FLAGS %d %d %s' % ('\\Seen' in flags, '\\Flagged' in flags, uid.decode()))
+    finally:
+        c.logout()
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description='Testdaten für Revolution (#344)')
     ap.add_argument('--dry-run', action='store_true', help='nur anzeigen, nichts senden/schreiben')
@@ -1252,7 +1344,18 @@ def main():
     ap.add_argument('--soll', metavar='DATEI', help='#353: Ausgabe von --ungelesen als Sollstand')
     ap.add_argument('--server', nargs='+', metavar='KONTO AKTION [INBOX]',
                     help='#353: serverseitig gelesen|ungelesen|markiert|unmarkiert|neu|weg [im Posteingang]')
+    ap.add_argument('--kombiniert', nargs='?', const='', metavar='LOG',
+                    help='#351: nur lesend Posteingänge aller Konten (EXAMINE, Graph), Vergleich mit LOG')
+    ap.add_argument('--live-flags', metavar='KONTO', help='#351: nur lesend Flags der Live-Mails im Posteingang')
     args = ap.parse_args()
+
+    if args.live_flags:
+        adresse = args.live_flags.lower()
+        nur_testkonten([adresse])
+        k = konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse]
+        if not k.goa.get_mail().props.imap_supported:
+            ap.error('--live-flags nur für IMAP')
+        return live_flags(k)
 
     if args.ungelesen:
         adresse = args.ungelesen[0].lower()
@@ -1282,6 +1385,8 @@ def main():
         return anzahl(ordner_konten(registry), *args.anzahl)
     if args.zaehler is not None:
         return zaehler(ordner_konten(registry), args.zaehler)
+    if args.kombiniert is not None:
+        return kombiniert(ordner_konten(registry), args.kombiniert)
     if args.ordner:
         konten = ordner_konten(registry)
         session = TestSession(user_data_dir=os.path.join(CACHE, 'data'),

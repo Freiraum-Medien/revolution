@@ -45,6 +45,16 @@
 #                                 cid:, Remote-Inhalte) per APPEND in den Posteingang der vier
 #                                 Testkonten (fehlende ergänzen, kein Versand); im Standardlauf
 #                                 enthalten
+#   tests/testdaten.py --anhang   #356: Anhang-Mail (PDF, PNG, ZIP, Text mit „../“ im Dateinamen,
+#                                 angehängte Nachricht) per APPEND in den Posteingang von geops@,
+#                                 outlook.com und Gmail (nicht privat@: Quota); im Standardlauf
+#                                 enthalten
+#   tests/testdaten.py --anhang-teile KONTO ORDNER
+#                                 #356, nur lesend, unabhängig von Camel: die Anhänge der Anhang-Mail
+#                                 direkt vom Server (IMAP EXAMINE + UID FETCH BODY.PEEK[] bzw. Graph
+#                                 GET …/attachments) nach ORDNER schreiben; je Anhang eine Zeile
+#                                 „TEIL <sha256> <Bytes> <Dateiname>“, für Text zusätzlich „TEIL-TEXT …“
+#                                 mit Zeilenenden CRLF → LF (so dekodiert Camel text/*)
 #
 # Copyright 2026 Arnd Messer
 #
@@ -54,7 +64,9 @@ import argparse
 import base64
 import ctypes
 import datetime
+import hashlib
 import imaplib
+import io
 import json
 import re
 import email.header
@@ -67,6 +79,7 @@ import struct
 import sys
 import threading
 import time
+import zipfile
 import zlib
 from email.message import EmailMessage
 
@@ -323,6 +336,124 @@ def anzeige(konten, dry):
         if neu and not dry:
             k.inbox.synchronize_sync(False, cancellable())
             k.inbox.refresh_info_sync(cancellable())
+
+
+# #356: Mail mit Anhängen für die Anhangleiste, per APPEND (kein Versand) in den Posteingang der
+# Testkonten außer privat@ (Quota fast voll). Inhalte selbst erzeugt und schadlos, fest (gleiche Bytes
+# bei jedem Lauf). Erkennung wie ANZEIGE über (Betreff, Absender).
+ANHANG_KONTEN = ('KONTO_IMAP_2@example.invalid', 'KONTO_M365@example.invalid', 'KONTO_GOOGLE@example.invalid')
+ANHANG_BETREFF = PREFIX + ' Anhänge PDF, Bild, ZIP'
+ANHANG_ID = 'anhang-356'
+
+
+def bild_png():
+    """PNG 96×64 mit Farbverlauf (RGB), ein paar KB."""
+    w, h = 96, 64
+    raw = b''.join(b'\x00' + b''.join(bytes((40 + x * 2, 90 + y * 2, 200 - x)) for x in range(w)) for y in range(h))
+
+    def chunk(typ, data):
+        return (struct.pack('>I', len(data)) + typ + data
+                + struct.pack('>I', zlib.crc32(typ + data) & 0xffffffff))
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
+            + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b''))
+
+
+def zip_bytes():
+    """ZIP mit zwei Textdateien, feste Zeitstempel (gleiche Bytes bei jedem Lauf)."""
+    puffer = io.BytesIO()
+    with zipfile.ZipFile(puffer, 'w', zipfile.ZIP_DEFLATED) as z:
+        for name, text in (('liesmich.txt', 'Revolution #356: Testarchiv, schadlos.\n'),
+                           ('daten.csv', 'Nr;Name\n1;Lageplan\n2;Marktstand\n')):
+            info = zipfile.ZipInfo(name, date_time=(2026, 10, 23, 12, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            z.writestr(info, text.encode())
+    return puffer.getvalue()
+
+
+def anhang_nachricht():
+    m = EmailMessage(policy=email.policy.SMTP)
+    m.set_content('Mail mit Anhängen für Revolution #356: PDF, PNG, ZIP, eine Textdatei mit „../“ im '
+                  'Dateinamen (Bereinigung) und eine angehängte Nachricht.\n')
+    m.add_attachment(pdf_bytes(), maintype='application', subtype='pdf', filename='Lageplan Übersicht.pdf')
+    m.add_attachment(bild_png(), maintype='image', subtype='png', filename='Marktstand.png')
+    m.add_attachment(zip_bytes(), maintype='application', subtype='zip', filename='Unterlagen.zip')
+    m.add_attachment('Dateiname mit Pfadanteil, darf nur als revolution-pfad.txt landen.\n',
+                     filename='../../revolution-pfad.txt')
+    innen = EmailMessage(policy=email.policy.SMTP)
+    innen.set_content('Angehängte Nachricht (message/rfc822) für #356.\n')
+    innen['Subject'] = 'Weitergeleitet: Termin Hoffest'
+    innen['From'] = email.utils.formataddr(('Revolution Testdaten', ANZEIGE_ABSENDER))
+    innen['To'] = ANZEIGE_ABSENDER
+    innen['Date'] = 'Fri, 23 Oct 2026 12:00:00 +0200'
+    innen['Message-ID'] = msgid('anhang-356-innen')
+    m.add_attachment(innen)
+    m['Subject'] = ANHANG_BETREFF
+    m['From'] = email.utils.formataddr(('Revolution Testdaten', ANZEIGE_ABSENDER))
+    m['To'] = ANZEIGE_ABSENDER
+    m['Date'] = email.utils.formatdate(localtime=True)
+    m['Message-ID'] = msgid(ANHANG_ID)
+    msg = Camel.MimeMessage.new()
+    msg.construct_from_stream_sync(Camel.StreamMem.new_with_buffer(m.as_bytes()), None)
+    return msg
+
+
+def anhang(konten, dry):
+    """#356: Anhang-Mail per APPEND in den Posteingang (idempotent, als gelesen), nicht privat@."""
+    for a in ANHANG_KONTEN:
+        k = konten[a]
+        nur_testkonten([a])
+        k.inbox.refresh_info_sync(cancellable())
+        if (ANHANG_BETREFF, ANZEIGE_ABSENDER) in testmails(k.inbox):
+            print('  %s: %s vorhanden' % (a, ANHANG_BETREFF))
+            continue
+        print('  %s: %s per APPEND' % (a, ANHANG_BETREFF))
+        if dry:
+            continue
+        info = Camel.MessageInfo.new(None)
+        info.set_flags(Camel.MessageFlags.SEEN, Camel.MessageFlags.SEEN)
+        k.inbox.append_message_sync(anhang_nachricht(), info, cancellable())
+        k.inbox.synchronize_sync(False, cancellable())
+        k.inbox.refresh_info_sync(cancellable())
+
+
+def anhang_teile(k, ziel):
+    """#356: nur lesend, ohne Camel: Anhänge der Anhang-Mail vom Server nach ziel schreiben."""
+    os.makedirs(ziel, exist_ok=True)
+    teile = []
+    if k.goa.get_mail().props.imap_supported:
+        c = imap_verbinden(k)
+        c.select('INBOX', readonly=True)
+        uids = c.uid('SEARCH', None, 'HEADER', 'Message-ID', msgid(ANHANG_ID))[1][0].split()
+        if not uids:
+            sys.exit('ABBRUCH: Anhang-Mail fehlt in %s' % k.adresse)
+        roh = c.uid('FETCH', uids[-1], '(BODY.PEEK[])')[1][0][1]
+        c.logout()
+        nachricht = email.message_from_bytes(roh, policy=email.policy.default)
+        for teil in nachricht.iter_attachments():
+            if teil.get_content_type() == 'message/rfc822':
+                teile.append((teil.get_payload()[0]['Subject'] + '.eml', teil.get_payload()[0].as_bytes()))
+            else:
+                teile.append((teil.get_filename(), teil.get_payload(decode=True)))
+    else:
+        mails = graph(k, 'GET', "/me/messages?$filter=internetMessageId%20eq%20'"
+                      + urllib.request.quote(msgid(ANHANG_ID)) + "'&$select=id")['value']
+        if not mails:
+            sys.exit('ABBRUCH: Anhang-Mail fehlt in %s' % k.adresse)
+        for a in graph(k, 'GET', '/me/messages/%s/attachments' % mails[0]['id'])['value']:
+            if 'contentBytes' in a:
+                teile.append((a['name'], base64.b64decode(a['contentBytes'])))
+            else:
+                print('OHNE-BYTES %s %s' % (a['@odata.type'], a['name']))
+    for name, daten in teile:
+        sicher = name.replace('/', '_')
+        with open(os.path.join(ziel, sicher), 'wb') as f:
+            f.write(daten)
+        print('TEIL %s %d %s' % (hashlib.sha256(daten).hexdigest(), len(daten), name))
+        if name.endswith('.txt'):
+            # Camel dekodiert text/* mit CRLF → LF (camel-data-wrapper.c:326-335), Evolution ebenso.
+            lf = daten.replace(b'\r\n', b'\n')
+            print('TEIL-TEXT %s %d %s (CRLF→LF)' % (hashlib.sha256(lf).hexdigest(), len(lf), name))
+    return 0
 
 
 def camel_nachricht(key, absender, betreff, an):
@@ -1091,6 +1222,10 @@ def main():
     ap.add_argument('--ordner', action='store_true', help='nur lesend: Ordnerliste aller Konten')
     ap.add_argument('--anzeige', action='store_true',
                     help='#354: nur die Anzeige-Mails per APPEND in die Posteingänge')
+    ap.add_argument('--anhang', action='store_true',
+                    help='#356: nur die Anhang-Mail per APPEND (geops@, outlook.com, Gmail)')
+    ap.add_argument('--anhang-teile', nargs=2, metavar=('KONTO', 'ORDNER'),
+                    help='#356: nur lesend die Anhänge der Anhang-Mail vom Server nach ORDNER')
     ap.add_argument('--last', type=int, metavar='N',
                     help='N Lastmails per APPEND in %s von %s (#352)' % (LAST_ORDNER, LAST_KONTO))
     ap.add_argument('--last-ordner', default=LAST_ORDNER, metavar='NAME',
@@ -1112,6 +1247,11 @@ def main():
         nur_testkonten([adresse])
         k = konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse]
         return ungelesen(k, args.ungelesen[1], args.soll)
+    if args.anhang_teile:
+        adresse = args.anhang_teile[0].lower()
+        nur_testkonten([adresse])
+        k = konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse]
+        return anhang_teile(k, args.anhang_teile[1])
     if args.flags or args.server:
         adresse = (args.flags or args.server[0]).lower()
         nur_testkonten([adresse])
@@ -1155,6 +1295,13 @@ def main():
         n = last(k, args.last, args.dry_run, args.last_ordner)
         k.store.disconnect_sync(True, None)
         return n
+    if args.anhang:
+        for a in ANHANG_KONTEN:
+            store_oeffnen(session, konten[a])
+        anhang(konten, args.dry_run)
+        for a in ANHANG_KONTEN:
+            konten[a].store.disconnect_sync(True, None)
+        return 0
     for k in konten.values():
         store_oeffnen(session, k)
 
@@ -1171,6 +1318,7 @@ def main():
         warten(konten)
     ablegen(konten, args.dry_run)
     anzeige(konten, args.dry_run)
+    anhang(konten, args.dry_run)
     for k in konten.values():
         k.store.disconnect_sync(True, None)
     return 0

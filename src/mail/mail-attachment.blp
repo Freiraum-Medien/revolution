@@ -1,0 +1,129 @@
+// Anhangleiste unter dem Nachrichtenkopf (#356): Anhänge als Pillen (Dokument #5, wie die Pillen
+// im Composer, Design/Prototyp/composer-hell.png: Symbol, Name, Größe gedimmt). Daten und
+// Aktionen in mail-attachment.c.
+using Gtk 4.0;
+using Adw 1;
+
+template $RevolutionMailAttachmentBar: Adw.Bin {
+  visible: false;
+
+  child: Box {
+    spacing: 6;
+    // An der Kante des Kopfes (mail-reader.blp, Grid margin-start 24).
+    margin-start: 18;
+    margin-end: 18;
+    margin-bottom: 10;
+
+    ScrolledWindow {
+      hexpand: true;
+      vscrollbar-policy: never;
+      propagate-natural-height: true;
+
+      child: ListView list {
+        orientation: horizontal;
+        tab-behavior: item;
+
+        // Kontextmenü per Tastatur wie die Nachrichtenliste (HIG Keyboard: Menü, Umschalt+F10).
+        ShortcutController {
+          Shortcut {
+            trigger: "Menu|<shift>F10";
+            action: "action(attachment.context-menu)";
+          }
+        }
+
+        styles [
+          "mail-attachments",
+        ]
+
+        accessibility {
+          label: _("Anhänge");
+        }
+
+        model: SingleSelection selection {
+          autoselect: false;
+          can-unselect: true;
+        };
+
+        // Doppelklick oder Eingabe öffnet (mail-attachment.c, on_activate).
+        activate => $on_activate() swapped;
+
+        factory: BuilderListItemFactory {
+          template ListItem {
+            accessible-label: bind template.item as <$RevolutionMailAttachment>.accessible-label;
+
+            child: Box {
+              spacing: 8;
+              tooltip-text: bind template.item as <$RevolutionMailAttachment>.name;
+
+              styles [
+                "mail-attachment",
+              ]
+
+              GestureClick {
+                button: 3;
+                pressed => $on_secondary_click(template);
+              }
+
+              Image {
+                gicon: bind template.item as <$RevolutionMailAttachment>.icon;
+                accessible-role: presentation;
+              }
+
+              Label {
+                label: bind template.item as <$RevolutionMailAttachment>.short-name;
+              }
+
+              Label {
+                label: bind template.item as <$RevolutionMailAttachment>.size-text;
+
+                styles [
+                  "numeric",
+                  "dimmed",
+                ]
+              }
+            };
+          }
+        };
+      };
+    }
+
+    Button {
+      icon-name: "document-save-symbolic";
+      tooltip-text: _("Alle Anhänge speichern …");
+      action-name: "attachment.save-all";
+      valign: center;
+
+      accessibility {
+        label: _("Alle Anhänge speichern …");
+      }
+
+      styles [
+        "flat",
+        "circular",
+      ]
+    }
+  };
+}
+
+// Kontextmenü einer Pille (Rechtsklick, Menü-Taste, Umschalt+F10), Einträge wie Evolution
+// (Öffnen, Speichern unter …, Alle speichern …).
+menu menu {
+  section {
+    item {
+      label: _("_Öffnen");
+      action: "attachment.open";
+    }
+
+    item {
+      label: _("_Speichern unter …");
+      action: "attachment.save-as";
+    }
+  }
+
+  section {
+    item {
+      label: _("_Alle speichern …");
+      action: "attachment.save-all";
+    }
+  }
+}

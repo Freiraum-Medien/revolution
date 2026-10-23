@@ -4,6 +4,7 @@
     <file>window.ui</file>
     <file>mail-view.ui</file>
     <file>mail-reader.ui</file>
+    <file>mail-attachment.ui</file>
     <file>composer.ui</file>
     <file>contacts-view.ui</file>
     <file>calendar-view.ui</file>

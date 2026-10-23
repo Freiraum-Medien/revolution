@@ -317,6 +317,9 @@ template $RevolutionMailReader: Adw.Bin {
       };
     }
 
+    // #356: Anhangleiste unter dem Kopf (mail-attachment.blp), nur mit Anhängen sichtbar.
+    $RevolutionMailAttachmentBar attachments {}
+
     // HTML-Mail: eigener Hintergrund (style.css .html-mail, Themes #340). Die WebView setzt
     // mail-reader.c als Kind des Overlays ein; der Kreisel zeigt das Laden aus dem Worker.
     Adw.Bin {

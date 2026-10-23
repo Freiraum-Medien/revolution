@@ -34,7 +34,7 @@
  *   Eigenschaft „registry“, dispose          1018-1187
  *   constructed (Konten, Registry-Signale)   1212-1271
  *   add_service                              1370-1423
- *   get_oauth2_access_token_sync (#347)      1927-1967
+ *   get_oauth2_access_token_sync (#347)      1927-1979
  *   class_init, new, Datenordner             2139-2160, 2411-2428, 2891-2911
  * Abschnitt „Anmeldung“ (#347): authenticate_sync und trust_prompt übernommen aus
  * Evolution 3.56.2 (src/mail/e-mail-ui-session.c), gekürzt; Einzelheiten dort.
@@ -124,6 +124,12 @@ mail_session_update_proxy_resolver (CamelService *service,
 	gchar *uid;
 
 	session = camel_service_ref_session (service);
+
+	/* #347: Fehler-Fix. Kommt „changed“ erst nach dem Ende der Session, gibt es keine mehr
+	 * (Absturz im Prüfprogramm). Evolution fängt NULL über e_mail_session_get_registry
+	 * (e-mail-session.c:2432). */
+	if (session == NULL)
+		return;
 
 	extension = e_source_get_extension (
 		authentication_source,
@@ -511,7 +517,7 @@ mail_session_add_service (CamelSession *session,
 	return service;
 }
 
-/* Übernommen aus e-mail-session.c:1927-1967 (#347). Token über die ESourceRegistry vom
+/* Übernommen aus e-mail-session.c:1927-1979 (#347). Token über die ESourceRegistry vom
  * goa-daemon; Aufrufer ist die XOAUTH2-SASL (EDS camel-sasl-xoauth2.c:82). */
 static gboolean
 mail_session_get_oauth2_access_token_sync (CamelSession *session,
@@ -533,7 +539,7 @@ mail_session_get_oauth2_access_token_sync (CamelSession *session,
 	source = e_source_registry_ref_source (mail_session->registry, camel_service_get_uid (service));
 	if (!source) {
 		g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
-			_("Corresponding source for service with UID “%s” not found"),
+			_("Keine Datenquelle für den Dienst mit UID „%s“"),
 			camel_service_get_uid (service));
 
 		return FALSE;
@@ -572,7 +578,7 @@ mail_session_get_oauth2_access_token_sync (CamelSession *session,
  * Übernommen aus Evolution 3.56.2 (src/mail/e-mail-ui-session.c), gekürzt:
  *   mail_ui_session_trust_prompt             773-822
  *   mail_ui_session_try_credentials_sync     839-892
- *   mail_ui_session_authenticate_sync        895-1058
+ *   mail_ui_session_authenticate_sync        895-1055
  * Lizenz und Urheber wie der Kopf dieser Datei (e-mail-ui-session.c:1-22, gleicher Text).
  * Geändert gegenüber der Vorlage (Freigabe Arnd 23.10.2026, Kommentar an #347):
  *   - Kein ECredentialsPrompter und kein Trust-Dialog (e-trust-prompt.c; beide GTK, Dialoge;
@@ -590,8 +596,12 @@ mail_session_get_oauth2_access_token_sync (CamelSession *session,
  *   - Ohne e_source_invoke_authenticate_sync nach Erfolg (dort 879-889): es reicht neu
  *     eingegebene Zugangsdaten an die Registry weiter; ohne Eingabe gibt es keine.
  *   - trust_prompt fragt nicht: CAMEL_CERT_TRUST_UNKNOWN wie dort der Vorgabezweig
- *     (812-814); Camel lehnt das Zertifikat ab (EDS camel-network-service.c:250-270),
+ *     (816-818); Camel lehnt das Zertifikat ab (EDS camel-network-service.c:250-270),
  *     das Banner meldet „Zertifikat nicht vertrauenswürdig“ (main.c).
+ *   - Fehler aus der Suche nach Zugangsdaten werden CAMEL_SERVICE_ERROR_CANT_AUTHENTICATE
+ *     wie in get_oauth2_access_token_sync (Banner „Anmeldung fehlgeschlagen“); ein
+ *     Misserfolg ohne Fehlermeldung bekommt eine.
+ *   - Meldungen deutsch wie alle msgids des Projekts (auch in get_oauth2_access_token_sync).
  *   - Ergebnis je Anmeldung im Log („angemeldet: <UID> <Mechanismus> <Ergebnis>“). */
 
 static CamelCertTrust
@@ -615,10 +625,20 @@ mail_session_try_credentials_sync (RevolutionMailSession *session,
 {
 	ENamedParameters *credentials = NULL;
 	gchar *credential_name = NULL;
+	GError *local_error = NULL;
 
 	if (!e_source_credentials_provider_lookup_sync (session->credentials_provider, source,
-		cancellable, &credentials, error))
+		cancellable, &credentials, &local_error)) {
+		/* Wie get_oauth2_access_token_sync: als Anmeldefehler, damit das Banner
+		 * „Anmeldung fehlgeschlagen“ zeigt (z. B. GOA-Passwort fehlt). */
+		if (local_error != NULL && !g_error_matches (local_error, G_IO_ERROR, G_IO_ERROR_CANCELLED)) {
+			local_error->domain = CAMEL_SERVICE_ERROR;
+			local_error->code = CAMEL_SERVICE_ERROR_CANT_AUTHENTICATE;
+		}
+		if (local_error != NULL)
+			g_propagate_error (error, local_error);
 		return CAMEL_AUTHENTICATION_ERROR;
+	}
 
 	if (e_source_has_extension (source, E_SOURCE_EXTENSION_AUTHENTICATION)) {
 		ESourceAuthentication *auth_extension;
@@ -726,7 +746,7 @@ mail_session_authenticate_sync (CamelSession *session,
 			g_set_error (
 				error, CAMEL_SERVICE_ERROR,
 				CAMEL_SERVICE_ERROR_CANT_AUTHENTICATE,
-				_("No data source found for UID “%s”"), uid);
+				_("Keine Datenquelle für UID „%s“"), uid);
 			return FALSE;
 		}
 
@@ -752,16 +772,16 @@ mail_session_authenticate_sync (CamelSession *session,
 		return FALSE;
 	}
 
-	if (result == CAMEL_AUTHENTICATION_REJECTED && mechanism != NULL)
+	if (result != CAMEL_AUTHENTICATION_ACCEPTED && mechanism != NULL)
 		g_set_error (
 			error, CAMEL_SERVICE_ERROR,
 			CAMEL_SERVICE_ERROR_CANT_AUTHENTICATE,
-			_("%s authentication failed"), mechanism);
-	else if (result == CAMEL_AUTHENTICATION_REJECTED)
+			_("Anmeldung mit %s fehlgeschlagen"), mechanism);
+	else if (result != CAMEL_AUTHENTICATION_ACCEPTED)
 		g_set_error_literal (
 			error, CAMEL_SERVICE_ERROR,
 			CAMEL_SERVICE_ERROR_CANT_AUTHENTICATE,
-			_("Password authentication failed"));
+			_("Anmeldung mit Passwort fehlgeschlagen"));
 
 	return (result == CAMEL_AUTHENTICATION_ACCEPTED);
 }

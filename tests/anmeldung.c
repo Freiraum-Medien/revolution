@@ -79,6 +79,21 @@ main (int    argc,
           continue;
         }
 
+      if (!CAMEL_IS_OFFLINE_STORE (service))
+        {
+          g_print ("kein Offline-Store: %s\n", argv[i]);
+          failures++;
+          continue;
+        }
+
+      /* Nur Stores mit Server und Port (imapx); microsoft365 hat keinen Host. */
+      if (certificate && g_strcmp0 (camel_service_get_provider (service)->protocol, "imapx") != 0)
+        {
+          g_print ("--zertifikat nur für imapx: %s\n", argv[i]);
+          failures++;
+          continue;
+        }
+
       settings = camel_service_ref_settings (service);
       if (user != NULL)
         camel_network_settings_set_user (CAMEL_NETWORK_SETTINGS (settings), user);

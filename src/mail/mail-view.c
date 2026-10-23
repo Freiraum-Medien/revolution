@@ -18,12 +18,15 @@
 
 #include "config.h"
 
+#include <string.h>
+
 #include <glib/gi18n.h>
 
 #include "composer/composer.h"
 #include "mail-account.h"
 #include "mail-folder.h"
 #include "mail-message.h"
+#include "mail-reader.h"
 #include "mail-view.h"
 
 struct _RevolutionMailView
@@ -72,6 +75,8 @@ struct _RevolutionMailView
   CamelFolder         *running_folder;
   gboolean             flags_saving;
   GCancellable        *cancellable;
+  GtkStack            *message_stack;
+  RevolutionMailReader *reader;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionMailView, revolution_mail_view, ADW_TYPE_BREAKPOINT_BIN)
@@ -475,6 +480,32 @@ merge_messages (RevolutionMailView *self,
     }
 }
 
+/* #354: Nur für Testläufe (Screenshots des Lesebereichs) wie REVOLUTION_FOLDER: die
+ * Umgebungsvariable REVOLUTION_MESSAGE=<Teil des Betreffs> wählt die erste passende Nachricht,
+ * sobald sie in der Liste steht und noch nichts gewählt ist. */
+static void
+select_message_from_env (RevolutionMailView *self)
+{
+  const char *wanted = g_getenv ("REVOLUTION_MESSAGE");
+  GListModel *model = G_LIST_MODEL (self->messages);
+
+  if (wanted == NULL || gtk_single_selection_get_selected_item (self->message_selection) != NULL)
+    return;
+
+  for (guint i = 0; i < g_list_model_get_n_items (model); i++)
+    {
+      g_autoptr (RevolutionMailMessage) message = g_list_model_get_item (model, i);
+      g_autofree char *subject = NULL;
+
+      g_object_get (message, "subject", &subject, NULL);
+      if (subject != NULL && strstr (subject, wanted) != NULL)
+        {
+          gtk_single_selection_set_selected (self->message_selection, i);
+          return;
+        }
+    }
+}
+
 /* Im UI-Thread: ein Block aus send_messages. Der erste Block eines Durchgangs ersetzt die
  * Liste, die übrigen hängen an; ein Server-Stand nach angezeigtem Cache kommt als ein Block
  * und wird abgeglichen (merge_messages). */
@@ -518,6 +549,8 @@ add_messages_block (gpointer data)
 
   gtk_stack_set_visible_child_name (self->list_stack,
                                     g_list_model_get_n_items (G_LIST_MODEL (self->messages)) > 0 ? "list" : "empty");
+
+  select_message_from_env (self);
 
   if (block->last)
     g_debug ("Nachrichten: %s %s %u (ungelesen %u, mit Vorschau %u) nach %.0f ms", self->loading,
@@ -1398,8 +1431,8 @@ update_message_actions (RevolutionMailView *self)
 /* Gelesen nach Verzögerung wie Evolution (schedule_timeout_mark_seen, e-mail-reader.c:3747-3777,
  * mail_reader_message_seen 4586-4598; GSettings mark-seen true, mark-seen-timeout 1500 ms,
  * org.gnome.evolution.mail.gschema.xml.in:424-438). Evolution startet den Timer, sobald die
- * Anzeige geladen ist (mail_reader_load_changed_cb, 3784-3801); bis zur Anzeige (#354) beim
- * Auswählen. */
+ * Anzeige geladen ist (mail_reader_load_changed_cb, 3784-3801); hier ebenso über das Signal „shown“
+ * des Lesebereichs (#354, mail-reader.c). */
 static gboolean
 on_mark_seen_timeout (gpointer user_data)
 {
@@ -1417,7 +1450,6 @@ static void
 watch_selected_message (RevolutionMailView *self)
 {
   RevolutionMailMessage *message = selected_message (self);
-  int timeout;
 
   /* GtkSingleSelection meldet dieselbe Auswahl erneut, wenn sich ihre Position ändert. */
   if (message == self->selected)
@@ -1429,8 +1461,17 @@ watch_selected_message (RevolutionMailView *self)
   if (message != NULL)
     self->selected_handler = g_signal_connect_swapped (message, "notify", G_CALLBACK (update_message_actions), self);
   update_message_actions (self);
+}
 
-  if (message == NULL || !revolution_mail_message_get_unread (message) ||
+/* #354: Anzeige der gewählten Nachricht fertig (RevolutionMailReader::shown): Gelesen-Timer starten,
+ * wie Evolution erst nach dem Laden (mail_reader_load_changed_cb, e-mail-reader.c:3784-3801). */
+static void
+on_reader_shown (RevolutionMailView *self)
+{
+  RevolutionMailMessage *message = self->selected;
+  int timeout;
+
+  if (message == NULL || self->seen_id != 0 || !revolution_mail_message_get_unread (message) ||
       !g_settings_get_boolean (self->settings, "mark-seen"))
     return;
 
@@ -1721,6 +1762,24 @@ on_folder_selected (RevolutionMailView *self)
   g_task_run_in_thread (task, load_messages_thread);
 }
 
+/* #354: Auswahl in der Liste zeigt die Nachricht im Lesebereich (mail-reader.c), ohne
+ * Auswahl den Leerzustand. Ein Abgleich, der den Eintrag behält, löst nichts aus. */
+static void
+on_message_selected (RevolutionMailView *self)
+{
+  RevolutionMailMessage *message = gtk_single_selection_get_selected_item (self->message_selection);
+
+  if (message == NULL || self->folder == NULL || self->session == NULL)
+    {
+      revolution_mail_reader_clear (self->reader);
+      gtk_stack_set_visible_child_name (self->message_stack, "empty");
+      return;
+    }
+
+  gtk_stack_set_visible_child_name (self->message_stack, "content");
+  revolution_mail_reader_show (self->reader, self->session, self->folder, message);
+}
+
 /* #352: Nur für Testläufe (tests/nachrichtenliste.sh) wie REVOLUTION_THEME (main.c):
  * REVOLUTION_FRAME_LOG=1 schreibt je Frame des Fensters die Dauer von flush-events bzw.
  * before-paint bis after-paint (Ereignisse, Layout, Zeichnen; GdkFrameClock-Phasen) ins
@@ -1857,6 +1916,7 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   g_type_ensure (REVOLUTION_TYPE_MAIL_ACCOUNT);
   g_type_ensure (REVOLUTION_TYPE_MAIL_FOLDER);
   g_type_ensure (REVOLUTION_TYPE_MAIL_MESSAGE);
+  g_type_ensure (REVOLUTION_TYPE_MAIL_READER);
 
   gtk_widget_class_set_template_from_resource (widget_class, "/de/freiraum_medien/Revolution/mail-view.ui");
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, folder_selection);
@@ -1872,6 +1932,8 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, search_button);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, split);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, row_menu);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, message_stack);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, reader);
   gtk_widget_class_bind_template_callback (widget_class, on_search_toggled);
   gtk_widget_class_bind_template_callback (widget_class, on_row_secondary_click);
   gtk_widget_class_bind_template_callback (widget_class, on_row_swipe);
@@ -1910,6 +1972,8 @@ revolution_mail_view_init (RevolutionMailView *self)
   /* #352: Nachrichten des gewählten Ordners (on_folder_selected). */
   self->messages = g_list_store_new (REVOLUTION_TYPE_MAIL_MESSAGE);
   gtk_single_selection_set_model (self->message_selection, G_LIST_MODEL (self->messages));
+  g_signal_connect_object (self->message_selection, "notify::selected-item", G_CALLBACK (on_message_selected),
+                           self, G_CONNECT_SWAPPED);
   if (g_getenv ("REVOLUTION_FRAME_LOG") != NULL)
     g_signal_connect_object (self->message_list, "realize", G_CALLBACK (on_message_list_realize), self,
                              G_CONNECT_SWAPPED);
@@ -1931,6 +1995,7 @@ revolution_mail_view_init (RevolutionMailView *self)
   self->message_actions = G_ACTION_MAP (message_group);
   gtk_widget_insert_action_group (GTK_WIDGET (self), "message", G_ACTION_GROUP (message_group));
   update_message_actions (self);
+  g_signal_connect_object (self->reader, "shown", G_CALLBACK (on_reader_shown), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (self->message_selection, "notify::selected-item", G_CALLBACK (watch_selected_message),
                            self, G_CONNECT_SWAPPED);
   self->row_popover = gtk_popover_menu_new_from_model (self->row_menu);

@@ -112,82 +112,6 @@ on_startup (GtkApplication *app,
     g_action_change_state (action, g_variant_new_string (theme));
 }
 
-/* #347: Ein Banner für alle Fehler (Architektur-Festlegung 3), gesammelt an der
- * Mail-Ansicht: Titel nach der häufigsten Fehlerart (bei Gleichstand die erste), je
- * Fehler eine Zeile im Tooltip. Frühere Fehler (z. B. „Datenordner fehlt“) bleiben im
- * Tooltip erhalten, statt überschrieben zu werden. */
-typedef struct
-{
-  const char *title;
-  guint count;
-  gboolean per_account;
-} BannerKind;
-
-typedef struct
-{
-  GString *details;
-  GArray *kinds;
-} BannerErrors;
-
-static void
-banner_errors_free (BannerErrors *errors)
-{
-  g_string_free (errors->details, TRUE);
-  g_array_unref (errors->kinds);
-  g_free (errors);
-}
-
-/* title: statische Zeichenkette (Ergebnis von _()); per_account: Fehler zählen als Konten. */
-static void
-show_banner_error (RevolutionMailView *mail_view,
-                   const char         *title,
-                   const char         *detail,
-                   gboolean            per_account)
-{
-  BannerErrors *errors = g_object_get_data (G_OBJECT (mail_view), "banner-errors");
-  g_autofree char *shown = NULL;
-  BannerKind *best = NULL;
-  guint i;
-
-  if (errors == NULL)
-    {
-      errors = g_new0 (BannerErrors, 1);
-      errors->details = g_string_new (NULL);
-      errors->kinds = g_array_new (FALSE, TRUE, sizeof (BannerKind));
-      g_object_set_data_full (G_OBJECT (mail_view), "banner-errors", errors,
-                              (GDestroyNotify) banner_errors_free);
-    }
-  else
-    g_string_append_c (errors->details, '\n');
-
-  g_string_append (errors->details, detail);
-
-  for (i = 0; i < errors->kinds->len; i++)
-    if (g_strcmp0 (g_array_index (errors->kinds, BannerKind, i).title, title) == 0)
-      break;
-  if (i == errors->kinds->len)
-    {
-      BannerKind kind = { title, 0, per_account };
-
-      g_array_append_val (errors->kinds, kind);
-    }
-  g_array_index (errors->kinds, BannerKind, i).count++;
-
-  for (i = 0; i < errors->kinds->len; i++)
-    if (best == NULL || g_array_index (errors->kinds, BannerKind, i).count > best->count)
-      best = &g_array_index (errors->kinds, BannerKind, i);
-
-  if (best->per_account && best->count > 1)
-    /* Translators: Titel des Fehlerbanners, z. B. „Keine Verbindung (7 Konten)“:
-     * Fehlerart und Zahl der Konten mit dieser Fehlerart. */
-    shown = g_strdup_printf (ngettext ("%s (%u Konto)", "%s (%u Konten)", best->count),
-                             best->title, best->count);
-  else
-    shown = g_strdup (best->title);
-
-  revolution_mail_view_show_error (mail_view, shown, errors->details->str);
-}
-
 /* #343: eigene Verzeichnisse getrennt von Evolution (CLAUDE.md Architektur-Festlegung 4),
  * angelegt wie e_get_user_data_dir/e_get_user_cache_dir (EDS e-data-server-util.c:70-135,
  * g_mkdir_with_parents 0700) und Stamp (stamp-helper.c:46-58). Beide Profile nutzen
@@ -210,7 +134,7 @@ create_user_dirs (RevolutionMailView *mail_view)
 
       message = g_strdup_printf (_("Ordner „%s“ konnte nicht angelegt werden: %s"), dir, g_strerror (errno));
       g_warning ("%s", message);
-      show_banner_error (mail_view, _("Datenordner fehlt"), message, FALSE);
+      revolution_mail_view_show_error (mail_view, _("Datenordner fehlt"), message, FALSE);
     }
 }
 
@@ -357,7 +281,7 @@ on_store_noted (GObject      *source_object,
         title = _("Keine Verbindung");
 
       detail = g_strdup_printf ("%s: %s", display_name, error->message);
-      show_banner_error (mail_view, title, detail, TRUE);
+      revolution_mail_view_show_error (mail_view, title, detail, TRUE);
     }
   else if (CAMEL_IS_OFFLINE_STORE (service))
     g_debug ("verbunden: %s", camel_service_get_uid (service));
@@ -368,7 +292,7 @@ on_store_noted (GObject      *source_object,
     {
       g_warning ("Ordner %s (%s): %s", display_name, camel_service_get_uid (service), noted->folders_error->message);
       detail = g_strdup_printf ("%s: %s", display_name, noted->folders_error->message);
-      show_banner_error (mail_view, _("Ordner nicht geladen"), detail, TRUE);
+      revolution_mail_view_show_error (mail_view, _("Ordner nicht geladen"), detail, TRUE);
     }
   else
     g_debug ("Ordner: %s nicht geladen: %s", camel_service_get_uid (service), noted->folders_error->message);
@@ -388,7 +312,7 @@ note_stores (RevolutionMailSession *session,
   GCancellable *cancellable = g_object_get_data (G_OBJECT (session), "cancellable");
 
   for (guint i = 0; errors[i] != NULL; i++)
-    show_banner_error (mail_view, _("Konto nicht eingerichtet"), errors[i], TRUE);
+    revolution_mail_view_show_error (mail_view, _("Konto nicht eingerichtet"), errors[i], TRUE);
 
   for (GList *l = services; l != NULL; l = l->next)
     {
@@ -424,6 +348,7 @@ on_session_loaded (GObject      *source_object,
   g_signal_connect_object (source_object, "shutdown", G_CALLBACK (g_cancellable_cancel), cancellable, G_CONNECT_SWAPPED);
   g_object_set_data_full (G_OBJECT (session), "cancellable", g_object_ref (cancellable), g_object_unref);
 
+  revolution_mail_view_set_session (mail_view, CAMEL_SESSION (session));
   g_signal_connect_object (session, "services-changed", G_CALLBACK (note_stores), mail_view, G_CONNECT_DEFAULT);
   note_stores (session, mail_view);
 }
@@ -463,7 +388,7 @@ on_registry_loaded (GObject      *source_object,
 
   message = g_strdup_printf (_("Konten konnten nicht geladen werden: %s"), error->message);
   g_warning ("%s", message);
-  show_banner_error (mail_view, _("Konten nicht verfügbar"), message, FALSE);
+  revolution_mail_view_show_error (mail_view, _("Konten nicht verfügbar"), message, FALSE);
 }
 
 static void

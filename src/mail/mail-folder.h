@@ -18,6 +18,7 @@ G_DECLARE_FINAL_TYPE (RevolutionMailFolder, revolution_mail_folder, REVOLUTION, 
 
 const char *revolution_mail_folder_get_full_name (RevolutionMailFolder  *self);
 GListModel *revolution_mail_folder_get_children  (RevolutionMailFolder  *self);
+guint32     revolution_mail_folder_get_flags     (RevolutionMailFolder  *self);
 guint       revolution_mail_folder_append_tree   (GListStore            *store,
                                                   CamelFolderInfo       *first,
                                                   RevolutionMailAccount *account);

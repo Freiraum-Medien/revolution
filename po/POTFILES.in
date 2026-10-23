@@ -3,6 +3,8 @@ data/de.freiraum_medien.Revolution.metainfo.xml.in.in
 data/de.freiraum_medien.Revolution.gschema.xml
 src/main.c
 src/mail/mail-folder.c
+src/mail/mail-message.c
+src/mail/mail-view.c
 src/mail/mail-session.c
 src/window.blp
 src/composer/composer.blp

@@ -183,6 +183,7 @@ ANZEIGE = [
     ('anzeige-latin1', PREFIX + ' Anzeige Text ISO-8859-1: Grüße aus Köln'),
     ('anzeige-cid', PREFIX + ' Anzeige Inline-Bild (cid)'),
     ('anzeige-remote', PREFIX + ' Anzeige Remote-Inhalte (Tracking-Pixel)'),
+    ('anzeige-dunkel', PREFIX + ' Anzeige HTML mit Dunkel-Fassung'),
 ]
 REMOTE_HOST = 'https://upload.wikimedia.org'
 
@@ -219,6 +220,30 @@ def anzeige_html():
             % (zeilen, absatz * 3, absatz * 3))
 
 
+def anzeige_dunkel_html():
+    """#354 Nacharbeit: Mail mit vollständiger eigener Dunkel-Fassung (meta color-scheme „light dark“,
+    Medienabfrage setzt Hintergrund und Schrift) und einem Link mit ping-Attribut (Hyperlink-Auditing)."""
+    return ('<!DOCTYPE html><html><head><meta charset="utf-8">'
+            '<meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark">'
+            '<style>body{font-family:sans-serif;margin:0;background:#ffffff;color:#1d1d1d}'
+            '.rahmen{max-width:640px;margin:0 auto;padding:32px 40px}'
+            '.marke{color:#0b7fab;font-size:22px;font-weight:bold}'
+            '.box{background:#eef5f9;border-radius:10px;padding:14px 22px;margin:20px 0}'
+            '.knopf{display:inline-block;background:#0b7fab;color:#fff;padding:12px 24px;border-radius:4px;'
+            'text-decoration:none;font-weight:bold}'
+            '.hinweis{color:#666;font-size:12px}'
+            '@media (prefers-color-scheme: dark){body{background:#10222c;color:#e8eef2}.marke{color:#5cc8f0}'
+            '.box{background:#1d3340;color:#e8eef2}.hinweis{color:#9fb3bf}}'
+            '</style></head><body><div class="rahmen">'
+            '<div class="marke">Stadtwerke Lindenau</div>'
+            '<h1>Abschlag ab Januar</h1>'
+            '<p>Diese Mail hat eine eigene Dunkel-Fassung (Hintergrund #10222c). Helle Fassung: weiß.</p>'
+            '<div class="box">Neuer Abschlag ab Januar: <b>72,00 € monatlich</b></div>'
+            '<p><a class="knopf" href="https://www.gnome.org/" ping="%s/revolution-ping">Zum Kundenportal</a></p>'
+            '<p class="hinweis">Testmail für Revolution #354 (eigene Dunkel-Fassung, Link mit ping).</p>'
+            '</div></body></html>\n' % REMOTE_HOST)
+
+
 def anzeige_nachricht(key, betreff):
     m = EmailMessage(policy=email.policy.SMTP)
     if key == 'anzeige-html':
@@ -238,6 +263,9 @@ def anzeige_nachricht(key, betreff):
                           subtype='html')
         m.get_payload()[1].add_related(png_bytes(), maintype='image', subtype='png',
                                        cid='<revolution-bild@example.invalid>', filename='bild.png')
+    elif key == 'anzeige-dunkel':
+        m.set_content('Abschlag ab Januar (Textfassung).\n')
+        m.add_alternative(anzeige_dunkel_html(), subtype='html')
     elif key == 'anzeige-remote':
         h = REMOTE_HOST
         m.set_content('Remote-Inhalte nur in der HTML-Fassung.\n')

@@ -71,8 +71,11 @@ struct _RevolutionMailReader
   struct _LoadMessage *pending;
   GHashTable     *parts;
   char           *html;
+  char           *html_light;
+  gboolean        own_dark;
   GuardState      guard;
   gboolean        dark;
+  gboolean        ua_dark;
   GtkRoot        *root;
 };
 
@@ -105,7 +108,10 @@ typedef struct _LoadMessage
   gint64        started;
   /* Ergebnis (Worker) */
   char         *html;
+  char         *html_light;
   gboolean      is_html;
+  gboolean      own_dark;
+  guint         scheme_queries;
   GHashTable   *parts;
   char         *to_short;
   char         *to_full;
@@ -122,6 +128,7 @@ load_message_free (LoadMessage *load)
   g_free (load->full_name);
   g_free (load->message_uid);
   g_free (load->html);
+  g_free (load->html_light);
   g_clear_pointer (&load->parts, g_hash_table_unref);
   g_free (load->to_short);
   g_free (load->to_full);
@@ -130,8 +137,10 @@ load_message_free (LoadMessage *load)
   g_free (load);
 }
 
-/* Übernommen aus Evolution em-format/e-mail-formatter.c:1087-1162 (e_mail_formatter_format_text,
- * LGPL): Inhalt eines Teils dekodieren (Transfer-Encoding) und, wenn to_utf8, aus dem
+/* Übernommen aus Evolution em-format/e-mail-formatter.c:1087-1162 (e_mail_formatter_format_text).
+ * Lizenz: Dateikopf „GNU Lesser General Public License“ ohne Versionsangabe (e-mail-formatter.c:4-6),
+ * Evolution COPYING:1-4 „LGPLv2 or (at your choice) LGPLv3“; LGPL erlaubt die Weitergabe unter
+ * GPL-3.0-or-later. Inhalt eines Teils dekodieren (Transfer-Encoding) und, wenn to_utf8, aus dem
  * Zeichensatz des Teils nach UTF-8 wandeln. „iso-8859-*“ prüft vorher wie Evolution, ob es
  * eigentlich windows-125x ist (camel_mime_filter_windows). Ohne Zeichensatz bleiben die Bytes
  * unverändert (Evolution: Vorgabe „charset“ leer, org.gnome.evolution.mail.gschema.xml.in:385).
@@ -398,6 +407,92 @@ format_address (CamelInternetAddress *address)
   return text != NULL ? text : g_strdup ("");
 }
 
+/* Krücke: WebKitGTK 2.52.6 setzt prefers-color-scheme fensterweit nach GtkSettings
+ * gtk-application-prefer-dark-theme, keine API je WebView (Beleg: strings libwebkitgtk-6.0.so.4 kennt
+ * nur „notify::gtk-application-prefer-dark-theme“ und „notify::gtk-theme-name“; Testprogramm mit
+ * prefer-dark: matchMedia('(prefers-color-scheme: dark)') = true, auch mit <meta name="color-scheme"
+ * content="light only">). In den Themes 2/3 (App dunkel) griffe daher in jeder Mail ihr Dunkel-CSS.
+ * Abhilfe (PM #354, aus Dokument #5 „HTML behält eigenen Hintergrund“): eine zweite Fassung, in der
+ * „prefers-color-scheme: dark“ und „light“ getauscht sind, nur in <style>-Elementen und
+ * media-Attributen (link, style, source); unter dunkler Oberfläche greifen so die hellen Regeln. */
+static GRegex *
+scheme_regex (guint which)
+{
+  static GRegex *regex[3];
+  static const char *patterns[3] = {
+    /* Bereiche: <style>…</style> und media="…" */
+    "<style\\b[^>]*>.*?</style\\s*>|\\bmedia\\s*=\\s*(?:\"[^\"]*\"|'[^']*'|[^\\s>]+)",
+    /* Medienabfrage selbst */
+    "(prefers-color-scheme\\s*:\\s*)(dark|light)\\b",
+    /* Die Mail erklärt eine Dunkel-Fassung: color-scheme bzw. supported-color-schemes mit „dark“ als
+     * <meta> oder CSS-Eigenschaft (CSS Color Adjustment 1 „color-scheme“; ohne Angabe gilt eine
+     * Seite als nur hell). Nicht „prefers-color-scheme“ (Lookbehind). */
+    "<meta\\b[^>]*\\b(?:supported-)?color-schemes?\\b[^>]*\\bdark\\b[^>]*>"
+    "|(?<![-\\w])(?:supported-)?color-schemes?\\s*:[^;}<\"]*\\bdark\\b",
+  };
+  static gsize done;
+
+  if (g_once_init_enter (&done))
+    {
+      for (guint i = 0; i < G_N_ELEMENTS (regex); i++)
+        regex[i] = g_regex_new (patterns[i], G_REGEX_CASELESS | G_REGEX_DOTALL | G_REGEX_OPTIMIZE, 0, NULL);
+      g_once_init_leave (&done, 1);
+    }
+
+  return regex[which];
+}
+
+typedef struct
+{
+  guint dark;
+  guint total;
+} SchemeCount;
+
+static gboolean
+swap_scheme (const GMatchInfo *info,
+             GString          *result,
+             gpointer          user_data)
+{
+  SchemeCount *count = user_data;
+  g_autofree char *prefix = g_match_info_fetch (info, 1);
+  g_autofree char *value = g_match_info_fetch (info, 2);
+  gboolean dark = g_ascii_strcasecmp (value, "dark") == 0;
+
+  count->total++;
+  count->dark += dark;
+  g_string_append (result, prefix);
+  g_string_append (result, dark ? "light" : "dark");
+
+  return FALSE;
+}
+
+static gboolean
+swap_region (const GMatchInfo *info,
+             GString          *result,
+             gpointer          user_data)
+{
+  g_autofree char *region = g_match_info_fetch (info, 0);
+  g_autofree char *swapped = g_regex_replace_eval (scheme_regex (1), region, -1, 0, 0, swap_scheme, user_data, NULL);
+
+  g_string_append (result, swapped != NULL ? swapped : region);
+
+  return FALSE;
+}
+
+/* Im Worker: helle Fassung (NULL ohne Medienabfrage) und ob die Mail eine eigene Dunkel-Fassung hat
+ * (Medienabfrage „dark“ und color-scheme mit „dark“). */
+static void
+prepare_schemes (LoadMessage *load)
+{
+  SchemeCount count = { 0 };
+  g_autofree char *swapped = g_regex_replace_eval (scheme_regex (0), load->html, -1, 0, 0, swap_region, &count, NULL);
+
+  load->scheme_queries = count.total;
+  if (count.total > 0 && swapped != NULL)
+    load->html_light = g_steal_pointer (&swapped);
+  load->own_dark = count.dark > 0 && g_regex_match (scheme_regex (2), load->html, 0, NULL);
+}
+
 static void
 load_message_thread (GTask        *task,
                      gpointer      source_object G_GNUC_UNUSED,
@@ -452,6 +547,8 @@ load_message_thread (GTask        *task,
   load->is_html = collect.html;
   load->html = g_string_free (collect.body, FALSE);
   load->parts = collect.parts;
+  if (load->is_html)
+    prepare_schemes (load);
 
   if (g_task_return_error_if_cancelled (task))
     return;
@@ -467,8 +564,8 @@ load_message_thread (GTask        *task,
 static const char BASE_CSS[] =
   "body { margin: 14px 18px; } .revolution-plain { font-family: monospace; overflow-wrap: anywhere; }";
 static const char LIGHT_CSS[] = ":root { color-scheme: light only !important; }";
-/* Dunkel (Theme 3, Design/Prototyp/theme-dunkel-mail.png: Farben der Mail bleiben erkennbar, Flächen
- * dunkel): Seite hell gerechnet, dann invertiert und um 180° im Farbton gedreht, sodass Farbtöne
+/* Dunkel (Theme 3) für Mails ohne eigene Dunkel-Fassung (Design/Prototyp/theme-dunkel-mail.png:
+ * Farben der Mail bleiben erkennbar, Flächen dunkel): helle Fassung der Seite, dann invertiert und um 180° im Farbton gedreht, sodass Farbtöne
  * erhalten bleiben; Bilder zurückgedreht. Seitenhintergrund durchsichtig, damit die dunkle Karte
  * durchscheint. Abweichung von Stamp stamp-webview.c:174-184 (alle Farben auf „inherit“): dort
  * verschwanden im ersten Lauf Akzentfarben, Zitatfarbe und Hinterlegungen. */
@@ -481,10 +578,11 @@ static void
 apply_styles (RevolutionMailReader *self)
 {
   WebKitUserContentManager *manager = webkit_web_view_get_user_content_manager (self->web_view);
-  const char *sheets[] = { BASE_CSS, self->dark ? DARK_CSS : LIGHT_CSS };
+  /* Theme 3 mit eigener Dunkel-Fassung der Mail: diese unverändert (eigener Hintergrund). */
+  const char *sheets[] = { BASE_CSS, self->dark ? (self->own_dark ? NULL : DARK_CSS) : LIGHT_CSS };
 
   webkit_user_content_manager_remove_all_style_sheets (manager);
-  for (gsize i = 0; i < G_N_ELEMENTS (sheets); i++)
+  for (gsize i = 0; i < G_N_ELEMENTS (sheets) && sheets[i] != NULL; i++)
     {
       g_autoptr (WebKitUserStyleSheet) sheet =
         webkit_user_style_sheet_new (sheets[i], WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
@@ -494,7 +592,10 @@ apply_styles (RevolutionMailReader *self)
     }
 }
 
-/* Themes (#340, main.c apply_content_class): nur „Dunkel“ setzt .content-dark am Fenster. */
+static void show_html (RevolutionMailReader *self);
+
+/* Themes (#340, main.c apply_content_class): nur „Dunkel“ setzt .content-dark am Fenster. Ein
+ * Wechsel lädt die angezeigte Mail neu (andere Fassung, andere Stile). */
 static void
 on_root_classes (RevolutionMailReader *self)
 {
@@ -505,6 +606,20 @@ on_root_classes (RevolutionMailReader *self)
 
   self->dark = dark;
   apply_styles (self);
+  show_html (self);
+}
+
+/* Theme-Wechsel hell ↔ dunkel (AdwStyleManager:dark, main.c change_theme): Fassung neu wählen. */
+static void
+on_ua_dark_changed (RevolutionMailReader *self)
+{
+  gboolean dark = adw_style_manager_get_dark (adw_style_manager_get_default ());
+
+  if (dark == self->ua_dark)
+    return;
+
+  self->ua_dark = dark;
+  show_html (self);
 }
 
 static void
@@ -521,14 +636,28 @@ show_error (RevolutionMailReader *self,
 
 static void guard_page (RevolutionMailReader *self);
 
+/* Fassung je Theme (PM #354): Theme 1 (Oberfläche hell) die Mail unverändert; Themes 2/3 die helle
+ * Fassung (prepare_schemes), außer Theme 3 bei eigener Dunkel-Fassung der Mail. */
 static void
 show_html (RevolutionMailReader *self)
 {
-  if (self->html == NULL)
+  const char *html = self->html;
+
+  if (html == NULL)
     return;
 
+  if (self->ua_dark && self->html_light != NULL && !(self->dark && self->own_dark))
+    html = self->html_light;
+
+  /* Nach fehlgeschlagener Bestätigung neu versuchen, mit neuem Webprozess. */
+  if (self->guard == GUARD_FAILED)
+    {
+      self->guard = GUARD_NONE;
+      webkit_web_view_terminate_web_process (self->web_view);
+    }
+
   if (self->guard == GUARD_OK)
-    webkit_web_view_load_html (self->web_view, self->html, NULL);
+    webkit_web_view_load_html (self->web_view, html, NULL);
   else
     guard_page (self);
 }
@@ -917,16 +1046,25 @@ on_message_loaded (GObject      *source_object,
       return;
     }
 
-  g_debug ("Nachricht: %s %s %s geladen nach %.0f ms (%s, %zu Bytes, %u Teile mit Content-ID)",
+  g_debug ("Nachricht: %s %s %s geladen nach %.0f ms (%s, %zu Bytes, %u Teile mit Content-ID, "
+           "%u Abfragen prefers-color-scheme, eigene Dunkel-Fassung %s)",
            load->account_uid, load->full_name, load->message_uid,
            (g_get_monotonic_time () - load->started) / 1000.0, load->is_html ? "HTML" : "Text",
-           strlen (load->html), g_hash_table_size (load->parts));
+           strlen (load->html), g_hash_table_size (load->parts), load->scheme_queries,
+           load->own_dark ? "ja" : "nein");
 
   set_header (self, load);
   g_clear_pointer (&self->parts, g_hash_table_unref);
   self->parts = g_steal_pointer (&load->parts);
   g_free (self->html);
   self->html = g_steal_pointer (&load->html);
+  g_free (self->html_light);
+  self->html_light = g_steal_pointer (&load->html_light);
+  if (self->own_dark != load->own_dark)
+    {
+      self->own_dark = load->own_dark;
+      apply_styles (self);
+    }
   show_html (self);
 }
 
@@ -978,6 +1116,7 @@ revolution_mail_reader_dispose (GObject *object)
   gtk_widget_dispose_template (GTK_WIDGET (self), REVOLUTION_TYPE_MAIL_READER);
   g_clear_pointer (&self->parts, g_hash_table_unref);
   g_clear_pointer (&self->html, g_free);
+  g_clear_pointer (&self->html_light, g_free);
 
   G_OBJECT_CLASS (revolution_mail_reader_parent_class)->dispose (object);
 }
@@ -1017,6 +1156,9 @@ revolution_mail_reader_init (RevolutionMailReader *self)
 
   self->web_view = create_web_view (self);
   gtk_overlay_set_child (self->content_overlay, GTK_WIDGET (self->web_view));
+  self->ua_dark = adw_style_manager_get_dark (adw_style_manager_get_default ());
+  g_signal_connect_object (adw_style_manager_get_default (), "notify::dark", G_CALLBACK (on_ua_dark_changed), self,
+                           G_CONNECT_SWAPPED);
   apply_styles (self);
   if (g_application_get_default () != NULL)
     g_signal_connect_object (g_application_get_default (), "shutdown", G_CALLBACK (on_application_shutdown), self,
@@ -1097,6 +1239,7 @@ revolution_mail_reader_clear (RevolutionMailReader *self)
   g_cancellable_cancel (self->cancellable);
   g_clear_object (&self->cancellable);
   g_clear_pointer (&self->html, g_free);
+  g_clear_pointer (&self->html_light, g_free);
   g_clear_pointer (&self->parts, g_hash_table_unref);
   gtk_widget_set_visible (GTK_WIDGET (self->spinner), FALSE);
 

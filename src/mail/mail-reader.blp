@@ -89,7 +89,8 @@ template $RevolutionMailReader: Adw.Bin {
         }
       }
 
-      Box {
+      // #357: in der Konversation ausgeblendet (revolution_mail_reader_set_compact).
+      Box sender_row {
         spacing: 6;
 
         layout {
@@ -343,7 +344,8 @@ template $RevolutionMailReader: Adw.Bin {
 
     // HTML-Mail: eigener Hintergrund (style.css .html-mail, Themes #340). Die WebView setzt
     // mail-reader.c als Kind des Overlays ein; der Kreisel zeigt das Laden aus dem Worker.
-    Adw.Bin {
+    // #357: in der Konversation nicht ausgedehnt, Höhe nach dem Inhalt (mail-reader.c fit_content).
+    Adw.Bin content_card {
       vexpand: true;
       overflow: hidden;
       margin-start: 12;

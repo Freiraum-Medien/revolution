@@ -1,5 +1,5 @@
 blueprints = []
-foreach blp : ['window.blp', 'mail/mail-view.blp', 'mail/mail-reader.blp', 'mail/mail-attachment.blp', 'composer/composer.blp', 'contacts/contacts-view.blp', 'calendar/calendar-view.blp']
+foreach blp : ['window.blp', 'mail/mail-view.blp', 'mail/mail-reader.blp', 'mail/mail-conversation.blp', 'mail/mail-attachment.blp', 'composer/composer.blp', 'contacts/contacts-view.blp', 'calendar/calendar-view.blp']
   blueprints += custom_target(
     input: blp,
     output: '@BASENAME@.ui',
@@ -20,11 +20,13 @@ executable('revolution',
   'composer/composer.c',
   'mail/mail-account.c',
   'mail/mail-attachment.c',
+  'mail/mail-conversation.c',
   'mail/mail-favorites.c',
   'mail/mail-folder.c',
   'mail/mail-message.c',
   'mail/mail-reader.c',
   'mail/mail-session.c',
+  'mail/mail-thread.c',
   'mail/mail-view.c',
   'contacts/contacts-sample.c',
   'contacts/contacts-view.c',

@@ -11,6 +11,9 @@
 #include <camel/camel.h>
 #include <libedataserver/libedataserver.h>
 
+#include "mail-folder.h"
+#include "mail-message.h"
+
 G_BEGIN_DECLS
 
 #define REVOLUTION_TYPE_MAIL_VIEW (revolution_mail_view_get_type ())
@@ -38,5 +41,7 @@ void revolution_mail_view_update_folders (RevolutionMailView *self,
                                           CamelFolderInfo    *info);
 void revolution_mail_view_refresh_account (RevolutionMailView *self,
                                            const char         *uid);
+RevolutionMailFolder *revolution_mail_view_find_place (RevolutionMailView    *self,
+                                                       RevolutionMailMessage *message);
 
 G_END_DECLS

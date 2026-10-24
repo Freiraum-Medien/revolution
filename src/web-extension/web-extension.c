@@ -105,6 +105,35 @@ on_user_message_received (WebKitWebPage     *page,
       return TRUE;
     }
 
+  /* #357: Höhe des Inhalts für die Konversation (mail-reader.c fit_content), mit der Adresse der Ladung,
+   * damit die App nur die aktuelle übernimmt. Gemessen über JavaScriptCore der Erweiterung; der Seite
+   * selbst bleibt JavaScript verboten (enable-javascript aus, mail-reader.c create_settings): so laufen
+   * nur diese Zeilen, keine Skripte der Mail (geprüft: Seite mit <script> ohne Wirkung, Messung geht).
+   * Seitenrahmen wie Stamp (extension.c:34-37, webkit_web_page_get_main_frame; das nicht veraltete
+   * WebKitScriptWorld::window-object-cleared kommt bei ausgeschaltetem JavaScript nicht). */
+  if (g_strcmp0 (name, "revolution-height") == 0)
+    {
+      const char *page_uri = webkit_web_page_get_uri (page);
+      g_autoptr (JSCContext) context = NULL;
+      g_autoptr (JSCValue) value = NULL;
+      WebKitFrame *frame;
+      int height = 0;
+
+      G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+      frame = webkit_web_page_get_main_frame (page);
+      G_GNUC_END_IGNORE_DEPRECATIONS
+      context = webkit_frame_get_js_context (frame);
+      value = jsc_context_evaluate (context,
+                                    "Math.ceil (Math.max (document.documentElement.getBoundingClientRect ().height,"
+                                    " document.body ? document.body.scrollHeight : 0))", -1);
+      if (value != NULL && jsc_value_is_number (value))
+        height = jsc_value_to_int32 (value);
+      webkit_user_message_send_reply (message, webkit_user_message_new (name, g_variant_new ("(si)",
+                                                                                            page_uri != NULL ? page_uri : "",
+                                                                                            height)));
+      return TRUE;
+    }
+
   if (g_strcmp0 (name, "revolution-guard") != 0)
     return FALSE;
 

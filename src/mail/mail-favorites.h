@@ -16,6 +16,8 @@ G_BEGIN_DECLS
 
 /* UID des CamelVeeStore in der Session und des Abschnitts „Favoriten“ der Seitenleiste. */
 #define REVOLUTION_MAIL_FAVORITES_UID "revolution-favoriten"
+/* Ausdruck-Teil: Gelöschte und Spam ausblenden (mail-favorites.c; #357 mail-thread.c). */
+#define REVOLUTION_MAIL_FAVORITES_VISIBLE "(not (or (system-flag \"Deleted\") (system-flag \"Junk\")))"
 
 gboolean revolution_mail_favorites_setup     (CamelSession          *session,
                                               GError               **error);

@@ -30,4 +30,11 @@ gboolean               revolution_mail_message_get_source  (RevolutionMailMessag
                                                             const char            **uid,
                                                             const char            **full_name);
 
+/* #357 Konversationen */
+RevolutionMailMessage *revolution_mail_message_new_conversation  (const char            *uid,
+                                                                  GPtrArray             *members,
+                                                                  gboolean               keep_account);
+GListModel            *revolution_mail_message_get_members       (RevolutionMailMessage *self);
+void                   revolution_mail_message_sync_conversation (RevolutionMailMessage *self);
+
 G_END_DECLS

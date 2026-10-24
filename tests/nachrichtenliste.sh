@@ -5,6 +5,9 @@
 #   BUILD         Build-Ordner, Standard build/ im Repo (vorher meson compile)
 #   LAST_ANZAHL   Mindestzahl Mails im Ordner Revolution-Last, Standard 3000
 #   LAST_TIMEOUT  Sekunden je App-Start bis zur vollständig geladenen Liste, Standard 300
+#   KONVERSATIONEN 1: Liste als Konversationen (#357, conversations=true per .gschema.override; Ordner
+#                 mit Gesendet von privat@ gemischt). Die Lastmails haben keine References, jede ist
+#                 eine eigene Konversation: Anzahl der Zeilen = Mails im Ordner wie flach.
 #
 # Vorher: tests/testdaten.py --last LAST_ANZAHL ergänzt fehlende Lastmails (APPEND, idempotent)
 # und nennt Konto-UID und Ordner. Dann zwei App-Starts über scripts/screenshot.sh (eigener Xvfb,
@@ -74,7 +77,8 @@ fi
 SCHEMA="$OUT/schema"
 mkdir -p "$SCHEMA"
 cp "$APP_DIR/data/"*.gschema.xml "$SCHEMA/"
-printf '[de.freiraum_medien.Revolution]\nmark-seen=false\n' >"$SCHEMA/90_test.gschema.override"
+printf '[de.freiraum_medien.Revolution]\nmark-seen=false\n%s' "$([ "${KONVERSATIONEN:-0}" = 1 ] && printf 'conversations=true\n')" \
+  >"$SCHEMA/90_test.gschema.override"
 glib-compile-schemas --strict "$SCHEMA" || { fehler "Schema: glib-compile-schemas $SCHEMA"; exit 1; }
 td --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last >"$OUT/ungelesen-vorher.txt" 2>&1 \
   || { abbruch_bilanz; echo "Ergebnis: $FEHLER Fehler (siehe $OUT/ungelesen-vorher.txt)"; exit 1; }
@@ -149,6 +153,7 @@ lauf () {
   voll="$(debug "$log" | sed -nE "s#^Nachrichten: $LOGNAME_ vollständig [0-9]+ nach (.*)\$#\1#p" | tail -1)"
   wert "$name Ladezeit: erste Zeile nach ${erste:-?}, vollständig nach ${voll:-?}"
   debug "$log" | grep -E "^Nachrichten: $LOGNAME_ (Cache|Server) " | sed "s/^/WERT    $name Durchgang: /"
+  debug "$log" | grep -E "^Konversationen: " | sed "s/^/WERT    $name /"
 
   # Frames (Log „Frame: …“) und Antwortzeiten des UI-Threads je Abschnitt, nach der Uhrzeit im Log:
   # Start (bis „lädt“), Laden (bis „vollständig“), danach (Ruhe bzw. Scrollen).

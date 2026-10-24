@@ -90,6 +90,12 @@ struct _RevolutionMailReader
   gboolean        remote_allowed;
   char           *sender;
   GSimpleActionGroup *actions;
+  /* #357: in der Konversation (mail-conversation.c): ohne eigenen Kopf, Höhe nach dem Inhalt. */
+  gboolean        compact;
+  int             fitted_width;
+  GtkWidget      *sender_row;
+  GtkWidget      *content_card;
+  AdwClamp       *fit_clamp;
 };
 
 /* „shown“: Inhalt der Nachricht fertig geladen (WEBKIT_LOAD_FINISHED); mail-view.c startet damit den
@@ -829,6 +835,7 @@ show_error (RevolutionMailReader *self,
 }
 
 static void guard_page (RevolutionMailReader *self);
+static void fit_content (RevolutionMailReader *self);
 
 /* Fassung je Theme (PM #354): Theme 1 (Oberfläche hell) die Mail unverändert; Themes 2/3 die helle
  * Fassung (prepare_schemes), außer Theme 3 bei eigener Dunkel-Fassung der Mail. */
@@ -955,6 +962,56 @@ guard_page (RevolutionMailReader *self)
   webkit_web_view_load_html (self->web_view, "<!DOCTYPE html><html></html>", NULL);
 }
 
+/* #357: In der Konversation stehen mehrere Nachrichten untereinander in einer scrollbaren Liste
+ * (mail-conversation.c); jede WebView bekommt die Höhe ihres Inhalts wie Stamp (stamp-webview.c:115-141
+ * Größe aus dem Webprozess, stamp-message-list-item.c:826-853 als Höhenwunsch). JavaScript bleibt für
+ * die Seite aus; die Höhe misst die Web-Process-Extension (web-extension.c, „revolution-height“) und
+ * nennt sie mit der Adresse der Ladung, damit nur die aktuelle zählt. Obergrenze wie Stamp
+ * (stamp-webview.c:109, 131-132: 8 Mio. Pixel), darüber scrollt die WebView selbst. Gemessen wird nach
+ * jeder fertigen Ladung (auch nach Freigabe entfernter Inhalte) und bei neuer Breite. */
+#define FIT_MAX_PIXELS (8 * 1024 * 1024)
+
+static void
+on_height_reply (GObject      *source,
+                 GAsyncResult *result,
+                 gpointer      user_data)
+{
+  g_autoptr (RevolutionMailReader) self = user_data;
+  g_autoptr (WebKitUserMessage) reply = webkit_web_view_send_message_to_page_finish (WEBKIT_WEB_VIEW (source), result, NULL);
+  GVariant *parameters = reply != NULL ? webkit_user_message_get_parameters (reply) : NULL;
+  const char *uri = NULL;
+  int height = 0, width;
+
+  if (parameters == NULL || !g_variant_is_of_type (parameters, G_VARIANT_TYPE ("(si)")))
+    return;
+
+  g_variant_get (parameters, "(&si)", &uri, &height);
+  if (g_strcmp0 (uri, self->load_uri) != 0 || height <= 0)
+    return;
+
+  width = MAX (gtk_widget_get_width (GTK_WIDGET (self->web_view)), 1);
+  height = MIN (height, FIT_MAX_PIXELS / width);
+  g_debug ("Nachricht: Höhe %d bei Breite %d (%s)", height, width, uri);
+  /* Mindesthöhe der WebView und Obergrenze ihrer natürlichen Höhe: WebKitGTK meldet als natürliche Höhe
+   * die Höhe des Inhalts einschließlich der bisherigen Ansicht, sie schrumpft daher nicht von selbst
+   * (gemessen: Karte 400 px bei Inhalt 43 px). */
+  adw_clamp_set_maximum_size (self->fit_clamp, height);
+  adw_clamp_set_tightening_threshold (self->fit_clamp, height);
+  gtk_widget_set_size_request (GTK_WIDGET (self->web_view), -1, height);
+}
+
+static void
+fit_content (RevolutionMailReader *self)
+{
+  if (!self->compact || self->load_uri == NULL || self->html == NULL)
+    return;
+
+  webkit_web_view_send_message_to_page (self->web_view,
+                                        webkit_user_message_new ("revolution-height",
+                                                                 g_variant_new_string (self->load_uri)),
+                                        NULL, on_height_reply, g_object_ref (self));
+}
+
 /* Unterbricht load_html eine laufende Ladung, meldet WebKitGTK 2.52.6 für die neue weder STARTED noch
  * COMMITTED, nur FINISHED (Prüf-Lauf #354 R3, p354/ladefolge3.py: „committed uri=…#A“, danach nur
  * „finished uri=…#B“). Daher sichtbar bei COMMITTED oder FINISHED, sofern die Adresse die der
@@ -972,6 +1029,7 @@ on_load_changed (RevolutionMailReader *self,
       if (event == WEBKIT_LOAD_FINISHED)
         {
           self->showing = FALSE;
+          fit_content (self);
           g_signal_emit (self, shown_signal, 0);
         }
       return;
@@ -1509,6 +1567,24 @@ on_message_loaded (GObject      *source_object,
 
 /* ------------------------------------------------------------------ Klasse */
 
+/* #357: neue Breite in der Konversation: Höhe neu messen (Umbruch ändert sich). */
+static void
+revolution_mail_reader_size_allocate (GtkWidget *widget,
+                                      int        width,
+                                      int        height,
+                                      int        baseline)
+{
+  RevolutionMailReader *self = REVOLUTION_MAIL_READER (widget);
+
+  GTK_WIDGET_CLASS (revolution_mail_reader_parent_class)->size_allocate (widget, width, height, baseline);
+
+  if (self->compact && width != self->fitted_width)
+    {
+      self->fitted_width = width;
+      fit_content (self);
+    }
+}
+
 static void
 revolution_mail_reader_root (GtkWidget *widget)
 {
@@ -1552,6 +1628,11 @@ revolution_mail_reader_dispose (GObject *object)
   g_clear_pointer (&self->pending, load_message_free);
   g_cancellable_cancel (self->cancellable);
   g_clear_object (&self->cancellable);
+  /* #357: Lesebereiche der Konversation verschwinden beim Zuklappen und vor dem Beenden der App
+   * (on_application_shutdown kommt dann nicht mehr an): Webprozess wie dort zuerst beenden, sonst meldet er
+   * „Error releasing name …WebProcess…“ (gemessen, build/m4-357/probe3.log). */
+  if (self->compact && self->web_view != NULL)
+    webkit_web_view_terminate_web_process (self->web_view);
   gtk_widget_dispose_template (GTK_WIDGET (self), REVOLUTION_TYPE_MAIL_READER);
   g_clear_pointer (&self->parts, g_hash_table_unref);
   g_clear_pointer (&self->html, g_free);
@@ -1572,6 +1653,7 @@ revolution_mail_reader_class_init (RevolutionMailReaderClass *klass)
   object_class->dispose = revolution_mail_reader_dispose;
   widget_class->root = revolution_mail_reader_root;
   widget_class->unroot = revolution_mail_reader_unroot;
+  widget_class->size_allocate = revolution_mail_reader_size_allocate;
 
   g_type_ensure (REVOLUTION_TYPE_MAIL_ATTACHMENT_BAR);
   shown_signal = g_signal_new ("shown", G_TYPE_FROM_CLASS (klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
@@ -1597,6 +1679,8 @@ revolution_mail_reader_class_init (RevolutionMailReaderClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, content_overlay);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, spinner);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, attachments);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, sender_row);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, content_card);
 }
 
 static void
@@ -1729,4 +1813,33 @@ revolution_mail_reader_clear (RevolutionMailReader *self)
   /* Alte Nachricht sofort ausblenden: WebView unsichtbar statt leere Seite laden (beim Blättern
    * lud sonst jeder Auswahlwechsel eine Seite, PM #354 Runde 2: Frames > 16,7 ms 3 → 12). */
   gtk_widget_set_visible (GTK_WIDGET (self->web_view), FALSE);
+}
+
+/* #357: Darstellung in der Konversation (mail-conversation.c): ohne Bild, Absender, Datum und Betreff
+ * (stehen im Kopf der Nachricht in der Konversation), Inhalt so hoch wie die Mail (fit_content). */
+void
+revolution_mail_reader_set_compact (RevolutionMailReader *self,
+                                    gboolean              compact)
+{
+  g_return_if_fail (REVOLUTION_IS_MAIL_READER (self));
+
+  self->compact = compact;
+  if (compact && self->fit_clamp == NULL)
+    {
+      g_autoptr (WebKitWebView) web_view = g_object_ref (self->web_view);
+
+      self->fit_clamp = ADW_CLAMP (adw_clamp_new ());
+      gtk_orientable_set_orientation (GTK_ORIENTABLE (self->fit_clamp), GTK_ORIENTATION_VERTICAL);
+      adw_clamp_set_unit (self->fit_clamp, ADW_LENGTH_UNIT_PX);
+      adw_clamp_set_maximum_size (self->fit_clamp, 1);
+      adw_clamp_set_tightening_threshold (self->fit_clamp, 1);
+      gtk_overlay_set_child (self->content_overlay, NULL);
+      adw_clamp_set_child (self->fit_clamp, GTK_WIDGET (web_view));
+      gtk_overlay_set_child (self->content_overlay, GTK_WIDGET (self->fit_clamp));
+    }
+  gtk_widget_set_visible (GTK_WIDGET (self->avatar), !compact);
+  gtk_widget_set_visible (self->sender_row, !compact);
+  gtk_widget_set_visible (GTK_WIDGET (self->subject_label), !compact);
+  gtk_widget_set_vexpand (self->content_card, !compact);
+  gtk_widget_set_size_request (self->content_card, -1, compact ? 48 : -1);
 }

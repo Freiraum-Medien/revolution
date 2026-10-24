@@ -38,7 +38,7 @@
 #include "mail-favorites.h"
 #include "mail-folder.h"
 
-#define VISIBLE "(not (or (system-flag \"Deleted\") (system-flag \"Junk\")))"
+#define VISIBLE REVOLUTION_MAIL_FAVORITES_VISIBLE
 
 static const struct
 {

@@ -27,7 +27,13 @@
 #                       bzw. gelöscht ohne Netz, danach im Baum; Netz weg 0,1/0,2 s nach Klick auf
 #                       den Posteingang von NUR_LESEND_3@example.invalid (microsoft365, nur lesend), je 4×,
 #                       danach lädt er ohne Abbruch, F5 fertig (tests/netz-treiber.py)
-#   m4-408-gmail        ohne Netz starten, Netz weg beim Verbinden, Markieren ohne Netz (KONTO2)
+#   m4-408-gmail        ohne Netz starten, Netz weg 0,4 s beim Verbinden, Markieren ohne Netz (KONTO2)
+#   PAUSE    Sekunden ohne Netz je Zyklus, Standard 20 (Gmail zählt getrennte Verbindungen einige
+#            Minuten weiter, ab 15 „Too many simultaneous connections“)
+# Nach jedem „down“ prüft der Treiber per ss, dass die App keine Verbindung nach außen hält.
+# Im Lauf m4-408 nimmt der Treiber nach dem Start ohne Netz den Store von KONTO2 aus der Session
+# (Test-Aktion app.test-store, REVOLUTION_TEST_HOOKS=1): Gmail lehnt nach etwa 15 getrennten
+# Verbindungen in kurzer Zeit jede Anmeldung ab (gemessen #408 R2), KONTO2 hat den eigenen Lauf.
 # Serverstand (Flags, Testordner) prüft tests/testdaten.py im normalen Netz über das Relais.
 # Vergleichsliste der Ordner: tests/testdaten.py --ordner (nur lesend, im normalen Netz).
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler.
@@ -86,7 +92,7 @@ trap 'kill $AUSSEN 2>/dev/null; rm -rf "$SOCKDIR"' EXIT
 for _ in $(seq 50); do [ -S "$SOCKDIR/r.sock" ] && break; sleep 0.1; done
 
 lauf () {
-  local name="$1" zustand="$2" konto="$3" ordner="$4" phasen="$5" rundir rc=0
+  local name="$1" zustand="$2" konto="$3" ordner="$4" phasen="$5" ohne="${6:-}" rundir rc=0
   rundir="$(mktemp -d)"
   unshare -n --map-current-user --keep-caps \
     python3 "$APP_DIR/tests/netz-relay.py" innen "$SOCKDIR/r.sock" "$SOCKDIR/c-$name.sock" "$zustand" -- \
@@ -98,6 +104,7 @@ lauf () {
     BIN="$BIN" OUT="$OUT" NAME="$name" APP_DIR="$APP_DIR" CTRL="$SOCKDIR/c-$name.sock" \
     RELAIS_LOG="$RELAIS_LOG" RELAIS_SOCK="$SOCKDIR/r.sock" REF="$OUT/ordner-testdaten.txt" \
     KONTO="$konto" PHASEN="$phasen" ORDNER_KONTO="$ORDNER_KONTO $ordner_uid" \
+    OHNE="$ohne" APP_ID="$APP_ID" REVOLUTION_TEST_HOOKS=1 \
     xvfb-run -a -s "-screen 0 1200x1100x24" python3 -I "$APP_DIR/tests/netz-treiber.py" || rc=$?
   rm -rf "$rundir"
   [ "$(bus_hat_app)" = "(false,)" ] || echo "FEHLER  $name: App nach dem Lauf noch auf dem Bus"
@@ -108,12 +115,12 @@ lauf m4-408-vorbereiten up "$KONTO" "$ordner" "" | tee "$OUT/m4-408-vorbereiten.
 FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/m4-408-vorbereiten.txt")))
 cp "$RELAIS_LOG" "$OUT/relais-vorbereiten.log"
 : >"$RELAIS_LOG"
-lauf m4-408 down "$KONTO" "$ordner" "${PHASEN:-start,abbruch,m365,flag,ordner}" | tee "$OUT/m4-408.txt"
+lauf m4-408 down "$KONTO" "$ordner" "${PHASEN:-start,abbruch,m365,flag,ordner}" "${ordner2%%/*}" | tee "$OUT/m4-408.txt"
 FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/m4-408.txt")))
 cp "$RELAIS_LOG" "$OUT/relais-m4-408.log"
 : >"$RELAIS_LOG"
 # Zweites Konto (imapx): Netz weg beim Verbinden und Markieren ohne Netz.
-lauf m4-408-gmail down "$KONTO2" "$ordner2" "${PHASEN2:-abbruch,flag}" | tee "$OUT/m4-408-gmail.txt"
+lauf m4-408-gmail down "$KONTO2" "$ordner2" "${PHASEN2:-abbruch1,flag}" | tee "$OUT/m4-408-gmail.txt"
 FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/m4-408-gmail.txt")))
 
 echo "Ergebnis: $FEHLER Fehler, Ausgaben in $OUT"

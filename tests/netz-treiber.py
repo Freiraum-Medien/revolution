@@ -28,6 +28,14 @@ CTRL, RELAIS_LOG, REF = os.environ['CTRL'], os.environ['RELAIS_LOG'], os.environ
 RELAIS_SOCK, KONTO = os.environ['RELAIS_SOCK'], os.environ['KONTO']
 PHASEN = os.environ.get('PHASEN', 'start,abbruch,m365,flag,ordner').split(',')
 ORDNER_KONTO = os.environ.get('ORDNER_KONTO', '')
+# Sekunden ohne Netz je Zyklus: Gmail zählt getrennte Verbindungen einige Minuten weiter und lehnt
+# ab 15 neue Anmeldungen ab („Too many simultaneous connections“, gemessen #408 R2: frei etwa
+# 2–3 min nach der letzten Verbindung); mit der Pause bleibt der Test darunter.
+PAUSE = float(os.environ.get('PAUSE', '20'))
+# Konto, dessen Store nach dem Start ohne Netz aus der Session genommen wird (Test-Aktion
+# app.test-store, REVOLUTION_TEST_HOOKS=1, main.c): Gmail nimmt nach vielen Netzwechseln keine
+# Anmeldung mehr an (gemessen #408 R2); es hat einen eigenen Lauf mit wenigen Wechseln.
+OHNE = os.environ.get('OHNE', '')
 ORDNER = os.environ['REVOLUTION_FOLDER']
 LOGKEY = ORDNER.replace('/', ' ', 1)
 EINLADUNG = '[Revolution-Test] Einladung: Abstimmung Testdaten'
@@ -279,13 +287,36 @@ def offline_laufzeit(schritt, uids):
     (ok if not tcp else falsch)('%s: keine Verbindung nach außen ohne Netz (%d)' % (schritt, len(tcp)))
 
 
+def app_verbindungen():
+    """TCP-Verbindungen der App nach außen (ss im Netz-Namensraum der App, Ziel wie beim connect)."""
+    r = subprocess.run(['ss', '-tnpH'], capture_output=True, text=True)
+    out = []
+    for zeile in r.stdout.splitlines():
+        teile = zeile.split()
+        if '"revolution"' in zeile and len(teile) >= 5 and not teile[4].startswith('127.'):
+            out.append('%s %s' % (teile[0], teile[4]))
+    return out
+
+
+def verbindungen_zu(schritt, vorher):
+    """Nach „down“: die App hält keine Verbindung nach außen mehr (Beleg: kein App-Fehler, wenn ein
+    Server wie Gmail Verbindungen noch zählt)."""
+    time.sleep(2)
+    nachher = app_verbindungen()
+    wert('%s: Verbindungen der App vor „down“ %d: %s' % (schritt, len(vorher), sorted(vorher)[:8]))
+    (ok if not nachher else falsch)('%s: Verbindungen der App 2 s nach „down“: %d %s' % (schritt, len(nachher), nachher[:8]))
+
+
 def offline_schalten(schritt, uids):
     ab = marke()
+    vorher = app_verbindungen()
     netz('down')
     pruefe('%s: Session' % schritt, r'^Netz: nicht verfügbar, offline, \d+ Stores trennen$', ab, 20)
     fehlt = warte_alle(r'^offline: %s, Ordner aus dem Cache', uids, ab, 60)
     (falsch if fehlt else ok)('%s: %s' % (schritt, 'nicht offline: %s' % sorted(fehlt) if fehlt
                                           else 'alle %d Stores offline' % len(uids)))
+    verbindungen_zu(schritt, vorher)
+    time.sleep(PAUSE)
 
 
 def abbruch(uids, verzoegerung):
@@ -298,12 +329,14 @@ def abbruch(uids, verzoegerung):
         return
     time.sleep(verzoegerung)
     ab2 = marke()
+    vorher = app_verbindungen()
     netz('down')
     pruefe('%s: offline' % schritt, r'^Netz: nicht verfügbar, offline, \d+ Stores trennen$', ab2, 20)
     fehlt = warte_alle(r'^offline: %s, Ordner aus dem Cache', uids, ab2, 60)
     (falsch if fehlt else ok)('%s: %s' % (schritt, 'nicht offline: %s' % sorted(fehlt) if fehlt
                                           else 'alle %d Stores offline' % len(uids)))
-    time.sleep(3)
+    verbindungen_zu(schritt, vorher)
+    time.sleep(PAUSE)
     abgebrochen = [t for _, t in log_zeilen()[ab:] if 'abgebrochen' in t]
     wert('%s: %d Aufträge abgebrochen, z. B. %s' % (schritt, len(abgebrochen), abgebrochen[:2]))
     ohne_warnungen(schritt, ab_datei)
@@ -377,10 +410,12 @@ def m365_laden(uids):
         time.sleep(2)
         ab = marke()
         klick(M365_POSTEINGANG, verzoegerung)
+        vorher = app_verbindungen()
         netz('down')
         pruefe('%s: offline' % schritt, r'^Netz: nicht verfügbar, offline', ab, 20)
         pruefe('%s: lädt' % schritt, r'^Nachrichten: %s lädt$' % key, ab, 10)
-        time.sleep(3)
+        verbindungen_zu(schritt, vorher)
+        time.sleep(PAUSE)
         ab = marke()
         netz('up')
         pruefe('%s: online' % schritt, r'^Netz: online, \d+ Stores verbinden$', ab, 20)
@@ -414,10 +449,29 @@ def vorbereiten():
     pruefe('Nachricht', r'^Nachricht: %s \S+ geladen nach' % re.escape(LOGKEY), 0, 120)
 
 
+def test_store(uid, vorhanden):
+    pfad = '/' + os.environ['APP_ID'].replace('.', '/').replace('-', '_')
+    r = subprocess.run(['gdbus', 'call', '--session', '-d', os.environ['APP_ID'], '-o', pfad, '-m',
+                        'org.gtk.Actions.Activate', 'test-store',
+                        "[<('%s', %s)>]" % (uid, 'true' if vorhanden else 'false'), '{}'],
+                       capture_output=True, text=True, timeout=30)
+    wert('app.test-store %s %s: %s' % (uid, vorhanden, (r.stdout + r.stderr).strip()))
+
+
+def ohne_konto(uids):
+    if not OHNE or OHNE not in uids:
+        return
+    ab = marke()
+    test_store(OHNE, False)
+    pruefe('Store %s aus der Session (eigener Lauf)' % OHNE, r'^Test: Store %s entfernt$' % re.escape(OHNE), ab, 20)
+    uids.remove(OHNE)
+
+
 def wechsel(uids):
     # 1. Start ohne Netz: Ordner und Nachricht aus dem Cache, Pille sichtbar, kein Verbindungsfehler.
     pruefe('Start ohne Netz', r'^Netz: nicht verfügbar, Start offline$', 0, 30)
     if 'start' not in PHASEN:
+        ohne_konto(uids)
         online_schalten('Netz zurück', uids)
         weitere(uids)
         return
@@ -435,6 +489,7 @@ def wechsel(uids):
     ohne_warnungen('Start ohne Netz', 0)
     (ok if not relais_zeilen() else falsch)('Start ohne Netz: keine Verbindung nach außen (%d)' % len(relais_zeilen()))
     bild('1-offline-start')
+    ohne_konto(uids)
 
     # 2. Netz zurück.
     online_schalten('Netz zurück', uids)
@@ -454,8 +509,8 @@ def wechsel(uids):
 
 def weitere(uids):
     # 5. Netz weg, während die Stores verbinden (verschiedene Zeitpunkte).
-    if 'abbruch' in PHASEN:
-        for verzoegerung in (0.2, 0.4, 1.0):
+    if 'abbruch' in PHASEN or 'abbruch1' in PHASEN:
+        for verzoegerung in (0.2, 0.4, 1.0) if 'abbruch' in PHASEN else (0.4,):
             abbruch(uids, verzoegerung)
         bild('5-nach-abbruch')
     # 6. Netz weg kurz nach Klick auf einen microsoft365-Ordner.

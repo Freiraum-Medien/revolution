@@ -63,7 +63,7 @@
 #                                 GET …/attachments) nach ORDNER schreiben; je Anhang eine Zeile
 #                                 „TEIL <sha256> <Bytes> <Dateiname>“, für Text zusätzlich „TEIL-TEXT …“
 #                                 mit Zeilenenden CRLF → LF (so dekodiert Camel text/*)
-#   tests/testdaten.py --kombiniert [LOG]
+#   tests/testdaten.py --kombiniert [LOG]   (#415: ohne Konten aus REVOLUTION_SKIP_ACCOUNTS bei REVOLUTION_TEST_HOOKS=1)
 #                                 #351, nur lesend, unabhängig von Camel, jedes Konto aus GOA: je
 #                                 Posteingang sichtbare und ungelesene Nachrichten (IMAP EXAMINE +
 #                                 UID SEARCH UNDELETED ohne Junk, Graph GET); Zeilen „KOMBINIERT <UID>
@@ -956,12 +956,15 @@ def ordner_konten(registry):
         if mail and not o.get_account().props.mail_disabled:
             goa[o.get_account().props.id] = (mail.props.email_address.lower(), o)
     konten = []
+    # #415: wie die App (mail-account.c) Konten aus REVOLUTION_SKIP_ACCOUNTS auslassen.
+    skip = os.environ.get('REVOLUTION_SKIP_ACCOUNTS', '').split(',') \
+        if os.environ.get('REVOLUTION_TEST_HOOKS') == '1' else []
     for coll in registry.list_sources(EDataServer.SOURCE_EXTENSION_GOA):
         acc_id = coll.get_extension(EDataServer.SOURCE_EXTENSION_GOA).get_account_id()
         if acc_id not in goa or not coll.get_enabled():
             continue
         for s in registry.list_sources(EDataServer.SOURCE_EXTENSION_MAIL_ACCOUNT):
-            if s.get_parent() == coll.get_uid() and s.get_enabled():
+            if s.get_parent() == coll.get_uid() and s.get_enabled() and s.get_uid() not in skip:
                 konten.append(Konto(goa[acc_id][0], goa[acc_id][1], s, None))
     return konten
 

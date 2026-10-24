@@ -98,13 +98,16 @@ quellen >"$OUT/sources-vorher.txt" 2>&1
 # über Python-GI: eingebaute Speicher nie; Online-Konto (GOA/UOA) mit Mail aus nie; sonst
 # „enabled“ der Collection bzw. ohne Collection der Quelle.
 python3 -I - >"$OUT/konten-registry.txt" 2>"$OUT/konten-registry.err" <<'EOF'
+import os
 import gi
 gi.require_version('EDataServer', '1.2')
 from gi.repository import EDataServer as E
 
+# #415: Test-Hook der App (mail-account.c): Konten aus REVOLUTION_SKIP_ACCOUNTS nie.
+skip = os.environ.get('REVOLUTION_SKIP_ACCOUNTS', '').split(',') if os.environ.get('REVOLUTION_TEST_HOOKS') == '1' else []
 r = E.SourceRegistry.new_sync(None)
 for s in r.list_sources(E.SOURCE_EXTENSION_MAIL_ACCOUNT):
-    if s.get_uid() in ('local', 'vfolder', 'rss'):
+    if s.get_uid() in ('local', 'vfolder', 'rss') or s.get_uid() in skip:
         continue
     online = r.find_extension(s, E.SOURCE_EXTENSION_GOA) or r.find_extension(s, E.SOURCE_EXTENSION_UOA)
     if online and not s.get_enabled():

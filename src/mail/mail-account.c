@@ -124,6 +124,17 @@ revolution_mail_account_hidden_reason (ESourceRegistry *registry,
   if (g_strv_contains (builtin_uids, e_source_get_uid (source)))
     return "eingebauter Speicher";
 
+  /* #415: Nur für Tests (REVOLUTION_TEST_HOOKS=1): Konten aus REVOLUTION_SKIP_ACCOUNTS (UIDs, durch
+   * Komma getrennt) gar nicht laden, damit Testläufe ein nur lesend freigegebenes Konto nicht
+   * berühren. Wirkt vor dem Anlegen des Stores (mail-session.c, mail_session_sync_stores). */
+  if (g_strcmp0 (g_getenv ("REVOLUTION_TEST_HOOKS"), "1") == 0 && g_getenv ("REVOLUTION_SKIP_ACCOUNTS") != NULL)
+    {
+      g_auto (GStrv) skip = g_strsplit (g_getenv ("REVOLUTION_SKIP_ACCOUNTS"), ",", -1);
+
+      if (g_strv_contains ((const char * const *) skip, e_source_get_uid (source)))
+        return "Test: ausgeschlossen";
+    }
+
   goa = e_source_registry_find_extension (registry, source, E_SOURCE_EXTENSION_GOA);
   uoa = e_source_registry_find_extension (registry, source, E_SOURCE_EXTENSION_UOA);
   if ((goa != NULL || uoa != NULL) && !e_source_get_enabled (source))

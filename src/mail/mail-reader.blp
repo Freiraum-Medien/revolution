@@ -69,7 +69,8 @@ template $RevolutionMailReader: Adw.Bin {
 
     // Nachrichtenkopf, Vorlage stamp-message-header.blp:4-150.
     // #401 Punkt 5: graziler (Vorbild 13): nur der Absender halbfett, Betreff gleich groß.
-    Grid {
+    // #422: in der Konversation ohne Rand oben (revolution_mail_reader_set_compact).
+    Grid header_grid {
       column-spacing: 12;
       row-spacing: 2;
       margin-start: 24;

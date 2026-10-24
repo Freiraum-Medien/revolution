@@ -85,6 +85,8 @@ struct _RevolutionMailReader
   gboolean        showing;
   char           *load_uri;
   guint           load_serial;
+  /* #412: STARTED der aktuellen Ladung (load_uri) gemeldet; erst danach zählen COMMITTED/FINISHED. */
+  gboolean        load_started;
   GtkRoot        *root;
   /* #355: entfernte Inhalte der angezeigten Nachricht freigegeben (Nachricht oder Absender) */
   gboolean        remote_allowed;
@@ -908,6 +910,7 @@ show_html (RevolutionMailReader *self)
       self->showing = TRUE;
       g_free (self->load_uri);
       self->load_uri = g_strdup_printf ("about:blank?revolution-%u", ++self->load_serial);
+      self->load_started = FALSE;
       /* #355: freigegeben: die Erweiterung erlaubt http/https nur für diese Adresse. */
       if (self->remote_allowed)
         {
@@ -1026,16 +1029,33 @@ fit_content (RevolutionMailReader *self)
                                         NULL, on_height_reply, g_object_ref (self));
 }
 
-/* Unterbricht load_html eine laufende Ladung, meldet WebKitGTK 2.52.6 für die neue weder STARTED noch
- * COMMITTED, nur FINISHED (Prüf-Lauf #354 R3, p354/ladefolge3.py: „committed uri=…#A“, danach nur
- * „finished uri=…#B“). Daher sichtbar bei COMMITTED oder FINISHED, sofern die Adresse die der
- * aktuellen Ladung ist (load_uri); Ereignisse älterer Ladungen bleiben so ohne Wirkung. */
+/* Sichtbar bei COMMITTED oder FINISHED der aktuellen Ladung (load_uri), aber erst nach deren
+ * STARTED (#412): Unterbricht load_html eine laufende Ladung, meldet WebKitGTK 2.52.6 zuerst ein
+ * FINISHED der alten Ladung mit schon neuer Adresse, danach STARTED, COMMITTED und FINISHED der
+ * neuen (gemessen, Prüf-Lauf #354 R4: „finished ?B, started ?B mit Titel A, committed ?B,
+ * finished ?B“). Ereignisse älterer Ladungen bleiben so ohne Wirkung. */
 static void
 on_load_changed (RevolutionMailReader *self,
                  WebKitLoadEvent       event)
 {
-  if (self->showing && (event == WEBKIT_LOAD_COMMITTED || event == WEBKIT_LOAD_FINISHED) &&
-      g_strcmp0 (webkit_web_view_get_uri (self->web_view), self->load_uri) == 0)
+  const char *uri = webkit_web_view_get_uri (self->web_view);
+
+  if (self->showing && event == WEBKIT_LOAD_STARTED && g_strcmp0 (uri, self->load_uri) == 0)
+    {
+      g_debug ("Nachricht: lädt %s (started)", self->load_uri);
+      self->load_started = TRUE;
+      return;
+    }
+
+  if (self->showing && !self->load_started && event == WEBKIT_LOAD_FINISHED &&
+      g_strcmp0 (uri, self->load_uri) == 0)
+    {
+      g_debug ("Nachricht: %s vor STARTED übergangen (finished der vorigen Ladung)", self->load_uri);
+      return;
+    }
+
+  if (self->showing && self->load_started && (event == WEBKIT_LOAD_COMMITTED || event == WEBKIT_LOAD_FINISHED) &&
+      g_strcmp0 (uri, self->load_uri) == 0)
     {
       if (!gtk_widget_get_visible (GTK_WIDGET (self->web_view)))
         g_debug ("Nachricht: sichtbar %s (%s)", self->load_uri, event == WEBKIT_LOAD_FINISHED ? "finished" : "committed");

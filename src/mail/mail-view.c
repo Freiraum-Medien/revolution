@@ -1057,7 +1057,7 @@ load_messages_thread (GTask        *task,
     {
       g_autoptr (GError) sent_error = NULL;
 
-      if (!camel_folder_refresh_info_sync (sent, refresh_op, &sent_error))
+      if (!revolution_eds_folder_refresh_info_sync (sent, refresh_op, &sent_error))
         g_debug ("Konversationen: %s %s nicht abgeglichen: %s", load->uid, camel_folder_get_full_name (sent),
                  sent_error->message);
     }
@@ -2009,7 +2009,8 @@ refresh_thread (GTask        *task,
   /* #408: eigenes Cancellable je Vorgang wie load_messages_thread. */
   g_autoptr (GCancellable) op = camel_operation_new_proxy (cancellable);
 
-  if (revolution_eds_folder_refresh_info_sync (task_data, op, &error))
+  /* #357: in Konversationen den Ordner und Gesendet am Server abgleichen (mail-thread.c). */
+  if (revolution_mail_thread_refresh_sync (task_data, op, &error))
     g_task_return_boolean (task, TRUE);
   else if (session != NULL && !camel_session_get_online (session))
     {

@@ -18,6 +18,9 @@ CamelFolder *revolution_mail_thread_folder_sync (CamelFolder   *folder,
                                                  CamelFolder  **sent_out,
                                                  GCancellable  *cancellable,
                                                  GError       **error);
+gboolean     revolution_mail_thread_refresh_sync (CamelFolder  *folder,
+                                                  GCancellable *cancellable,
+                                                  GError      **error);
 GPtrArray   *revolution_mail_thread_build       (CamelFolder   *folder,
                                                  GPtrArray     *infos,
                                                  GDateTime     *now);

@@ -129,6 +129,29 @@ revolution_mail_thread_folder_sync (CamelFolder   *folder,
   return g_steal_pointer (&vee);
 }
 
+/* Im Worker (mail-view.c, list.refresh): Abgleich mit dem Server. Der Abgleich eines Suchordners baut
+ * ihn nur aus seinen Quellen neu auf (camel-vee-folder.c:1439-1449), daher beim Suchordner einer
+ * Konversation seine Quellen (Ordner und Gesendet) abgleichen, sonst den Ordner selbst; immer über
+ * revolution_eds_folder_refresh_info_sync (#415, keine Echo-PATCH an microsoft365). */
+gboolean
+revolution_mail_thread_refresh_sync (CamelFolder   *folder,
+                                     GCancellable  *cancellable,
+                                     GError       **error)
+{
+  GList *sources;
+  gboolean ok = TRUE;
+
+  if (!CAMEL_IS_VEE_FOLDER (folder) || g_object_get_data (G_OBJECT (folder), SOURCE_KEY) == NULL)
+    return revolution_eds_folder_refresh_info_sync (folder, cancellable, error);
+
+  sources = camel_vee_folder_ref_folders (CAMEL_VEE_FOLDER (folder));
+  for (GList *l = sources; l != NULL && ok; l = l->next)
+    ok = revolution_eds_folder_refresh_info_sync (l->data, cancellable, error);
+  g_list_free_full (sources, g_object_unref);
+
+  return ok;
+}
+
 static gint64
 info_date (CamelMessageInfo *info)
 {

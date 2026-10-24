@@ -449,6 +449,32 @@ set_list_subtitle (RevolutionMailView *self,
   gtk_widget_set_visible (GTK_WIDGET (self->list_subtitle), TRUE);
 }
 
+/* #418: Reihenfolge der Liste fürs Log (tests/sortierung.sh): Zeilen, die neuer sind als die Zeile
+ * darüber, die UIDs der ersten drei Zeilen und die gewählte UID. */
+static void
+log_order (RevolutionMailView *self)
+{
+  GListModel *model = G_LIST_MODEL (self->messages);
+  RevolutionMailMessage *selected = gtk_single_selection_get_selected_item (self->message_selection);
+  g_autoptr (GString) top = g_string_new (NULL);
+  gint64 previous = G_MAXINT64;
+  guint wrong = 0;
+
+  for (guint i = 0; i < g_list_model_get_n_items (model); i++)
+    {
+      g_autoptr (RevolutionMailMessage) item = g_list_model_get_item (model, i);
+      gint64 timestamp = revolution_mail_message_get_timestamp (item);
+
+      wrong += timestamp > previous;
+      previous = timestamp;
+      if (i < 3)
+        g_string_append_printf (top, " %s", revolution_mail_message_get_uid (item));
+    }
+
+  g_debug ("Nachrichten: %s Reihenfolge: %u nicht nach Datum, oben%s, gewählt %s", self->loading, wrong, top->str,
+           selected != NULL ? revolution_mail_message_get_uid (selected) : "-");
+}
+
 /* Im UI-Thread: Server-Stand items (ganz, sortiert) als Abgleich auf die angezeigte Liste:
  * nur fehlende Einträge entfernen, neue einfügen, geänderte am bestehenden Eintrag
  * aktualisieren. Auswahl und Scrollposition bleiben erhalten. #414: Abgleich über die UID, nicht
@@ -670,6 +696,7 @@ add_messages_block (gpointer data)
       set_list_subtitle (self, block->total, block->unread);
       g_debug ("Nachrichten: %s Abgleich %u neu, %u entfernt, %u geändert, %u verschoben", self->loading,
                added, removed, changed, moved);
+      log_order (self);
     }
   else if (block->reset)
     {
@@ -1339,12 +1366,20 @@ on_folder_changes_done (GObject      *source_object,
     }
   else if (changes->full)
     {
+      GtkAdjustment *vadjustment = gtk_scrollable_get_vadjustment (GTK_SCROLLABLE (self->message_list));
+      gboolean at_top = gtk_adjustment_get_value (vadjustment) < 1.0;
       guint added = 0, removed = 0, changed = 0, moved = 0;
 
       merge_messages (self, changes->items, &added, &removed, &changed, &moved);
+      /* #418: wie der Abgleich (add_messages_block): stand die Liste oben, bleibt die neueste Konversation
+       * sichtbar. Sonst hält GtkListView die bisher erste Zeile, neue und nach oben verschobene
+       * Konversationen lägen darüber außerhalb des sichtbaren Teils (Beleg #412). */
+      if (at_top && g_list_model_get_n_items (G_LIST_MODEL (self->messages)) > 0)
+        gtk_list_view_scroll_to (self->message_list, 0, GTK_LIST_SCROLL_NONE, NULL);
       set_list_counts (self);
       g_debug ("Nachrichten: %s Änderung (Konversationen) %u neu, %u entfernt, %u geändert, %u verschoben, Liste %u",
                self->loading, added, removed, changed, moved, g_list_model_get_n_items (G_LIST_MODEL (self->messages)));
+      log_order (self);
       select_message_from_env (self);
     }
   else

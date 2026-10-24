@@ -35,6 +35,7 @@
 #                       Liste, Nachricht und Zähler aus dem Cache, Banner; Verbindung zurück mit
 #                       Netzwechsel: Konten verbunden, Ordner und Liste vom Server. Ohne
 #                       NUR_LESEND_3@example.invalid und bei GMAIL=0 ohne KONTO2 (REVOLUTION_SKIP_ACCOUNTS)
+#   m4-421-f5           wie m4-421, Verbindung zurück ohne Netzwechsel: F5 verbindet
 #   PAUSE    Sekunden ohne Netz je Zyklus, Standard 20 (Gmail zählt getrennte Verbindungen einige
 #            Minuten weiter, ab 15 „Too many simultaneous connections“)
 # Nach jedem „down“ prüft der Treiber per ss, dass die App keine Verbindung nach außen hält.
@@ -167,6 +168,11 @@ lauf m4-421 kaputt "$KONTO" "$ordner" kaputt "" "$skip" "$vorher" | tee "$OUT/m4
 teilschritt m4-421 "${PIPESTATUS[0]}" "$OUT/m4-421.txt"
 FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/m4-421.txt")))
 cp "$RELAIS_LOG" "$OUT/relais-m4-421.log"
+: >"$RELAIS_LOG"
+lauf m4-421-f5 kaputt "$KONTO" "$ordner" kaputt-f5 "" "$skip" "$OUT/m4-421.log" | tee "$OUT/m4-421-f5.txt"
+teilschritt m4-421-f5 "${PIPESTATUS[0]}" "$OUT/m4-421-f5.txt"
+FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/m4-421-f5.txt")))
+cp "$RELAIS_LOG" "$OUT/relais-m4-421-f5.log"
 
 abbruch_bilanz
 echo "Ergebnis: $FEHLER Fehler, Ausgaben in $OUT"

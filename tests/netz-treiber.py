@@ -11,6 +11,8 @@
 #                       „kaputt“): Ordner, Liste und Nachricht aus dem Cache, Banner „Keine
 #                       Verbindung“, Zähler wie am Ende des vorigen Laufs (VORHER); Verbindung zurück
 #                       (Relais „up“ mit Netzwechsel): Konten verbunden, Ordner und Liste vom Server.
+#   PHASEN=kaputt-f5     wie kaputt, aber Relais „heil“ ohne Netzwechsel: nichts verbindet von selbst;
+#                       F5 verbindet die Konten, Ordner und Liste vom Server, Banner weg.
 # Ausgabe: „OK …“, „FEHLER …“, „WERT …“; Screenshots OUT/NAME-<Schritt>.png.
 #
 # Copyright 2026 Arnd Messer
@@ -503,11 +505,21 @@ def kaputt(uids):
                     schritt, uid[:8], jetzt.get(uid), vorher[uid]))
     bild('1-kaputt')
 
-    schritt = 'Verbindung zurück'
     ab, ab_datei = marke(), dateizeilen()
-    netz('up')
-    pruefe('%s: Netzwechsel' % schritt, r'^Netz: Netzwechsel, erneut verbinden in 5 s$', ab, 20)
-    pruefe('%s: erneut verbinden' % schritt, r'^Netz: Netzwechsel, %d Stores erneut verbinden$' % len(uids), ab, 30)
+    if 'kaputt-f5' in PHASEN:
+        schritt = 'Verbindung zurück ohne Netzwechsel, F5'
+        netz('heil')
+        time.sleep(15)
+        von_selbst = [t for _, t in log_zeilen()[ab:] if t.startswith('Netz: ') or t.startswith('verbunden: ')]
+        (falsch if von_selbst else ok)('%s: 15 s ohne Netzwechsel nichts verbunden (%s)' % (schritt, von_selbst[:2] or 'ok'))
+        ab = marke()
+        taste('F5')
+        pruefe('%s: F5' % schritt, r'^Aktualisieren: %s nach erneutem Verbinden$' % re.escape(LOGKEY), ab, 20)
+    else:
+        schritt = 'Verbindung zurück'
+        netz('up')
+        pruefe('%s: Netzwechsel' % schritt, r'^Netz: Netzwechsel, erneut verbinden in 5 s$', ab, 20)
+    pruefe('%s: erneut verbinden' % schritt, r'^Netz: %d Stores erneut verbinden$' % len(uids), ab, 30)
     pruefe('%s: Banner' % schritt, r'^Banner: Keine Verbindung weg$', ab, 30)
     fehlt = warte_alle(r'^verbunden: %s$', uids, ab, 120)
     (falsch if fehlt else ok)('%s: %s' % (schritt, 'nicht verbunden: %s' % sorted(fehlt) if fehlt
@@ -616,7 +628,7 @@ def main():
         d.sync()
         if NAME.endswith('-vorbereiten'):
             vorbereiten()
-        elif 'kaputt' in PHASEN:
+        elif 'kaputt' in PHASEN or 'kaputt-f5' in PHASEN:
             kaputt(uids)
         else:
             wechsel(uids)

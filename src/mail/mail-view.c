@@ -100,6 +100,10 @@ struct _RevolutionMailView
 
 G_DEFINE_FINAL_TYPE (RevolutionMailView, revolution_mail_view, ADW_TYPE_BREAKPOINT_BIN)
 
+/* #421: Signal „retry-stores“ (UID des Kontos der offenen Liste oder NULL), main.c: gescheiterte Stores
+ * erneut verbinden; TRUE, wenn das Konto der Liste dazugehört. */
+static guint retry_signal;
+
 /* list.compose öffnet den Composer (#337) als eigenes Fenster wie Stamp. */
 static void
 on_compose (GSimpleAction *action G_GNUC_UNUSED,
@@ -2176,11 +2180,8 @@ on_refreshed (GObject      *source_object,
 static void on_folder_selected (RevolutionMailView *self);
 
 static void
-on_refresh (GSimpleAction *action G_GNUC_UNUSED,
-            GVariant      *parameter G_GNUC_UNUSED,
-            gpointer       user_data)
+refresh_list (RevolutionMailView *self)
 {
-  RevolutionMailView *self = user_data;
   g_autoptr (GTask) task = NULL;
 
   if (self->camel_folder == NULL)
@@ -2195,6 +2196,28 @@ on_refresh (GSimpleAction *action G_GNUC_UNUSED,
   g_task_set_source_tag (task, on_refresh);
   g_task_set_task_data (task, g_object_ref (self->camel_folder), g_object_unref);
   g_task_run_in_thread (task, refresh_thread);
+}
+
+/* #421: F5 verbindet zuerst die Stores, deren Verbindung bei Netzmonitor „online“ scheiterte (main.c,
+ * retry_stores), wie Evolution einen getrennten Store beim nächsten Zugriff neu verbindet
+ * (camel-m365-store.c:1754-1762, camel-store.c:262-313). Gehört das Konto der Liste dazu, folgt die
+ * Liste nach dem Verbinden (revolution_mail_view_refresh_account); sonst gleich. */
+static void
+on_refresh (GSimpleAction *action G_GNUC_UNUSED,
+            GVariant      *parameter G_GNUC_UNUSED,
+            gpointer       user_data)
+{
+  RevolutionMailView *self = user_data;
+  g_autoptr (RevolutionMailAccount) account = NULL;
+  gboolean waits = FALSE;
+
+  if (self->folder != NULL)
+    g_object_get (self->folder, "account", &account, NULL);
+  g_signal_emit (self, retry_signal, 0, account != NULL ? revolution_mail_account_get_uid (account) : NULL, &waits);
+  if (waits)
+    g_debug ("Aktualisieren: %s nach erneutem Verbinden", self->loading);
+  else
+    refresh_list (self);
 }
 
 /* #353: Kontextmenü der Zeile wie GNOME Dateien (Nautilus): Rechtsklick wählt die Zeile und
@@ -2743,6 +2766,9 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   object_class->finalize = revolution_mail_view_finalize;
   widget_class->unroot = revolution_mail_view_unroot;
 
+  retry_signal = g_signal_new ("retry-stores", G_TYPE_FROM_CLASS (klass), G_SIGNAL_RUN_LAST, 0,
+                               g_signal_accumulator_first_wins, NULL, NULL, G_TYPE_BOOLEAN, 1, G_TYPE_STRING);
+
   g_object_class_install_property (object_class, PROP_STACK,
                                    g_param_spec_object ("stack", NULL, NULL, ADW_TYPE_VIEW_STACK,
                                                         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
@@ -3021,7 +3047,7 @@ revolution_mail_view_clear_connection_errors (RevolutionMailView *self)
 }
 
 /* #408: Aufruf aus main.c, sobald der Store des Kontos uid nach „Netz zurück“ wieder verbunden
- * ist: die offene Liste, wenn sie zu diesem Konto gehört, vom Server wie F5 (on_refresh). */
+ * ist: die offene Liste, wenn sie zu diesem Konto gehört, vom Server wie F5 (refresh_list). */
 void
 revolution_mail_view_refresh_account (RevolutionMailView *self,
                                       const char         *uid)
@@ -3035,7 +3061,7 @@ revolution_mail_view_refresh_account (RevolutionMailView *self,
 
   g_object_get (self->folder, "account", &account, NULL);
   if (account != NULL && g_strcmp0 (revolution_mail_account_get_uid (account), uid) == 0)
-    on_refresh (NULL, NULL, self);
+    refresh_list (self);
 }
 
 /* #350: Ordner der Seitenleiste auswählen (Position im flachen Modell der Auswahl). */

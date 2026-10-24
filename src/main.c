@@ -820,7 +820,7 @@ retry_stores (gpointer user_data)
       g_task_run_in_thread (task, note_store_thread);
     }
   if (count > 0)
-    g_debug ("Netz: Netzwechsel, %u Stores erneut verbinden", count);
+    g_debug ("Netz: %u Stores erneut verbinden", count);
 
   return G_SOURCE_REMOVE;
 }
@@ -847,6 +847,28 @@ on_network_event (RevolutionMailView *mail_view)
   g_clear_handle_id (&retry_id, g_source_remove);
   retry_id = g_timeout_add_seconds_full (G_PRIORITY_DEFAULT, SET_ONLINE_TIMEOUT_SECONDS, retry_stores,
                                          g_object_ref (mail_view), g_object_unref);
+}
+
+/* #421: F5 (mail-view.c, Signal „retry-stores“): gescheiterte Stores gleich erneut verbinden. Rückgabe
+ * TRUE, wenn der Store des Kontos uid dazugehört; dessen Liste folgt dann aus on_store_noted. */
+static gboolean
+on_retry_requested (RevolutionMailView *mail_view,
+                    const char         *uid,
+                    gpointer            user_data G_GNUC_UNUSED)
+{
+  RevolutionMailSession *session = app_session ();
+  g_autoptr (CamelService) service = NULL;
+  gboolean waits;
+
+  if (session == NULL || !camel_session_get_online (CAMEL_SESSION (session)))
+    return FALSE;
+
+  service = uid != NULL ? camel_session_ref_service (CAMEL_SESSION (session), uid) : NULL;
+  waits = service != NULL && g_object_get_data (G_OBJECT (service), "revolution-retry") != NULL;
+  g_clear_handle_id (&retry_id, g_source_remove);
+  retry_stores (mail_view);
+
+  return waits;
 }
 
 static void
@@ -896,6 +918,7 @@ on_session_loaded (GObject      *source_object,
   /* #421: Netzwechsel ohne Wechsel der Verfügbarkeit (retry_stores). */
   g_signal_connect_object (e_network_monitor_get_default (), "network-changed",
                            G_CALLBACK (on_network_event), mail_view, G_CONNECT_SWAPPED);
+  g_signal_connect (mail_view, "retry-stores", G_CALLBACK (on_retry_requested), NULL);
   /* Beim Beenden die laufende Umschaltung abbrechen (auch das erste Verbinden, note_stores). */
   g_signal_connect (source_object, "shutdown", G_CALLBACK (on_shutdown_network), NULL);
 

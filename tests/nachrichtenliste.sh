@@ -5,9 +5,10 @@
 #   BUILD         Build-Ordner, Standard build/ im Repo (vorher meson compile)
 #   LAST_ANZAHL   Mindestzahl Mails im Ordner Revolution-Last, Standard 3000
 #   LAST_TIMEOUT  Sekunden je App-Start bis zur vollständig geladenen Liste, Standard 300
-#   KONVERSATIONEN 1: Liste als Konversationen (#357, conversations=true per .gschema.override; Ordner
-#                 mit Gesendet von privat@ gemischt). Die Lastmails haben keine References, jede ist
-#                 eine eigene Konversation: Anzahl der Zeilen = Mails im Ordner wie flach.
+#   KONVERSATIONEN 1 (Standard, wie die App seit #357): Liste als Konversationen (conversations=true per
+#                 .gschema.override; Ordner mit Gesendet von privat@ gemischt). Die Lastmails haben keine
+#                 References, jede ist eine eigene Konversation: Anzahl der Zeilen = Mails im Ordner.
+#                 0: flach (conversations=false) wie vor #357, zum Vergleich.
 #
 # Vorher: tests/testdaten.py --last LAST_ANZAHL ergänzt fehlende Lastmails (APPEND, idempotent)
 # und nennt Konto-UID und Ordner. Dann zwei App-Starts über scripts/screenshot.sh (eigener Xvfb,
@@ -77,7 +78,7 @@ fi
 SCHEMA="$OUT/schema"
 mkdir -p "$SCHEMA"
 cp "$APP_DIR/data/"*.gschema.xml "$SCHEMA/"
-printf '[de.freiraum_medien.Revolution]\nmark-seen=false\n%s' "$([ "${KONVERSATIONEN:-0}" = 1 ] && printf 'conversations=true\n')" \
+printf '[de.freiraum_medien.Revolution]\nmark-seen=false\nconversations=%s\n' "$([ "${KONVERSATIONEN:-1}" = 1 ] && echo true || echo false)" \
   >"$SCHEMA/90_test.gschema.override"
 glib-compile-schemas --strict "$SCHEMA" || { fehler "Schema: glib-compile-schemas $SCHEMA"; exit 1; }
 td --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last >"$OUT/ungelesen-vorher.txt" 2>&1 \

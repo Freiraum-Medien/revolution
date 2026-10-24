@@ -52,15 +52,22 @@ mkdir -p "$OUT"
 . "$APP_DIR/tests/abbruch.sh"
 
 # Schema mit mark-seen=false (.gschema.override) für Läufe, die Zeilen wählen, ohne Gelesen zu
-# prüfen (ohne Netz, Revolution-Last).
+# prüfen (ohne Netz, Revolution-Last). #357: Standard ist die Konversationsansicht; dieser Test prüft
+# Flags und Live-Änderungen je Nachricht (Log „Änderung 0 neu, 0 entfernt, 1 geändert“, Zeile = eine
+# Mail), daher beide Schemata flach (conversations=false); Konversationen prüft tests/konversationen.sh.
+FLACH="$OUT/schema-flach"
+mkdir -p "$FLACH"
+cp "$APP_DIR/data/"*.gschema.xml "$FLACH/"
+printf '[de.freiraum_medien.Revolution]\nconversations=false\n' >"$FLACH/90_test.gschema.override"
+glib-compile-schemas --strict "$FLACH" || { echo "FEHLER  Schema: glib-compile-schemas $FLACH"; exit 1; }
 SCHEMA="$OUT/schema"
 mkdir -p "$SCHEMA"
 cp "$APP_DIR/data/"*.gschema.xml "$SCHEMA/"
-printf '[de.freiraum_medien.Revolution]\nmark-seen=false\n' >"$SCHEMA/90_test.gschema.override"
+printf '[de.freiraum_medien.Revolution]\nmark-seen=false\nconversations=false\n' >"$SCHEMA/90_test.gschema.override"
 glib-compile-schemas --strict "$SCHEMA" || { echo "FEHLER  Schema: glib-compile-schemas $SCHEMA"; exit 1; }
 
 lauf () {
-  local name="$1" konto="$2" ordner="$3" schema="${4:-$BUILD/data}" rundir rc=0
+  local name="$1" konto="$2" ordner="$3" schema="${4:-$FLACH}" rundir rc=0
   rundir="$(mktemp -d)"
   # shellcheck disable=SC2086 # PRAEFIX: z. B. „unshare -n --map-current-user“ (ohne Netz)
   timeout -k 10 "$LAUF_TIMEOUT" ${PRAEFIX:-} env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \

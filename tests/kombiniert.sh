@@ -59,14 +59,23 @@ mkdir -p "$OUT"
 SCHEMA="$OUT/schema"
 mkdir -p "$SCHEMA"
 cp "$APP_DIR/data/"*.gschema.xml "$SCHEMA/"
-printf '[de.freiraum_medien.Revolution]\nmark-seen=false\n' >"$SCHEMA/90_test.gschema.override"
+# #357: Standard ist die Konversationsansicht. Dieser Test vergleicht die Zeilen von „Alle Eingänge“ mit
+# der Summe der Posteingänge am Server und erwartet Live-Änderungen je Nachricht („Änderung 1 neu“),
+# daher beide Schemata flach (conversations=false per .gschema.override); Konversationen prüft
+# tests/konversationen.sh.
+printf '[de.freiraum_medien.Revolution]\nmark-seen=false\nconversations=false\n' >"$SCHEMA/90_test.gschema.override"
 glib-compile-schemas --strict "$SCHEMA" || { echo "FEHLER  Schema: glib-compile-schemas $SCHEMA"; exit 1; }
+FLACH="$OUT/schema-flach"
+mkdir -p "$FLACH"
+cp "$APP_DIR/data/"*.gschema.xml "$FLACH/"
+printf '[de.freiraum_medien.Revolution]\nconversations=false\n' >"$FLACH/90_test.gschema.override"
+glib-compile-schemas --strict "$FLACH" || { echo "FEHLER  Schema: glib-compile-schemas $FLACH"; exit 1; }
 
 lauf () {
   local name="$1" schema="$2" rundir rc=0
   rundir="$(mktemp -d)"
   timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK -u REVOLUTION_MESSAGE \
-    XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="${SCHEMA_DIR:-$BUILD/data}" GSETTINGS_BACKEND=memory \
+    XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="${SCHEMA_DIR:-$FLACH}" GSETTINGS_BACKEND=memory \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
     GTK_A11Y=none NO_AT_BRIDGE=1 ADW_DEBUG_COLOR_SCHEME="$schema" \
     G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER=revolution-favoriten/inbox \

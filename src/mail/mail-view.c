@@ -79,7 +79,8 @@ struct _RevolutionMailView
   /* Anwendung gehalten, solange Flag-Aufträge laufen; Obergrenze nach dem Schließen. */
   GApplication        *flags_hold;
   guint                flags_deadline_id;
-  CamelFolder         *running_folder;
+  /* Daten des laufenden Auftrags (gehören der GTask, gültig solange flags_running). */
+  const struct _SetFlags *running;
   gboolean             flags_saving;
   GCancellable        *cancellable;
   GtkStack            *message_stack;
@@ -1456,7 +1457,7 @@ on_folder_changed (CamelFolder           *folder,
  * zuerst die Änderungen, camel-imapx-conn-manager.c:1548). Die Zeile zeigt die Bedienung sofort
  * (revolution_mail_message_set_flags); „changed“ wird erst danach wieder angewendet
  * (start_folder_changes). */
-typedef struct
+typedef struct _SetFlags
 {
   CamelFolder *folder;
   char        *uid;
@@ -1478,6 +1479,30 @@ set_flags_free (SetFlags *data)
 
 enum { FLAGS_SAVED, FLAGS_LOCAL };
 
+/* #351: Im Suchordner (Favoriten) am echten Ordner setzen und speichern wie Evolution
+ * (mail_reader_replace_vee_folder_with_real, e-mail-reader.c:425-450, camel_vee_folder_get_location);
+ * camel_folder_synchronize_sync bzw. das Speichern der Summary des Suchordners speichert die
+ * Quellordner nicht (camel-vee-folder.c:1465-1477). Die Liste folgt über „changed“ der Quelle und des
+ * Suchordners. Gibt den echten Ordner (ohne Referenz, der Suchordner hält ihn) und in real_uid dessen
+ * UID zurück, NULL wenn die Nachricht nicht mehr im Suchordner ist. Im Worker. */
+static CamelFolder *
+real_folder (CamelFolder  *folder,
+             const char   *uid,
+             char        **real_uid)
+{
+  g_autoptr (CamelMessageInfo) info = NULL;
+
+  if (!CAMEL_IS_VEE_FOLDER (folder))
+    {
+      *real_uid = g_strdup (uid);
+      return folder;
+    }
+  info = camel_folder_get_message_info (folder, uid);
+
+  return info != NULL ? camel_vee_folder_get_location (CAMEL_VEE_FOLDER (folder), CAMEL_VEE_MESSAGE_INFO (info), real_uid)
+                      : NULL;
+}
+
 static void
 set_flags_thread (GTask        *task,
                   gpointer      source_object G_GNUC_UNUSED,
@@ -1485,35 +1510,29 @@ set_flags_thread (GTask        *task,
                   GCancellable *cancellable G_GNUC_UNUSED)
 {
   SetFlags *data = task_data;
-  CamelFolder *folder = data->folder;
-  const char *uid = data->uid;
-  g_autofree char *real_uid = NULL;
+  g_autofree char *uid = NULL;
+  CamelFolder *folder = real_folder (data->folder, data->uid, &uid);
   CamelStore *store;
   g_autoptr (CamelSession) session = NULL;
   GError *error = NULL;
 
-  /* #351: Im Suchordner (Favoriten) am echten Ordner setzen und speichern wie Evolution
-   * (mail_reader_replace_vee_folder_with_real, e-mail-reader.c:425-450, camel_vee_folder_get_location);
-   * camel_folder_synchronize_sync des Suchordners speichert die Quellordner nicht
-   * (camel-vee-folder.c:1476-1477). Die Liste folgt über „changed“ der Quelle und des Suchordners. */
-  if (CAMEL_IS_VEE_FOLDER (folder))
+  if (folder == NULL)
     {
-      g_autoptr (CamelMessageInfo) info = camel_folder_get_message_info (folder, uid);
-
-      folder = info != NULL ? camel_vee_folder_get_location (CAMEL_VEE_FOLDER (folder), CAMEL_VEE_MESSAGE_INFO (info),
-                                                             &real_uid)
-                            : NULL;
-      if (folder == NULL)
-        {
-          g_task_return_new_error (task, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID_UID,
-                                   _("Nachricht %s nicht gefunden"), uid);
-          return;
-        }
-      uid = real_uid;
+      g_task_return_new_error (task, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID_UID,
+                               _("Nachricht %s nicht gefunden"), data->uid);
+      return;
     }
 
   store = camel_folder_get_parent_store (folder);
   session = camel_service_ref_session (CAMEL_SERVICE (store));
+  /* #409: Setzen und Speichern unter der Ordnersperre (GRecMutex, camel-folder.c:3117-3123), die auch
+   * der Abgleich hält (camel_folder_refresh_info_sync, camel-folder.c:4020-4040, und
+   * revolution_eds_folder_refresh_info_sync); sonst setzt dieser bei microsoft365 eine während des
+   * Abgleichs gesetzte Änderung mit zurück (eds-compat.c). Kein neuer Wartepunkt fürs Speichern:
+   * camel_folder_synchronize_sync wartet ohnehin auf dieselbe Sperre (camel-folder.c:4162-4179) und
+   * nimmt sie im selben Thread erneut. Der Notpfad beim Beenden (flags_save_local_thread) nimmt sie
+   * nicht. */
+  camel_folder_lock (folder);
   camel_folder_set_message_flags (folder, uid, data->mask, data->set);
   if ((CAMEL_IS_OFFLINE_STORE (store) && !camel_offline_store_get_online (CAMEL_OFFLINE_STORE (store))) ||
       session == NULL || !camel_session_get_online (session))
@@ -1525,19 +1544,18 @@ set_flags_thread (GTask        *task,
         g_task_return_error (task, error);
       else
         g_task_return_int (task, FLAGS_LOCAL);
-      return;
     }
-
   /* Ohne Cancellable: die Anwendung bleibt gehalten, bis der letzte Auftrag durch ist
    * (start_flags), auch nach dem Schließen des Fensters (Obergrenze flags_deadline). Bei einem
    * Fehler die Summary lokal speichern, damit der nächste Abgleich die Änderung nachholt. */
-  if (!camel_folder_synchronize_sync (folder, FALSE, NULL, &error))
+  else if (!camel_folder_synchronize_sync (folder, FALSE, NULL, &error))
     {
       camel_folder_summary_save (camel_folder_get_folder_summary (folder), NULL);
       g_task_return_error (task, error);
     }
   else
     g_task_return_int (task, FLAGS_SAVED);
+  camel_folder_unlock (folder);
 }
 
 /* Anwendung halten bzw. freigeben (g_application_hold), damit das Beenden die Aufträge abwartet
@@ -1561,9 +1579,14 @@ hold_for_flags (RevolutionMailView *self,
     }
 }
 
-/* Obergrenze nach dem Schließen: hängt der laufende Auftrag (z. B. Server antwortet nicht), die
- * wartenden nur lokal setzen und alle Summaries speichern; der nächste Start holt sie nach
- * (refresh_info schickt zuerst die Änderungen, camel-imapx-conn-manager.c:1548). */
+/* Obergrenze nach dem Schließen: hängt der laufende Auftrag (z. B. Server antwortet nicht), ihn und
+ * die wartenden nur lokal setzen und die Summaries der echten Ordner speichern; der nächste Start holt
+ * sie nach (refresh_info schickt zuerst die Änderungen, camel-imapx-conn-manager.c:1548; microsoft365
+ * über revolution_eds_folder_refresh_info_sync). #409: ohne Ordnersperre, die hält der hängende
+ * Auftrag (set_flags_thread). camel_folder_summary_save sperrt nur die Summary
+ * (camel-folder-summary.c:2133); die Provider halten sie nicht über Netzzugriffe (imapx
+ * camel-imapx-server.c:6090-6235 und 6525-6582 ohne Netz; microsoft365 camel-m365-folder.c:1187-1258
+ * sperrt den Ordner erst nach der Antwort). */
 #define FLAGS_DEADLINE_SECONDS 10
 
 static void
@@ -1577,10 +1600,13 @@ flags_save_local_thread (GTask        *task,
   for (guint i = 0; i < jobs->len; i++)
     {
       SetFlags *data = jobs->pdata[i];
+      g_autofree char *uid = NULL;
+      CamelFolder *folder = real_folder (data->folder, data->uid, &uid);
 
-      if (data->uid != NULL)
-        camel_folder_set_message_flags (data->folder, data->uid, data->mask, data->set);
-      camel_folder_summary_save (camel_folder_get_folder_summary (data->folder), NULL);
+      if (folder == NULL)
+        continue;
+      camel_folder_set_message_flags (folder, uid, data->mask, data->set);
+      camel_folder_summary_save (camel_folder_get_folder_summary (folder), NULL);
     }
   g_task_return_boolean (task, TRUE);
 }
@@ -1611,12 +1637,16 @@ flags_deadline (gpointer user_data)
            g_queue_get_length (&self->flag_jobs));
   while ((data = g_queue_pop_head (&self->flag_jobs)) != NULL)
     g_ptr_array_add (jobs, data);
-  /* Der laufende Auftrag hat seine Flags schon gesetzt; seinen Ordner ebenfalls speichern. */
-  if (self->running_folder != NULL)
+  /* Den laufenden Auftrag ebenfalls: er kann noch vor dem Setzen auf die Ordnersperre warten
+   * (set_flags_thread); erneutes Setzen derselben Flags ändert nichts. */
+  if (self->running != NULL)
     {
       data = g_new0 (SetFlags, 1);
-      data->folder = g_object_ref (self->running_folder);
-      g_ptr_array_add (jobs, data);
+      data->folder = g_object_ref (self->running->folder);
+      data->uid = g_strdup (self->running->uid);
+      data->mask = self->running->mask;
+      data->set = self->running->set;
+      g_ptr_array_insert (jobs, 0, data);
     }
 
   task = g_task_new (self, NULL, on_flags_saved_local, NULL);
@@ -1661,7 +1691,7 @@ on_flags_set (GObject      *source_object,
       detail = g_strdup_printf ("%s: %s", gtk_label_get_label (self->list_title), error->message);
       revolution_mail_view_show_error (self, _("Markierung nicht gespeichert"), detail, FALSE);
     }
-  g_clear_object (&self->running_folder);
+  self->running = NULL;
   start_flags (self);
   if (!self->flags_running && !self->flags_saving)
     hold_for_flags (self, FALSE);
@@ -1682,7 +1712,7 @@ start_flags (RevolutionMailView *self)
   task = g_task_new (self, self->cancellable, on_flags_set, NULL);
   g_task_set_source_tag (task, start_flags);
   g_task_set_task_data (task, g_queue_pop_head (&self->flag_jobs), (GDestroyNotify) set_flags_free);
-  g_set_object (&self->running_folder, ((SetFlags *) g_task_get_task_data (task))->folder);
+  self->running = g_task_get_task_data (task);
   g_task_run_in_thread (task, set_flags_thread);
 }
 
@@ -2553,9 +2583,7 @@ revolution_mail_view_dispose (GObject *object)
   g_cancellable_cancel (self->load_cancellable);
   g_clear_object (&self->load_cancellable);
   /* #353: laufende Flag-Aufträge dürfen zu Ende laufen (Anwendung gehalten), höchstens
-   * FLAGS_DEADLINE_SECONDS lang. */
-  if (self->flags_running && self->flags_deadline_id == 0)
-    self->flags_deadline_id = g_timeout_add_seconds (FLAGS_DEADLINE_SECONDS, flags_deadline, self);
+   * FLAGS_DEADLINE_SECONDS lang ab dem Schließen (#409: revolution_mail_view_unroot). */
   g_cancellable_cancel (self->cancellable);
   g_clear_object (&self->cancellable);
   g_signal_handlers_disconnect_by_data (self->message_selection, self);
@@ -2584,13 +2612,29 @@ revolution_mail_view_dispose (GObject *object)
   G_OBJECT_CLASS (revolution_mail_view_parent_class)->dispose (object);
 }
 
+/* #409: Obergrenze schon beim Schließen des Fensters (GtkWindow nimmt beim Zerstören sein Kind aus dem
+ * Baum, unroot kommt vor dispose): dispose läuft erst, wenn kein Worker-GTask (Flag-Auftrag, Laden)
+ * die Ansicht mehr hält. Den Gelesen-Timer wie in dispose beenden, sonst käme nach dem Schließen ein
+ * Auftrag ohne Obergrenze dazu. g_timeout_add statt _seconds (gemessen damit 10,5 bzw. 10,8 s bis zum
+ * Prozessende, #409). */
+static void
+revolution_mail_view_unroot (GtkWidget *widget)
+{
+  RevolutionMailView *self = REVOLUTION_MAIL_VIEW (widget);
+
+  g_clear_handle_id (&self->seen_id, g_source_remove);
+  if (self->flags_running && self->flags_deadline_id == 0)
+    self->flags_deadline_id = g_timeout_add (FLAGS_DEADLINE_SECONDS * 1000, flags_deadline, self);
+
+  GTK_WIDGET_CLASS (revolution_mail_view_parent_class)->unroot (widget);
+}
+
 static void
 revolution_mail_view_finalize (GObject *object)
 {
   RevolutionMailView *self = REVOLUTION_MAIL_VIEW (object);
 
   g_queue_clear_full (&self->flag_jobs, (GDestroyNotify) set_flags_free);
-  g_clear_object (&self->running_folder);
 
   G_OBJECT_CLASS (revolution_mail_view_parent_class)->finalize (object);
 }
@@ -2605,6 +2649,7 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   object_class->set_property = revolution_mail_view_set_property;
   object_class->dispose = revolution_mail_view_dispose;
   object_class->finalize = revolution_mail_view_finalize;
+  widget_class->unroot = revolution_mail_view_unroot;
 
   g_object_class_install_property (object_class, PROP_STACK,
                                    g_param_spec_object ("stack", NULL, NULL, ADW_TYPE_VIEW_STACK,

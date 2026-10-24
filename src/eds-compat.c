@@ -35,6 +35,25 @@ ref_if_folder_flagged (CamelFolderSummary *summary,
   return info;
 }
 
+/* UIDs der lokal geänderten, noch nicht an den Server geschickten Nachrichten. */
+static GHashTable *
+folder_flagged_uids (CamelFolderSummary *summary)
+{
+  GHashTable *uids = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  GPtrArray *changed = camel_folder_summary_get_changed (summary);
+
+  for (guint i = 0; i < changed->len; i++)
+    {
+      g_autoptr (CamelMessageInfo) info = ref_if_folder_flagged (summary, changed->pdata[i]);
+
+      if (info != NULL)
+        g_hash_table_add (uids, g_strdup (changed->pdata[i]));
+    }
+  camel_folder_summary_free_array (changed);
+
+  return uids;
+}
+
 /* #415: camel_folder_refresh_info_sync, bei microsoft365 ohne Rückschreiben dessen, was der Server
  * gerade geliefert hat. evolution-ews 3.56.2 übernimmt Server-Änderungen an vorhandenen Nachrichten
  * mit camel_message_info_set_flags (camel-m365-folder.c:902-904, 666-674), das folder_flagged setzt
@@ -49,12 +68,14 @@ ref_if_folder_flagged (CamelFolderSummary *summary,
  * Summary danach speichern: microsoft365 speichert sie am Ende des Abgleichs noch mit folder_flagged
  * (camel-m365-folder.c:1000); ohne erneutes Speichern ginge das Echo nach Beenden oder Absturz
  * innerhalb von store-changes-interval beim nächsten Start doch noch raus.
- * Restrisiko: Eine eigene Flag-Änderung an einer vorher unveränderten Nachricht, die gesetzt wird,
- * während diese Funktion den Ordner gesperrt hält (Abgleich inklusive Netz), wird mit
- * zurückgesetzt und bleibt nur lokal: camel_folder_set_message_flags sperrt den Ordner nicht,
- * erst das Speichern in set_flags_thread (camel_folder_synchronize_sync, camel-folder.c:4162-4179)
- * wartet auf die Sperre. Nur über öffentliche Camel-API (die Server-Flags des Providers sind nicht
- * öffentlich). Im Worker. */
+ * Nur über öffentliche Camel-API (die Server-Flags des Providers sind nicht öffentlich). Im Worker.
+ * #409: Eine eigene Flag-Änderung während des Abgleichs wird nicht mit zurückgesetzt: set_flags_thread
+ * (mail-view.c) setzt sie unter camel_folder_lock, also erst nach dem Abgleich. Lokal geänderte Nachrichten (folder_flagged, z. B. offline gesetzt oder nach
+ * abgebrochenem Speichern) zuerst an den Server schicken, wie imapx vor jedem Abgleich
+ * (camel_imapx_conn_manager_refresh_info_sync: erst sync_changes, bei Fehler kein Abgleich,
+ * camel-imapx-conn-manager.c:1548-1549). microsoft365 tut das nicht (camel-m365-folder.c:932-1022),
+ * und camel_offline_store_set_online_sync synchronisiert nur geöffnete Ordner; sonst ginge eine solche
+ * Änderung beim nächsten Start nicht an den Server. */
 gboolean
 revolution_eds_folder_refresh_info_sync (CamelFolder   *folder,
                                          GCancellable  *cancellable,
@@ -72,16 +93,21 @@ revolution_eds_folder_refresh_info_sync (CamelFolder   *folder,
     return camel_folder_refresh_info_sync (folder, cancellable, error);
 
   camel_folder_lock (folder);
-  before = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
-  changed = camel_folder_summary_get_changed (summary);
-  for (guint i = 0; i < changed->len; i++)
+  before = folder_flagged_uids (summary);
+  if (g_hash_table_size (before) > 0)
     {
-      g_autoptr (CamelMessageInfo) info = ref_if_folder_flagged (summary, changed->pdata[i]);
+      guint local = g_hash_table_size (before);
 
-      if (info != NULL)
-        g_hash_table_add (before, g_strdup (changed->pdata[i]));
+      if (!camel_folder_synchronize_sync (folder, FALSE, cancellable, error))
+        {
+          camel_folder_unlock (folder);
+          return FALSE;
+        }
+      g_clear_pointer (&before, g_hash_table_unref);
+      before = folder_flagged_uids (summary);
+      g_debug ("Abgleich: %s %s: %u lokale Änderungen vorher gespeichert", camel_service_get_uid (CAMEL_SERVICE (store)),
+               camel_folder_get_full_name (folder), local);
     }
-  camel_folder_summary_free_array (changed);
 
   ok = camel_folder_refresh_info_sync (folder, cancellable, error);
 

@@ -24,7 +24,9 @@
 #   m4-408              ohne Netz starten, dann Netz zurück, Netz weg, Netz zurück; Netz weg 0,2/0,4/1 s
 #                       nach Beginn des Verbindens und zurück (alle Konten müssen verbinden);
 #                       Markieren ohne Netz, nach Netz zurück am Server; Ordner am Server angelegt
-#                       bzw. gelöscht ohne Netz, danach im Baum (tests/netz-treiber.py)
+#                       bzw. gelöscht ohne Netz, danach im Baum; Netz weg 0,1/0,2 s nach Klick auf
+#                       den Posteingang von NUR_LESEND_3@example.invalid (microsoft365, nur lesend), je 4×,
+#                       danach lädt er ohne Abbruch, F5 fertig (tests/netz-treiber.py)
 #   m4-408-gmail        ohne Netz starten, Netz weg beim Verbinden, Markieren ohne Netz (KONTO2)
 # Serverstand (Flags, Testordner) prüft tests/testdaten.py im normalen Netz über das Relais.
 # Vergleichsliste der Ordner: tests/testdaten.py --ordner (nur lesend, im normalen Netz).
@@ -96,7 +98,7 @@ lauf () {
     BIN="$BIN" OUT="$OUT" NAME="$name" APP_DIR="$APP_DIR" CTRL="$SOCKDIR/c-$name.sock" \
     RELAIS_LOG="$RELAIS_LOG" RELAIS_SOCK="$SOCKDIR/r.sock" REF="$OUT/ordner-testdaten.txt" \
     KONTO="$konto" PHASEN="$phasen" ORDNER_KONTO="$ORDNER_KONTO $ordner_uid" \
-    xvfb-run -a -s "-screen 0 1200x760x24" python3 -I "$APP_DIR/tests/netz-treiber.py" || rc=$?
+    xvfb-run -a -s "-screen 0 1200x1100x24" python3 -I "$APP_DIR/tests/netz-treiber.py" || rc=$?
   rm -rf "$rundir"
   [ "$(bus_hat_app)" = "(false,)" ] || echo "FEHLER  $name: App nach dem Lauf noch auf dem Bus"
   return "$rc"
@@ -106,7 +108,7 @@ lauf m4-408-vorbereiten up "$KONTO" "$ordner" "" | tee "$OUT/m4-408-vorbereiten.
 FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/m4-408-vorbereiten.txt")))
 cp "$RELAIS_LOG" "$OUT/relais-vorbereiten.log"
 : >"$RELAIS_LOG"
-lauf m4-408 down "$KONTO" "$ordner" "${PHASEN:-start,abbruch,flag,ordner}" | tee "$OUT/m4-408.txt"
+lauf m4-408 down "$KONTO" "$ordner" "${PHASEN:-start,abbruch,m365,flag,ordner}" | tee "$OUT/m4-408.txt"
 FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/m4-408.txt")))
 cp "$RELAIS_LOG" "$OUT/relais-m4-408.log"
 : >"$RELAIS_LOG"

@@ -26,13 +26,18 @@ from Xlib.ext import xtest
 BIN, OUT, NAME, APP_DIR = os.environ['BIN'], os.environ['OUT'], os.environ['NAME'], os.environ['APP_DIR']
 CTRL, RELAIS_LOG, REF = os.environ['CTRL'], os.environ['RELAIS_LOG'], os.environ['REF']
 RELAIS_SOCK, KONTO = os.environ['RELAIS_SOCK'], os.environ['KONTO']
-PHASEN = os.environ.get('PHASEN', 'start,abbruch,flag,ordner').split(',')
+PHASEN = os.environ.get('PHASEN', 'start,abbruch,m365,flag,ordner').split(',')
 ORDNER_KONTO = os.environ.get('ORDNER_KONTO', '')
 ORDNER = os.environ['REVOLUTION_FOLDER']
 LOGKEY = ORDNER.replace('/', ' ', 1)
 EINLADUNG = '[Revolution-Test] Einladung: Abstimmung Testdaten'
-# Fenster 1200×760, erste Zeile der Liste unter der Pille „Offline“ (m4-408-1-offline-start.png).
+# Fenster 1200×1100, erste Zeile der Liste unter der Pille „Offline“ (m4-408-1-offline-start.png).
 ZEILE_OFFLINE = (420, 170)
+# Seitenleiste (Zeilen 30 px, m4-408-7-ordner-neu.png): Favoriten, dann NUR_LESEND_3@example.invalid
+# (microsoft365, nur lesend) mit Posteingang und KAR, dann KONTO_M365@example.invalid mit Revolution-Test.
+M365_POSTEINGANG = (120, 264)
+M365_KAR = (120, 474)
+OUTLOOK_REVOLUTION_TEST = (120, 1030)
 
 fehler = 0
 d = display.Display()
@@ -167,12 +172,12 @@ def referenz():
 
 # ------------------------------------------------------------------ XTest
 
-def klick(p):
+def klick(p, pause=0.5):
     xtest.fake_input(d, X.MotionNotify, x=p[0], y=p[1])
     xtest.fake_input(d, X.ButtonPress, 1)
     xtest.fake_input(d, X.ButtonRelease, 1)
     d.sync()
-    time.sleep(0.5)
+    time.sleep(pause)
 
 
 def taste(kombi, pause=0.3):
@@ -353,6 +358,58 @@ def ordner_abgleich(uids):
         bild(nr)
 
 
+def m365_laden(uids):
+    """Netz weg 0,1/0,2 s nach Klick auf einen microsoft365-Ordner (Laden läuft, Prüfer #408 R2:
+    soup_session_abort brach das Cancellable der Ansicht ab), je 4×; danach lädt der Ordner ohne
+    Abbruch, F5 fertig, keine Warnung."""
+    namen = {}
+    with open(REF, encoding='utf-8') as f:
+        for zeile in f:
+            teile = zeile.split()
+            if teile[0] == 'ANZAHL':
+                namen[teile[3]] = teile[1]
+    uid = namen['NUR_LESEND_3@example.invalid']
+    key = re.escape('%s Posteingang' % uid)
+    ab_datei = dateizeilen()
+    for nr, verzoegerung in enumerate((0.1, 0.2) * 4):
+        schritt = 'microsoft365 laden %d (Netz weg %.1f s nach Klick)' % (nr + 1, verzoegerung)
+        klick(M365_KAR)
+        time.sleep(2)
+        ab = marke()
+        klick(M365_POSTEINGANG, verzoegerung)
+        netz('down')
+        pruefe('%s: offline' % schritt, r'^Netz: nicht verfügbar, offline', ab, 20)
+        pruefe('%s: lädt' % schritt, r'^Nachrichten: %s lädt$' % key, ab, 10)
+        time.sleep(3)
+        ab = marke()
+        netz('up')
+        pruefe('%s: online' % schritt, r'^Netz: online, \d+ Stores verbinden$', ab, 20)
+        fehlt = warte_alle(r'^verbunden: %s$', uids, ab, 120)
+        (falsch if fehlt else ok)('%s: %s' % (schritt, 'nicht verbunden: %s' % sorted(fehlt) if fehlt
+                                              else 'alle %d Konten verbunden' % len(uids)))
+        pruefe('%s: Liste vom Server' % schritt, r'^Aktualisieren: %s fertig$' % key, ab, 120)
+    for nr in range(2):
+        schritt = 'microsoft365 laden danach %d' % (nr + 1)
+        klick(M365_KAR)
+        time.sleep(2)
+        ab = marke()
+        klick(M365_POSTEINGANG)
+        pruefe(schritt, r'^Nachrichten: %s vollständig' % key, ab, 60)
+        time.sleep(3)
+        ab2 = marke()
+        taste('F5')
+        pruefe('%s: F5' % schritt, r'^Aktualisieren: %s fertig$' % key, ab2, 60)
+        abbruch = [t for _, t in log_zeilen()[ab:] if 'abgebrochen' in t or 'Stand des Caches' in t]
+        (falsch if abbruch else ok)('%s: %s' % (schritt, 'Abbruch: %s' % abbruch[:2] if abbruch
+                                                 else 'kein Abbruch, kein Cache-Stand'))
+    ohne_warnungen('microsoft365 laden', ab_datei)
+    bild('9-m365-laden')
+    ab = marke()
+    klick(OUTLOOK_REVOLUTION_TEST)
+    pruefe('zurück zu %s' % ORDNER, r'^Nachrichten: %s vollständig' % re.escape(LOGKEY), ab, 60)
+    time.sleep(2)
+
+
 def vorbereiten():
     pruefe('Nachricht', r'^Nachricht: %s \S+ geladen nach' % re.escape(LOGKEY), 0, 120)
 
@@ -401,10 +458,13 @@ def weitere(uids):
         for verzoegerung in (0.2, 0.4, 1.0):
             abbruch(uids, verzoegerung)
         bild('5-nach-abbruch')
-    # 6. Markieren ohne Netz, nach „Netz zurück“ am Server.
+    # 6. Netz weg kurz nach Klick auf einen microsoft365-Ordner.
+    if 'm365' in PHASEN:
+        m365_laden(uids)
+    # 7. Markieren ohne Netz, nach „Netz zurück“ am Server.
     if 'flag' in PHASEN:
         flag_offline(uids)
-    # 7. Ordner am Server neu bzw. gelöscht, während offline.
+    # 8. Ordner am Server neu bzw. gelöscht, während offline.
     if 'ordner' in PHASEN and ORDNER_KONTO:
         ordner_abgleich(uids)
 
@@ -419,7 +479,7 @@ def main():
         if w is None:
             falsch('kein Fenster')
             return 1
-        w.configure(width=1200, height=760)
+        w.configure(width=1200, height=1100)
         d.sync()
         if NAME.endswith('-vorbereiten'):
             vorbereiten()

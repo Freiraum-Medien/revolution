@@ -273,8 +273,12 @@ static void
 note_store_thread (GTask        *task,
                    gpointer      source_object,
                    gpointer      task_data G_GNUC_UNUSED,
-                   GCancellable *cancellable)
+                   GCancellable *line_cancellable)
 {
+  /* #408: Camel bekommt ein eigenes Cancellable, das an dem der Umschaltung hängt
+   * (camel_operation_new_proxy): bricht Camel/EDS es von innen ab (microsoft365 beim Trennen), trifft
+   * das nur diesen Auftrag, nicht die übrigen Stores derselben Umschaltung. */
+  g_autoptr (GCancellable) cancellable = camel_operation_new_proxy (line_cancellable);
   CamelStore *store = CAMEL_STORE (source_object);
   CamelProvider *provider = camel_service_get_provider (CAMEL_SERVICE (store));
   g_autoptr (CamelSession) session = camel_service_ref_session (CAMEL_SERVICE (store));
@@ -328,8 +332,10 @@ static void
 refresh_inbox_thread (GTask        *task,
                       gpointer      source_object,
                       gpointer      task_data,
-                      GCancellable *cancellable)
+                      GCancellable *line_cancellable)
 {
+  /* #408: eigenes Cancellable wie note_store_thread. */
+  g_autoptr (GCancellable) cancellable = camel_operation_new_proxy (line_cancellable);
   g_autoptr (GError) error = NULL;
   gint64 started = g_get_monotonic_time ();
   CamelFolder *folder = camel_store_get_folder_sync (source_object, task_data, 0, cancellable, &error);
@@ -491,9 +497,13 @@ on_store_noted (GObject      *source_object,
         {
           revolution_mail_view_set_folders (mail_view, uid, noted->info);
           /* #351: Posteingang, Entwürfe und Gesendet dieses Kontos in die Favoriten. */
-          if (g_object_get_data (G_OBJECT (service), "revolution-favorites") == NULL)
-            add_favorites (mail_view, CAMEL_STORE (service), noted->info);
-          g_object_set_data (G_OBJECT (service), "revolution-favorites", GINT_TO_POINTER (TRUE));
+          /* #408: nur mit Ordnerliste; ohne Netz und ohne Cache (info NULL) trägt der nächste
+           * Netzwechsel die Favoriten nach (set_folders, solange der Baum leer ist). */
+          if (noted->info != NULL && g_object_get_data (G_OBJECT (service), "revolution-favorites") == NULL)
+            {
+              add_favorites (mail_view, CAMEL_STORE (service), noted->info);
+              g_object_set_data (G_OBJECT (service), "revolution-favorites", GINT_TO_POINTER (TRUE));
+            }
         }
       if (noted->info != NULL)
         g_object_set_data (G_OBJECT (service), "revolution-folders", GINT_TO_POINTER (TRUE));

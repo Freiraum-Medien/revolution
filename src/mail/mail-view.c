@@ -937,6 +937,12 @@ load_messages_thread (GTask        *task,
 {
   LoadMessages *load = task_data;
   g_autoptr (CamelService) service = camel_session_ref_service (load->session, load->uid);
+  /* #408: Camel bekommt je Vorgang ein eigenes Cancellable, das am Cancellable des Ladens bzw. der
+   * Ansicht hängt (camel_operation_new_proxy, camel-operation.c:254-300), wie Evolution je
+   * EActivity. Ein Abbruch von innen (microsoft365: soup_session_abort beim Trennen, Beleg Prüfer
+   * #408 R2) trifft so nur diesen Vorgang, nicht alle späteren der Ansicht. */
+  g_autoptr (GCancellable) load_op = camel_operation_new_proxy (cancellable);
+  g_autoptr (GCancellable) refresh_op = camel_operation_new_proxy (load->refresh_cancellable);
   g_autoptr (CamelFolder) folder = NULL;
   g_autofree char *key = NULL;
   GError *error = NULL;
@@ -951,7 +957,7 @@ load_messages_thread (GTask        *task,
     }
 
   /* Ordner immer über camel_store_get_folder_sync (README „Camel-Ordner“). */
-  folder = camel_store_get_folder_sync (CAMEL_STORE (service), load->full_name, 0, cancellable, &error);
+  folder = camel_store_get_folder_sync (CAMEL_STORE (service), load->full_name, 0, load_op, &error);
   if (folder == NULL)
     {
       g_task_return_error (task, error);
@@ -988,7 +994,7 @@ load_messages_thread (GTask        *task,
       return;
     }
 
-  refreshed_ok = camel_folder_refresh_info_sync (folder, load->refresh_cancellable, &error);
+  refreshed_ok = camel_folder_refresh_info_sync (folder, refresh_op, &error);
   refresh_end (key);
   /* #408: Offline (Pille „Offline“) bleibt es beim Stand des Caches. imapx überspringt den
    * Abgleich dann (camel-imapx-folder.c:878-880), microsoft365 meldet „You must be working
@@ -1544,9 +1550,15 @@ on_flags_set (GObject      *source_object,
   gssize done = g_task_propagate_int (G_TASK (result), &error);
 
   self->flags_running = FALSE;
-  /* Ansicht schon weg (Beenden): nichts mehr anzeigen, wartende Aufträge trotzdem abarbeiten. */
-  if (self->cancellable == NULL || g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+  /* Ansicht schon weg (Beenden): nichts mehr anzeigen, wartende Aufträge trotzdem abarbeiten.
+   * #408: Synchronisieren ohne Cancellable (set_flags_thread); ein Abbruch von innen (microsoft365
+   * beim Trennen) ist ein Fehler wie jeder andere. Die Änderung steht dann in der Summary und geht
+   * beim nächsten Abgleich mit; offline genügt das Log. */
+  if (self->cancellable == NULL || g_cancellable_is_cancelled (self->cancellable))
     ;
+  else if (error != NULL && self->session != NULL && !camel_session_get_online (self->session))
+    g_debug ("Flags: %s %s %s lokal gespeichert (offline, Abgleich abgebrochen: %s)", data->loading, data->uid,
+             data->what, error->message);
   else if (done == FLAGS_SAVED)
     g_debug ("Flags: %s %s %s gespeichert nach %.0f ms", data->loading, data->uid, data->what,
              (g_get_monotonic_time () - data->started) / 1000.0);
@@ -1804,8 +1816,10 @@ refresh_thread (GTask        *task,
   GError *error = NULL;
   CamelStore *store = camel_folder_get_parent_store (task_data);
   g_autoptr (CamelSession) session = store != NULL ? camel_service_ref_session (CAMEL_SERVICE (store)) : NULL;
+  /* #408: eigenes Cancellable je Vorgang wie load_messages_thread. */
+  g_autoptr (GCancellable) op = camel_operation_new_proxy (cancellable);
 
-  if (camel_folder_refresh_info_sync (task_data, cancellable, &error))
+  if (camel_folder_refresh_info_sync (task_data, op, &error))
     g_task_return_boolean (task, TRUE);
   else if (session != NULL && !camel_session_get_online (session))
     {
@@ -1833,8 +1847,13 @@ on_refreshed (GObject      *source_object,
       g_debug ("Aktualisieren: %s fertig", loading);
       return;
     }
-  if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-    return;
+  /* #408: still nur, wenn wir abgebrochen haben (wie on_messages_loaded). */
+  if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED) &&
+      g_cancellable_is_cancelled (g_task_get_cancellable (G_TASK (result))))
+    {
+      g_debug ("Aktualisieren: %s abgebrochen", loading);
+      return;
+    }
 
   g_warning ("Aktualisieren %s: %s", loading, error->message);
   detail = g_strdup_printf ("%s: %s", gtk_label_get_label (self->list_title), error->message);
@@ -1998,7 +2017,10 @@ on_messages_loaded (GObject      *source_object,
       start_folder_changes (self);
     }
 
-  if (!ok && g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+  /* #408: still nur, wenn wir abgebrochen haben (anderer Ordner, Beenden); einen Abbruch von innen
+   * (Camel/EDS) wie jeden Fehler melden. */
+  if (!ok && g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED) &&
+      g_cancellable_is_cancelled (g_task_get_cancellable (G_TASK (result))))
     {
       g_debug ("Nachrichten: %s %s abgebrochen", load->uid, load->full_name);
       return;

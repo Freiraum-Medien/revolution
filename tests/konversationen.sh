@@ -47,6 +47,13 @@ cp "$APP_DIR/data/"*.gschema.xml "$SCHEMA/"
 printf '[de.freiraum_medien.Revolution]\nconversations=true\nwindow-width=1400\nwindow-height=900\n' \
   >"$SCHEMA/90_test.gschema.override"
 glib-compile-schemas --strict "$SCHEMA" || { echo "FEHLER  Schema: glib-compile-schemas $SCHEMA"; exit 1; }
+# Bild dunkel ohne Gelesen-Timer: sonst änderte der Lauf Nr. 5 am Server (beobachtet r415, Lauf dunkel).
+BILD="$OUT/schema-bild"
+mkdir -p "$BILD"
+cp "$SCHEMA/"*.gschema.xml "$BILD/"
+printf '[de.freiraum_medien.Revolution]\nconversations=true\nmark-seen=false\nwindow-width=1400\nwindow-height=900\n' \
+  >"$BILD/90_test.gschema.override"
+glib-compile-schemas --strict "$BILD" || { echo "FEHLER  Schema: glib-compile-schemas $BILD"; exit 1; }
 
 if timeout 900 python3 "$APP_DIR/tests/testdaten.py" --konversation >"$OUT/testdaten.txt" 2>&1; then
   echo "OK      Testdaten: $(grep -c '^KONVERSATION ' "$OUT/testdaten.txt") Ordner"
@@ -58,7 +65,7 @@ lauf () {
   local name="$1" konto="$2" ordner="$3" schema="$4" nur_bild="${5:-0}" rundir rc=0
   rundir="$(mktemp -d)"
   env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
-    XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$SCHEMA" GSETTINGS_BACKEND=memory \
+    XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$([ "$nur_bild" = 1 ] && echo "$BILD" || echo "$SCHEMA")" GSETTINGS_BACKEND=memory \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
     GTK_A11Y=none NO_AT_BRIDGE=1 ADW_DEBUG_COLOR_SCHEME="$schema" \
     G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER="$ordner" M365_DEBUG=1 \

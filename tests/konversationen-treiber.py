@@ -85,6 +85,22 @@ def gespeichert():
     return sum(1 for _, z in log_zeilen() if z.startswith('Flags:') and ' gespeichert nach ' in z)
 
 
+def fremde_patches():
+    """Schreibende Graph-Anfragen an Nachrichten, die die App vorher nicht selbst geändert hat (Log „Flags:“
+    mit der Graph-ID in der UID). Camel speichert eine eigene Änderung teils zweimal (eigenes Speichern und
+    Zeitgeber store-changes-interval, beobachtet r415/konversationen2): das ist kein Echo vom Server."""
+    fremd, eigene = [], set()
+    with open(LOG, encoding='utf-8', errors='replace') as f:
+        for z in f:
+            m = re.search(r'revolution-DEBUG: [0-9:.]+: Flags: \S+ \S+ (\S+) ', z)
+            if m:
+                eigene.add(m.group(1))
+            g = re.match(r'^\[graph(?:-batch)?\] (?:PATCH|POST|PUT|DELETE) \S*/messages/([^/\s]+)', z)
+            if g and not any(u.endswith(g.group(1)) for u in eigene):
+                fremd.append(z.strip())
+    return fremd
+
+
 def log_zeilen():
     out = []
     with open(LOG, encoding='utf-8', errors='replace') as f:
@@ -383,10 +399,10 @@ def main():
         except subprocess.TimeoutExpired:
             falsch('Beenden: nach 30 s nicht beendet')
         leser.join(10)
-        # #415: schreibende Graph-Anfragen höchstens eine je eigener Flag-Änderung (Log „Flags: … gespeichert“).
-        p, n = patches(), gespeichert()
-        (ok if len(p) <= n else falsch)('schreibende Graph-Anfragen %d, eigene Flag-Änderungen %d%s'
-                                        % (len(p), n, ': %s' % p[:5] if len(p) > n else ''))
+        # #415: schreibende Graph-Anfragen nur an Nachrichten, die die App selbst geändert hat.
+        p, n, f = patches(), gespeichert(), fremde_patches()
+        (ok if not f else falsch)('schreibende Graph-Anfragen %d, eigene Flag-Änderungen %d, an nicht selbst geänderte '
+                                  'Nachrichten %d%s' % (len(p), n, len(f), ': %s' % f[:3] if f else ''))
         if vorher is not None:
             nachher = server_flags()
             (ok if nachher == vorher else falsch)('Server nach dem Lauf wie vorher: %s' % sorted(nachher.items()))

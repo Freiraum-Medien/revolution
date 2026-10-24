@@ -927,9 +927,11 @@ def pruefen(konten):
                     print('         %s%s%s%s' % ('  ' * tiefe, typ, ' name=%s' % name if name else '',
                                                  ' %s' % extra if extra else ''))
         for key, betreff in ANZEIGE if a in ANZEIGE_KONTEN else ():
-            uid = mails.get((betreff, ANZEIGE_ABSENDER))
+            # #411: Absender je Schlüssel wie in anzeige() (#355: anderer Absender)
+            absender = ANZEIGE_ANDERE.get(key, ANZEIGE_ABSENDER)
+            uid = mails.get((betreff, absender))
             if uid is None:
-                print('  FEHLT  %s (%s)' % (betreff, ANZEIGE_ABSENDER))
+                print('  FEHLT  %s (%s)' % (betreff, absender))
                 fehler += 1
                 continue
             print('  ok   %s  UID %s' % (betreff, uid))

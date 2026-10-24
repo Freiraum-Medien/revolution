@@ -89,8 +89,16 @@ echo "OK      Vergleichsliste: tests/testdaten.py --ordner, $(grep -c '^ANZAHL '
 revolution_test () { td --flags "$1" | sed -n 's/^ORDNER //p'; }
 ordner="$(revolution_test "$KONTO")"
 [ -n "$ordner" ] || abbrechen "$KONTO: Ordner Revolution-Test nicht gefunden (tests/testdaten.py --flags)"
-ordner2="$(revolution_test "$KONTO2")"
-[ -n "$ordner2" ] || abbrechen "$KONTO2: Ordner Revolution-Test nicht gefunden (tests/testdaten.py --flags)"
+if [ "${GMAIL:-1}" = 1 ]; then
+  ordner2="$(revolution_test "$KONTO2")"
+  [ -n "$ordner2" ] || abbrechen "$KONTO2: Ordner Revolution-Test nicht gefunden (tests/testdaten.py --flags)"
+else
+  # #411: ohne Gmail-Lauf nur die Konto-UID (für OHNE), ohne Anmeldung aus GOA und Registry.
+  ordner2="$(PYTHONPATH="$APP_DIR/tests" timeout 60 python3 -c 'import sys, testdaten as t
+from gi.repository import EDataServer
+print(t.konten_finden(EDataServer.SourceRegistry.new_sync(None))[sys.argv[1]].account.get_uid())' "$KONTO2")/" \
+    || abbrechen "$KONTO2: Konto-UID nicht in GOA/Registry"
+fi
 ordner_uid="$(revolution_test "$ORDNER_KONTO" | cut -d/ -f1)"
 [ -n "$ordner_uid" ] || abbrechen "$ORDNER_KONTO: Konto nicht gefunden (tests/testdaten.py --flags)"
 

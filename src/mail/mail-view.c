@@ -998,9 +998,9 @@ load_messages_thread (GTask        *task,
     }
 
   /* #357: Konversation aus Ordner und Gesendet: Liste, Flags und Live-Änderungen über den Suchordner
-   * (mail-thread.c); abgeglichen wird weiter der Ordner selbst. */
+   * (mail-thread.c); abgeglichen wird weiter der Ordner selbst. #408: eigenes Cancellable je Vorgang. */
   list = load->sent_full_name != NULL ? revolution_mail_thread_folder_sync (folder, load->sent_full_name, &sent,
-                                                                            cancellable, &error)
+                                                                            load_op, &error)
                                       : g_object_ref (folder);
   if (list == NULL)
     {

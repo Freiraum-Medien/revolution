@@ -86,8 +86,8 @@
 #                                 GET nach internetMessageId; markiert = importance high wie --flags)
 #   tests/testdaten.py --sortierung KONTO basis|neu|papierkorb
 #                                 #418, schreibend nur in Testkonten (IMAP, nicht privat@): basis legt
-#                                 „Pruef418 Faden“ mit festem Datum in der Vergangenheit und „Pruef418
-#                                 Oben“ (Datum jetzt) in den Posteingang (idempotent); neu legt eine
+#                                 „Pruef418 Faden“ (ungelesen, #419) mit festem Datum in der Vergangenheit
+#                                 und „Pruef418 Oben“ (Datum jetzt) in den Posteingang (idempotent); neu legt eine
 #                                 Antwort auf den Faden (Datum jetzt) und eine neue Konversation
 #                                 „Pruef418 Neu“ (eine Sekunde davor) ab;
 #                                 papierkorb verschiebt alle Pruef418-Mails per UID MOVE in den
@@ -692,7 +692,7 @@ def sortierung(k, aktion):
 
     if aktion == 'basis':
         if not suche(SORTIERUNG_BETREFF):
-            ablegen(SORTIERUNG_BETREFF, datetime.datetime(2026, 10, 20, 9, 0).astimezone().timestamp(), True,
+            ablegen(SORTIERUNG_BETREFF, datetime.datetime(2026, 10, 20, 9, 0).astimezone().timestamp(), False,
                     'sortierung-418-faden')
         if not suche(SORTIERUNG_OBEN):
             jetzt = time.time()

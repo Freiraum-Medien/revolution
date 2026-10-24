@@ -29,8 +29,8 @@ LOGKEY = ORDNER.replace('/', ' ', 1)
 BREITE, HOEHE = 1400, 900
 # Kopf je Nachricht im Lesebereich der Konversation (neueste oben, nur Nr. 5 aufgeklappt, kurzer Text),
 # Knöpfe Gelesen und Markieren rechts daneben (Kalibrierung: NAME-0-kalibrierung.png).
-KOPF_X, GELESEN_X, STERN_X = 900, 1337, 1371
-KOPF_Y = {5: 140, 4: 316, 3: 378, 2: 440, 1: 502}
+KOPF_X, GELESEN_X, STERN_X = 900, 1332, 1366
+KOPF_Y = {5: 145, 4: 321, 3: 383, 2: 445, 1: 507}
 
 fehler = 0
 d = display.Display()
@@ -307,6 +307,21 @@ def nur_bild(ab):
     (ok if hoehe else falsch)('Nr. 3 Höhe nach Inhalt: %s' % (hoehe[1] if hoehe else 'fehlt'))
     time.sleep(1.5)
     bild('aufgeklappt')
+    # Mausrad über dem Inhalt (WebView von Nr. 3): die Konversation scrollt als Ganzes (Bild ändert sich).
+    vorher = Image.open(os.path.join(OUT, '%s-aufgeklappt.png' % NAME))
+    xtest.fake_input(d, X.MotionNotify, x=1000, y=700)
+    for _ in range(5):
+        xtest.fake_input(d, X.ButtonPress, 5)
+        xtest.fake_input(d, X.ButtonRelease, 5)
+    d.sync()
+    time.sleep(1)
+    root = d.screen().root
+    raw = root.get_image(0, 0, BREITE, HOEHE, X.ZPixmap, 0xffffffff).data
+    nachher = Image.frombytes('RGB', (BREITE, HOEHE), raw, 'raw', 'BGRX')
+    nachher.save(os.path.join(OUT, '%s-gescrollt.png' % NAME))
+    bereich = (700, 120, BREITE, HOEHE)
+    anders = sum(a != b for a, b in zip(vorher.crop(bereich).getdata(), nachher.crop(bereich).getdata()))
+    (ok if anders > 1000 else falsch)('Mausrad über der WebView scrollt die Konversation (%d Pixel geändert)' % anders)
 
 
 def main():
@@ -343,6 +358,8 @@ def main():
         log.close()
     rest = [z for z in open(LOG, encoding='utf-8', errors='replace')
             if not z.startswith('(revolution:') and not z.startswith('libEGL warning:') and z.strip()]
+    # Webprozess (#355): „(process:N): revolution-DEBUG: Webprozess: …“ ist ebenfalls DEBUG der App.
+    rest = [z for z in rest if not re.match(r'^\(process:\d+\): revolution-DEBUG: ', z)]
     rest += [z for z in open(LOG, encoding='utf-8', errors='replace')
              if z.startswith('(revolution:') and 'revolution-DEBUG' not in z]
     (falsch if rest else ok)('Log: %s' % ('%d unerwartete Zeilen: %s' % (len(rest), rest[:3]) if rest else 'nur DEBUG-Zeilen'))

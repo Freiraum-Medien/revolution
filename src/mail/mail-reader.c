@@ -96,6 +96,7 @@ struct _RevolutionMailReader
   GtkWidget      *sender_row;
   GtkWidget      *content_card;
   AdwClamp       *fit_clamp;
+  guint           fit_id;
 };
 
 /* „shown“: Inhalt der Nachricht fertig geladen (WEBKIT_LOAD_FINISHED); mail-view.c startet damit den
@@ -836,6 +837,7 @@ show_error (RevolutionMailReader *self,
 
 static void guard_page (RevolutionMailReader *self);
 static void fit_content (RevolutionMailReader *self);
+static void refit_later (gpointer user_data);
 
 /* Fassung je Theme (PM #354): Theme 1 (Oberfläche hell) die Mail unverändert; Themes 2/3 die helle
  * Fassung (prepare_schemes), außer Theme 3 bei eigener Dunkel-Fassung der Mail. */
@@ -989,6 +991,9 @@ on_height_reply (GObject      *source,
   if (g_strcmp0 (uri, self->load_uri) != 0 || height <= 0)
     return;
 
+  /* Noch ohne Breite (WebView bis zur Anzeige unsichtbar): nach der Zuteilung erneut messen. */
+  if (gtk_widget_get_width (GTK_WIDGET (self->web_view)) <= 0 && self->fit_id == 0)
+    self->fit_id = g_timeout_add_once (100, refit_later, self);
   width = MAX (gtk_widget_get_width (GTK_WIDGET (self->web_view)), 1);
   height = MIN (height, FIT_MAX_PIXELS / width);
   g_debug ("Nachricht: Höhe %d bei Breite %d (%s)", height, width, uri);
@@ -998,6 +1003,15 @@ on_height_reply (GObject      *source,
   adw_clamp_set_maximum_size (self->fit_clamp, height);
   adw_clamp_set_tightening_threshold (self->fit_clamp, height);
   gtk_widget_set_size_request (GTK_WIDGET (self->web_view), -1, height);
+}
+
+static void
+refit_later (gpointer user_data)
+{
+  RevolutionMailReader *self = user_data;
+
+  self->fit_id = 0;
+  fit_content (self);
 }
 
 static void
@@ -1575,12 +1589,16 @@ revolution_mail_reader_size_allocate (GtkWidget *widget,
                                       int        baseline)
 {
   RevolutionMailReader *self = REVOLUTION_MAIL_READER (widget);
+  int web_width;
 
   GTK_WIDGET_CLASS (revolution_mail_reader_parent_class)->size_allocate (widget, width, height, baseline);
 
-  if (self->compact && width != self->fitted_width)
+  /* Breite der WebView, nicht des Lesebereichs: sie ist bis zur ersten Anzeige unsichtbar (Breite 0), die
+   * Messung beim Laden kann also vor ihrer Breite liegen (gemessen: „Höhe 268 bei Breite 1“). */
+  web_width = gtk_widget_get_width (GTK_WIDGET (self->web_view));
+  if (self->compact && web_width > 0 && web_width != self->fitted_width)
     {
-      self->fitted_width = width;
+      self->fitted_width = web_width;
       fit_content (self);
     }
 }
@@ -1631,6 +1649,7 @@ revolution_mail_reader_dispose (GObject *object)
   /* #357: Lesebereiche der Konversation verschwinden beim Zuklappen und vor dem Beenden der App
    * (on_application_shutdown kommt dann nicht mehr an): Webprozess wie dort zuerst beenden, sonst meldet er
    * „Error releasing name …WebProcess…“ (gemessen, build/m4-357/probe3.log). */
+  g_clear_handle_id (&self->fit_id, g_source_remove);
   if (self->compact && self->web_view != NULL)
     webkit_web_view_terminate_web_process (self->web_view);
   gtk_widget_dispose_template (GTK_WIDGET (self), REVOLUTION_TYPE_MAIL_READER);

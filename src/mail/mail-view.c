@@ -2495,6 +2495,9 @@ on_conversations_changed (RevolutionMailView *self)
 
   g_clear_object (&self->folder);
   on_folder_selected (self);
+  /* Der Fokus lag evtl. im Lesebereich, der jetzt leer ist: zurück in die Liste, damit Kürzel (Strg+T)
+   * weiter wirken (gemessen: zweites Strg+T ohne Wirkung, build/m4-357/lauf1). */
+  gtk_widget_grab_focus (GTK_WIDGET (self->message_list));
 }
 
 enum { PROP_0, PROP_STACK, N_PROPS };

@@ -6,10 +6,11 @@
 # angezeigt; Pfeil ab (Schwer lädt), nach der Pause Pfeil ab (Ziel). Ab dem ersten Pfeil bis 2 s nach
 # dem zweiten Bilder des Lesebereichs, so schnell es geht (XGetImage). Prüft: unter dem Kopf von
 # Schwer und von Ziel Inhalt einer anderen Mail höchstens 200 ms (Grenze WebKitGTK, als WERT mit
-# Dauer; länger ist FEHLER); am Ende grün; im Log „sichtbar“ der
-# Ladung von Ziel erst nach deren „started“, „Gelesen“ (Signal „shown“) ebenso. Danach Ziel wieder
-# ungelesen (Strg+Umschalt+K).
-# Umgebung: BIN, OUT, NAME, ORDNER, UIDS („Start Schwer Ziel“ als IMAP-UIDs), PAUSEN, WDH.
+# Dauer; länger ist FEHLER); am Ende grün; im Log „sichtbar“ der Ladung von Ziel nach einem
+# übergangenen FINISHED der vorigen Ladung, „fertig“ (shown) und „Gelesen“ nicht davor; das übergangene
+# FINISHED mindestens einmal. Danach Ziel wieder ungelesen (Strg+Umschalt+K). Zum Schluss 40×
+# Pfeil zwischen Start und Schwer mit Theme-Wechsel nach 80–194 ms: „fertig“ der letzten Ladung.
+# Umgebung: BIN, OUT, NAME, ORDNER, UIDS („Start Schwer Ziel“ als IMAP-UIDs), PAUSEN, WDH, APP_ID.
 # Ausgabe: „OK …“, „FEHLER …“, „WERT …“; Bilder je Lauf in OUT/NAME-bilder-<Pause>-<n>.txt,
 # Bilder mit altem Inhalt als PNG.
 #
@@ -31,7 +32,7 @@ from Xlib.ext import xtest
 
 BIN, OUT, NAME, ORDNER = os.environ['BIN'], os.environ['OUT'], os.environ['NAME'], os.environ['ORDNER']
 START, SCHWER, ZIEL = os.environ['UIDS'].split()
-PAUSEN = [float(p) for p in os.environ.get('PAUSEN', '0.2 0.24 0.3').split()]
+PAUSEN = [float(p) for p in os.environ.get('PAUSEN', '0.12 0.15 0.2 0.24 0.3 1.0').split()]
 WDH = int(os.environ.get('WDH', '3'))
 LOGKEY = ORDNER.replace('/', ' ', 1)
 # #357: in Konversationen (Standard) nennt das Log die Nachricht über den Suchordner der Konversation
@@ -48,6 +49,7 @@ GRENZE_MS = 200
 FARBEN = {'blau': (52, 101, 164), 'gelb': (245, 194, 17), 'gruen': (46, 194, 126)}
 
 fehler = 0
+uebergangen_zahl = 0
 d = display.Display()
 
 
@@ -237,7 +239,7 @@ def bilder_pruefen(tag, pause, nr, bilder, kopf_start):
         veraltet = kopf in alt and any(v > 0.01 for f, v in a.items() if f != erwartet[kopf])
         for k in von:
             if k not in bis and not (veraltet and kopf == k):
-                bis[k] = t
+                bis[k] = (t, kopf == k)
         if veraltet:
             alt[kopf] += 1
             von.setdefault(kopf, t)
@@ -255,15 +257,21 @@ def bilder_pruefen(tag, pause, nr, bilder, kopf_start):
         if alt[kopf] == 0:
             ok('%s: kein Bild mit Inhalt einer anderen Mail unter dem Kopf von %s' % (tag, kopf))
             continue
-        dauer = (bis.get(kopf, bilder[-1][0]) - von[kopf]) * 1000
+        # Ende: erstes Bild mit dem eigenen Inhalt (erstes Zeichnen) oder, bei kurzer Pause, der nächste
+        # Kopf (Pfeil zu Ziel, Schwer bis dahin nicht gezeichnet: Dauer nur bis dorthin gemessen).
+        ende, gezeichnet = bis.get(kopf, (bilder[-1][0], False))
+        dauer = (ende - von[kopf]) * 1000
         (wert if dauer <= GRENZE_MS else falsch)(
-            '%s: Inhalt einer anderen Mail unter dem Kopf von %s %.0f ms (%d Aufnahmen, Grenze WebKitGTK, '
-            'erlaubt ≤ %d ms)' % (tag, kopf, dauer, alt[kopf], GRENZE_MS))
+            '%s: Inhalt einer anderen Mail unter dem Kopf von %s %.0f ms bis %s (%d Aufnahmen, Grenze '
+            'WebKitGTK, erlaubt ≤ %d ms)' % (tag, kopf, dauer, 'zum ersten Zeichnen' if gezeichnet else
+                                             'zum nächsten Kopf, vorher nicht gezeichnet', alt[kopf], GRENZE_MS))
     (ok if anteile(bilder[-1][1])['gruen'] > 0.5 else falsch)('%s: Inhalt von Ziel am Ende sichtbar' % tag)
 
 
 def log_pruefen(tag, ab):
-    """Ladung von Ziel: „sichtbar“ und „Gelesen“ (Signal shown) erst nach ihrem „started“."""
+    """Ladung von Ziel: „sichtbar“ nach einem übergangenen FINISHED der vorigen Ladung, „fertig“ (Signal
+    shown) und „Gelesen“ nach „sichtbar“."""
+    global uebergangen_zahl
     s = geladen(SCHWER, ab, 1)
     z = geladen(ZIEL, ab, 10)
     if s is None or z is None:
@@ -279,23 +287,52 @@ def log_pruefen(tag, ab):
     def zeile(muster):
         return next(((i, t, text) for i, (t, text) in enumerate(zeilen) if re.search(muster, text)), None)
 
-    started = zeile(r'^Nachricht: lädt %s \(started\)' % re.escape(zeigt))
+    uebergangen = zeile(r'^Nachricht: %s übergangen' % re.escape(zeigt))
     sichtbar = zeile(r'^Nachricht: sichtbar %s \((committed|finished)\)' % re.escape(zeigt))
-    uebergangen = zeile(r'^Nachricht: %s vor STARTED übergangen' % re.escape(zeigt))
+    fertig = zeile(r'^Nachricht: fertig %s$' % re.escape(zeigt))
     gelesen = zeile(r'^Gelesen: %s in ' % (NACHRICHT % ZIEL))
     wert('%s: %s' % (tag, ' | '.join('%.3f %s' % (t, text) for _, t, text in
-                                       sorted(filter(None, (started, uebergangen, sichtbar, gelesen))))))
-    if started is None or sichtbar is None:
-        falsch('%s: Log „started“ oder „sichtbar“ für %s fehlt' % (tag, zeigt))
+                                       sorted(filter(None, (uebergangen, sichtbar, fertig, gelesen))))))
+    if uebergangen is not None:
+        uebergangen_zahl += 1
+    if sichtbar is None or fertig is None:
+        falsch('%s: Log „sichtbar“ oder „fertig“ für %s fehlt' % (tag, zeigt))
         return
-    (ok if sichtbar[0] > started[0] and sichtbar[1] >= started[1] else falsch)(
-        '%s: „%s“ nach „started“ (%+.0f ms)' % (tag, sichtbar[2], (sichtbar[1] - started[1]) * 1000))
+    if uebergangen is not None:
+        (ok if sichtbar[0] > uebergangen[0] else falsch)(
+            '%s: „%s“ nach dem übergangenen FINISHED (%+.0f ms)' % (tag, sichtbar[2], (sichtbar[1] - uebergangen[1]) * 1000))
+    (ok if fertig[0] >= sichtbar[0] else falsch)('%s: „fertig“ (shown) nicht vor „sichtbar“' % tag)
     if gelesen is None:
         falsch('%s: Log „Gelesen“ für Ziel (%s) fehlt' % (tag, ZIEL))
         return
-    (ok if gelesen[0] > started[0] and gelesen[1] >= sichtbar[1] else falsch)(
-        '%s: Gelesen-Timer (shown) nach „started“ und „sichtbar“ (%+.0f ms nach sichtbar)'
-        % (tag, (gelesen[1] - sichtbar[1]) * 1000))
+    (ok if gelesen[0] > fertig[0] else falsch)(
+        '%s: Gelesen-Timer nach „fertig“ und „sichtbar“ (%+.0f ms nach sichtbar)' % (tag, (gelesen[1] - sichtbar[1]) * 1000))
+
+
+def theme_rennen():
+    """#412 Prüf-Lauf R1 (rennen-treiber.py des Prüfers): Pfeil zwischen Start und Schwer, nach D ms
+    Theme-Wechsel (zwei show_html dicht hintereinander, mail-reader.c on_ua_dark_changed und
+    on_root_classes). Je Durchgang muss die letzte Ladung „fertig“ melden (WebView sichtbar, shown)."""
+    app_id, pfad = os.environ['APP_ID'], '/' + os.environ['APP_ID'].replace('.', '/')
+    thema = 'hell'
+    leer = 0
+    for i, verz in enumerate(list(range(80, 200, 6)) * 2):
+        ab = len(log_zeilen())
+        taste('Down' if i % 2 == 0 else 'Up')
+        time.sleep(verz / 1000)
+        thema = 'dunkel' if thema == 'hell' else 'hell'
+        subprocess.run(['gdbus', 'call', '--session', '-d', app_id, '-o', pfad, '-m', 'org.gtk.Actions.SetState',
+                        'theme', "<'%s'>" % thema, '{}'], stdout=subprocess.DEVNULL, timeout=10)
+        time.sleep(1.5)
+        zeilen = [text for _, text in log_zeilen()[ab:]]
+        ladungen = [z.split()[2] for z in zeilen if z.startswith('Nachricht: zeigt ')]
+        fertig = bool(ladungen) and ('Nachricht: fertig %s' % ladungen[-1]) in zeilen
+        if not fertig:
+            leer += 1
+        wert('Theme %02d D=%3d ms %-6s Ladungen %s, letzte fertig: %s, übergangen %d' % (
+            i, verz, thema, [l.split('-')[-1] for l in ladungen], 'ja' if fertig else 'NEIN',
+            sum('übergangen' in z for z in zeilen)))
+    (ok if leer == 0 else falsch)('Theme-Wechsel nach Pfeil: %d von 40 Durchgängen ohne „fertig“ der letzten Ladung' % leer)
 
 
 def schliessen(app, w):
@@ -365,6 +402,11 @@ def main():
         for pause in PAUSEN:
             for nr in range(1, WDH + 1):
                 lauf(pause, nr)
+        # Prüf-Lauf R1 SOLLTE 2: sonst prüft der Lauf den Fall „FINISHED der vorigen Ladung“ nicht.
+        (ok if uebergangen_zahl > 0 else falsch)('übergangenes FINISHED der vorigen Ladung in %d Durchgängen' % uebergangen_zahl)
+        klick(ZEILE)
+        time.sleep(1.5)
+        theme_rennen()
         rc = schliessen(app, w)
         (ok if rc == 0 else falsch)('Beenden: Exit %s' % rc)
     finally:

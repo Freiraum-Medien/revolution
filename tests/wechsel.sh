@@ -4,14 +4,17 @@
 # Aufruf: tests/wechsel.sh [AUSGABEORDNER]   (Standard BUILD/m4-412)
 #   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
 #   KONTO    Testkonto (IMAP, nicht privat@), Standard KONTO_IMAP_2@example.invalid
-#   PAUSEN   Sekunden zwischen Pfeil ab zu Schwer und Pfeil ab zu Ziel, Standard „0.2 0.24 0.3“
+#   PAUSEN   Sekunden zwischen Pfeil ab zu Schwer und Pfeil ab zu Ziel, Standard „0.12 0.15 0.2 0.24 0.3 1.0“
+#            (kurze: Schwer noch nicht fertig, FINISHED der vorigen Ladung; 1.0: Dauer bis zum ersten
+#            Zeichnen von Schwer)
 #   WDH      Wiederholungen je Pause, Standard 3
 #   PAPIERKORB  1 (Standard): die drei Testmails danach in den Papierkorb (nicht endgültig gelöscht)
 #   LAUF_TIMEOUT  Sekunden für den Treiber-Lauf, Standard 1200; TD_TIMEOUT je tests/testdaten.py
 #
 # tests/testdaten.py --schwer legt drei Mails per APPEND in den Posteingang (Start, Schwer ≥ 500 KB,
 # Ziel ungelesen). Ein App-Start im eigenen Xvfb (echter Session-Bus, Einstellungen im Speicher,
-# X11), Treiber tests/wechsel-treiber.py (XTest, Bilder per XGetImage). Eine Zeile je Prüfung
+# X11), Treiber tests/wechsel-treiber.py (XTest, Bilder per XGetImage; zum Schluss Theme-Wechsel
+# nach Pfeil, 40×). Eine Zeile je Prüfung
 # „OK …“ bzw. „FEHLER …“, „WERT …“ für Messwerte; Exit 0 ohne Fehler. Abbrüche: tests/abbruch.sh.
 #
 # Copyright 2026 Arnd Messer
@@ -54,7 +57,7 @@ else
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
     GTK_A11Y=none NO_AT_BRIDGE=1 ADW_DEBUG_COLOR_SCHEME=prefer-light \
     G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER="$uid/INBOX" REVOLUTION_MESSAGE="Pruef412 Start" \
-    BIN="$BIN" OUT="$OUT" NAME=m4-412 ORDNER="$uid/INBOX" UIDS="$uids" \
+    BIN="$BIN" OUT="$OUT" NAME=m4-412 ORDNER="$uid/INBOX" UIDS="$uids" APP_ID="$APP_ID" \
     xvfb-run -a -s "-screen 0 1200x760x24" python3 -I "$APP_DIR/tests/wechsel-treiber.py" | tee "$OUT/m4-412.txt"
   rc="${PIPESTATUS[0]}"
   rm -rf "$rundir"

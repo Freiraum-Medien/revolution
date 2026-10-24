@@ -5,6 +5,7 @@
 #   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
 #   KONTEN   Testkonten, Standard „KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid“ (Konversation aus
 #            tests/testdaten.py --konversation: 3 Mails im Posteingang, 2 eigene im Gesendet-Ordner)
+#   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 900; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
 # Je Konto ein App-Start im eigenen Xvfb (wie tests/flags.sh: echter Session-Bus, Einstellungen im
 # Speicher, X11) im Posteingang, mit Schema conversations=true (.gschema.override) und
@@ -15,7 +16,10 @@
 # (alle 5), Umschalter Strg+T flach/Konversation. Flags unabhängig am Server (tests/testdaten.py
 # --konversation-flags, IMAP EXAMINE bzw. Graph GET); am Ende Ausgangszustand wie vorher. Danach je Konto
 # ein Bild dunkel (aufgeklappt). #415: M365_DEBUG=1, Graph-Anfragen als „[graph] METHODE Pfad“ im Log;
-# ohne Bedienung keine schreibende Anfrage, insgesamt höchstens eine je eigener Flag-Änderung. Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler.
+# ohne Bedienung keine schreibende Anfrage, schreibende nur an selbst geänderte Nachrichten, ihr Rumpf =
+# Stand nach der eigenen Bedienung (NAME-rumpf.log, ohne Authorization). Eine Zeile je Prüfung „OK …“
+# bzw. „FEHLER …“; Exit 0 ohne Fehler. #411: Abbruch eines Teilschritts (Zeitlimit, Exit ≠ 0 ohne
+# FEHLER-Zeile, tests/testdaten.py) zählt als FEHLER (tests/abbruch.sh).
 #
 # Copyright 2026 Arnd Messer
 #
@@ -28,6 +32,7 @@ BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m4-357}"
 KONTEN="${KONTEN:-KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid}"
+LAUF_TIMEOUT="${LAUF_TIMEOUT:-900}"
 FEHLER=0
 
 [ -x "$BIN" ] || { echo "FEHLER  Build: $BIN fehlt (meson compile)"; exit 1; }
@@ -40,6 +45,7 @@ bus_hat_app () {
 }
 [ "$(bus_hat_app)" = "(false,)" ] || { echo "FEHLER  Session-Bus: $APP_ID läuft schon"; exit 1; }
 mkdir -p "$OUT"
+. "$APP_DIR/tests/abbruch.sh"
 
 SCHEMA="$OUT/schema"
 mkdir -p "$SCHEMA"
@@ -55,7 +61,7 @@ printf '[de.freiraum_medien.Revolution]\nconversations=true\nmark-seen=false\nwi
   >"$BILD/90_test.gschema.override"
 glib-compile-schemas --strict "$BILD" || { echo "FEHLER  Schema: glib-compile-schemas $BILD"; exit 1; }
 
-if timeout 900 python3 "$APP_DIR/tests/testdaten.py" --konversation >"$OUT/testdaten.txt" 2>&1; then
+if TD_TIMEOUT=900 td --konversation >"$OUT/testdaten.txt" 2>&1; then
   echo "OK      Testdaten: $(grep -c '^KONVERSATION ' "$OUT/testdaten.txt") Ordner"
 else
   echo "FEHLER  Testdaten: tests/testdaten.py --konversation (siehe $OUT/testdaten.txt)"; exit 1
@@ -64,7 +70,7 @@ fi
 lauf () {
   local name="$1" konto="$2" ordner="$3" schema="$4" nur_bild="${5:-0}" rundir rc=0
   rundir="$(mktemp -d)"
-  env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
+  timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
     XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$([ "$nur_bild" = 1 ] && echo "$BILD" || echo "$SCHEMA")" GSETTINGS_BACKEND=memory \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
     GTK_A11Y=none NO_AT_BRIDGE=1 ADW_DEBUG_COLOR_SCHEME="$schema" \
@@ -83,10 +89,14 @@ for konto in $KONTEN; do
   ordner="$(sed -n "s#^KONVERSATION $konto \(.*\) [0-9]*\$#\1#p" "$OUT/testdaten.txt" | head -1)"
   [ -n "$ordner" ] || { echo "FEHLER  $konto: Posteingang nicht in $OUT/testdaten.txt"; FEHLER=$((FEHLER + 1)); continue; }
   lauf "$name" "$konto" "$ordner" prefer-light | tee "$OUT/$name.txt"
+  teilschritt "$name" "${PIPESTATUS[0]}" "$OUT/$name.txt"
   FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/$name.txt")))
   lauf "$name-dunkel" "$konto" "$ordner" prefer-dark 1 | tee "$OUT/$name-dunkel.txt"
+  teilschritt "$name-dunkel" "${PIPESTATUS[0]}" "$OUT/$name-dunkel.txt"
   FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/$name-dunkel.txt")))
 done
+
+abbruch_bilanz
 
 echo "Ergebnis: $FEHLER Fehler, Ausgaben in $OUT"
 [ "$FEHLER" -eq 0 ]

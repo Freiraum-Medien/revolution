@@ -12,6 +12,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import datetime
+import json
 import os
 import re
 import subprocess
@@ -59,10 +60,28 @@ ZEILE_RE = re.compile(r'^\(revolution:\d+\): revolution-DEBUG: (\d\d):(\d\d):(\d
 GRAPH_RE = re.compile(r'^> (GET|POST|PATCH|PUT|DELETE|HEAD) (\S+)')
 
 
+RUMPF_LOG = os.path.join(OUT, NAME + '-rumpf.log')
+
+
 def filtern(quelle, ziel):
-    """Ausgabe der App zeilenweise nach LOG, ohne Anmeldedaten und ohne HTTP-Kopf/Rumpf."""
+    """Ausgabe der App zeilenweise nach LOG, ohne Anmeldedaten und ohne HTTP-Kopf/Rumpf. Prüf-Lauf #357
+    (Vorlage build-pruef/patch/treiber-rumpf.py): schreibende Anfragen mit Rumpf und die Zeilen „Flags:“ in
+    Reihenfolge nach NAME-rumpf.log, ohne Authorization/Cookie (rumpf_pruefen)."""
+    rumpf = open(RUMPF_LOG, 'w')
+    in_req = False
     for roh in quelle:
         zeile = roh.decode('utf-8', 'replace')
+        if re.match(r'^> (PATCH|POST|PUT|DELETE) ', zeile):
+            in_req = True
+            rumpf.write('---- %.3f\n' % time.time())
+        elif zeile.startswith(('<', '(')) or re.match(r'^> (GET|HEAD) ', zeile):
+            in_req = False
+        if in_req and not re.match(r'^> (Authorization|Cookie|Set-Cookie):', zeile, re.I):
+            rumpf.write(zeile)
+            rumpf.flush()
+        elif 'revolution-DEBUG' in zeile and ('Flags:' in zeile or 'Konversation: Nachricht ' in zeile):
+            rumpf.write(zeile)
+            rumpf.flush()
         g = GRAPH_RE.match(zeile)
         if 'revolution-DEBUG' in zeile or 'WARNING' in zeile or 'CRITICAL' in zeile or zeile.startswith('libEGL'):
             ziel.write(zeile)
@@ -99,6 +118,53 @@ def fremde_patches():
             if g and not any(u.endswith(g.group(1)) for u in eigene):
                 fremd.append(z.strip())
     return fremd
+
+
+def rumpf_pruefen(vorher):
+    """#415: Jeder PATCH an eine Nachricht der Konversation schreibt genau den Stand nach der eigenen
+    Bedienung (isRead, importance high = markiert wie camel-m365-utils.c:744-745, keine Kategorien an den
+    Testmails), kein Server-Echo. Stand je Nachricht: vorher am Server, dann je Zeile „Flags:“ fortgeschrieben."""
+    nr_von, stand, aktuell, fehlerhaft, geprueft = {}, {}, None, [], 0
+    for nr, (gelesen, markiert, _) in vorher.items():
+        stand[nr] = [gelesen, markiert]
+    zeilen = open(RUMPF_LOG, encoding='utf-8', errors='replace').read().splitlines()
+    for z in zeilen:
+        m = re.search(r'Konversation: Nachricht (\S+) (\d+) aus ', z)
+        if m:
+            for nr in range(1, 6):
+                if int(m.group(2)) == datum(nr):
+                    nr_von[m.group(1)] = nr
+    for z in zeilen:
+        m = re.search(r'revolution-DEBUG: [0-9:.]+: Flags: \S+ \S+ (\S+) (.*)$', z)
+        if m and ' gespeichert' not in m.group(2) and 'lokal' not in m.group(2) and m.group(1) in nr_von:
+            was, nr = m.group(2), nr_von[m.group(1)]
+            if was.startswith('ungelesen'):
+                stand[nr][0] = 0
+            elif was.startswith('gelesen'):
+                stand[nr][0] = 1
+            elif was.startswith('nicht markiert'):
+                stand[nr][1] = 0
+            elif was.startswith('markiert'):
+                stand[nr][1] = 1
+            continue
+        p = re.match(r'^> PATCH \S*/messages/(\S+) ', z)
+        if p:
+            aktuell = [n for u, n in nr_von.items() if u.endswith(p.group(1))]
+            continue
+        if aktuell is not None and z.startswith('> {'):
+            rumpf = json.loads(z[2:])
+            if aktuell:
+                nr = aktuell[0]
+                soll = {'isRead': bool(stand[nr][0]), 'importance': 'high' if stand[nr][1] else 'normal',
+                        'categories': []}
+                geprueft += 1
+                if any(k not in soll or rumpf[k] != soll[k] for k in rumpf):
+                    fehlerhaft.append('Nr. %d: %s, erwartet %s' % (nr, rumpf, soll))
+            else:
+                fehlerhaft.append('PATCH an eine Nachricht außerhalb der Konversation: %s' % rumpf)
+            aktuell = None
+    (ok if not fehlerhaft else falsch)('PATCH-Rümpfe = eigener Stand je Nachricht: %d geprüft, %d abweichend%s'
+                                       % (geprueft, len(fehlerhaft), ': %s' % fehlerhaft[:3] if fehlerhaft else ''))
 
 
 def log_zeilen():
@@ -403,6 +469,8 @@ def main():
         p, n, f = patches(), gespeichert(), fremde_patches()
         (ok if not f else falsch)('schreibende Graph-Anfragen %d, eigene Flag-Änderungen %d, an nicht selbst geänderte '
                                   'Nachrichten %d%s' % (len(p), n, len(f), ': %s' % f[:3] if f else ''))
+        if vorher is not None and 'outlook' in KONTO:
+            rumpf_pruefen(vorher)
         if vorher is not None:
             nachher = server_flags()
             (ok if nachher == vorher else falsch)('Server nach dem Lauf wie vorher: %s' % sorted(nachher.items()))

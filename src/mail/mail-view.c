@@ -38,6 +38,7 @@ struct _RevolutionMailView
   GListStore          *accounts;
   GtkStack            *sidebar_stack;
   AdwBanner           *banner;
+  GtkWidget           *offline_notice;
   GtkSingleSelection  *folder_selection;
   GtkSingleSelection  *message_selection;
   GListStore          *messages;
@@ -936,6 +937,12 @@ load_messages_thread (GTask        *task,
 {
   LoadMessages *load = task_data;
   g_autoptr (CamelService) service = camel_session_ref_service (load->session, load->uid);
+  /* #408: Camel bekommt je Vorgang ein eigenes Cancellable, das am Cancellable des Ladens bzw. der
+   * Ansicht hängt (camel_operation_new_proxy, camel-operation.c:254-300), wie Evolution je
+   * EActivity. Ein Abbruch von innen (microsoft365: soup_session_abort beim Trennen, Beleg Prüfer
+   * #408 R2) trifft so nur diesen Vorgang, nicht alle späteren der Ansicht. */
+  g_autoptr (GCancellable) load_op = camel_operation_new_proxy (cancellable);
+  g_autoptr (GCancellable) refresh_op = camel_operation_new_proxy (load->refresh_cancellable);
   g_autoptr (CamelFolder) folder = NULL;
   g_autofree char *key = NULL;
   GError *error = NULL;
@@ -950,7 +957,7 @@ load_messages_thread (GTask        *task,
     }
 
   /* Ordner immer über camel_store_get_folder_sync (README „Camel-Ordner“). */
-  folder = camel_store_get_folder_sync (CAMEL_STORE (service), load->full_name, 0, cancellable, &error);
+  folder = camel_store_get_folder_sync (CAMEL_STORE (service), load->full_name, 0, load_op, &error);
   if (folder == NULL)
     {
       g_task_return_error (task, error);
@@ -987,8 +994,19 @@ load_messages_thread (GTask        *task,
       return;
     }
 
-  refreshed_ok = camel_folder_refresh_info_sync (folder, load->refresh_cancellable, &error);
+  refreshed_ok = camel_folder_refresh_info_sync (folder, refresh_op, &error);
   refresh_end (key);
+  /* #408: Offline (Pille „Offline“) bleibt es beim Stand des Caches. imapx überspringt den
+   * Abgleich dann (camel-imapx-folder.c:878-880), microsoft365 meldet „You must be working
+   * online“ (camel-m365-folder.c:961, camel-m365-store.c:1754-1758); das ist kein Fehler. */
+  if (!refreshed_ok && error != NULL && !camel_session_get_online (load->session))
+    {
+      g_debug ("Nachrichten: %s %s offline, Stand des Caches (%s)", load->uid, load->full_name, error->message);
+      g_clear_error (&error);
+      if (!g_task_return_error_if_cancelled (task))
+        g_task_return_boolean (task, TRUE);
+      return;
+    }
   if (!refreshed_ok)
     {
       if (error == NULL)
@@ -1532,9 +1550,15 @@ on_flags_set (GObject      *source_object,
   gssize done = g_task_propagate_int (G_TASK (result), &error);
 
   self->flags_running = FALSE;
-  /* Ansicht schon weg (Beenden): nichts mehr anzeigen, wartende Aufträge trotzdem abarbeiten. */
-  if (self->cancellable == NULL || g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+  /* Ansicht schon weg (Beenden): nichts mehr anzeigen, wartende Aufträge trotzdem abarbeiten.
+   * #408: Synchronisieren ohne Cancellable (set_flags_thread); ein Abbruch von innen (microsoft365
+   * beim Trennen) ist ein Fehler wie jeder andere. Die Änderung steht dann in der Summary und geht
+   * beim nächsten Abgleich mit; offline genügt das Log. */
+  if (self->cancellable == NULL || g_cancellable_is_cancelled (self->cancellable))
     ;
+  else if (error != NULL && self->session != NULL && !camel_session_get_online (self->session))
+    g_debug ("Flags: %s %s %s lokal gespeichert (offline, Abgleich abgebrochen: %s)", data->loading, data->uid,
+             data->what, error->message);
   else if (done == FLAGS_SAVED)
     g_debug ("Flags: %s %s %s gespeichert nach %.0f ms", data->loading, data->uid, data->what,
              (g_get_monotonic_time () - data->started) / 1000.0);
@@ -1757,6 +1781,28 @@ on_reader_shown (RevolutionMailView *self)
   self->seen_id = g_timeout_add_full (G_PRIORITY_DEFAULT, timeout, on_mark_seen_timeout, self, NULL);
 }
 
+/* #408: Ordner eines Kontos nach „Netz zurück“ (main.c, on_store_noted), im UI-Thread: Baum
+ * abgleichen statt ersetzen (revolution_mail_folder_merge_tree), Auswahl und Aufklappzustand
+ * bleiben. Ein inzwischen ausgeblendetes Konto wird übergangen. */
+void
+revolution_mail_view_update_folders (RevolutionMailView *self,
+                                     const char         *uid,
+                                     CamelFolderInfo    *info)
+{
+  g_autoptr (RevolutionMailAccount) account = NULL;
+  guint added = 0, removed = 0;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
+
+  account = find_account (self, uid);
+  if (account == NULL)
+    return;
+
+  revolution_mail_folder_merge_tree (G_LIST_STORE (gtk_tree_list_model_get_model (account_tree (account))),
+                                     info, account, &added, &removed);
+  g_debug ("Ordner: %s abgeglichen, %u neu, %u entfernt", uid, added, removed);
+}
+
 /* #353: Ordner neu vom Server (list.refresh, F5 wie Evolution mail-folder-refresh,
  * e-mail-shell-view-actions.c:1721-1726; Strg+R ist dort Antworten, e-mail-reader.c:3382-3387).
  * camel_folder_refresh_info_sync im Worker, die Liste folgt über „changed“. Ohne geladenen
@@ -1768,9 +1814,20 @@ refresh_thread (GTask        *task,
                 GCancellable *cancellable)
 {
   GError *error = NULL;
+  CamelStore *store = camel_folder_get_parent_store (task_data);
+  g_autoptr (CamelSession) session = store != NULL ? camel_service_ref_session (CAMEL_SERVICE (store)) : NULL;
+  /* #408: eigenes Cancellable je Vorgang wie load_messages_thread. */
+  g_autoptr (GCancellable) op = camel_operation_new_proxy (cancellable);
 
-  if (camel_folder_refresh_info_sync (task_data, cancellable, &error))
+  if (camel_folder_refresh_info_sync (task_data, op, &error))
     g_task_return_boolean (task, TRUE);
+  else if (session != NULL && !camel_session_get_online (session))
+    {
+      /* #408: offline bleibt der Cache (wie load_messages_thread). */
+      g_debug ("Aktualisieren: offline, Stand des Caches (%s)", error->message);
+      g_error_free (error);
+      g_task_return_boolean (task, TRUE);
+    }
   else
     g_task_return_error (task, error);
 }
@@ -1790,8 +1847,13 @@ on_refreshed (GObject      *source_object,
       g_debug ("Aktualisieren: %s fertig", loading);
       return;
     }
-  if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-    return;
+  /* #408: still nur, wenn wir abgebrochen haben (wie on_messages_loaded). */
+  if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED) &&
+      g_cancellable_is_cancelled (g_task_get_cancellable (G_TASK (result))))
+    {
+      g_debug ("Aktualisieren: %s abgebrochen", loading);
+      return;
+    }
 
   g_warning ("Aktualisieren %s: %s", loading, error->message);
   detail = g_strdup_printf ("%s: %s", gtk_label_get_label (self->list_title), error->message);
@@ -1955,7 +2017,10 @@ on_messages_loaded (GObject      *source_object,
       start_folder_changes (self);
     }
 
-  if (!ok && g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+  /* #408: still nur, wenn wir abgebrochen haben (anderer Ordner, Beenden); einen Abbruch von innen
+   * (Camel/EDS) wie jeden Fehler melden. */
+  if (!ok && g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED) &&
+      g_cancellable_is_cancelled (g_task_get_cancellable (G_TASK (result))))
     {
       g_debug ("Nachrichten: %s %s abgebrochen", load->uid, load->full_name);
       return;
@@ -2233,6 +2298,7 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, folder_selection);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, sidebar_stack);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, banner);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, offline_notice);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, message_selection);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, list_stack);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, list_title);
@@ -2443,6 +2509,51 @@ revolution_mail_view_show_error (RevolutionMailView *self,
   adw_banner_set_title (self->banner, shown);
   gtk_widget_set_tooltip_text (GTK_WIDGET (self->banner), errors->details->str);
   adw_banner_set_revealed (self->banner, TRUE);
+}
+
+/* #408: Aufruf aus main.c im UI-Thread, wenn die Session nach dem Netzmonitor offline bzw.
+ * wieder online geht: Pille „Offline“ über der Nachrichtenliste (offline_notice, mail-view.blp).
+ * Offline ersetzt die Verbindungsfehler: Besteht das Sammel-Banner nur aus „Keine Verbindung“
+ * (Titel aus main.c, on_store_noted), verschwindet es; neue Verbindungsfehler meldet main.c erst
+ * wieder online. Gemischte Fehlerarten bleiben unverändert stehen. */
+void
+revolution_mail_view_set_offline (RevolutionMailView *self,
+                                  gboolean            offline)
+{
+  BannerErrors *errors;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
+
+  gtk_widget_set_visible (self->offline_notice, offline);
+  g_debug ("Hinweis Offline: %s", offline ? "sichtbar" : "weg");
+  if (!offline)
+    return;
+
+  errors = g_object_get_data (G_OBJECT (self), "banner-errors");
+  if (errors != NULL && errors->kinds->len == 1 &&
+      g_strcmp0 (g_array_index (errors->kinds, BannerKind, 0).title, _("Keine Verbindung")) == 0)
+    {
+      g_object_set_data (G_OBJECT (self), "banner-errors", NULL);
+      adw_banner_set_revealed (self->banner, FALSE);
+    }
+}
+
+/* #408: Aufruf aus main.c, sobald der Store des Kontos uid nach „Netz zurück“ wieder verbunden
+ * ist: die offene Liste, wenn sie zu diesem Konto gehört, vom Server wie F5 (on_refresh). */
+void
+revolution_mail_view_refresh_account (RevolutionMailView *self,
+                                      const char         *uid)
+{
+  g_autoptr (RevolutionMailAccount) account = NULL;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
+
+  if (self->folder == NULL)
+    return;
+
+  g_object_get (self->folder, "account", &account, NULL);
+  if (account != NULL && g_strcmp0 (revolution_mail_account_get_uid (account), uid) == 0)
+    on_refresh (NULL, NULL, self);
 }
 
 /* #350: Ordner der Seitenleiste auswählen (Position im flachen Modell der Auswahl). */

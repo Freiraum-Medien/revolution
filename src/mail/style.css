@@ -163,6 +163,12 @@ menubutton.primary-menu popover.menu separator {
   color: var(--accent-color);
 }
 
+/* #408: Offline-Pille ohne Knopf, gleich hoch wie die Pille mit Knopf (26px + 2 × 5px). */
+.offline-notice {
+  min-height: 36px;
+  padding-right: 14px;
+}
+
 /* #355: Knopf mit Menü (Adw.SplitButton): beide Hälften als eine Pille in Akzentfarbe. */
 .mail-notice-button > button,
 .mail-notice-button > menubutton > button {

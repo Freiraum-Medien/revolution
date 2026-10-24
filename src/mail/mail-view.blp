@@ -345,6 +345,44 @@ template $RevolutionMailView: Adw.BreakpointBin {
         use-markup: false;
       }
 
+      // #408: Offline als Hinweis-Pille (Dokument #5: Hinweise als Pille statt Leiste, wie
+      // mail-reader.blp „notice“, #355) statt Adw.Banner; sichtbar, solange die Session nach dem
+      // Netzmonitor offline ist (revolution_mail_view_set_offline). Ohne Knopf: online geht es
+      // von selbst, sobald das Netz zurück ist (main.c).
+      [top]
+      Box offline_notice {
+        visible: false;
+        spacing: 12;
+        margin-start: 12;
+        margin-end: 12;
+        margin-top: 6;
+        margin-bottom: 6;
+        accessible-role: status;
+        tooltip-text: _("Keine Netzwerkverbindung. Angezeigt wird der Stand auf diesem Gerät; online geht es von selbst, sobald das Netz zurück ist.");
+
+        accessibility {
+          label: _("Offline");
+          description: _("Keine Netzwerkverbindung. Angezeigt wird der Stand auf diesem Gerät.");
+        }
+
+        styles [
+          "mail-notice",
+          "offline-notice",
+        ]
+
+        Image {
+          icon-name: "network-offline-symbolic";
+          accessible-role: presentation;
+        }
+
+        Label {
+          label: _("Offline");
+          hexpand: true;
+          xalign: 0;
+          ellipsize: end;
+        }
+      }
+
       // Ohne Ordner und bei leerem Ordner: Leerzustand wie Stamp (stamp-conversation-list.blp:252-259).
       // #352: Seite „list“ während des Ladens und mit Nachrichten (mail-view.c).
       content: Stack list_stack {

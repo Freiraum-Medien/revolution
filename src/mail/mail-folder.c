@@ -265,6 +265,26 @@ set_unread (RevolutionMailFolder *self,
     g_debug ("Ungelesen: %s %s %d", revolution_mail_account_get_uid (account), self->full_name, unread);
 }
 
+/* Eintrag zu fi ohne Unterordner. */
+static RevolutionMailFolder *
+folder_from_info (CamelFolderInfo       *fi,
+                  RevolutionMailAccount *account)
+{
+  RevolutionMailFolder *folder = g_object_new (REVOLUTION_TYPE_MAIL_FOLDER, NULL);
+
+  folder->full_name = g_strdup (fi->full_name);
+  folder->display_name = g_strdup (display_name_for (fi));
+  folder->flags = fi->flags;
+  folder->icon_name = icon_for_type (fi->flags);
+  g_weak_ref_set (&folder->account, account);
+  /* #350: Zahl aus der Ordnerliste, sofern der Store sie kennt (imapx mit LIST-STATUS oder
+   * geöffnetem Ordner, camel-imapx-store.c:1362-1400; microsoft365 aus Graph). Wie
+   * Evolution setup_folder (mail-folder-cache.c:1260). */
+  set_unread (folder, (fi->flags & CAMEL_FOLDER_NOSELECT) != 0 ? -1 : fi->unread);
+
+  return folder;
+}
+
 /* Hängt first und seine Geschwister (mit Unterordnern) sortiert an store an; nur im
  * UI-Thread (README „Datenmodell“). Gibt die Zahl aller Ordner zurück. */
 guint
@@ -276,19 +296,9 @@ revolution_mail_folder_append_tree (GListStore            *store,
 
   for (CamelFolderInfo *fi = first; fi != NULL; fi = fi->next)
     {
-      g_autoptr (RevolutionMailFolder) folder = g_object_new (REVOLUTION_TYPE_MAIL_FOLDER, NULL);
+      g_autoptr (RevolutionMailFolder) folder = folder_from_info (fi, account);
 
-      folder->full_name = g_strdup (fi->full_name);
-      folder->display_name = g_strdup (display_name_for (fi));
-      folder->flags = fi->flags;
-      folder->icon_name = icon_for_type (fi->flags);
-      g_weak_ref_set (&folder->account, account);
       g_debug ("Ordner: %s %s", revolution_mail_account_get_uid (account), fi->full_name);
-      /* #350: Zahl aus der Ordnerliste, sofern der Store sie kennt (imapx mit LIST-STATUS oder
-       * geöffnetem Ordner, camel-imapx-store.c:1362-1400; microsoft365 aus Graph). Wie
-       * Evolution setup_folder (mail-folder-cache.c:1260). */
-      set_unread (folder, (fi->flags & CAMEL_FOLDER_NOSELECT) != 0 ? -1 : fi->unread);
-
       if (fi->child != NULL)
         {
           folder->children = g_list_store_new (REVOLUTION_TYPE_MAIL_FOLDER);
@@ -302,6 +312,82 @@ revolution_mail_folder_append_tree (GListStore            *store,
   g_list_store_sort (store, compare_folders, NULL);
 
   return count;
+}
+
+/* #408: Ordnerbaum nach „Netz zurück“ mit der neuen Ordnerliste abgleichen, statt ihn zu
+ * ersetzen (revolution_mail_view_update_folders): bestehende Einträge bleiben dieselben Objekte,
+ * damit Auswahl und Aufklappzustand des GtkTreeListModel bleiben; neue Ordner kommen sortiert
+ * dazu, fehlende fallen weg. Wie Evolution, das den Baum nur je Ordner ändert (folder-created/
+ * -deleted, em-folder-tree-model.c). Zähler: nur, wenn die Liste einen kennt (sonst -1, imapx,
+ * forget_unread in main.c), sonst bleibt der gezählte Stand. Nur im UI-Thread. added/removed
+ * zählen mit. */
+void
+revolution_mail_folder_merge_tree (GListStore            *store,
+                                   CamelFolderInfo       *first,
+                                   RevolutionMailAccount *account,
+                                   guint                 *added,
+                                   guint                 *removed)
+{
+  const char *uid = revolution_mail_account_get_uid (account);
+
+  for (guint i = g_list_model_get_n_items (G_LIST_MODEL (store)); i > 0; i--)
+    {
+      g_autoptr (RevolutionMailFolder) folder = g_list_model_get_item (G_LIST_MODEL (store), i - 1);
+      CamelFolderInfo *fi = first;
+
+      while (fi != NULL && g_strcmp0 (fi->full_name, folder->full_name) != 0)
+        fi = fi->next;
+      if (fi == NULL)
+        {
+          g_debug ("Ordner: %s entfernt %s", uid, folder->full_name);
+          g_list_store_remove (store, i - 1);
+          (*removed)++;
+        }
+    }
+
+  for (CamelFolderInfo *fi = first; fi != NULL; fi = fi->next)
+    {
+      g_autoptr (RevolutionMailFolder) folder = NULL;
+      guint position;
+
+      for (position = 0; position < g_list_model_get_n_items (G_LIST_MODEL (store)); position++)
+        {
+          g_autoptr (RevolutionMailFolder) item = g_list_model_get_item (G_LIST_MODEL (store), position);
+
+          if (g_strcmp0 (item->full_name, fi->full_name) == 0)
+            {
+              folder = g_steal_pointer (&item);
+              break;
+            }
+        }
+
+      if (folder == NULL)
+        {
+          folder = folder_from_info (fi, account);
+          g_debug ("Ordner: %s neu %s", uid, fi->full_name);
+          if (fi->child != NULL)
+            {
+              folder->children = g_list_store_new (REVOLUTION_TYPE_MAIL_FOLDER);
+              *added += revolution_mail_folder_append_tree (folder->children, fi->child, account);
+            }
+          g_list_store_insert_sorted (store, folder, compare_folders, NULL);
+          (*added)++;
+          continue;
+        }
+
+      if (fi->unread >= 0 && (fi->flags & CAMEL_FOLDER_NOSELECT) == 0)
+        set_unread (folder, fi->unread);
+
+      if (fi->child != NULL && folder->children == NULL)
+        {
+          /* Erst jetzt Unterordner: die Zeile zeigt sie erst, wenn das GtkTreeListModel die
+           * Kinder neu erfragt (folder_children, mail-view.c), spätestens beim nächsten Start. */
+          folder->children = g_list_store_new (REVOLUTION_TYPE_MAIL_FOLDER);
+          *added += revolution_mail_folder_append_tree (folder->children, fi->child, account);
+        }
+      else if (folder->children != NULL)
+        revolution_mail_folder_merge_tree (folder->children, fi->child, account, added, removed);
+    }
 }
 
 /* #351: Eintrag ohne CamelFolderInfo für die Favoriten (mail-favorites.c): Name und Symbol fest,

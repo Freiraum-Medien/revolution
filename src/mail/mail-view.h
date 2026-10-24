@@ -31,5 +31,12 @@ void revolution_mail_view_watch_folder (RevolutionMailView *self,
                                         CamelFolder        *folder,
                                         gboolean            hold,
                                         gboolean            refreshed);
+void revolution_mail_view_set_offline  (RevolutionMailView *self,
+                                        gboolean            offline);
+void revolution_mail_view_update_folders (RevolutionMailView *self,
+                                          const char         *uid,
+                                          CamelFolderInfo    *info);
+void revolution_mail_view_refresh_account (RevolutionMailView *self,
+                                           const char         *uid);
 
 G_END_DECLS

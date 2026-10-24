@@ -35,6 +35,10 @@
 #                                 weg (Live-Mails löschen: UID STORE \Deleted + EXPUNGE); #414: mit
 #                                 --warte DATEI erst anmelden, „BEREIT“ ausgeben, dann ablegen,
 #                                 sobald DATEI existiert, und „ABGELEGT <Uhrzeit>“ ausgeben
+#   tests/testdaten.py --testordner KONTO anlegen|loeschen
+#                                 #408, schreibend nur in Testkonten (IMAP): Ordner Revolution-Offline
+#                                 neben Revolution-Test per CREATE bzw. DELETE; Zeile
+#                                 „TESTORDNER <Camel-Name>“
 #   tests/testdaten.py --ungelesen KONTO ORDNER [--soll DATEI]
 #                                 #353: Zeile „UNGELESEN <Anzahl> <UID …>“ (IMAP EXAMINE + UID SEARCH
 #                                 UNSEEN, nur lesend); mit --soll (Datei mit einer solchen Zeile)
@@ -1132,6 +1136,25 @@ def server(k, aktion, ziel=ORDNER, warte=None):
     return 0
 
 
+TESTORDNER = 'Revolution-Offline'
+
+
+def testordner(k, aktion):
+    """#408: Ordner Revolution-Offline neben Revolution-Test am Server anlegen oder löschen (IMAP
+    CREATE/DELETE, nur Testkonten), während die App offline ist; Zeile „TESTORDNER <Camel-Name>“."""
+    nur_testkonten([k.adresse])
+    if not k.goa.get_mail().props.imap_supported:
+        sys.exit('ABBRUCH: --testordner nur für IMAP')
+    c = imap_verbinden(k)
+    name, camel_name = imap_ordner(c)
+    name = name[:len(name) - len(ORDNER)] + TESTORDNER
+    camel_name = camel_name[:len(camel_name) - len(ORDNER)] + TESTORDNER
+    print(c.create('"%s"' % name) if aktion == 'anlegen' else c.delete('"%s"' % name))
+    print('TESTORDNER %s' % camel_name)
+    c.logout()
+    return 0
+
+
 # ---------------------------------------------------------------- #350: Ungelesen-Zähler
 
 def mutf7_decode(name):
@@ -1365,7 +1388,17 @@ def main():
     ap.add_argument('--kombiniert', nargs='?', const='', metavar='LOG',
                     help='#351: nur lesend Posteingänge aller Konten (EXAMINE, Graph), Vergleich mit LOG')
     ap.add_argument('--live-flags', metavar='KONTO', help='#351: nur lesend Flags der Live-Mails im Posteingang')
+    ap.add_argument('--testordner', nargs=2, metavar=('KONTO', 'anlegen|loeschen'),
+                    help='#408: Ordner %s am Server anlegen oder löschen (IMAP, Testkonten)' % TESTORDNER)
     args = ap.parse_args()
+
+    if args.testordner:
+        adresse = args.testordner[0].lower()
+        nur_testkonten([adresse])
+        if args.testordner[1] not in ('anlegen', 'loeschen'):
+            ap.error('--testordner KONTO anlegen|loeschen')
+        k = konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse]
+        return testordner(k, args.testordner[1])
 
     if args.live_flags:
         adresse = args.live_flags.lower()

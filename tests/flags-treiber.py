@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import time
+import traceback
 
 from PIL import Image
 from Xlib import X, XK, display, protocol
@@ -96,7 +97,9 @@ def server_flags():
 def server_aendern(aktion, *ordner):
     r = subprocess.run([sys.executable, os.path.join(APP_DIR, 'tests', 'testdaten.py'), '--server', KONTO, aktion, *ordner],
                        capture_output=True, text=True, timeout=180)
-    wert('Server %s: %s' % (aktion, (r.stdout + r.stderr).strip().replace('\n', ' | ')))
+    # #411: Exit ≠ 0 von testdaten.py (Traceback, ABBRUCH) ist ein Abbruch des Schritts.
+    (wert if r.returncode == 0 else falsch)('Server %s: %s%s' % (
+        aktion, (r.stdout + r.stderr).strip().replace('\n', ' | '), '' if r.returncode == 0 else ' (Exit %d)' % r.returncode))
 
 
 def pruefe_server(schritt, gelesen=None, markiert=None):
@@ -475,4 +478,9 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as e:  # #411: Abbruch (Traceback, Zeitlimit eines Aufrufs) zählt als FEHLER
+        traceback.print_exc()
+        falsch('Abbruch: %s: %s' % (type(e).__name__, str(e).replace('\n', ' ')[:300]))
+        sys.exit(1)

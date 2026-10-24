@@ -26,6 +26,8 @@
 # Inode in ~/.config/evolution/sources unverändert (keine zweite Registry, nichts neu geschrieben, #343).
 # Schreibt nichts auf Server: die App lädt in M3 nur Ordnerlisten, testdaten.py --ordner liest.
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 nur, wenn alle Prüfungen OK sind.
+# #411: Jeder Abbruch eines Teilschritts (Traceback, Exit ≠ 0 von testdaten.py, Zeitlimit) ist ein
+# FEHLER (tests/abbruch.sh); jeder App-Start mit Zeitlimit SMOKE_TIMEOUT + 120 s.
 #
 # Copyright 2026 Arnd Messer
 #
@@ -54,6 +56,7 @@ libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering'
 
 [[ "$TIMEOUT" =~ ^[0-9]+$ ]] || { echo "SMOKE_TIMEOUT als Sekunden angeben" >&2; exit 2; }
 mkdir -p "$OUT"
+. "$APP_DIR/tests/abbruch.sh"
 LAEUFE="mail-hell mail-dunkel kalender-hell kontakte-hell"
 # Nur eigene Dateien früherer Läufe entfernen (OUT kann ein Ordner mit fremden Dateien sein).
 for n in $LAEUFE; do rm -f "$OUT/$n".{log,out,png,ready,quit} "$OUT/$n"-*; done
@@ -119,10 +122,10 @@ EOF
 [ $? -eq 0 ] || fehler "Registry: Python-GI-Regel (siehe $OUT/konten-registry.err)"
 KONTEN="$(cut -d' ' -f1 "$OUT/konten-registry.txt" | sort)"
 
-if timeout 300 python3 "$APP_DIR/tests/testdaten.py" --ordner >"$OUT/ordner-testdaten.txt" 2>&1; then
+if td --ordner >"$OUT/ordner-testdaten.txt" 2>&1; then
   ok "Vergleichsliste: tests/testdaten.py --ordner, $(grep -c '^ANZAHL ' "$OUT/ordner-testdaten.txt") Konten"
 else
-  fehler "Vergleichsliste: tests/testdaten.py --ordner (siehe $OUT/ordner-testdaten.txt)"
+  echo "        Vergleichsliste fehlt (siehe $OUT/ordner-testdaten.txt)"
 fi
 
 # ---------------------------------------------------------------- Log der App auswerten
@@ -251,7 +254,7 @@ lauf () {
   warte "$OUT/$name.log" "$OUT/$name.ready" & watcher=$!
   env G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals BUILD="$BUILD" OUT_DIR="$OUT" \
     LOG="$OUT/$name.log" READY="$OUT/$name.ready" QUIT="$OUT/$name.quit" WAIT=$((TIMEOUT + 5)) \
-    KEYS="$keys" "$APP_DIR/scripts/screenshot.sh" "$name" "$scheme" "$size" >"$OUT/$name.out" 2>&1 \
+    KEYS="$keys" timeout -k 10 $((TIMEOUT + 120)) "$APP_DIR/scripts/screenshot.sh" "$name" "$scheme" "$size" >"$OUT/$name.out" 2>&1 \
     || fehler "$name: scripts/screenshot.sh Exit $? (siehe $OUT/$name.out)"
   kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
   pruefe_lauf "$name"
@@ -275,5 +278,6 @@ else
   fehler "(f) ~/.config/evolution/sources geändert: $(diff "$OUT/sources-vorher.txt" "$OUT/sources-nachher.txt" | grep -c '^[<>]') Zeilen abweichend"
 fi
 
+abbruch_bilanz
 echo "Ergebnis: $FEHLER Fehler, Ausgaben in $OUT"
 [ "$FEHLER" -eq 0 ]

@@ -5,6 +5,7 @@
 #   BUILD  Build-Ordner, Standard build/ im Repo (vorher meson compile)
 #   KONTO  Testkonto für Flags und Live-Mail, Standard KONTO_IMAP_2@example.invalid (IMAP mit IDLE;
 #          nicht privat@: Quota)
+#   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 1200; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
 # Drei App-Starts im eigenen Xvfb (wie tests/flags.sh: echter Session-Bus, Einstellungen im
 # Speicher, X11) mit REVOLUTION_FOLDER=revolution-favoriten/inbox („Alle Eingänge“), Treiber
@@ -22,6 +23,8 @@
 #      jede Änderung am Server von KONTO geprüft; neue Mail und Löschen live (IDLE); am Ende sind
 #      die Live-Mails gelöscht (Ausgangszustand).
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“, „WERT …“ für Messwerte; Exit 0 ohne Fehler.
+# #411: Jeder Abbruch eines Teilschritts (Traceback, Exit ≠ 0 von Treiber oder testdaten.py,
+# Zeitlimit) ist ein FEHLER (tests/abbruch.sh).
 #
 # Copyright 2026 Arnd Messer
 #
@@ -34,6 +37,7 @@ BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m4-351}"
 KONTO="${KONTO:-KONTO_IMAP_2@example.invalid}"
+LAUF_TIMEOUT="${LAUF_TIMEOUT:-1200}"
 FEHLER=0
 
 [ -x "$BIN" ] || { echo "FEHLER  Build: $BIN fehlt (meson compile)"; exit 1; }
@@ -46,11 +50,12 @@ bus_hat_app () {
 }
 [ "$(bus_hat_app)" = "(false,)" ] || { echo "FEHLER  Session-Bus: $APP_ID läuft schon"; exit 1; }
 mkdir -p "$OUT"
+. "$APP_DIR/tests/abbruch.sh"
 
 lauf () {
   local name="$1" schema="$2" rundir rc=0
   rundir="$(mktemp -d)"
-  env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
+  timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
     XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$BUILD/data" GSETTINGS_BACKEND=memory \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
     GTK_A11Y=none NO_AT_BRIDGE=1 ADW_DEBUG_COLOR_SCHEME="$schema" \
@@ -66,6 +71,7 @@ lauf () {
 # 1. Nur lesend: laden, Screenshot dunkel, Zählung je Konto gegen den Server.
 name=m4-351-dunkel
 lauf "$name" prefer-dark | tee "$OUT/$name.txt"
+teilschritt "$name" "${PIPESTATUS[0]}" "$OUT/$name.txt"
 log="$OUT/$name.log"
 # Schreibende IMAP-Befehle, auch hinter UID (UID STORE/COPY/MOVE/EXPUNGE).
 SCHREIBEND_RE='^\[imapx:[A-Za-z]\] (UID )?(APPEND|STORE|EXPUNGE|COPY|MOVE|CREATE|DELETE|RENAME|SUBSCRIBE|UNSUBSCRIBE)\b'
@@ -84,7 +90,7 @@ else
   echo "FEHLER  $name: Schreibzugriffe im Lauf ohne Bedienung: $schreibend $graph_schreibend"
 fi | tee -a "$OUT/$name.txt"
 echo "WERT    $name: SELECT/EXAMINE je Ordner: $(grep -oE '^\[imapx:[A-Za-z]\] (SELECT|EXAMINE) \S+' "$log" | cut -d' ' -f2- | sort | uniq -c | awk '{printf "%s%s×%s %s", s, $1, $2, $3; s=", "}')" | tee -a "$OUT/$name.txt"
-if python3 "$APP_DIR/tests/testdaten.py" --kombiniert "$log" >"$OUT/$name-server.txt" 2>&1; then
+if timeout -k 10 "$TD_TIMEOUT" python3 "$APP_DIR/tests/testdaten.py" --kombiniert "$log" >"$OUT/$name-server.txt" 2>&1; then
   echo "OK      $name: Zählung je Konto = Server ($(grep -c '^KOMBINIERT' "$OUT/$name-server.txt") Konten; $(grep '^SUMME' "$OUT/$name-server.txt"))"
 else
   echo "FEHLER  $name: Zählung weicht ab (siehe $OUT/$name-server.txt): $(grep ABWEICHUNG "$OUT/$name-server.txt" | tr '\n' ' ')"
@@ -94,11 +100,12 @@ FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/$name.txt")))
 # 2. Store eines Kontos aus der Session nehmen und wieder anlegen (ohne Änderung an GOA/ESource):
 #    Quellen verschwinden aus den Favoriten und kommen genau einmal wieder. Kein Schreibzugriff.
 name=m4-351-zyklus
-ZYKLUS_UID="$(python3 "$APP_DIR/tests/testdaten.py" --kombiniert 2>/dev/null | awk -v k="$KONTO" '$3 == k {print $2}')"
+ZYKLUS_UID="$(td --kombiniert 2>/dev/null | awk -v k="$KONTO" '$3 == k {print $2}')"
 if [ -z "$ZYKLUS_UID" ]; then
   echo "FEHLER  $name: UID von $KONTO nicht gefunden" | tee "$OUT/$name.txt"
 else
   ZYKLUS_UID="$ZYKLUS_UID" lauf "$name" prefer-light | tee "$OUT/$name.txt"
+  teilschritt "$name" "${PIPESTATUS[0]}" "$OUT/$name.txt"
   n="$(grep -cE "$SCHREIBEND_RE" "$OUT/$name.log")"
   if [ "$n" = 0 ] && ! grep -qE '^\[graph-batch\] (POST|PATCH|PUT|DELETE)|^\[graph\] (PATCH|PUT|DELETE)' "$OUT/$name.log"; then
     echo "OK      $name: kein Schreibzugriff"
@@ -108,9 +115,10 @@ FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/$name.txt")))
 
 # 3. Bedienung im Testkonto: Live-Mail vorher anlegen, danach löscht der Treiber sie am Server.
 name=m4-351-hell
-python3 "$APP_DIR/tests/testdaten.py" --server "$KONTO" weg INBOX >/dev/null 2>&1
-python3 "$APP_DIR/tests/testdaten.py" --server "$KONTO" neu INBOX >"$OUT/$name-vorher.txt" 2>&1
+td --server "$KONTO" weg INBOX >/dev/null 2>&1
+td --server "$KONTO" neu INBOX >"$OUT/$name-vorher.txt" 2>&1
 lauf "$name" prefer-light | tee "$OUT/$name.txt"
+teilschritt "$name" "${PIPESTATUS[0]}" "$OUT/$name.txt"
 # Gegenprobe zur Prüfung „nur lesend“: jede Bedienung (Flags: … gespeichert) ist genau ein UID STORE;
 # weitere schreibende Befehle gibt es nicht, also keinen in einem anderen (nur lesend freigegebenen) Konto.
 store="$(grep -cE '^\[imapx:[A-Za-z]\] UID STORE ' "$OUT/$name.log")"
@@ -121,10 +129,11 @@ if [ "$store" -gt 0 ] && [ "$store" = "$flags" ] && [ "$alle" = "$store" ]; then
 else
   echo "FEHLER  $name: Gegenprobe: UID STORE $store, schreibend gesamt $alle, Bedienungen $flags"
 fi | tee -a "$OUT/$name.txt"
-rest="$(python3 "$APP_DIR/tests/testdaten.py" --live-flags "$KONTO" | grep -c '^FLAGS')"
+rest="$(td --live-flags "$KONTO" | grep -c '^FLAGS')"
 if [ "$rest" = 0 ]; then echo "OK      $name: Ausgangszustand, keine Live-Mail mehr im Posteingang von $KONTO"
 else echo "FEHLER  $name: $rest Live-Mails im Posteingang von $KONTO übrig"; fi | tee -a "$OUT/$name.txt"
 FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/$name.txt")))
 
+abbruch_bilanz
 echo "Ergebnis: $FEHLER Fehler"
 [ "$FEHLER" = 0 ]

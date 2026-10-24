@@ -25,6 +25,8 @@
 # (eigenes Schema mit .gschema.override, SCHEMA_DIR für scripts/screenshot.sh) und Vergleich der
 # ungelesenen UIDs am Server vorher/nachher (tests/testdaten.py --ungelesen); bei Abweichung FEHLER
 # und Rückstellung auf den Stand vorher (--soll).
+# #411: Jeder Abbruch eines Teilschritts (Traceback, Exit ≠ 0 von testdaten.py oder einer Auswertung,
+# Zeitlimit) ist ein FEHLER (tests/abbruch.sh).
 #
 # Copyright 2026 Arnd Messer
 #
@@ -50,6 +52,7 @@ libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering'
 
 [[ "$ANZAHL" =~ ^[0-9]+$ && "$TIMEOUT" =~ ^[0-9]+$ ]] || { echo "LAST_ANZAHL/LAST_TIMEOUT als Zahl" >&2; exit 2; }
 mkdir -p "$OUT"
+. "$APP_DIR/tests/abbruch.sh"
 rm -f "$OUT"/m4-352-{oben,unten}{.log,.out,.png,.ready,.quit,-ping.txt,-rest.txt} "$OUT/testdaten.txt"
 
 [ -x "$BIN" ] || { fehler "Build: $BIN fehlt (meson compile)"; exit 1; }
@@ -60,10 +63,10 @@ bus_hat_app () {
 }
 [ "$(bus_hat_app)" = "(false,)" ] || { fehler "Session-Bus: $APP_ID läuft schon ($(bus_hat_app))"; exit 1; }
 
-if timeout 3000 python3 "$APP_DIR/tests/testdaten.py" --last "$ANZAHL" >"$OUT/testdaten.txt" 2>&1; then
+if TD_TIMEOUT=3000 td --last "$ANZAHL" >"$OUT/testdaten.txt" 2>&1; then
   ok "Testdaten: $(grep -v '^LAST ' "$OUT/testdaten.txt" | tail -1 | sed 's/^ *//')"
 else
-  fehler "Testdaten: tests/testdaten.py --last $ANZAHL (siehe $OUT/testdaten.txt)"; exit 1
+  abbruch_bilanz; echo "Ergebnis: $FEHLER Fehler (siehe $OUT/testdaten.txt)"; exit 1
 fi
 # #353: Schema mit mark-seen=false, ungelesene UIDs am Server vor den Starts.
 SCHEMA="$OUT/schema"
@@ -71,8 +74,8 @@ mkdir -p "$SCHEMA"
 cp "$APP_DIR/data/"*.gschema.xml "$SCHEMA/"
 printf '[de.freiraum_medien.Revolution]\nmark-seen=false\n' >"$SCHEMA/90_test.gschema.override"
 glib-compile-schemas --strict "$SCHEMA" || { fehler "Schema: glib-compile-schemas $SCHEMA"; exit 1; }
-python3 "$APP_DIR/tests/testdaten.py" --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last >"$OUT/ungelesen-vorher.txt" 2>&1 \
-  || { fehler "Ungelesen vorher: tests/testdaten.py --ungelesen (siehe $OUT/ungelesen-vorher.txt)"; exit 1; }
+td --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last >"$OUT/ungelesen-vorher.txt" 2>&1 \
+  || { abbruch_bilanz; echo "Ergebnis: $FEHLER Fehler (siehe $OUT/ungelesen-vorher.txt)"; exit 1; }
 
 # „LAST <UID>/<voller Ordnername> <Anzahl>“
 ORDNER="$(sed -n 's/^LAST \(.*\) [0-9]*$/\1/p' "$OUT/testdaten.txt")"
@@ -128,10 +131,10 @@ lauf () {
   env G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER="$ORDNER" REVOLUTION_FRAME_LOG=1 \
     BUILD="$BUILD" SCHEMA_DIR="$SCHEMA" OUT_DIR="$OUT" LOG="$log" READY="$OUT/$name.ready" QUIT="$OUT/$name.quit" \
     WAIT=$((TIMEOUT + 5)) CLICK="$click" AFTER_KEYS="$keys" KEY_DELAY=0.02 \
-    "$APP_DIR/scripts/screenshot.sh" "$name" prefer-light 1200x760 >"$OUT/$name.out" 2>&1 \
+    timeout -k 10 $((TIMEOUT + 180)) "$APP_DIR/scripts/screenshot.sh" "$name" prefer-light 1200x760 >"$OUT/$name.out" 2>&1 \
     || fehler "$name: scripts/screenshot.sh Exit $? (siehe $OUT/$name.out)"
   kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
-  wait "$ping" 2>/dev/null
+  wait "$ping" 2>/dev/null || fehler "$name: Prüfer der Antwortzeit abgebrochen (siehe $OUT/$name-ping.txt)"
 
   local n erste voll rc pid
   n="$(debug "$log" | sed -nE "s#^Nachrichten: $LOGNAME_ vollständig ([0-9]+) nach .*#\1#p" | tail -1)"
@@ -176,6 +179,7 @@ for teil in ('Start', 'Laden', 'danach'):
     text += '; UI-Thread %d Anfragen, längste Antwort %s' % (len(p), '%.1f ms' % max(p) if p else '-')
     print('WERT    %s %s: %s' % (name, teil, text))
 EOF
+  [ "$?" = 0 ] || fehler "$name: Auswertung der Frames abgebrochen"
 
   grep -vE '^\(revolution:[0-9]+\): revolution-DEBUG: ' "$log" | grep -vxF "$EGL_RAUSCHEN" >"$OUT/$name-rest.txt"
   if [ -s "$OUT/$name-rest.txt" ]; then
@@ -205,13 +209,14 @@ else
 fi
 
 # #353: Ausgangszustand am Server (ungelesene UIDs) unverändert?
-python3 "$APP_DIR/tests/testdaten.py" --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last >"$OUT/ungelesen-nachher.txt" 2>&1
+td --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last >"$OUT/ungelesen-nachher.txt" 2>&1
 if [ -s "$OUT/ungelesen-nachher.txt" ] && cmp -s "$OUT/ungelesen-vorher.txt" "$OUT/ungelesen-nachher.txt"; then
   ok "Server: ungelesene Mails in Revolution-Last unverändert ($(cut -d' ' -f2 "$OUT/ungelesen-vorher.txt"))"
 else
   fehler "Server: ungelesene Mails geändert (vorher $(cut -d' ' -f2 "$OUT/ungelesen-vorher.txt"), nachher $(cut -d' ' -f2 "$OUT/ungelesen-nachher.txt")); Rückstellung:"
-  python3 "$APP_DIR/tests/testdaten.py" --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last --soll "$OUT/ungelesen-vorher.txt" | sed 's/^/        /'
+  td --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last --soll "$OUT/ungelesen-vorher.txt" | sed 's/^/        /'
 fi
 
+abbruch_bilanz
 echo "Ergebnis: $FEHLER Fehler, Ausgaben in $OUT"
 [ "$FEHLER" -eq 0 ]

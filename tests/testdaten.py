@@ -50,9 +50,9 @@
 #                                 #414: microsoft365 per Graph GET (totalItemCount, beide Zahlen gleich)
 #   tests/testdaten.py --anzeige  #354: nur die Anzeige-Mails (HTML, Text ISO-8859-1, Inline-Bild
 #                                 cid:, Remote-Inhalte; #355: zweite Remote-Mail und Remote-Mail eines
-#                                 anderen Absenders) per APPEND in den Posteingang der vier
-#                                 Testkonten (fehlende ergänzen, kein Versand); im Standardlauf
-#                                 enthalten
+#                                 anderen Absenders) per APPEND in den Posteingang der Testkonten
+#                                 außer privat@ (Quota, #411; fehlende ergänzen, kein Versand); im
+#                                 Standardlauf enthalten
 #   tests/testdaten.py --anhang   #356: Anhang-Mail (PDF, PNG, ZIP, Text mit „../“ im Dateinamen,
 #                                 angehängte Nachricht) per APPEND in den Posteingang von geops@,
 #                                 outlook.com und Gmail (nicht privat@: Quota); im Standardlauf
@@ -89,10 +89,12 @@ import imaplib
 import io
 import json
 import re
+import ssl
 import email.header
 import email.policy
 import email.utils
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 import struct
@@ -236,6 +238,8 @@ ANZEIGE = [
 ]
 # #355: abweichender Absender je Schlüssel (sonst ANZEIGE_ABSENDER)
 ANZEIGE_ANDERE = {'anzeige-remote-fremd': 'KONTO_IMAP_2@example.invalid'}
+# #411: nicht mehr in privat@ (Quota fast voll); kein Test braucht die Anzeige-Mails dort.
+ANZEIGE_KONTEN = ('KONTO_IMAP_2@example.invalid', 'KONTO_M365@example.invalid', 'KONTO_GOOGLE@example.invalid')
 REMOTE_HOST = 'https://upload.wikimedia.org'
 
 
@@ -350,6 +354,8 @@ def anzeige_nachricht(key, betreff):
 def anzeige(konten, dry):
     """#354: fehlende Anzeige-Mails per APPEND in den Posteingang (idempotent, als gelesen)."""
     for a, k in konten.items():
+        if a not in ANZEIGE_KONTEN:
+            continue
         nur_testkonten([a])
         k.inbox.refresh_info_sync(cancellable())
         vorhanden = testmails(k.inbox)
@@ -920,7 +926,7 @@ def pruefen(konten):
                 for tiefe, typ, name, extra in out:
                     print('         %s%s%s%s' % ('  ' * tiefe, typ, ' name=%s' % name if name else '',
                                                  ' %s' % extra if extra else ''))
-        for key, betreff in ANZEIGE:
+        for key, betreff in ANZEIGE if a in ANZEIGE_KONTEN else ():
             uid = mails.get((betreff, ANZEIGE_ABSENDER))
             if uid is None:
                 print('  FEHLT  %s (%s)' % (betreff, ANZEIGE_ABSENDER))
@@ -1495,5 +1501,41 @@ def main():
     return 0
 
 
+# #411: transienter Netzabbruch (z. B. Gmail „imaplib.IMAP4.abort: socket error: EOF“): ein
+# Wiederholversuch, nur für wiederholbare Aufrufe (nicht der Versand im Standardlauf, nicht
+# --server … neu). Die Ausgabe eines Versuchs wird gepuffert und erst nach seinem Ende ausgegeben,
+# ein abgebrochener Versuch hinterlässt also keine halben Zeilen. Jede Wiederholung steht auf stderr
+# und als Zeile in der Datei TESTDATEN_WIEDERHOLT (Umgebung, tests/abbruch.sh zählt sie).
+TRANSIENT = (imaplib.IMAP4.abort, ConnectionError, TimeoutError, ssl.SSLError, urllib.error.URLError)
+MODI = ('--pruefen', '--ordner', '--anzeige', '--anhang', '--anhang-teile', '--last', '--flags', '--ungelesen',
+        '--zaehler', '--anzahl', '--server', '--kombiniert', '--live-flags')
+
+
+def main_mit_wiederholung():
+    argv = sys.argv[1:]
+    if not any(a in MODI for a in argv) or ('--server' in argv and 'neu' in argv):
+        return main()
+    echt = sys.stdout
+    for versuch in (1, 2):
+        sys.stdout = puffer = io.StringIO()
+        try:
+            return main()
+        except TRANSIENT as e:
+            if versuch == 2 or (isinstance(e, urllib.error.HTTPError) and e.code < 500):
+                raise
+            text = 'WIEDERHOLUNG tests/testdaten.py %s: %s: %s' % (' '.join(argv), type(e).__name__, e)
+            print(text, file=sys.stderr, flush=True)
+            if os.environ.get('TESTDATEN_WIEDERHOLT'):
+                with open(os.environ['TESTDATEN_WIEDERHOLT'], 'a') as f:
+                    f.write(text.replace('\n', ' ') + '\n')
+            puffer = None
+            time.sleep(5)
+        finally:
+            sys.stdout = echt
+            if puffer is not None:
+                echt.write(puffer.getvalue())
+                echt.flush()
+
+
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(main_mit_wiederholung())

@@ -6,6 +6,7 @@
 #   KONTEN    Testkonten, Standard „KONTO_IMAP_2@example.invalid KONTO_GOOGLE@example.invalid KONTO_M365@example.invalid“
 #             (die Anhang-Mail aus tests/testdaten.py --anhang liegt nicht in privat@, Quota)
 #   SPEICHER  Zielordner für „Speichern unter“ und „Alle speichern“, Standard AUSGABEORDNER/speichern
+#   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 900; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
 # Öffnen ohne Programme auf dem Desktop: kein Portal (GDK_DEBUG=no-portals, ADW_DISABLE_PORTAL=1),
 # eigene XDG_CONFIG_HOME, XDG_DATA_HOME und XDG_DATA_DIRS. Darin genau ein Programm, der Test-Handler
@@ -28,6 +29,8 @@
 # Datei byte-gleich (sha256) mit den Teilen, die tests/testdaten.py --anhang-teile unabhängig von
 # Camel vom Server holt (IMAP bzw. Graph). Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“, „WERT …“
 # für Messwerte; Exit 0 ohne Fehler.
+# #411: Jeder Abbruch eines Teilschritts (Traceback, Exit ≠ 0 von Treiber oder testdaten.py,
+# Zeitlimit) ist ein FEHLER (tests/abbruch.sh).
 #
 # Copyright 2026 Arnd Messer
 #
@@ -41,6 +44,7 @@ BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m4-356}"
 KONTEN="${KONTEN:-KONTO_IMAP_2@example.invalid KONTO_GOOGLE@example.invalid KONTO_M365@example.invalid}"
 SPEICHER="${SPEICHER:-$OUT/speichern}"
+LAUF_TIMEOUT="${LAUF_TIMEOUT:-900}"
 FEHLER=0
 
 [ -x "$BIN" ] || { echo "FEHLER  Build: $BIN fehlt (meson compile)"; exit 1; }
@@ -54,6 +58,7 @@ bus_hat_app () {
     -m org.freedesktop.DBus.NameHasOwner "$APP_ID" 2>/dev/null
 }
 mkdir -p "$OUT" "$SPEICHER"
+. "$APP_DIR/tests/abbruch.sh"
 
 # ---- Umgebung mit Test-Handler
 XDG="$OUT/xdg"
@@ -121,13 +126,13 @@ for konto in $KONTEN; do
   name="m4-356-${konto%%@*}"
   teile="$OUT/$name-server"
   rm -rf "$teile"
-  if ! python3 "$APP_DIR/tests/testdaten.py" --anhang-teile "$konto" "$teile" >"$OUT/$name-server.txt" 2>&1; then
-    echo "FEHLER  $konto: tests/testdaten.py --anhang-teile (siehe $OUT/$name-server.txt)"; FEHLER=$((FEHLER + 1)); continue
+  if ! td --anhang-teile "$konto" "$teile" >"$OUT/$name-server.txt" 2>&1; then
+    echo "        $konto übersprungen (siehe $OUT/$name-server.txt)"; continue
   fi
   # Posteingang: imapx „INBOX“, microsoft365 der Anzeigename (Log „Ordner: <UID> Posteingang“).
   inbox=INBOX
   case "$konto" in *outlook*) inbox=Posteingang ;; esac
-  ordner="$(python3 "$APP_DIR/tests/testdaten.py" --flags "$konto" | sed -n "s#^ORDNER \([^/]*\)/.*#\1/$inbox#p")"
+  ordner="$(td --flags "$konto" | sed -n "s#^ORDNER \([^/]*\)/.*#\1/$inbox#p")"
   ziel="$SPEICHER/$name"
   [ -d "$ziel/gesperrt" ] && chmod 700 "$ziel/gesperrt"
   rm -rf "$ziel"
@@ -139,7 +144,7 @@ for konto in $KONTEN; do
     >"$OUT/$name-portale.txt" 2>&1 & monitor=$!
   sleep 1
   rundir="$(mktemp -d)"
-  env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
+  timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
     XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$BUILD/data" GSETTINGS_BACKEND=memory \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
     GTK_A11Y=none NO_AT_BRIDGE=1 ADW_DEBUG_COLOR_SCHEME=prefer-light \
@@ -148,6 +153,7 @@ for konto in $KONTEN; do
     BIN="$BIN" OUT="$OUT" NAME="$name" KONTO="$konto" ORDNER="$ordner" APP_DIR="$APP_DIR" \
     TEILE="$OUT/$name-server.txt" GEOEFFNET="$GEOEFFNET" ZIEL="$ziel" \
     xvfb-run -a -s "-screen 0 1200x760x24" python3 -I "$APP_DIR/tests/anhaenge-treiber.py" | tee "$OUT/$name.txt"
+  teilschritt "$name" "${PIPESTATUS[0]}" "$OUT/$name.txt"
   rm -rf "$rundir"
   kill "$monitor" 2>/dev/null; wait "$monitor" 2>/dev/null
   [ "$(bus_hat_app)" = "(false,)" ] || echo "FEHLER  $name: App nach dem Lauf noch auf dem Bus" | tee -a "$OUT/$name.txt"
@@ -167,5 +173,6 @@ for konto in $KONTEN; do
   FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/$name.txt")))
 done
 
+abbruch_bilanz
 echo "Ergebnis: $FEHLER Fehler, Ausgaben in $OUT"
 [ "$FEHLER" -eq 0 ]

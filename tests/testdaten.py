@@ -32,7 +32,9 @@
 #                                 #353, schreibend nur in Testkonten: serverseitig an der Einladung
 #                                 in Revolution-Test gelesen|ungelesen|markiert|unmarkiert (IMAP UID
 #                                 STORE bzw. Graph PATCH), neu (IMAP APPEND einer Live-Mail) oder
-#                                 weg (Live-Mails löschen: UID STORE \Deleted + EXPUNGE)
+#                                 weg (Live-Mails löschen: UID STORE \Deleted + EXPUNGE); #414: mit
+#                                 --warte DATEI erst anmelden, „BEREIT“ ausgeben, dann ablegen,
+#                                 sobald DATEI existiert, und „ABGELEGT <Uhrzeit>“ ausgeben
 #   tests/testdaten.py --ungelesen KONTO ORDNER [--soll DATEI]
 #                                 #353: Zeile „UNGELESEN <Anzahl> <UID …>“ (IMAP EXAMINE + UID SEARCH
 #                                 UNSEEN, nur lesend); mit --soll (Datei mit einer solchen Zeile)
@@ -40,7 +42,8 @@
 #   tests/testdaten.py --anzahl UID ORDNER
 #                                 #410: nur lesend, unabhängig von Camel, jedes Konto aus GOA: Anzahl
 #                                 der Nachrichten eines IMAP-Ordners (EXAMINE, UID SEARCH UNDELETED
-#                                 ohne Junk); Zeile „ANZAHL <UID>/<Ordner> <sichtbar> EXISTS <n>“
+#                                 ohne Junk); Zeile „ANZAHL <UID>/<Ordner> <sichtbar> EXISTS <n>“;
+#                                 #414: microsoft365 per Graph GET (totalItemCount, beide Zahlen gleich)
 #   tests/testdaten.py --anzeige  #354: nur die Anzeige-Mails (HTML, Text ISO-8859-1, Inline-Bild
 #                                 cid:, Remote-Inhalte; #355: zweite Remote-Mail und Remote-Mail eines
 #                                 anderen Absenders) per APPEND in den Posteingang der vier
@@ -1085,7 +1088,7 @@ def ungelesen(k, ziel, soll=None):
     return 0
 
 
-def server(k, aktion, ziel=ORDNER):
+def server(k, aktion, ziel=ORDNER, warte=None):
     """#353: serverseitige Änderung in einem Testkonto, während die App läuft; neu/weg auch im
     Posteingang (ziel INBOX, Beleg für IDLE)."""
     nur_testkonten([k.adresse])
@@ -1093,6 +1096,10 @@ def server(k, aktion, ziel=ORDNER):
         c = imap_verbinden(k)
         name, _ = imap_ordner(c, ziel)
         c.select('"%s"' % name)
+        if warte:
+            print('BEREIT', flush=True)
+            while not os.path.exists(warte):
+                time.sleep(0.005)
         if aktion == 'neu':
             m = EmailMessage(policy=email.policy.SMTP)
             m.set_content('Live-Mail für #353 (APPEND, wird danach gelöscht).\n')
@@ -1101,6 +1108,8 @@ def server(k, aktion, ziel=ORDNER):
             m['To'] = k.adresse
             m['Date'] = email.utils.formatdate(localtime=True)
             print(c.append('"%s"' % name, None, None, m.as_bytes()))
+            if warte:
+                print('ABGELEGT ' + datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3], flush=True)
         elif aktion == 'weg':
             for uid, _, _, betreff in imap_mails(c):
                 if betreff.startswith(LIVE):
@@ -1165,6 +1174,13 @@ def anzahl(konten, uid, ziel):
     k = next((k for k in konten if k.account.get_uid() == uid), None)
     if k is None:
         sys.exit('ABBRUCH: Konto %s nicht in GOA/EDS' % uid)
+    if k.account.get_extension(EDataServer.SOURCE_EXTENSION_MAIL_ACCOUNT).get_backend_name() == 'microsoft365':
+        # #414: Graph zählt alle Nachrichten des Ordners (totalItemCount, nur GET).
+        ref = zaehler_graph(k, 'totalItemCount')
+        if ziel not in ref:
+            sys.exit('ABBRUCH: Ordner %s fehlt' % ziel)
+        print('ANZAHL %s/%s %d EXISTS %d' % (uid, ziel, ref[ziel], ref[ziel]))
+        return 0
     c = imap_verbinden(k)
     try:
         roh = None
@@ -1188,9 +1204,10 @@ def anzahl(konten, uid, ziel):
     return 0
 
 
-def zaehler_graph(k):
-    """{Pfad der Anzeigenamen wie Camel microsoft365: n} per Graph, nur GET."""
-    q = '?' + urllib.parse.urlencode({'$select': 'displayName,unreadItemCount,childFolderCount', '$top': '100'})
+def zaehler_graph(k, feld='unreadItemCount'):
+    """{Pfad der Anzeigenamen wie Camel microsoft365: n} per Graph, nur GET; #414: feld
+    totalItemCount für --anzahl."""
+    q = '?' + urllib.parse.urlencode({'$select': 'displayName,childFolderCount,' + feld, '$top': '100'})
     out = {}
 
     def holen(pfad, prefix):
@@ -1198,7 +1215,7 @@ def zaehler_graph(k):
             d = graph(k, 'GET', pfad)
             for f in d['value']:
                 name = prefix + f['displayName']
-                out[name] = f['unreadItemCount']
+                out[name] = f[feld]
                 if f.get('childFolderCount'):
                     holen('/me/mailFolders/%s/childFolders%s' % (f['id'], q), name + '/')
             pfad = d.get('@odata.nextLink', '').removeprefix(GRAPH) or None
@@ -1340,7 +1357,8 @@ def main():
     ap.add_argument('--zaehler', nargs='?', const='', metavar='LOG',
                     help='#350: nur lesend Ungelesene je Ordner (IMAP STATUS, Graph), Vergleich mit LOG')
     ap.add_argument('--anzahl', nargs=2, metavar=('UID', 'ORDNER'),
-                    help='#410: nur lesend Nachrichten eines IMAP-Ordners (EXAMINE, UID SEARCH)')
+                    help='#410: nur lesend Nachrichten eines Ordners (IMAP EXAMINE, UID SEARCH; #414 Graph)')
+    ap.add_argument('--warte', metavar='DATEI', help='#414: --server erst ausführen, wenn DATEI existiert')
     ap.add_argument('--soll', metavar='DATEI', help='#353: Ausgabe von --ungelesen als Sollstand')
     ap.add_argument('--server', nargs='+', metavar='KONTO AKTION [INBOX]',
                     help='#353: serverseitig gelesen|ungelesen|markiert|unmarkiert|neu|weg [im Posteingang]')
@@ -1373,7 +1391,7 @@ def main():
         k = konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse]
         if args.server and (len(args.server) not in (2, 3) or args.server[2:] not in ([], ['INBOX'])):
             ap.error('--server KONTO AKTION [INBOX]')
-        return flags(k) if args.flags else server(k, *args.server[1:])
+        return flags(k) if args.flags else server(k, *args.server[1:], warte=args.warte)
 
     os.makedirs(os.path.join(CACHE, 'data'), exist_ok=True)
     os.makedirs(os.path.join(CACHE, 'cache'), exist_ok=True)

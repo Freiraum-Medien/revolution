@@ -343,11 +343,13 @@ typedef struct
   char         *uid;
   char         *full_name;
   guint         generation;
-  /* Nur im Worker: der Cache-Durchgang hat Einträge geschickt. */
+  /* #414: Die Liste zeigte beim Beginn des Durchgangs Einträge (aus dem Cache oder aus
+   * Live-Änderungen); gesetzt im UI-Thread (add_messages_block), während der Worker wartet. */
   gboolean      shown;
   /* Übergabe der Blöcke (send_messages, messages_block_free). */
   GMutex        lock;
   GCond         cond;
+  guint         posted;
   guint         consumed;
   /* #350: Abgleich mit dem Server, nur beim Beenden abgebrochen (load_messages_thread). */
   GCancellable *refresh_cancellable;
@@ -382,6 +384,10 @@ typedef struct
   gboolean            reset;
   gboolean            merge;
   gboolean            last;
+  /* #414: keine Einträge, nur Beginn eines Durchgangs (vor dem Lesen der UIDs) bzw. Ende eines
+   * Durchgangs, der nichts schickt (send_messages). */
+  gboolean            begin;
+  gboolean            end;
   guint               total;
   guint               unread;
   guint               previews;
@@ -424,22 +430,30 @@ set_list_subtitle (RevolutionMailView *self,
 
 /* Im UI-Thread: Server-Stand items (ganz, sortiert) als Abgleich auf die angezeigte Liste:
  * nur fehlende Einträge entfernen, neue einfügen, geänderte am bestehenden Eintrag
- * aktualisieren. Auswahl und Scrollposition bleiben erhalten. Beide Listen sind gleich
- * sortiert; ein Eintrag mit geänderter Position wird neu eingefügt, der alte fällt am Ende
- * weg. */
+ * aktualisieren. Auswahl und Scrollposition bleiben erhalten. #414: Abgleich über die UID, nicht
+ * über die Reihenfolge allein: Einträge, deren Reihenfolge schon stimmt (längste aufsteigende
+ * Teilfolge ihrer Plätze in items, immer mit dem gewählten Eintrag), bleiben stehen; die übrigen
+ * werden als dieselben Objekte verschoben, nie neu erzeugt. Sonst fügte eine abweichende
+ * Reihenfolge (z. B. gleiches Datum) ab dort alles neu ein und entfernte das Alte. */
 static void
 merge_messages (RevolutionMailView *self,
                 GPtrArray          *items,
                 guint              *added,
                 guint              *removed,
-                guint              *changed)
+                guint              *changed,
+                guint              *moved)
 {
   GListModel *model = G_LIST_MODEL (self->messages);
+  gpointer selected = gtk_single_selection_get_selected_item (self->message_selection);
+  /* UID → Platz in items + 1 bzw. UID → verschobener Eintrag (Referenz). */
   g_autoptr (GHashTable) wanted = g_hash_table_new (g_str_hash, g_str_equal);
-  guint i, j, n;
+  g_autoptr (GHashTable) moving = g_hash_table_new_full (g_str_hash, g_str_equal, NULL, g_object_unref);
+  g_autofree guint *place = NULL, *tails = NULL, *prev = NULL;
+  g_autofree gboolean *keep = NULL;
+  guint i, j, n, n_tails = 0, sel = G_MAXUINT;
 
   for (j = 0; j < items->len; j++)
-    g_hash_table_add (wanted, (gpointer) revolution_mail_message_get_uid (items->pdata[j]));
+    g_hash_table_insert (wanted, (gpointer) revolution_mail_message_get_uid (items->pdata[j]), GUINT_TO_POINTER (j + 1));
 
   /* Nicht mehr vorhandene, zusammenhängende Läufe auf einmal. */
   for (i = g_list_model_get_n_items (model); i > 0;)
@@ -464,11 +478,67 @@ merge_messages (RevolutionMailView *self,
         i--;
     }
 
+  /* Stehen bleiben: längste aufsteigende Teilfolge der Plätze (Patience, O(n log n)), nur über
+   * Einträge, die mit dem gewählten verträglich sind; jede längste enthält dann ihn. */
+  n = g_list_model_get_n_items (model);
+  place = g_new (guint, MAX (n, 1));
+  tails = g_new (guint, MAX (n, 1));
+  prev = g_new (guint, MAX (n, 1));
+  keep = g_new0 (gboolean, MAX (n, 1));
+  for (i = 0; i < n; i++)
+    {
+      g_autoptr (RevolutionMailMessage) old = g_list_model_get_item (model, i);
+
+      place[i] = GPOINTER_TO_UINT (g_hash_table_lookup (wanted, revolution_mail_message_get_uid (old))) - 1;
+      if (old == selected)
+        sel = i;
+    }
+  for (i = 0; i < n; i++)
+    {
+      guint lo = 0, hi = n_tails;
+
+      if (sel != G_MAXUINT && ((i < sel && place[i] > place[sel]) || (i > sel && place[i] < place[sel])))
+        continue;
+      while (lo < hi)
+        {
+          guint mid = (lo + hi) / 2;
+
+          if (place[tails[mid]] < place[i])
+            lo = mid + 1;
+          else
+            hi = mid;
+        }
+      prev[i] = lo > 0 ? tails[lo - 1] : G_MAXUINT;
+      tails[lo] = i;
+      n_tails = MAX (n_tails, lo + 1);
+    }
+  for (i = n_tails > 0 ? tails[n_tails - 1] : G_MAXUINT; i != G_MAXUINT; i = prev[i])
+    keep[i] = TRUE;
+
+  /* Die übrigen herausnehmen (Läufe von hinten) und gleich als dieselben Objekte einfügen. */
+  for (i = n; i > 0;)
+    {
+      guint end = i;
+
+      while (i > 0 && !keep[i - 1])
+        {
+          RevolutionMailMessage *old = g_list_model_get_item (model, i - 1);
+
+          g_hash_table_replace (moving, (gpointer) revolution_mail_message_get_uid (old), old);
+          i--;
+        }
+
+      if (i < end)
+        g_list_store_splice (self->messages, i, end - i, NULL, 0);
+      else
+        i--;
+    }
+
   for (i = 0, j = 0; j < items->len;)
     {
       g_autoptr (RevolutionMailMessage) old = i < g_list_model_get_n_items (model) ? g_list_model_get_item (model, i) : NULL;
       const char *old_uid = old != NULL ? revolution_mail_message_get_uid (old) : NULL;
-      guint start = j;
+      g_autoptr (GPtrArray) run = NULL;
 
       if (g_strcmp0 (old_uid, revolution_mail_message_get_uid (items->pdata[j])) == 0)
         {
@@ -480,18 +550,25 @@ merge_messages (RevolutionMailView *self,
           continue;
         }
 
-      while (j < items->len && g_strcmp0 (old_uid, revolution_mail_message_get_uid (items->pdata[j])) != 0)
-        j++;
-      g_list_store_splice (self->messages, i, 0, &items->pdata[start], j - start);
-      *added += j - start;
-      i += j - start;
-    }
+      run = g_ptr_array_new ();
+      for (; j < items->len && g_strcmp0 (old_uid, revolution_mail_message_get_uid (items->pdata[j])) != 0; j++)
+        {
+          RevolutionMailMessage *same = g_hash_table_lookup (moving, revolution_mail_message_get_uid (items->pdata[j]));
 
-  n = g_list_model_get_n_items (model);
-  if (i < n)
-    {
-      g_list_store_splice (self->messages, i, n - i, NULL, 0);
-      *removed += n - i;
+          if (same != NULL)
+            {
+              *changed += revolution_mail_message_update (same, items->pdata[j]);
+              (*moved)++;
+              g_ptr_array_add (run, same);
+            }
+          else
+            {
+              (*added)++;
+              g_ptr_array_add (run, items->pdata[j]);
+            }
+        }
+      g_list_store_splice (self->messages, i, 0, run->pdata, run->len);
+      i += run->len;
     }
 }
 
@@ -534,29 +611,44 @@ add_messages_block (gpointer data)
   if (block->generation != self->load_generation)
     return G_SOURCE_REMOVE;
 
+  n_items = g_list_model_get_n_items (G_LIST_MODEL (self->messages));
+
   /* #410: Zwischen dem ersten und dem letzten Block eines Durchgangs keine Live-Änderungen
    * anwenden (start_folder_changes, on_folder_changes_done): eine dabei eingefügte UID hinge ein
    * späterer Block erneut an. Nach dem letzten Block wirken sie am bestehenden Eintrag. Wie
    * Evolution, das während eines Neuaufbaus keine Änderung einzeln einträgt, sondern die Liste
-   * neu aufbaut (message_list_folder_changed, message-list.c:5127-5128, 5178-5186). */
+   * neu aufbaut (message_list_folder_changed, message-list.c:5127-5128, 5178-5186).
+   * #414: Schon ab dem Lesen der UIDs (begin; beim Cache-Durchgang ab der Auswahl), sonst
+   * entfernte bzw. überschriebe der Durchgang eine dazwischen eingefügte neue Mail. Zeigt die
+   * Liste dann schon Einträge (auch aus Live-Änderungen ohne Cache), gleicht der
+   * Server-Durchgang ab, statt sie zu ersetzen. */
+  if (block->begin)
+    {
+      self->blocks_running = TRUE;
+      block->load->shown = n_items > 0;
+      return G_SOURCE_REMOVE;
+    }
   self->blocks_running = !block->last;
-
-  n_items = g_list_model_get_n_items (G_LIST_MODEL (self->messages));
+  if (block->end)
+    {
+      start_folder_changes (self);
+      return G_SOURCE_REMOVE;
+    }
 
   if (block->merge)
     {
       GtkAdjustment *vadjustment = gtk_scrollable_get_vadjustment (GTK_SCROLLABLE (self->message_list));
       gboolean at_top = gtk_adjustment_get_value (vadjustment) < 1.0;
-      guint added = 0, removed = 0, changed = 0;
+      guint added = 0, removed = 0, changed = 0, moved = 0;
 
-      merge_messages (self, block->items, &added, &removed, &changed);
+      merge_messages (self, block->items, &added, &removed, &changed, &moved);
       /* GtkListView hält die bisher erste Zeile; stand die Liste oben, soll neue Post oben
        * sichtbar sein. Ohne Auswahl und Fokus (GTK_LIST_SCROLL_NONE). */
       if (at_top && g_list_model_get_n_items (G_LIST_MODEL (self->messages)) > 0)
         gtk_list_view_scroll_to (self->message_list, 0, GTK_LIST_SCROLL_NONE, NULL);
       set_list_subtitle (self, block->total, block->unread);
-      g_debug ("Nachrichten: %s Abgleich %u neu, %u entfernt, %u geändert", self->loading,
-               added, removed, changed);
+      g_debug ("Nachrichten: %s Abgleich %u neu, %u entfernt, %u geändert, %u verschoben", self->loading,
+               added, removed, changed, moved);
     }
   else if (block->reset)
     {
@@ -569,8 +661,10 @@ add_messages_block (gpointer data)
   else
     g_list_store_splice (self->messages, n_items, 0, block->items->pdata, block->items->len);
 
-  gtk_stack_set_visible_child_name (self->list_stack,
-                                    g_list_model_get_n_items (G_LIST_MODEL (self->messages)) > 0 ? "list" : "empty");
+  /* #414: Stand der Liste je Block fürs Log (Prüfung auf Rücksprünge, tests/erstes-oeffnen.sh). */
+  n_items = g_list_model_get_n_items (G_LIST_MODEL (self->messages));
+  g_debug ("Nachrichten: %s Liste %u nach %s-Block %u", self->loading, n_items, block->pass, block->items->len);
+  gtk_stack_set_visible_child_name (self->list_stack, n_items > 0 ? "list" : "empty");
 
   select_message_from_env (self);
 
@@ -608,12 +702,14 @@ compare_messages (gconstpointer a,
   return camel_folder_cmp_uids (user_data, camel_message_info_get_uid (ib), camel_message_info_get_uid (ia));
 }
 
-/* Im Worker: Block an den UI-Thread (Standardkontext) und warten, bis er übernommen ist
- * (siehe MESSAGES_BLOCK). Nach Abbruch nicht weiter warten: beim Beenden läuft die
- * Hauptschleife nicht mehr. FALSE nach Abbruch. */
+/* Im Worker: Block an den UI-Thread (Standardkontext) und warten, bis er und alle vorigen
+ * übernommen sind (siehe MESSAGES_BLOCK); #414: ohne wait nicht warten (Ende eines Durchgangs).
+ * Nach Abbruch nicht weiter warten: beim Beenden läuft die Hauptschleife nicht mehr. FALSE nach
+ * Abbruch. */
 static gboolean
 post_block (MessagesBlock *block,
-            GCancellable  *cancellable)
+            GCancellable  *cancellable,
+            gboolean       wait)
 {
   LoadMessages *load = block->load;
   g_autoptr (GSource) source = g_idle_source_new ();
@@ -621,13 +717,16 @@ post_block (MessagesBlock *block,
   guint sent;
 
   g_mutex_lock (&load->lock);
-  sent = load->consumed + 1;
+  sent = ++load->posted;
   g_mutex_unlock (&load->lock);
 
   g_source_set_priority (source, G_PRIORITY_DEFAULT_IDLE);
   g_source_set_static_name (source, "[revolution] add_messages_block");
   g_source_set_callback (source, add_messages_block, block, (GDestroyNotify) messages_block_free);
   g_source_attach (source, NULL);
+
+  if (!wait)
+    return !g_cancellable_is_cancelled (cancellable);
 
   g_mutex_lock (&load->lock);
   while (load->consumed < sent && !g_cancellable_is_cancelled (cancellable))
@@ -636,6 +735,26 @@ post_block (MessagesBlock *block,
   g_mutex_unlock (&load->lock);
 
   return done;
+}
+
+/* #414: Beginn (wartet, bis der UI-Thread ihn übernommen hat) bzw. Ende eines Durchgangs ohne
+ * Einträge an den UI-Thread (add_messages_block). */
+static gboolean
+post_frame (GTask    *task,
+            gboolean  begin)
+{
+  LoadMessages *load = g_task_get_task_data (task);
+  MessagesBlock *block = g_new0 (MessagesBlock, 1);
+
+  block->self = g_object_ref (g_task_get_source_object (task));
+  block->load = g_atomic_rc_box_acquire (load);
+  block->generation = load->generation;
+  block->items = g_ptr_array_new ();
+  block->begin = begin;
+  block->end = !begin;
+  block->last = !begin;
+
+  return post_block (block, g_task_get_cancellable (task), begin);
 }
 
 /* Im Worker: Flags, die eine Nachricht in diesem Ordner ausblenden. Gelöschte und Spam wie
@@ -672,9 +791,16 @@ send_messages (GTask       *task,
   guint32 hidden = hidden_flags (folder);
   g_autoptr (GPtrArray) infos = g_ptr_array_new_with_free_func (g_object_unref);
   g_autoptr (GDateTime) now = g_date_time_new_now_local ();
-  gboolean merge = load->shown && g_str_equal (pass, "Server");
+  gboolean merge;
   guint hash = 0, unread = 0, previews = 0, i = 0;
   GPtrArray *uids;
+
+  /* #414: Ab hier keine Live-Änderungen mehr in die Liste, bis der Durchgang fertig ist. Beim
+   * Cache-Durchgang gilt das schon seit der Auswahl (on_folder_selected); ein Warten auf den beim
+   * Start belegten UI-Thread verzögerte sonst die erste Zeile. */
+  if (g_str_equal (pass, "Server") && !post_frame (task, TRUE))
+    return FALSE;
+  merge = load->shown && g_str_equal (pass, "Server");
 
   camel_folder_summary_prepare_fetch_all (camel_folder_get_folder_summary (folder), NULL);
   uids = camel_folder_get_uids (folder);
@@ -705,10 +831,9 @@ send_messages (GTask       *task,
   if (hash == *signature || (infos->len == 0 && g_str_equal (pass, "Cache")))
     {
       *signature = hash;
-      return !g_cancellable_is_cancelled (cancellable);
+      return post_frame (task, FALSE);
     }
   *signature = hash;
-  load->shown = TRUE;
 
   g_ptr_array_sort_values_with_data (infos, compare_messages, folder);
 
@@ -742,7 +867,7 @@ send_messages (GTask       *task,
 
       block->last = i >= infos->len;
       block->previews = previews;
-      if (!post_block (block, cancellable))
+      if (!post_block (block, cancellable, TRUE))
         return FALSE;
     }
   while (i < infos->len);
@@ -961,16 +1086,6 @@ distinct_uids (RevolutionMailView *self)
   return g_hash_table_size (uids);
 }
 
-static int
-compare_newest_first (gconstpointer a,
-                      gconstpointer b)
-{
-  gint64 ta = revolution_mail_message_get_timestamp ((RevolutionMailMessage *) a);
-  gint64 tb = revolution_mail_message_get_timestamp ((RevolutionMailMessage *) b);
-
-  return ta < tb ? 1 : ta > tb ? -1 : 0;
-}
-
 /* Im UI-Thread: Ergebnis eines Durchgangs ins Modell, je ein Durchlauf über die Liste. */
 static void
 apply_folder_changes (RevolutionMailView *self,
@@ -984,8 +1099,6 @@ apply_folder_changes (RevolutionMailView *self,
   g_autoptr (GHashTable) update = g_hash_table_new (g_str_hash, g_str_equal);
   g_autoptr (GPtrArray) added = g_ptr_array_new ();
   guint n_added = 0, n_removed = 0, n_changed = 0, i, j;
-  GHashTableIter iter;
-  gpointer value;
 
   for (i = 0; i < removed->len; i++)
     g_hash_table_add (remove, removed->pdata[i]);
@@ -1025,11 +1138,13 @@ apply_folder_changes (RevolutionMailView *self,
         i--;
     }
 
-  /* Übrig sind neue Einträge: nach Datum an ihren Platz (neueste zuerst wie send_messages). */
-  g_hash_table_iter_init (&iter, update);
-  while (g_hash_table_iter_next (&iter, NULL, &value))
-    g_ptr_array_add (added, value);
-  g_ptr_array_sort_values (added, compare_newest_first);
+  /* Übrig sind neue Einträge: nach Datum an ihren Platz, untereinander in der Reihenfolge des
+   * Workers (#414: compare_messages wie send_messages, bei gleichem Datum die höhere UID zuerst;
+   * sonst ordnete der folgende Abgleich sie um). Bei gleichem Datum wie ein bestehender Eintrag
+   * kommen sie davor (meist die höhere UID); UIDs vergleicht nur Camel (Worker). */
+  for (i = 0; i < items->len; i++)
+    if (g_hash_table_contains (update, revolution_mail_message_get_uid (items->pdata[i])))
+      g_ptr_array_add (added, items->pdata[i]);
 
   for (i = 0, j = 0; j < added->len;)
     {
@@ -1062,6 +1177,8 @@ apply_folder_changes (RevolutionMailView *self,
   g_debug ("Nachrichten: %s Änderung %u neu, %u entfernt, %u geändert, Liste %u, %u verschiedene UIDs",
            self->loading, n_added, n_removed, n_changed,
            g_list_model_get_n_items (model), distinct_uids (self));
+  /* #414: Test-Hook auch für Einträge aus Live-Änderungen (Auswahl vor dem Abgleich). */
+  select_message_from_env (self);
 }
 
 static void
@@ -1074,17 +1191,27 @@ folder_changes_thread (GTask        *task,
   guint32 hidden = hidden_flags (changes->folder);
   g_autoptr (GDateTime) now = g_date_time_new_now_local ();
 
-  changes->items = g_ptr_array_new_with_free_func (g_object_unref);
+  g_autoptr (GPtrArray) infos = g_ptr_array_new_with_free_func (g_object_unref);
+
   for (guint i = 0; i < changes->changed->len; i++)
     {
       const char *uid = changes->changed->pdata[i];
-      g_autoptr (CamelMessageInfo) info = camel_folder_get_message_info (changes->folder, uid);
+      CamelMessageInfo *info = camel_folder_get_message_info (changes->folder, uid);
 
       if (info == NULL || (camel_message_info_get_flags (info) & hidden) != 0)
-        g_ptr_array_add (changes->removed, g_strdup (uid));
+        {
+          g_ptr_array_add (changes->removed, g_strdup (uid));
+          g_clear_object (&info);
+        }
       else
-        g_ptr_array_add (changes->items, revolution_mail_message_new (info, now));
+        g_ptr_array_add (infos, info);
     }
+
+  /* #414: sortiert wie send_messages (apply_folder_changes übernimmt die Reihenfolge). */
+  g_ptr_array_sort_values_with_data (infos, compare_messages, changes->folder);
+  changes->items = g_ptr_array_new_full (infos->len, g_object_unref);
+  for (guint i = 0; i < infos->len; i++)
+    g_ptr_array_add (changes->items, revolution_mail_message_new (infos->pdata[i], now));
 
   g_task_return_boolean (task, TRUE);
 }
@@ -1818,9 +1945,17 @@ on_messages_loaded (GObject      *source_object,
   g_autoptr (GError) error = NULL;
   g_autofree char *detail = NULL;
   guint n_items;
+  gboolean ok = g_task_propagate_boolean (G_TASK (result), &error);
 
-  if (!g_task_propagate_boolean (G_TASK (result), &error) &&
-      g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+  /* #414: Kein Durchgang mehr, auf keinem Weg (auch Fehler beim Holen des Ordners, Abbruch des
+   * Abgleichs): zurückgestellte Live-Änderungen jetzt anwenden. */
+  if (load->generation == self->load_generation)
+    {
+      self->blocks_running = FALSE;
+      start_folder_changes (self);
+    }
+
+  if (!ok && g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
     {
       g_debug ("Nachrichten: %s %s abgebrochen", load->uid, load->full_name);
       return;
@@ -1919,6 +2054,8 @@ on_folder_selected (RevolutionMailView *self)
   self->load_started = g_get_monotonic_time ();
   g_debug ("Nachrichten: %s lädt", self->loading);
 
+  /* #414: Live-Änderungen bis nach dem Cache-Durchgang zurückstellen (add_messages_block). */
+  self->blocks_running = TRUE;
   self->load_cancellable = g_cancellable_new ();
   task = g_task_new (self, self->load_cancellable, on_messages_loaded, NULL);
   g_task_set_source_tag (task, on_folder_selected);

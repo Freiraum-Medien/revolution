@@ -15,6 +15,10 @@ gboolean revolution_eds_folder_refresh_info_sync (CamelFolder   *folder,
                                                   GCancellable  *cancellable,
                                                   GError       **error);
 
+/* #409: Sperre je Ordner (eds-compat.c). */
+void                   revolution_eds_folder_lock           (CamelFolder           *folder);
+void                   revolution_eds_folder_unlock         (CamelFolder           *folder);
+
 /* #357: Threads (eds-compat.c). */
 CamelFolderThread     *revolution_eds_thread_new            (CamelFolder           *folder,
                                                              GPtrArray             *uids);

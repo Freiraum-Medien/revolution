@@ -1457,10 +1457,27 @@ on_folder_changed (CamelFolder           *folder,
  * zuerst die Änderungen, camel-imapx-conn-manager.c:1548). Die Zeile zeigt die Bedienung sofort
  * (revolution_mail_message_set_flags); „changed“ wird erst danach wieder angewendet
  * (start_folder_changes). */
+/* #409: echter Ordner und UID eines Auftrags, im Worker beim Start aufgelöst (set_flags_thread). */
+typedef struct
+{
+  CamelFolder *folder;
+  char        *uid;
+} FlagsLocation;
+
+static void
+flags_location_free (FlagsLocation *location)
+{
+  g_object_unref (location->folder);
+  g_free (location->uid);
+  g_free (location);
+}
+
 typedef struct _SetFlags
 {
   CamelFolder *folder;
   char        *uid;
+  /* Vom Worker einmal gesetzt (g_atomic_pointer_set), danach unverändert; liest flags_deadline. */
+  FlagsLocation *location;
   guint32      mask;
   guint32      set;
   const char  *what;
@@ -1473,6 +1490,7 @@ set_flags_free (SetFlags *data)
 {
   g_object_unref (data->folder);
   g_free (data->uid);
+  g_clear_pointer (&data->location, flags_location_free);
   g_free (data->loading);
   g_free (data);
 }
@@ -1483,8 +1501,8 @@ enum { FLAGS_SAVED, FLAGS_LOCAL };
  * (mail_reader_replace_vee_folder_with_real, e-mail-reader.c:425-450, camel_vee_folder_get_location);
  * camel_folder_synchronize_sync bzw. das Speichern der Summary des Suchordners speichert die
  * Quellordner nicht (camel-vee-folder.c:1465-1477). Die Liste folgt über „changed“ der Quelle und des
- * Suchordners. Gibt den echten Ordner (ohne Referenz, der Suchordner hält ihn) und in real_uid dessen
- * UID zurück, NULL wenn die Nachricht nicht mehr im Suchordner ist. Im Worker. */
+ * Suchordners. Gibt den echten Ordner (mit Referenz) und in real_uid dessen UID zurück, NULL wenn die
+ * Nachricht nicht mehr im Suchordner ist (z. B. „Markiert“ nach Entfernen der Markierung). Im Worker. */
 static CamelFolder *
 real_folder (CamelFolder  *folder,
              const char   *uid,
@@ -1495,12 +1513,13 @@ real_folder (CamelFolder  *folder,
   if (!CAMEL_IS_VEE_FOLDER (folder))
     {
       *real_uid = g_strdup (uid);
-      return folder;
+      return g_object_ref (folder);
     }
   info = camel_folder_get_message_info (folder, uid);
+  folder = info != NULL ? camel_vee_folder_get_location (CAMEL_VEE_FOLDER (folder), CAMEL_VEE_MESSAGE_INFO (info), real_uid)
+                        : NULL;
 
-  return info != NULL ? camel_vee_folder_get_location (CAMEL_VEE_FOLDER (folder), CAMEL_VEE_MESSAGE_INFO (info), real_uid)
-                      : NULL;
+  return folder != NULL ? g_object_ref (folder) : NULL;
 }
 
 static void
@@ -1510,29 +1529,35 @@ set_flags_thread (GTask        *task,
                   GCancellable *cancellable G_GNUC_UNUSED)
 {
   SetFlags *data = task_data;
-  g_autofree char *uid = NULL;
-  CamelFolder *folder = real_folder (data->folder, data->uid, &uid);
+  FlagsLocation *location = g_new0 (FlagsLocation, 1);
+  CamelFolder *folder;
+  const char *uid;
   CamelStore *store;
   g_autoptr (CamelSession) session = NULL;
   GError *error = NULL;
 
-  if (folder == NULL)
+  location->folder = real_folder (data->folder, data->uid, &location->uid);
+  if (location->folder == NULL)
     {
+      g_free (location);
       g_task_return_new_error (task, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID_UID,
                                _("Nachricht %s nicht gefunden"), data->uid);
       return;
     }
+  /* #409: für den Notpfad (flags_deadline) merken: im Suchordner „Markiert“ fällt die Nachricht nach
+   * dem Entfernen der Markierung heraus, danach fände real_folder sie nicht mehr. */
+  g_atomic_pointer_set (&data->location, location);
+  folder = location->folder;
+  uid = location->uid;
 
   store = camel_folder_get_parent_store (folder);
   session = camel_service_ref_session (CAMEL_SERVICE (store));
-  /* #409: Setzen und Speichern unter der Ordnersperre (GRecMutex, camel-folder.c:3117-3123), die auch
-   * der Abgleich hält (camel_folder_refresh_info_sync, camel-folder.c:4020-4040, und
-   * revolution_eds_folder_refresh_info_sync); sonst setzt dieser bei microsoft365 eine während des
-   * Abgleichs gesetzte Änderung mit zurück (eds-compat.c). Kein neuer Wartepunkt fürs Speichern:
-   * camel_folder_synchronize_sync wartet ohnehin auf dieselbe Sperre (camel-folder.c:4162-4179) und
-   * nimmt sie im selben Thread erneut. Der Notpfad beim Beenden (flags_save_local_thread) nimmt sie
-   * nicht. */
-  camel_folder_lock (folder);
+  /* #409: Setzen und Speichern unter Revolutions Sperre je Ordner (revolution_eds_folder_lock,
+   * eds-compat.c; camel_folder_lock wirkt bei imapx und microsoft365 nicht), die auch der Abgleich bei
+   * microsoft365 hält (revolution_eds_folder_refresh_info_sync); sonst setzt dieser eine während des
+   * Abgleichs gesetzte Änderung mit zurück. Der Notpfad beim Beenden (flags_save_local_thread) nimmt
+   * sie nicht. */
+  revolution_eds_folder_lock (folder);
   camel_folder_set_message_flags (folder, uid, data->mask, data->set);
   if ((CAMEL_IS_OFFLINE_STORE (store) && !camel_offline_store_get_online (CAMEL_OFFLINE_STORE (store))) ||
       session == NULL || !camel_session_get_online (session))
@@ -1555,7 +1580,7 @@ set_flags_thread (GTask        *task,
     }
   else
     g_task_return_int (task, FLAGS_SAVED);
-  camel_folder_unlock (folder);
+  revolution_eds_folder_unlock (folder);
 }
 
 /* Anwendung halten bzw. freigeben (g_application_hold), damit das Beenden die Aufträge abwartet
@@ -1582,11 +1607,10 @@ hold_for_flags (RevolutionMailView *self,
 /* Obergrenze nach dem Schließen: hängt der laufende Auftrag (z. B. Server antwortet nicht), ihn und
  * die wartenden nur lokal setzen und die Summaries der echten Ordner speichern; der nächste Start holt
  * sie nach (refresh_info schickt zuerst die Änderungen, camel-imapx-conn-manager.c:1548; microsoft365
- * über revolution_eds_folder_refresh_info_sync). #409: ohne Ordnersperre, die hält der hängende
- * Auftrag (set_flags_thread). camel_folder_summary_save sperrt nur die Summary
+ * über revolution_eds_folder_refresh_info_sync). #409: ohne revolution_eds_folder_lock, die hält der
+ * hängende Auftrag (set_flags_thread). camel_folder_summary_save sperrt nur die Summary
  * (camel-folder-summary.c:2133); die Provider halten sie nicht über Netzzugriffe (imapx
- * camel-imapx-server.c:6090-6235 und 6525-6582 ohne Netz; microsoft365 camel-m365-folder.c:1187-1258
- * sperrt den Ordner erst nach der Antwort). */
+ * camel-imapx-server.c:6090-6235 und 6525-6582 ohne Netz; microsoft365 camel-m365-folder.c:1187-1258). */
 #define FLAGS_DEADLINE_SECONDS 10
 
 static void
@@ -1601,7 +1625,7 @@ flags_save_local_thread (GTask        *task,
     {
       SetFlags *data = jobs->pdata[i];
       g_autofree char *uid = NULL;
-      CamelFolder *folder = real_folder (data->folder, data->uid, &uid);
+      g_autoptr (CamelFolder) folder = real_folder (data->folder, data->uid, &uid);
 
       if (folder == NULL)
         continue;
@@ -1634,16 +1658,19 @@ flags_deadline (gpointer user_data)
   self->flags_deadline_id = 0;
   self->flags_saving = TRUE;
   g_debug ("Flags: nach %d s noch nicht gespeichert, %u Aufträge nur lokal", FLAGS_DEADLINE_SECONDS,
-           g_queue_get_length (&self->flag_jobs));
+           g_queue_get_length (&self->flag_jobs) + (self->running != NULL ? 1 : 0));
   while ((data = g_queue_pop_head (&self->flag_jobs)) != NULL)
     g_ptr_array_add (jobs, data);
-  /* Den laufenden Auftrag ebenfalls: er kann noch vor dem Setzen auf die Ordnersperre warten
-   * (set_flags_thread); erneutes Setzen derselben Flags ändert nichts. */
+  /* Den laufenden Auftrag ebenfalls: er kann noch vor dem Setzen auf die Sperre warten
+   * (set_flags_thread); erneutes Setzen derselben Flags ändert nichts. Am vom Worker aufgelösten
+   * echten Ordner, sonst (noch nicht aufgelöst) am Ordner des Auftrags. */
   if (self->running != NULL)
     {
+      FlagsLocation *location = g_atomic_pointer_get (&((SetFlags *) self->running)->location);
+
       data = g_new0 (SetFlags, 1);
-      data->folder = g_object_ref (self->running->folder);
-      data->uid = g_strdup (self->running->uid);
+      data->folder = g_object_ref (location != NULL ? location->folder : self->running->folder);
+      data->uid = g_strdup (location != NULL ? location->uid : self->running->uid);
       data->mask = self->running->mask;
       data->set = self->running->set;
       g_ptr_array_insert (jobs, 0, data);

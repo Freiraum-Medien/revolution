@@ -5,7 +5,8 @@
 # (Start blau, Schwer gelb, Ziel grün, untereinander). Je Pause aus PAUSEN, WDH-mal: Klick auf Start,
 # angezeigt; Pfeil ab (Schwer lädt), nach der Pause Pfeil ab (Ziel). Ab dem ersten Pfeil bis 2 s nach
 # dem zweiten Bilder des Lesebereichs, so schnell es geht (XGetImage). Prüft: unter dem Kopf von
-# Schwer und von Ziel kein Bild mit dem Inhalt einer anderen Mail; am Ende grün; im Log „sichtbar“ der
+# Schwer und von Ziel Inhalt einer anderen Mail höchstens 200 ms (Grenze WebKitGTK, als WERT mit
+# Dauer; länger ist FEHLER); am Ende grün; im Log „sichtbar“ der
 # Ladung von Ziel erst nach deren „started“, „Gelesen“ (Signal „shown“) ebenso. Danach Ziel wieder
 # ungelesen (Strg+Umschalt+K).
 # Umgebung: BIN, OUT, NAME, ORDNER, UIDS („Start Schwer Ziel“ als IMAP-UIDs), PAUSEN, WDH.
@@ -43,6 +44,7 @@ GEWAEHLT = (211, 70, 21)
 BEREICH = (580, 55, 1190, 750)
 BETREFF = (80, 28, 400, 50)
 INHALT = (30, 120, 590, 690)
+GRENZE_MS = 200
 FARBEN = {'blau': (52, 101, 164), 'gelb': (245, 194, 17), 'gruen': (46, 194, 126)}
 
 fehler = 0
@@ -210,10 +212,14 @@ def lauf(pause, nr):
 def bilder_pruefen(tag, pause, nr, bilder, kopf_start):
     """Ab Pfeil ab zu Schwer: Kopf je Bild (Betreffzeile wie vor dem Wechsel = Start, wie im letzten Bild
     = Ziel, sonst Schwer). Kein Bild mit dem Inhalt einer anderen Mail als der im Kopf (Start blau,
-    Schwer gelb, Ziel grün); am Ende Ziel (grün)."""
+    Schwer gelb, Ziel grün) länger als GRENZE_MS; am Ende Ziel (grün). Kürzer: WERT mit Dauer, bekannte
+    Grenze von WebKitGTK 2.52.6 (nach COMMITTED bleibt das zuletzt gezeichnete Bild bis zum ersten
+    Zeichnen des neuen Dokuments, keine API dafür; README, Entscheidung Arnd #412)."""
     kopf_ziel = bilder[-1][1].crop(BETREFF).tobytes()
     erwartet = {'Start': 'blau', 'Schwer': 'gelb', 'Ziel': 'gruen'}
     alt = {'Schwer': 0, 'Ziel': 0}
+    # Je Kopf: Zeit des ersten Bilds mit altem Inhalt und des ersten Bilds danach ohne ihn.
+    von, bis = {}, {}
     alt_bilder = set()
     ab = {}
     protokoll = []
@@ -228,8 +234,14 @@ def bilder_pruefen(tag, pause, nr, bilder, kopf_start):
         ab.setdefault(kopf, t)
         if a['gruen'] > 0.5:
             ab.setdefault('gruen', t)
-        if kopf in alt and any(v > 0.01 for f, v in a.items() if f != erwartet[kopf]):
+        veraltet = kopf in alt and any(v > 0.01 for f, v in a.items() if f != erwartet[kopf])
+        for k in von:
+            if k not in bis and not (veraltet and kopf == k):
+                bis[k] = t
+        if veraltet:
             alt[kopf] += 1
+            von.setdefault(kopf, t)
+            bis.pop(kopf, None)
             if id(b) not in alt_bilder and len(alt_bilder) < 3:
                 b.save(os.path.join(OUT, '%s-alt-%.2f-%d-%s-%.3f.png' % (NAME, pause, nr, kopf, t)))
             alt_bilder.add(id(b))
@@ -240,8 +252,13 @@ def bilder_pruefen(tag, pause, nr, bilder, kopf_start):
     wert('%s: %d Aufnahmen (alle %.1f ms, %d verschiedene Bilder), Kopf Schwer ab %s, Kopf Ziel ab %s, grün ab %s'
          % (tag, len(bilder), abstand, len(schon), *('%.3f' % ab[k] if k in ab else '-' for k in ('Schwer', 'Ziel', 'gruen'))))
     for kopf in ('Ziel', 'Schwer'):
-        (ok if alt[kopf] == 0 else falsch)('%s: %d Aufnahmen mit Inhalt einer anderen Mail unter dem Kopf von %s'
-                                           % (tag, alt[kopf], kopf))
+        if alt[kopf] == 0:
+            ok('%s: kein Bild mit Inhalt einer anderen Mail unter dem Kopf von %s' % (tag, kopf))
+            continue
+        dauer = (bis.get(kopf, bilder[-1][0]) - von[kopf]) * 1000
+        (wert if dauer <= GRENZE_MS else falsch)(
+            '%s: Inhalt einer anderen Mail unter dem Kopf von %s %.0f ms (%d Aufnahmen, Grenze WebKitGTK, '
+            'erlaubt ≤ %d ms)' % (tag, kopf, dauer, alt[kopf], GRENZE_MS))
     (ok if anteile(bilder[-1][1])['gruen'] > 0.5 else falsch)('%s: Inhalt von Ziel am Ende sichtbar' % tag)
 
 

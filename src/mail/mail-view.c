@@ -1497,8 +1497,9 @@ set_flags_free (SetFlags *data)
 
 enum { FLAGS_SAVED, FLAGS_LOCAL };
 
-/* #351: Im Suchordner (Favoriten) am echten Ordner setzen und speichern wie Evolution
- * (mail_reader_replace_vee_folder_with_real, e-mail-reader.c:425-450, camel_vee_folder_get_location);
+/* #351: Im Suchordner (Favoriten; #357 auch Konversationen, mail-thread.c) am echten Ordner setzen und
+ * speichern wie Evolution (mail_reader_replace_vee_folder_with_real, e-mail-reader.c:425-450,
+ * camel_vee_folder_get_location);
  * camel_folder_synchronize_sync bzw. das Speichern der Summary des Suchordners speichert die
  * Quellordner nicht (camel-vee-folder.c:1465-1477). Die Liste folgt über „changed“ der Quelle und des
  * Suchordners. Gibt den echten Ordner (mit Referenz) und in real_uid dessen UID zurück, NULL wenn die

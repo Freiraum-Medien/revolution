@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 
 from PIL import Image
@@ -54,6 +55,34 @@ def wert(text):
 
 LOG = os.path.join(OUT, NAME + '.log')
 ZEILE_RE = re.compile(r'^\(revolution:\d+\): revolution-DEBUG: (\d\d):(\d\d):(\d\d\.\d+): (.*)$')
+# #415: Graph-Anfragen (M365_DEBUG=1) nur als Methode und Pfad ins Log, wie tests/kombiniert-treiber.py.
+GRAPH_RE = re.compile(r'^> (GET|POST|PATCH|PUT|DELETE|HEAD) (\S+)')
+
+
+def filtern(quelle, ziel):
+    """Ausgabe der App zeilenweise nach LOG, ohne Anmeldedaten und ohne HTTP-Kopf/Rumpf."""
+    for roh in quelle:
+        zeile = roh.decode('utf-8', 'replace')
+        g = GRAPH_RE.match(zeile)
+        if 'revolution-DEBUG' in zeile or 'WARNING' in zeile or 'CRITICAL' in zeile or zeile.startswith('libEGL'):
+            ziel.write(zeile)
+        elif g:
+            ziel.write('[graph] %s %s\n' % (g.group(1), g.group(2).split('?')[0]))
+        elif '"requests"' in zeile and '"method"' in zeile:
+            for methode, url in re.findall(r'"method"\s*:\s*"([A-Z]+)"\s*,\s*"url"\s*:\s*"([^"?]*)', zeile):
+                ziel.write('[graph-batch] %s %s\n' % (methode, url))
+        ziel.flush()
+
+
+def patches():
+    """Schreibende Graph-Anfragen (PATCH, auch in $batch) im Log bisher."""
+    with open(LOG, encoding='utf-8', errors='replace') as f:
+        return [z.strip() for z in f if re.match(r'^\[graph(-batch)?\] (PATCH|POST|PUT|DELETE) ', z)
+                and '/$batch' not in z]
+
+
+def gespeichert():
+    return sum(1 for _, z in log_zeilen() if z.startswith('Flags:') and ' gespeichert nach ' in z)
 
 
 def log_zeilen():
@@ -208,8 +237,11 @@ def konversation(ab):
     wert('Server vorher: %s' % sorted(vorher.items()))
     if not gruppierung(ab, vorher):
         return vorher
-    time.sleep(2)
+    time.sleep(5)
     bild('0-kalibrierung')
+    # #415: ohne Bedienung kein schreibender Graph-Aufruf (Camel speichert nach store-changes-interval 3 s).
+    p = patches()
+    (ok if not p else falsch)('ohne Bedienung %d schreibende Graph-Anfragen%s' % (len(p), ': %s' % p[:3] if p else ''))
 
     # Gelesen-Timer je Nachricht: Nr. 5 ist offen; ungelesen → nach 1,5 s gelesen. Sonst erst per Knopf
     # ungelesen, dann zu- und aufklappen (neu angezeigt).
@@ -326,7 +358,9 @@ def nur_bild(ab):
 
 def main():
     log = open(LOG, 'w')
-    app = subprocess.Popen([BIN], stdout=log, stderr=subprocess.STDOUT)
+    app = subprocess.Popen([BIN], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    leser = threading.Thread(target=filtern, args=(app.stdout, log), daemon=True)
+    leser.start()
     vorher = None
     try:
         w = fenster()
@@ -348,6 +382,11 @@ def main():
             (ok if rc == 0 else falsch)('Beenden: Exit %d' % rc)
         except subprocess.TimeoutExpired:
             falsch('Beenden: nach 30 s nicht beendet')
+        leser.join(10)
+        # #415: schreibende Graph-Anfragen höchstens eine je eigener Flag-Änderung (Log „Flags: … gespeichert“).
+        p, n = patches(), gespeichert()
+        (ok if len(p) <= n else falsch)('schreibende Graph-Anfragen %d, eigene Flag-Änderungen %d%s'
+                                        % (len(p), n, ': %s' % p[:5] if len(p) > n else ''))
         if vorher is not None:
             nachher = server_flags()
             (ok if nachher == vorher else falsch)('Server nach dem Lauf wie vorher: %s' % sorted(nachher.items()))
@@ -357,7 +396,7 @@ def main():
             app.wait()
         log.close()
     rest = [z for z in open(LOG, encoding='utf-8', errors='replace')
-            if not z.startswith('(revolution:') and not z.startswith('libEGL warning:') and z.strip()]
+            if not z.startswith(('(revolution:', 'libEGL warning:', '[graph')) and z.strip()]
     # Webprozess (#355): „(process:N): revolution-DEBUG: Webprozess: …“ ist ebenfalls DEBUG der App.
     rest = [z for z in rest if not re.match(r'^\(process:\d+\): revolution-DEBUG: ', z)]
     rest += [z for z in open(LOG, encoding='utf-8', errors='replace')

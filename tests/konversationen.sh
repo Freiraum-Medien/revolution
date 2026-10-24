@@ -14,7 +14,8 @@
 # Anhang und gesperrtem entferntem Bild, Höhe nach Inhalt) und Zuklappen, Markieren an der Konversation
 # (alle 5), Umschalter Strg+T flach/Konversation. Flags unabhängig am Server (tests/testdaten.py
 # --konversation-flags, IMAP EXAMINE bzw. Graph GET); am Ende Ausgangszustand wie vorher. Danach je Konto
-# ein Bild dunkel (aufgeklappt). Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler.
+# ein Bild dunkel (aufgeklappt). #415: M365_DEBUG=1, Graph-Anfragen als „[graph] METHODE Pfad“ im Log;
+# ohne Bedienung keine schreibende Anfrage, insgesamt höchstens eine je eigener Flag-Änderung. Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler.
 #
 # Copyright 2026 Arnd Messer
 #
@@ -60,7 +61,7 @@ lauf () {
     XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$SCHEMA" GSETTINGS_BACKEND=memory \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
     GTK_A11Y=none NO_AT_BRIDGE=1 ADW_DEBUG_COLOR_SCHEME="$schema" \
-    G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER="$ordner" \
+    G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER="$ordner" M365_DEBUG=1 \
     REVOLUTION_MESSAGE="Konversation Marktstand" NUR_BILD="$nur_bild" \
     BIN="$BIN" OUT="$OUT" NAME="$name" KONTO="$konto" ORDNER="$ordner" APP_DIR="$APP_DIR" \
     xvfb-run -a -s "-screen 0 1400x900x24" python3 -I "$APP_DIR/tests/konversationen-treiber.py" || rc=$?

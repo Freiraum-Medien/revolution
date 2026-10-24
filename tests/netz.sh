@@ -9,6 +9,8 @@
 #            KONTO_GOOGLE@example.invalid (imapx)
 #   ORDNER_KONTO  IMAP-Testkonto für Ordner anlegen/löschen ohne Netz, Standard KONTO_IMAP_2@example.invalid
 #   PHASEN, PHASEN2  Schritte der Läufe m4-408 bzw. m4-408-gmail (tests/netz-treiber.py)
+#   GMAIL    1 (Standard): Lauf m4-408-gmail; 0 lässt ihn aus (Gmail schonen, #411)
+#   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 2400; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
 # Netz: die App läuft in einem eigenen Netz-Namensraum (unshare -n --map-current-user --keep-caps,
 # Session-Bus und Registry bleiben über Unix-Sockets erreichbar). tests/netz-relay.py gibt ihr
@@ -37,6 +39,8 @@
 # Serverstand (Flags, Testordner) prüft tests/testdaten.py im normalen Netz über das Relais.
 # Vergleichsliste der Ordner: tests/testdaten.py --ordner (nur lesend, im normalen Netz).
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler.
+# #411: Jeder Abbruch eines Teilschritts (Traceback, Exit ≠ 0 von Treiber oder testdaten.py,
+# Zeitlimit) ist ein FEHLER (tests/abbruch.sh).
 #
 # Copyright 2026 Arnd Messer
 #
@@ -51,6 +55,7 @@ OUT="${1:-$BUILD/m4-408}"
 KONTO="${KONTO:-KONTO_M365@example.invalid}"
 KONTO2="${KONTO2:-KONTO_GOOGLE@example.invalid}"
 ORDNER_KONTO="${ORDNER_KONTO:-KONTO_IMAP_2@example.invalid}"
+LAUF_TIMEOUT="${LAUF_TIMEOUT:-2400}"
 FEHLER=0
 
 [ -x "$BIN" ] || { echo "FEHLER  Build: $BIN fehlt (meson compile)"; exit 1; }
@@ -63,6 +68,13 @@ bus_hat_app () {
 }
 [ "$(bus_hat_app)" = "(false,)" ] || { echo "FEHLER  Session-Bus: $APP_ID läuft schon"; exit 1; }
 mkdir -p "$OUT"
+. "$APP_DIR/tests/abbruch.sh"
+# Abbruch vor den Läufen, Exit 1. Ist die Ursache schon als Abbruch von testdaten.py vermerkt
+# (tests/abbruch.sh), zählt sie nur dort.
+abbrechen () {
+  if [ -s "$ABBRUECHE" ]; then echo "        $*"; else echo "FEHLER  $*"; FEHLER=$((FEHLER + 1)); fi
+  abbruch_bilanz; echo "Ergebnis: $FEHLER Fehler, Ausgaben in $OUT"; exit 1
+}
 
 SCHEMA="$OUT/schema"
 mkdir -p "$SCHEMA"
@@ -70,17 +82,17 @@ cp "$APP_DIR/data/"*.gschema.xml "$SCHEMA/"
 printf '[de.freiraum_medien.Revolution]\nmark-seen=false\n' >"$SCHEMA/90_test.gschema.override"
 glib-compile-schemas --strict "$SCHEMA" || { echo "FEHLER  Schema: glib-compile-schemas $SCHEMA"; exit 1; }
 
-if ! timeout 300 python3 "$APP_DIR/tests/testdaten.py" --ordner >"$OUT/ordner-testdaten.txt" 2>&1; then
-  echo "FEHLER  Vergleichsliste: tests/testdaten.py --ordner (siehe $OUT/ordner-testdaten.txt)"; exit 1
+if ! td --ordner >"$OUT/ordner-testdaten.txt" 2>&1; then
+  abbrechen "Vergleichsliste fehlt (siehe $OUT/ordner-testdaten.txt)"
 fi
 echo "OK      Vergleichsliste: tests/testdaten.py --ordner, $(grep -c '^ANZAHL ' "$OUT/ordner-testdaten.txt") Konten"
-revolution_test () { timeout 120 python3 "$APP_DIR/tests/testdaten.py" --flags "$1" | sed -n 's/^ORDNER //p'; }
+revolution_test () { td --flags "$1" | sed -n 's/^ORDNER //p'; }
 ordner="$(revolution_test "$KONTO")"
-[ -n "$ordner" ] || { echo "FEHLER  $KONTO: Ordner Revolution-Test nicht gefunden (tests/testdaten.py --flags)"; exit 1; }
+[ -n "$ordner" ] || abbrechen "$KONTO: Ordner Revolution-Test nicht gefunden (tests/testdaten.py --flags)"
 ordner2="$(revolution_test "$KONTO2")"
-[ -n "$ordner2" ] || { echo "FEHLER  $KONTO2: Ordner Revolution-Test nicht gefunden (tests/testdaten.py --flags)"; exit 1; }
+[ -n "$ordner2" ] || abbrechen "$KONTO2: Ordner Revolution-Test nicht gefunden (tests/testdaten.py --flags)"
 ordner_uid="$(revolution_test "$ORDNER_KONTO" | cut -d/ -f1)"
-[ -n "$ordner_uid" ] || { echo "FEHLER  $ORDNER_KONTO: Konto nicht gefunden (tests/testdaten.py --flags)"; exit 1; }
+[ -n "$ordner_uid" ] || abbrechen "$ORDNER_KONTO: Konto nicht gefunden (tests/testdaten.py --flags)"
 
 # Unix-Sockets brauchen kurze Pfade (108 Byte), daher eigener Ordner unter /tmp.
 SOCKDIR="$(mktemp -d)"
@@ -94,7 +106,7 @@ for _ in $(seq 50); do [ -S "$SOCKDIR/r.sock" ] && break; sleep 0.1; done
 lauf () {
   local name="$1" zustand="$2" konto="$3" ordner="$4" phasen="$5" ohne="${6:-}" rundir rc=0
   rundir="$(mktemp -d)"
-  unshare -n --map-current-user --keep-caps \
+  timeout -k 10 "$LAUF_TIMEOUT" unshare -n --map-current-user --keep-caps \
     python3 "$APP_DIR/tests/netz-relay.py" innen "$SOCKDIR/r.sock" "$SOCKDIR/c-$name.sock" "$zustand" -- \
     env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
     XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$SCHEMA" GSETTINGS_BACKEND=memory \
@@ -107,21 +119,31 @@ lauf () {
     OHNE="$ohne" APP_ID="$APP_ID" REVOLUTION_TEST_HOOKS=1 \
     xvfb-run -a -s "-screen 0 1200x1100x24" python3 -I "$APP_DIR/tests/netz-treiber.py" || rc=$?
   rm -rf "$rundir"
+  # #411: bis 10 s auf die Freigabe des Namens warten (nach Zeitlimit endet die App per Signal).
+  for _ in $(seq 10); do [ "$(bus_hat_app)" = "(false,)" ] && break; sleep 1; done
   [ "$(bus_hat_app)" = "(false,)" ] || echo "FEHLER  $name: App nach dem Lauf noch auf dem Bus"
   return "$rc"
 }
 
 lauf m4-408-vorbereiten up "$KONTO" "$ordner" "" | tee "$OUT/m4-408-vorbereiten.txt"
+teilschritt m4-408-vorbereiten "${PIPESTATUS[0]}" "$OUT/m4-408-vorbereiten.txt"
 FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/m4-408-vorbereiten.txt")))
 cp "$RELAIS_LOG" "$OUT/relais-vorbereiten.log"
 : >"$RELAIS_LOG"
 lauf m4-408 down "$KONTO" "$ordner" "${PHASEN:-start,abbruch,m365,flag,ordner}" "${ordner2%%/*}" | tee "$OUT/m4-408.txt"
+teilschritt m4-408 "${PIPESTATUS[0]}" "$OUT/m4-408.txt"
 FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/m4-408.txt")))
 cp "$RELAIS_LOG" "$OUT/relais-m4-408.log"
 : >"$RELAIS_LOG"
 # Zweites Konto (imapx): Netz weg beim Verbinden und Markieren ohne Netz.
-lauf m4-408-gmail down "$KONTO2" "$ordner2" "${PHASEN2:-abbruch1,flag}" | tee "$OUT/m4-408-gmail.txt"
-FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/m4-408-gmail.txt")))
+if [ "${GMAIL:-1}" = 1 ]; then
+  lauf m4-408-gmail down "$KONTO2" "$ordner2" "${PHASEN2:-abbruch1,flag}" | tee "$OUT/m4-408-gmail.txt"
+  teilschritt m4-408-gmail "${PIPESTATUS[0]}" "$OUT/m4-408-gmail.txt"
+  FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/m4-408-gmail.txt")))
+else
+  echo "WERT    m4-408-gmail ausgelassen (GMAIL=0)"
+fi
 
+abbruch_bilanz
 echo "Ergebnis: $FEHLER Fehler, Ausgaben in $OUT"
 [ "$FEHLER" -eq 0 ]

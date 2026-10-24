@@ -115,7 +115,8 @@ def aussen(sock_pfad, log_pfad):
                     raise OSError('nicht erlaubt: %s' % kopf)
                 r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'testdaten.py')]
                                    + args, capture_output=True, text=True, timeout=300)
-                c.sendall((r.stdout + r.stderr).encode())
+                # #411: Exit-Code als letzte Zeile, der Treiber zählt Exit ≠ 0 als FEHLER.
+                c.sendall((r.stdout + r.stderr + 'TESTDATEN-EXIT %d\n' % r.returncode).encode())
                 notiz('TESTDATEN %s' % ' '.join(args))
                 c.close()
                 return

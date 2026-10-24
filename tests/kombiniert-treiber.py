@@ -14,10 +14,12 @@
 #            KONTO neu INBOX, vor dem Start) Gelesen (Strg+K), Markieren, Markierung entfernen,
 #            Ungelesen; jede Änderung direkt am Server geprüft (tests/testdaten.py --live-flags, nur
 #            lesend); neue Mail und Löschen am Server live (IMAP IDLE); Zähler „Alle Eingänge“.
-#            #411: Lauf mit mark-seen=false (tests/kombiniert.sh), die Auswahl allein schreibt also
-#            nichts. Bedient wird nur, wenn die per Klick gewählte oberste Zeile nachweislich die
-#            Live-Mail in KONTO ist: UID in „Alle Eingänge“ = Ordner-ID der Quelle (LIVE_STORE, INBOX)
-#            + APPENDUID (LIVE_UID). Sonst Abbruch, die App wird sofort beendet. Gelesen per Strg+K.
+#            #411: kein Klick in die Liste: die App wählt die Live-Mail über ihren eindeutigen Betreff
+#            (REVOLUTION_MESSAGE, auch aus Live-Änderungen, mail-view.c), mit mark-seen=false (die
+#            Auswahl allein schreibt nichts). Bedient wird nur, wenn die gewählte Nachricht nachweislich
+#            die Live-Mail in KONTO ist: UID in „Alle Eingänge“ = Ordner-ID der Quelle (LIVE_STORE,
+#            INBOX) + APPENDUID (LIVE_UID); jede Bedienung muss diese UID treffen. Sonst Abbruch, die
+#            App wird sofort beendet. Gelesen per Strg+K.
 # Ausgabe: „OK …“, „FEHLER …“, „WERT …“; Screenshots OUT/NAME-<Schritt>.png.
 #
 # Copyright 2026 Arnd Messer
@@ -41,8 +43,6 @@ from Xlib.ext import xtest
 BIN, OUT, NAME, APP_DIR = os.environ['BIN'], os.environ['OUT'], os.environ['NAME'], os.environ['APP_DIR']
 KONTO = os.environ.get('KONTO', '')
 FAV = 'revolution-favoriten inbox'
-# Fenster 1200×760: erste Zeile der Liste (wie tests/flags-treiber.py).
-ZEILE = (420, 108)
 
 fehler = 0
 d = display.Display()
@@ -191,14 +191,6 @@ def taste(kombi, pause=0.3):
     time.sleep(pause)
 
 
-def klick(p):
-    xtest.fake_input(d, X.MotionNotify, x=p[0], y=p[1])
-    xtest.fake_input(d, X.ButtonPress, 1)
-    xtest.fake_input(d, X.ButtonRelease, 1)
-    d.sync()
-    time.sleep(0.5)
-
-
 def bild(schritt):
     xtest.fake_input(d, X.MotionNotify, x=0, y=0)
     d.sync()
@@ -249,9 +241,10 @@ def geladen():
 def flag_schritt(schritt, aktion, was, gelesen=None, markiert=None):
     ab = marke()
     aktion()
-    t = warte(r'^Flags: %s \S+ %s gespeichert nach' % (re.escape(FAV), re.escape(was)), ab)
+    # #411: nur die Live-Mail (UID aus live_vee_uid) zählt als Bedienung.
+    t = warte(r'^Flags: %s %s %s gespeichert nach' % (re.escape(FAV), re.escape(live_vee_uid()), re.escape(was)), ab)
     if t is None:
-        falsch('%s: Log „Flags: %s … %s gespeichert“ fehlt' % (schritt, FAV, was))
+        falsch('%s: Log „Flags: %s %s %s gespeichert“ fehlt' % (schritt, FAV, live_vee_uid(), was))
         return
     ok('%s: %s' % (schritt, t[1]))
     pruefe_server(schritt, gelesen, markiert)
@@ -269,20 +262,19 @@ def live_vee_uid():
 
 
 def testkonto():
-    # #411: Die oberste Zeile könnte eine Mail eines nur lesend freigegebenen Kontos sein. Daher
-    # mark-seen=false (die Auswahl schreibt nichts), Beleg der gewählten Nachricht vor jeder Bedienung.
+    # #411: Auswahl durch die App über den Betreff (REVOLUTION_MESSAGE), nicht die oberste Zeile:
+    # die hängt von neueren Mails in allen Konten ab und könnte ein nur lesend freigegebenes Konto
+    # treffen. mark-seen=false (die Auswahl schreibt nichts), Beleg der Auswahl vor jeder Bedienung.
     soll = live_vee_uid()
     if soll is None:
-        raise RuntimeError('Live-Mail in %s nicht belegt (LIVE_STORE/LIVE_UID); kein Klick' % KONTO)
-    ab = marke()
-    klick(ZEILE)
-    t = warte(r'^Nachricht: %s \S+ geladen' % re.escape(FAV), ab, 30)
+        raise RuntimeError('Live-Mail in %s nicht belegt (LIVE_STORE/LIVE_UID)' % KONTO)
+    t = warte(r'^Nachricht: %s \S+ geladen' % re.escape(FAV), 0, 60)
     ist = re.match(r'^Nachricht: %s (\S+) geladen' % re.escape(FAV), t[1]).group(1) if t else None
     if ist != soll:
         raise RuntimeError('Auswahl %s ist nicht die Live-Mail %s in %s (INBOX UID %s); keine Bedienung'
                            % (ist or 'keine', soll, KONTO, os.environ['LIVE_UID']))
-    ok('Auswahl: oberste Zeile ist die Live-Mail %s = %s INBOX UID %s' % (ist, KONTO, os.environ['LIVE_UID']))
-    (falsch if warte(r'^Gelesen: ', ab, 2) else ok)('mark-seen=false: kein Gelesen-Timer beim Auswählen')
+    ok('Auswahl über den Betreff: Live-Mail %s = %s INBOX UID %s' % (ist, KONTO, os.environ['LIVE_UID']))
+    (falsch if warte(r'^Gelesen: ', 0, 2) else ok)('mark-seen=false: kein Gelesen-Timer beim Auswählen')
     u0 = ungelesen_fav()
     wert('Ungelesen „Alle Eingänge“ vor dem Gelesen: %s' % u0)
     ab = marke()

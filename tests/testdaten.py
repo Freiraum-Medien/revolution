@@ -31,7 +31,7 @@
 #   tests/testdaten.py --server KONTO AKTION
 #                                 #353, schreibend nur in Testkonten: serverseitig an der Einladung
 #                                 in Revolution-Test gelesen|ungelesen|markiert|unmarkiert (IMAP UID
-#                                 STORE bzw. Graph PATCH), neu (IMAP APPEND einer Live-Mail) oder
+#                                 STORE bzw. Graph PATCH), neu (IMAP APPEND einer Live-Mail, Zeile „BETREFF …“) oder
 #                                 weg (Live-Mails löschen: UID STORE \Deleted + EXPUNGE); #414: mit
 #                                 --warte DATEI erst anmelden, „BEREIT“ ausgeben, dann ablegen,
 #                                 sobald DATEI existiert, und „ABGELEGT <Uhrzeit>“ ausgeben
@@ -1121,6 +1121,8 @@ def server(k, aktion, ziel=ORDNER, warte=None):
             m['To'] = k.adresse
             m['Date'] = email.utils.formatdate(localtime=True)
             print(c.append('"%s"' % name, None, None, m.as_bytes()))
+            # #411: eindeutiger Betreff für tests/kombiniert.sh (REVOLUTION_MESSAGE)
+            print('BETREFF %s' % m['Subject'])
             if warte:
                 print('ABGELEGT ' + datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3], flush=True)
         elif aktion == 'weg':

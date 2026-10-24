@@ -165,7 +165,7 @@ lauf () {
     else
       fehler "$name Anzahl: Liste ${letzt:-?}, Server vorher ${vorher:-?}, nachher ${nachher:-?} (erwartet vorher + 1)"
     fi
-    timeout 120 python3 "$APP_DIR/tests/testdaten.py" --server "$LIVE" weg INBOX >"$OUT/$name.weg.out" 2>&1
+    TD_TIMEOUT=120 td --server "$LIVE" weg INBOX >"$OUT/$name.weg.out" 2>&1
     if [ "$(server)" = "$vorher" ]; then
       ok "$name Live-Mail gelöscht, Server wieder $vorher"
     else

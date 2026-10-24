@@ -18,10 +18,11 @@
 #      ungelesen = Zähler „Alle Eingänge“.
 #   2. m4-351-zyklus: Store von KONTO aus der Session nehmen und wieder anlegen (Test-Aktion, main.c):
 #      Liste ohne seine Mails, danach genau einmal wieder (Zählung, keine doppelten UIDs).
-#   3. m4-351-hell: Live-Mail per APPEND in den Posteingang von KONTO (vor dem Start); #411: mit
-#      mark-seen=false (die Auswahl schreibt nichts); bedient wird nur, wenn die gewählte oberste
-#      Zeile nachweislich die Live-Mail ist (UID aus Konto-UID und APPENDUID), sonst beendet der
-#      Treiber die App sofort; fehlen APPENDUID oder Konto-UID, startet die App nicht. Dann
+#   3. m4-351-hell: Live-Mail per APPEND in den Posteingang von KONTO (vor dem Start); #411: die App
+#      wählt sie selbst über ihren eindeutigen Betreff (REVOLUTION_MESSAGE, kein Klick), mit
+#      mark-seen=false (die Auswahl schreibt nichts); bedient wird nur, wenn die gewählte Nachricht
+#      nachweislich die Live-Mail ist (UID aus Konto-UID und APPENDUID), sonst beendet der Treiber
+#      die App sofort; fehlen Betreff, APPENDUID oder Konto-UID, startet die App nicht. Dann
 #      Gelesen (Strg+K), Markieren, Markierung entfernen, Ungelesen aus „Alle Eingänge“,
 #      jede Änderung am Server von KONTO geprüft; neue Mail und Löschen live (IDLE); am Ende sind
 #      die Live-Mails gelöscht (Ausgangszustand).
@@ -64,16 +65,18 @@ glib-compile-schemas --strict "$SCHEMA" || { echo "FEHLER  Schema: glib-compile-
 lauf () {
   local name="$1" schema="$2" rundir rc=0
   rundir="$(mktemp -d)"
-  timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
+  timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK -u REVOLUTION_MESSAGE \
     XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="${SCHEMA_DIR:-$BUILD/data}" GSETTINGS_BACKEND=memory \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
     GTK_A11Y=none NO_AT_BRIDGE=1 ADW_DEBUG_COLOR_SCHEME="$schema" \
     G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER=revolution-favoriten/inbox \
     CAMEL_DEBUG=imapx:command M365_DEBUG=1 REVOLUTION_TEST_HOOKS=1 \
     BIN="$BIN" OUT="$OUT" NAME="$name" KONTO="$KONTO" APP_DIR="$APP_DIR" APP_ID="$APP_ID" ZYKLUS_UID="${ZYKLUS_UID:-}" \
-    LIVE_STORE="${LIVE_STORE:-}" LIVE_UID="${LIVE_UID:-}" \
+    LIVE_STORE="${LIVE_STORE:-}" LIVE_UID="${LIVE_UID:-}" ${LIVE_BETREFF:+"REVOLUTION_MESSAGE=$LIVE_BETREFF"} \
     xvfb-run -a -s "-screen 0 1200x760x24" python3 -I "$APP_DIR/tests/kombiniert-treiber.py" || rc=$?
   rm -rf "$rundir"
+  # #411: bis 10 s auf die Freigabe des Namens warten (nach Zeitlimit endet die App per Signal).
+  for _ in $(seq 10); do [ "$(bus_hat_app)" = "(false,)" ] && break; sleep 1; done
   [ "$(bus_hat_app)" = "(false,)" ] || echo "FEHLER  $name: App nach dem Lauf noch auf dem Bus"
   return "$rc"
 }
@@ -129,8 +132,9 @@ td --server "$KONTO" weg INBOX >/dev/null 2>&1
 td --server "$KONTO" neu INBOX >"$OUT/$name-vorher.txt" 2>&1
 LIVE_STORE="$ZYKLUS_UID"
 LIVE_UID="$(sed -nE 's/.*\[APPENDUID [0-9]+ ([0-9]+)\].*/\1/p' "$OUT/$name-vorher.txt")"
-if [ -z "$LIVE_STORE" ] || [ -z "$LIVE_UID" ]; then
-  echo "FEHLER  $name: Live-Mail in $KONTO nicht belegt (Konto-UID ${LIVE_STORE:-?}, APPENDUID ${LIVE_UID:-?}), kein Start" | tee "$OUT/$name.txt"
+LIVE_BETREFF="$(sed -n 's/^BETREFF //p' "$OUT/$name-vorher.txt")"
+if [ -z "$LIVE_STORE" ] || [ -z "$LIVE_UID" ] || [ -z "$LIVE_BETREFF" ]; then
+  echo "FEHLER  $name: Live-Mail in $KONTO nicht belegt (Konto-UID ${LIVE_STORE:-?}, APPENDUID ${LIVE_UID:-?}, Betreff ${LIVE_BETREFF:-?}), kein Start" | tee "$OUT/$name.txt"
 else
   SCHEMA_DIR="$SCHEMA" lauf "$name" prefer-light | tee "$OUT/$name.txt"
   teilschritt "$name" "${PIPESTATUS[0]}" "$OUT/$name.txt"
@@ -145,9 +149,12 @@ else
     echo "FEHLER  $name: Gegenprobe: UID STORE $store, schreibend gesamt $alle, Bedienungen $flags"
   fi | tee -a "$OUT/$name.txt"
 fi
-rest="$(td --live-flags "$KONTO" | grep -c '^FLAGS')"
-if [ "$rest" = 0 ]; then echo "OK      $name: Ausgangszustand, keine Live-Mail mehr im Posteingang von $KONTO"
-else echo "FEHLER  $name: $rest Live-Mails im Posteingang von $KONTO übrig"; fi | tee -a "$OUT/$name.txt"
+# #411: scheitert --live-flags, zählt das als Abbruch (tests/abbruch.sh), kein OK.
+if live="$(td --live-flags "$KONTO")"; then
+  rest="$(printf '%s\n' "$live" | grep -c '^FLAGS')"
+  if [ "$rest" = 0 ]; then echo "OK      $name: Ausgangszustand, keine Live-Mail mehr im Posteingang von $KONTO"
+  else echo "FEHLER  $name: $rest Live-Mails im Posteingang von $KONTO übrig"; fi | tee -a "$OUT/$name.txt"
+fi
 FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/$name.txt")))
 
 abbruch_bilanz

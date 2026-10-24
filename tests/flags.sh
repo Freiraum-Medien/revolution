@@ -71,6 +71,8 @@ lauf () {
     UNGELESEN_VORHER="$OUT/last-ungelesen-vorher.txt" BIN="$BIN" OUT="$OUT" NAME="$name" KONTO="$konto" ORDNER="$ordner" APP_DIR="$APP_DIR" \
     xvfb-run -a -s "-screen 0 1200x760x24" python3 -I "$APP_DIR/tests/flags-treiber.py" || rc=$?
   rm -rf "$rundir"
+  # #411: bis 10 s auf die Freigabe des Namens warten (nach Zeitlimit endet die App per Signal).
+  for _ in $(seq 10); do [ "$(bus_hat_app)" = "(false,)" ] && break; sleep 1; done
   [ "$(bus_hat_app)" = "(false,)" ] || echo "FEHLER  $name: App nach dem Lauf noch auf dem Bus"
   return "$rc"
 }

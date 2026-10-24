@@ -157,6 +157,8 @@ for konto in $KONTEN; do
   teilschritt "$name" "${PIPESTATUS[0]}" "$OUT/$name.txt"
   rm -rf "$rundir"
   kill "$monitor" 2>/dev/null; wait "$monitor" 2>/dev/null
+  # #411: bis 10 s auf die Freigabe des Namens warten (nach Zeitlimit endet die App per Signal).
+  for _ in $(seq 10); do [ "$(bus_hat_app)" = "(false,)" ] && break; sleep 1; done
   [ "$(bus_hat_app)" = "(false,)" ] || echo "FEHLER  $name: App nach dem Lauf noch auf dem Bus" | tee -a "$OUT/$name.txt"
   portale="$(grep -c 'member=\(OpenFile\|OpenURI\|OpenDirectory\|SaveFile\|OpenFile\|SaveFiles\)' "$OUT/$name-portale.txt")"
   if [ "$portale" = 0 ]; then echo "OK      $name: dbus-monitor: 0 Aufrufe der Portale OpenURI/FileChooser"

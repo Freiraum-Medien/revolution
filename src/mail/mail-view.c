@@ -23,6 +23,7 @@
 #include <glib/gi18n.h>
 
 #include "composer/composer.h"
+#include "eds-compat.h"
 #include "mail-account.h"
 #include "mail-favorites.h"
 #include "mail-folder.h"
@@ -994,7 +995,7 @@ load_messages_thread (GTask        *task,
       return;
     }
 
-  refreshed_ok = camel_folder_refresh_info_sync (folder, refresh_op, &error);
+  refreshed_ok = revolution_eds_folder_refresh_info_sync (folder, refresh_op, &error);
   refresh_end (key);
   /* #408: Offline (Pille „Offline“) bleibt es beim Stand des Caches. imapx überspringt den
    * Abgleich dann (camel-imapx-folder.c:878-880), microsoft365 meldet „You must be working
@@ -1819,7 +1820,7 @@ refresh_thread (GTask        *task,
   /* #408: eigenes Cancellable je Vorgang wie load_messages_thread. */
   g_autoptr (GCancellable) op = camel_operation_new_proxy (cancellable);
 
-  if (camel_folder_refresh_info_sync (task_data, op, &error))
+  if (revolution_eds_folder_refresh_info_sync (task_data, op, &error))
     g_task_return_boolean (task, TRUE);
   else if (session != NULL && !camel_session_get_online (session))
     {

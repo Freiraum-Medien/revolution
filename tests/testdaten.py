@@ -71,6 +71,19 @@
 #                                 dem letzten „Favoriten: Anzahl inbox <UID> …“ je Konto, der Summe der
 #                                 Liste und „Ungelesen: revolution-favoriten inbox <N>“; Exit 1 bei
 #                                 Abweichung
+#   tests/testdaten.py --konversation
+#                                 #357: Konversation aus 5 Mails (Message-ID, In-Reply-To, References):
+#                                 3 eingehende per APPEND in den Posteingang, 2 eigene Antworten per
+#                                 APPEND in den Gesendet-Ordner, in geops@ (IMAP) und outlook.com
+#                                 (microsoft365); Gesendet wie die App (#350: Ordnertyp vom Server,
+#                                 sonst ESource „sent-folder“, sonst Ersteinrichtung des Stores).
+#                                 Idempotent (Erkennung über Betreff und Absendedatum); letzte Zeilen
+#                                 „KONVERSATION <Adresse> <UID>/<Ordner> <Anzahl>“ je Ordner
+#   tests/testdaten.py --konversation-flags KONTO
+#                                 #357, nur lesend, unabhängig von Camel: je Mail der Konversation
+#                                 „KFLAGS <Nr> <gelesen 0|1> <markiert 0|1> <Ordner>“ (IMAP EXAMINE + UID
+#                                 SEARCH HEADER Message-ID + UID FETCH FLAGS in INBOX und Sent bzw. Graph
+#                                 GET nach internetMessageId; markiert = importance high wie --flags)
 #   tests/testdaten.py --live-flags KONTO
 #                                 #351, nur lesend: Flags der Live-Mails (--server KONTO neu INBOX) im
 #                                 Posteingang (IMAP EXAMINE + UID SEARCH SUBJECT + UID FETCH FLAGS);
@@ -490,6 +503,148 @@ def anhang_teile(k, ziel):
             # Camel dekodiert text/* mit CRLF → LF (camel-data-wrapper.c:326-335), Evolution ebenso.
             lf = daten.replace(b'\r\n', b'\n')
             print('TEIL-TEXT %s %d %s (CRLF→LF)' % (hashlib.sha256(lf).hexdigest(), len(lf), name))
+    return 0
+
+
+# #357: Thread mit 5 Mails. Feste Daten und Message-IDs (gleiche Bytes bei jedem Lauf); Antworten mit
+# In-Reply-To auf die vorige und References auf alle vorigen (RFC 5322 3.6.4), wie Camel sie für Threads
+# liest (camel_folder_thread_messages_new, camel-folder-thread.c:540-610).
+KONVERSATION_KONTEN = ('KONTO_IMAP_2@example.invalid', 'KONTO_M365@example.invalid')
+KONVERSATION_BETREFF = PREFIX + ' Konversation Marktstand'
+KONVERSATION_PARTNER = ('Jana Albrecht', ANZEIGE_ABSENDER)
+# Nr. 3 als HTML mit entferntem Bild und Anhang: Sperre (#355) und Anhänge (#356) je Nachricht der
+# Konversation.
+KONVERSATION = [
+    # (Nr, eigene Antwort?, gelesen?, Text)
+    (1, False, True, 'Hallo, steht der Marktstand am Samstag noch? Ich bringe die Kisten mit.'),
+    (2, True, True, 'Ja, Samstag ab 8 Uhr. Die Kisten kommen links neben den Tisch.'),
+    (3, False, True, 'Prima. Brauchen wir noch ein Verlängerungskabel für die Waage?'),
+    (4, True, True, 'Ja, bitte eins mit 10 m mitbringen, die Steckdose ist am Brunnen.'),
+    (5, False, False, 'Mache ich. Bis Samstag!'),
+]
+
+
+# Feste Daten in der Vergangenheit (PM 24.10.2026: nie in der Zukunft, sonst stehen sie in anderen Tests
+# oben); fest, damit die Erkennung über das Absendedatum idempotent bleibt.
+def konversation_datum(nr):
+    return datetime.datetime(2026, 10, 23, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=2))) \
+        + datetime.timedelta(minutes=17 * (nr - 1))
+
+
+def konversation_nachricht(nr, eigen, text, konto):
+    m = EmailMessage(policy=email.policy.SMTP)
+    m.set_content(text + '\n')
+    if nr == 3:
+        m.add_alternative('<html><body><p style="color:#1a5fb4">%s</p><p><img src="%s" alt="Waage" '
+                          'width="172" height="178"></p><p>Der Plan hängt an.</p></body></html>\n'
+                          % (text, REMOTE_BILD), subtype='html')
+        m.add_attachment(bild_png(), maintype='image', subtype='png', filename='Marktstand-Plan.png')
+    ich = email.utils.formataddr(('Revolution Test', konto))
+    partner = email.utils.formataddr(KONVERSATION_PARTNER)
+    m['Subject'] = KONVERSATION_BETREFF if nr == 1 else 'Re: ' + KONVERSATION_BETREFF
+    m['From'] = ich if eigen else partner
+    m['To'] = partner if eigen else ich
+    m['Date'] = email.utils.format_datetime(konversation_datum(nr))
+    m['Message-ID'] = msgid('konversation-357-%d' % nr)
+    if nr > 1:
+        m['In-Reply-To'] = msgid('konversation-357-%d' % (nr - 1))
+        m['References'] = ' '.join(msgid('konversation-357-%d' % i) for i in range(1, nr))
+    msg = Camel.MimeMessage.new()
+    msg.construct_from_stream_sync(Camel.StreamMem.new_with_buffer(m.as_bytes()), None)
+    return msg
+
+
+def gesendet_holen(k, registry):
+    """Gesendet-Ordner wie die App (#350, src/mail/mail-folder.c revolution_mail_folder_mark_special)."""
+    for name, flags in ordnerbaum(k.store):
+        if flags & Camel.FOLDER_TYPE_MASK == int(Camel.FolderInfoFlags.TYPE_SENT):
+            return name, 'Ordnertyp'
+    uid = k.account.get_uid()
+    ident = registry.ref_source(k.account.get_extension(EDataServer.SOURCE_EXTENSION_MAIL_ACCOUNT).get_identity_uid())
+    uri = ident.get_extension(EDataServer.SOURCE_EXTENSION_MAIL_SUBMISSION).get_sent_folder() if ident else None
+    url = Camel.URL.new(uri) if uri else None
+    if url and url.protocol == 'folder' and url.path and \
+            ('%s@%s' % (url.user, url.host) if url.user else url.host) == uid:
+        return Camel.URL.decode_path(url.path[1:]), 'ESource'
+    ok, setup = k.store.initial_setup_sync(cancellable())
+    name = setup.get('Submission:Mail Submission:sent-folder:f') if ok and setup else None
+    if not name:
+        sys.exit('ABBRUCH: kein Gesendet-Ordner in %s' % k.adresse)
+    return name, 'Ersteinrichtung'
+
+
+def konversation(konten, registry, dry):
+    """#357: fehlende Mails der Konversation per APPEND (idempotent)."""
+    for a in KONVERSATION_KONTEN:
+        k = konten[a]
+        nur_testkonten([a])
+        sent_name, quelle = gesendet_holen(k, registry)
+        sent = k.store.get_folder_sync(sent_name, 0, cancellable())
+        print('  %s: Gesendet %s (%s)' % (a, sent_name, quelle))
+        soll = {int(konversation_datum(nr).timestamp()) for nr, _, _, _ in KONVERSATION}
+        for folder in (k.inbox, sent):
+            folder.refresh_info_sync(cancellable())
+            vorhanden = set()
+            veraltet = 0
+            for uid in folder.get_uids():
+                info = folder.get_message_info(uid)
+                if info and (info.get_subject() or '').endswith(KONVERSATION_BETREFF) \
+                        and not info.get_flags() & Camel.MessageFlags.DELETED:
+                    if info.get_date_sent() in soll:
+                        vorhanden.add(info.get_date_sent())
+                    else:
+                        # Eigene Konversationsmails mit anderem Datum (frühere Fassung) ersetzen.
+                        print('  %s: Konversation (veraltet, %s) löschen in %s' % (
+                            a, datetime.datetime.fromtimestamp(info.get_date_sent()).isoformat(), folder.get_full_name()))
+                        veraltet += 1
+                        if not dry:
+                            folder.set_message_flags(uid, Camel.MessageFlags.DELETED, Camel.MessageFlags.DELETED)
+            if veraltet and not dry:
+                folder.synchronize_sync(True, cancellable())
+            neu = 0
+            for nr, eigen, gelesen, text in KONVERSATION:
+                if (folder is sent) != eigen:
+                    continue
+                if int(konversation_datum(nr).timestamp()) in vorhanden:
+                    continue
+                print('  %s: Konversation %d per APPEND in %s' % (a, nr, folder.get_full_name()))
+                neu += 1
+                if dry:
+                    continue
+                info = Camel.MessageInfo.new(None)
+                if gelesen:
+                    info.set_flags(Camel.MessageFlags.SEEN, Camel.MessageFlags.SEEN)
+                folder.append_message_sync(konversation_nachricht(nr, eigen, text, a), info, cancellable())
+            if neu and not dry:
+                folder.synchronize_sync(False, cancellable())
+                folder.refresh_info_sync(cancellable())
+            anzahl = sum(1 for uid in folder.get_uids()
+                         if (folder.get_message_info(uid).get_subject() or '').endswith(KONVERSATION_BETREFF))
+            print('KONVERSATION %s %s/%s %d' % (a, k.account.get_uid(), folder.get_full_name(), anzahl))
+
+
+def konversation_flags(k):
+    """#357: nur lesend, ohne Camel: Flags der fünf Mails der Konversation vom Server."""
+    if k.goa.get_mail().props.imap_supported:
+        c = imap_verbinden(k)
+        for ziel in ('INBOX', 'Sent'):
+            name, camel = imap_ordner(c, ziel)
+            c.select('"%s"' % name, readonly=True)
+            for nr, _, _, _ in KONVERSATION:
+                for uid in c.uid('SEARCH', None, 'HEADER', 'Message-ID', msgid('konversation-357-%d' % nr))[1][0].split():
+                    flags = c.uid('FETCH', uid, '(FLAGS)')[1][0].decode()
+                    if '\\Deleted' not in flags:
+                        print('KFLAGS %d %d %d %s' % (nr, '\\Seen' in flags, '\\Flagged' in flags, camel))
+        c.logout()
+    else:
+        for nr, _, _, _ in KONVERSATION:
+            for m in graph(k, 'GET', "/me/messages?$filter=internetMessageId%20eq%20'"
+                           + urllib.request.quote(msgid('konversation-357-%d' % nr))
+                           + "'&$select=isRead,importance,parentFolderId")['value']:
+                ordner = graph(k, 'GET', '/me/mailFolders/%s?$select=displayName' % m['parentFolderId'])['displayName']
+                if ordner in ('Gelöschte Elemente', 'Deleted Items'):
+                    continue
+                print('KFLAGS %d %d %d %s' % (nr, m['isRead'], m['importance'] == 'high', ordner))
     return 0
 
 
@@ -1403,6 +1558,10 @@ def main():
     ap.add_argument('--live-flags', metavar='KONTO', help='#351: nur lesend Flags der Live-Mails im Posteingang')
     ap.add_argument('--testordner', nargs=2, metavar=('KONTO', 'anlegen|loeschen'),
                     help='#408: Ordner %s am Server anlegen oder löschen (IMAP, Testkonten)' % TESTORDNER)
+    ap.add_argument('--konversation-flags', metavar='KONTO',
+                    help='#357: nur lesend Flags der Konversation vom Server')
+    ap.add_argument('--konversation', action='store_true',
+                    help='#357: Konversation (5 Mails) per APPEND in Posteingang und Gesendet (geops@, outlook.com)')
     args = ap.parse_args()
     if args.last is not None and args.last < 1:
         ap.error('--last N mit N ≥ 1 (#411)')
@@ -1422,6 +1581,11 @@ def main():
         if not k.goa.get_mail().props.imap_supported:
             ap.error('--live-flags nur für IMAP')
         return live_flags(k)
+
+    if args.konversation_flags:
+        adresse = args.konversation_flags.lower()
+        nur_testkonten([adresse])
+        return konversation_flags(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse])
 
     if args.ungelesen:
         adresse = args.ungelesen[0].lower()
@@ -1486,6 +1650,13 @@ def main():
         for a in ANHANG_KONTEN:
             konten[a].store.disconnect_sync(True, None)
         return 0
+    if args.konversation:
+        for a in KONVERSATION_KONTEN:
+            store_oeffnen(session, konten[a])
+        konversation(konten, registry, args.dry_run)
+        for a in KONVERSATION_KONTEN:
+            konten[a].store.disconnect_sync(True, None)
+        return 0
     for k in konten.values():
         store_oeffnen(session, k)
 
@@ -1503,6 +1674,7 @@ def main():
     ablegen(konten, args.dry_run)
     anzeige(konten, args.dry_run)
     anhang(konten, args.dry_run)
+    konversation(konten, registry, args.dry_run)
     for k in konten.values():
         k.store.disconnect_sync(True, None)
     return 0

@@ -40,6 +40,11 @@ struct _RevolutionMailMessage
   gboolean  unread;
   gboolean  starred;
   gboolean  attachment;
+  /* #357: Konversation (Zeile je Thread, mail-thread.c): Nachrichten des Threads (alt → neu), sonst
+   * NULL. Absender (sender) sind dann die Teilnehmer, avatar der Absender der neuesten Nachricht. */
+  GListStore *members;
+  char     *avatar;
+  char     *count_label;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionMailMessage, revolution_mail_message, G_TYPE_OBJECT)
@@ -58,6 +63,9 @@ enum
   PROP_ACCOUNT,
   PROP_ACCOUNT_LABEL,
   PROP_SHOW_ACCOUNT,
+  PROP_AVATAR,
+  PROP_COUNT_LABEL,
+  PROP_SHOW_COUNT,
   N_PROPS
 };
 
@@ -84,6 +92,9 @@ revolution_mail_message_get_property (GObject    *object,
     case PROP_ACCOUNT:          g_value_set_string (value, self->account); break;
     case PROP_ACCOUNT_LABEL:    g_value_set_string (value, self->account_label); break;
     case PROP_SHOW_ACCOUNT:     g_value_set_boolean (value, self->account != NULL); break;
+    case PROP_AVATAR:           g_value_set_string (value, self->avatar != NULL ? self->avatar : self->sender); break;
+    case PROP_COUNT_LABEL:      g_value_set_string (value, self->count_label); break;
+    case PROP_SHOW_COUNT:       g_value_set_boolean (value, self->count_label != NULL); break;
     default: G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
 }
@@ -103,6 +114,9 @@ revolution_mail_message_finalize (GObject *object)
   g_free (self->account_label);
   g_free (self->source_uid);
   g_free (self->source_folder);
+  g_clear_object (&self->members);
+  g_free (self->avatar);
+  g_free (self->count_label);
 
   G_OBJECT_CLASS (revolution_mail_message_parent_class)->finalize (object);
 }
@@ -127,6 +141,9 @@ revolution_mail_message_class_init (RevolutionMailMessageClass *klass)
   props[PROP_ACCOUNT] = g_param_spec_string ("account", NULL, NULL, NULL, flags);
   props[PROP_ACCOUNT_LABEL] = g_param_spec_string ("account-label", NULL, NULL, NULL, flags);
   props[PROP_SHOW_ACCOUNT] = g_param_spec_boolean ("show-account", NULL, NULL, FALSE, flags);
+  props[PROP_AVATAR] = g_param_spec_string ("avatar", NULL, NULL, NULL, flags);
+  props[PROP_COUNT_LABEL] = g_param_spec_string ("count-label", NULL, NULL, NULL, flags);
+  props[PROP_SHOW_COUNT] = g_param_spec_boolean ("show-count", NULL, NULL, FALSE, flags);
   g_object_class_install_properties (object_class, N_PROPS, props);
 }
 
@@ -258,8 +275,15 @@ static char *
 accessible_label_for (RevolutionMailMessage *self)
 {
   g_autofree char *account = self->account != NULL ? g_strdup_printf (_(", Konto %s"), self->account) : NULL;
+  guint count = self->members != NULL ? g_list_model_get_n_items (G_LIST_MODEL (self->members)) : 0;
+  /* #357: Translators: Anfang des zugänglichen Namens einer Konversationszeile. */
+  g_autofree char *conversation = count > 1 ? g_strdup_printf (ngettext ("Konversation mit %u E-Mail: ",
+                                                                         "Konversation mit %u E-Mails: ", count),
+                                                               count)
+                                            : NULL;
 
-  return g_strdup_printf ("%s, %s, %s%s%s%s%s", self->sender, self->subject, self->date,
+  return g_strdup_printf ("%s%s, %s, %s%s%s%s%s", conversation != NULL ? conversation : "", self->sender,
+                          self->subject, self->date,
                           self->unread ? _(", ungelesen") : "",
                           self->starred ? _(", markiert") : "",
                           self->attachment ? _(", mit Anhang") : "",
@@ -356,6 +380,8 @@ update_boolean (RevolutionMailMessage *self,
   return TRUE;
 }
 
+static gboolean update_members (RevolutionMailMessage *self, RevolutionMailMessage *from);
+
 /* Im UI-Thread (Abgleich in mail-view.c, merge_messages): Felder von from (gleiche UID)
  * übernehmen, am bestehenden Eintrag, damit Auswahl und Zeile erhalten bleiben; die
  * Bindungen der Zeile (mail-view.blp) folgen über notify. Verglichen wird der Zeitstempel,
@@ -381,6 +407,19 @@ revolution_mail_message_update (RevolutionMailMessage *self,
   changed |= update_boolean (self, &self->unread, from->unread, PROP_UNREAD);
   changed |= update_boolean (self, &self->starred, from->starred, PROP_STARRED);
   changed |= update_boolean (self, &self->attachment, from->attachment, PROP_ATTACHMENT);
+  /* #357: Konversation: Teilnehmer, Anzahl und Nachrichten (update_members). */
+  if (update_string (self, &self->avatar, from->avatar, PROP_AVATAR))
+    changed = TRUE;
+  if (g_strcmp0 (self->count_label, from->count_label) != 0)
+    {
+      gboolean shown = self->count_label != NULL;
+
+      update_string (self, &self->count_label, from->count_label, PROP_COUNT_LABEL);
+      if (shown != (self->count_label != NULL))
+        g_object_notify_by_pspec (G_OBJECT (self), props[PROP_SHOW_COUNT]);
+      changed = TRUE;
+    }
+  changed |= update_members (self, from);
   if (changed)
     update_string (self, &self->accessible_label, from->accessible_label, PROP_ACCESSIBLE_LABEL);
 
@@ -455,4 +494,151 @@ revolution_mail_message_has_preview (RevolutionMailMessage *self)
   g_return_val_if_fail (REVOLUTION_IS_MAIL_MESSAGE (self), FALSE);
 
   return self->preview != NULL;
+}
+
+/* ------------------------------------------------------------------ #357 Konversationen */
+
+/* Im Worker (mail-thread.c): Zeile einer Konversation aus ihren Nachrichten (alt → neu). Felder der
+ * neuesten Nachricht wie Stamp (stamp-conversation-item.c:228-270: Datum der neuesten, ungelesen
+ * wenn eine ungelesen ist, markiert wenn eine markiert ist); Absender sind die Teilnehmer in der
+ * Reihenfolge ihrer ersten Nachricht, das Bild zeigt den Absender der neuesten.
+ * keep_account: Konto der neuesten Nachricht zeigen (Favoriten, #351), sonst nicht (Konversation aus
+ * Ordner und Gesendet desselben Kontos). Die UID ist die der ältesten Nachricht im Thread (Wurzel,
+ * bleibt beim Eintreffen von Antworten gleich; Abgleich der Liste per UID, mail-view.c), wie Stamp
+ * (stamp-conversation-item.c:265-270). */
+RevolutionMailMessage *
+revolution_mail_message_new_conversation (const char *uid,
+                                          GPtrArray  *members,
+                                          gboolean    keep_account)
+{
+  RevolutionMailMessage *self = g_object_new (REVOLUTION_TYPE_MAIL_MESSAGE, NULL);
+  RevolutionMailMessage *newest;
+  g_autoptr (GString) participants = g_string_new (NULL);
+  g_autoptr (GHashTable) seen = g_hash_table_new (g_str_hash, g_str_equal);
+
+  g_return_val_if_fail (members != NULL && members->len > 0, self);
+
+  newest = members->pdata[members->len - 1];
+  self->members = g_list_store_new (REVOLUTION_TYPE_MAIL_MESSAGE);
+  g_list_store_splice (self->members, 0, 0, members->pdata, members->len);
+
+  for (guint i = 0; i < members->len; i++)
+    {
+      RevolutionMailMessage *member = members->pdata[i];
+
+      self->unread |= member->unread;
+      self->starred |= member->starred;
+      self->attachment |= member->attachment;
+      if (g_hash_table_add (seen, member->sender))
+        g_string_append_printf (participants, "%s%s", participants->len > 0 ? ", " : "", member->sender);
+    }
+
+  self->uid = g_strdup (uid);
+  self->sender = g_string_free_and_steal (g_steal_pointer (&participants));
+  self->avatar = g_strdup (newest->sender);
+  /* Betreff des Threads aus der ältesten Nachricht (ohne „Re:“ der Antworten). */
+  self->subject = g_strdup (((RevolutionMailMessage *) members->pdata[0])->subject);
+  self->preview = g_strdup (newest->preview);
+  self->date = g_strdup (newest->date);
+  self->timestamp = newest->timestamp;
+  self->count_label = members->len > 1 ? g_strdup_printf ("%u", members->len) : NULL;
+  if (keep_account)
+    {
+      self->account = g_strdup (newest->account);
+      self->account_label = g_strdup (newest->account_label);
+      self->source_uid = g_strdup (newest->source_uid);
+      self->source_folder = g_strdup (newest->source_folder);
+    }
+  self->accessible_label = accessible_label_for (self);
+
+  return self;
+}
+
+/* Nachrichten einer Konversation (alt → neu) oder NULL bei einer einzelnen Nachricht. */
+GListModel *
+revolution_mail_message_get_members (RevolutionMailMessage *self)
+{
+  g_return_val_if_fail (REVOLUTION_IS_MAIL_MESSAGE (self), NULL);
+
+  return self->members != NULL ? G_LIST_MODEL (self->members) : NULL;
+}
+
+/* Im UI-Thread nach einer Bedienung an einzelnen Nachrichten (mail-view.c, mark_message): Zustand der
+ * Zeile aus ihren Nachrichten neu bilden. */
+void
+revolution_mail_message_sync_conversation (RevolutionMailMessage *self)
+{
+  gboolean unread = FALSE, starred = FALSE;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_MESSAGE (self));
+
+  for (guint i = 0; self->members != NULL && i < g_list_model_get_n_items (G_LIST_MODEL (self->members)); i++)
+    {
+      g_autoptr (RevolutionMailMessage) member = g_list_model_get_item (G_LIST_MODEL (self->members), i);
+
+      unread |= member->unread;
+      starred |= member->starred;
+    }
+
+  revolution_mail_message_set_flags (self, unread, starred);
+}
+
+/* Im UI-Thread (revolution_mail_message_update): Nachrichten von from übernehmen, bestehende Einträge
+ * (gleiche UID) bleiben dieselben Objekte und werden aktualisiert, damit der Lesebereich seine
+ * aufgeklappten Nachrichten behält (mail-conversation.c). TRUE bei Änderung. */
+static gboolean
+update_members (RevolutionMailMessage *self,
+                RevolutionMailMessage *from)
+{
+  GListModel *old = self->members != NULL ? G_LIST_MODEL (self->members) : NULL;
+  GListModel *new = from->members != NULL ? G_LIST_MODEL (from->members) : NULL;
+  g_autoptr (GHashTable) by_uid = g_hash_table_new (g_str_hash, g_str_equal);
+  g_autoptr (GPtrArray) wanted = g_ptr_array_new_with_free_func (g_object_unref);
+  gboolean changed = FALSE, same;
+  guint n_old;
+
+  if (old == NULL && new == NULL)
+    return FALSE;
+  if (old == NULL || new == NULL)
+    {
+      g_set_object (&self->members, from->members);
+      return TRUE;
+    }
+
+  n_old = g_list_model_get_n_items (old);
+  for (guint i = 0; i < n_old; i++)
+    {
+      RevolutionMailMessage *member = g_list_model_get_item (old, i);
+
+      g_hash_table_insert (by_uid, member->uid, member);
+      g_object_unref (member);
+    }
+
+  for (guint i = 0; i < g_list_model_get_n_items (new); i++)
+    {
+      RevolutionMailMessage *member = g_list_model_get_item (new, i);
+      RevolutionMailMessage *kept = g_hash_table_lookup (by_uid, member->uid);
+
+      if (kept != NULL)
+        {
+          changed |= revolution_mail_message_update (kept, member);
+          g_ptr_array_add (wanted, g_object_ref (kept));
+          g_object_unref (member);
+        }
+      else
+        g_ptr_array_add (wanted, member);
+    }
+
+  same = wanted->len == n_old;
+  for (guint i = 0; same && i < n_old; i++)
+    {
+      g_autoptr (RevolutionMailMessage) member = g_list_model_get_item (old, i);
+
+      same = member == wanted->pdata[i];
+    }
+
+  if (!same)
+    g_list_store_splice (self->members, 0, n_old, wanted->pdata, wanted->len);
+
+  return changed || !same;
 }

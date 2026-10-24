@@ -444,3 +444,17 @@ avatar.color14 {
   background-image: none;
   background-color: color-mix(in srgb, #c0bfbc, #6e6d71);
 }
+
+/* #357: Konversationen. Zahl der Nachrichten in der Zeile als kleine Pille (wie der Hinweis .mail-notice,
+ * nur kleiner); Kopf je Nachricht im Lesebereich der Konversation wie eine Zeile der Liste abgerundet. */
+.conversation-count {
+  padding: 0 6px;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.conversation-header {
+  padding: 8px 12px 8px 4px;
+  border-radius: 12px;
+  font-weight: normal;
+}

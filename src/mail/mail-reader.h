@@ -24,5 +24,7 @@ void revolution_mail_reader_show  (RevolutionMailReader  *self,
                                    RevolutionMailFolder  *place,
                                    RevolutionMailMessage *message);
 void revolution_mail_reader_clear (RevolutionMailReader  *self);
+void revolution_mail_reader_set_compact (RevolutionMailReader *self,
+                                         gboolean              compact);
 
 G_END_DECLS

@@ -25,10 +25,12 @@
 #include "composer/composer.h"
 #include "eds-compat.h"
 #include "mail-account.h"
+#include "mail-conversation.h"
 #include "mail-favorites.h"
 #include "mail-folder.h"
 #include "mail-message.h"
 #include "mail-reader.h"
+#include "mail-thread.h"
 #include "mail-view.h"
 
 struct _RevolutionMailView
@@ -86,6 +88,13 @@ struct _RevolutionMailView
   gboolean             initial_done;
   /* #351: Abschnitt „Favoriten“ über den Konten (mail-favorites.c). */
   RevolutionMailAccount *favorites;
+  /* #357: Konversationen (GSettings „conversations“, beim Wählen des Ordners übernommen), Lesebereich
+   * der Konversation, Suchordner aus Ordner und Gesendet zum Laden ihrer Nachrichten (mail-thread.c)
+   * und Gelesen-Timer je angezeigter Nachricht (GSource). */
+  gboolean             conversations;
+  RevolutionMailConversation *conversation_view;
+  RevolutionMailFolder *thread_folder;
+  GPtrArray           *member_seen;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionMailView, revolution_mail_view, ADW_TYPE_BREAKPOINT_BIN)
@@ -104,6 +113,7 @@ on_compose (GSimpleAction *action G_GNUC_UNUSED,
 static void on_refresh (GSimpleAction *action, GVariant *parameter, gpointer user_data);
 static void on_context_menu (GSimpleAction *action, GVariant *parameter, gpointer user_data);
 static void start_folder_changes (RevolutionMailView *self);
+static void clear_member_seen (RevolutionMailView *self);
 
 static const GActionEntry list_actions[] = {
   { "compose", on_compose, NULL, NULL, NULL, { 0 } },
@@ -355,6 +365,9 @@ typedef struct
   guint         consumed;
   /* #350: Abgleich mit dem Server, nur beim Beenden abgebrochen (load_messages_thread). */
   GCancellable *refresh_cancellable;
+  /* #357: Konversationen statt einzelner Nachrichten; Gesendet des Kontos zum Mischen oder NULL. */
+  gboolean      conversations;
+  char         *sent_full_name;
 } LoadMessages;
 
 /* Mit Referenzzähler (g_atomic_rc_box): Blöcke, die nach einem Abbruch noch in der
@@ -366,6 +379,7 @@ load_messages_clear (LoadMessages *load)
   g_clear_object (&load->refresh_cancellable);
   g_free (load->uid);
   g_free (load->full_name);
+  g_free (load->sent_full_name);
   g_mutex_clear (&load->lock);
   g_cond_clear (&load->cond);
 }
@@ -420,8 +434,12 @@ set_list_subtitle (RevolutionMailView *self,
   g_autofree char *subtitle = NULL;
 
   /* Untertitel wie der Prototyp (Design/Prototyp/mail-hell.png: „10 E-Mails, 4 ungelesen“). */
-  /* %'u: Tausenderpunkt nach Gebietsschema (glibc), z. B. „3.000 E-Mails“. */
-  count = g_strdup_printf (ngettext ("%'u E-Mail", "%'u E-Mails", total), total);
+  /* %'u: Tausenderpunkt nach Gebietsschema (glibc), z. B. „3.000 E-Mails“. #357: in Konversationen
+   * deren Zahl, ungelesen dann die Konversationen mit ungelesenen Nachrichten. */
+  if (self->conversations)
+    count = g_strdup_printf (ngettext ("%'u Konversation", "%'u Konversationen", total), total);
+  else
+    count = g_strdup_printf (ngettext ("%'u E-Mail", "%'u E-Mails", total), total);
   if (unread > 0)
     /* Translators: „10 E-Mails, 4 ungelesen“; %s ist die Anzahl der E-Mails. */
     subtitle = g_strdup_printf (_("%s, %'u ungelesen"), count, unread);
@@ -793,8 +811,9 @@ send_messages (GTask       *task,
   guint32 hidden = hidden_flags (folder);
   g_autoptr (GPtrArray) infos = g_ptr_array_new_with_free_func (g_object_unref);
   g_autoptr (GDateTime) now = g_date_time_new_now_local ();
+  g_autoptr (GPtrArray) conversations = NULL;
   gboolean merge;
-  guint hash = 0, unread = 0, previews = 0, i = 0;
+  guint hash = 0, unread = 0, previews = 0, i = 0, n;
   GPtrArray *uids;
 
   /* #414: Ab hier keine Live-Änderungen mehr in die Liste, bis der Durchgang fertig ist. Beim
@@ -839,11 +858,21 @@ send_messages (GTask       *task,
 
   g_ptr_array_sort_values_with_data (infos, compare_messages, folder);
 
+  /* #357: je Thread eine Zeile (mail-thread.c), ungelesen zählen die Konversationen. */
+  if (load->conversations)
+    {
+      conversations = revolution_mail_thread_build (folder, infos, now);
+      unread = 0;
+      for (guint j = 0; j < conversations->len; j++)
+        unread += revolution_mail_message_get_unread (conversations->pdata[j]);
+    }
+  n = conversations != NULL ? conversations->len : infos->len;
+
   do
     {
       MessagesBlock *block;
       /* Abgleich in einem Block: der UI-Thread legt dabei kaum neue Zeilen an. */
-      guint end = merge ? infos->len : MIN (i + MESSAGES_BLOCK, infos->len);
+      guint end = merge ? n : MIN (i + MESSAGES_BLOCK, n);
 
       if (g_cancellable_is_cancelled (cancellable))
         return FALSE;
@@ -856,23 +885,24 @@ send_messages (GTask       *task,
       block->pass = pass;
       block->reset = i == 0;
       block->merge = merge;
-      block->total = infos->len;
+      block->total = n;
       block->unread = unread;
 
       for (; i < end; i++)
         {
-          RevolutionMailMessage *item = revolution_mail_message_new (infos->pdata[i], now);
+          RevolutionMailMessage *item = conversations != NULL ? g_object_ref (conversations->pdata[i])
+                                                              : revolution_mail_message_new (infos->pdata[i], now);
 
           previews += revolution_mail_message_has_preview (item);
           g_ptr_array_add (block->items, item);
         }
 
-      block->last = i >= infos->len;
+      block->last = i >= n;
       block->previews = previews;
       if (!post_block (block, cancellable, TRUE))
         return FALSE;
     }
-  while (i < infos->len);
+  while (i < n);
 
   return TRUE;
 }
@@ -945,6 +975,8 @@ load_messages_thread (GTask        *task,
   g_autoptr (GCancellable) load_op = camel_operation_new_proxy (cancellable);
   g_autoptr (GCancellable) refresh_op = camel_operation_new_proxy (load->refresh_cancellable);
   g_autoptr (CamelFolder) folder = NULL;
+  g_autoptr (CamelFolder) list = NULL;
+  g_autoptr (CamelFolder) sent = NULL;
   g_autofree char *key = NULL;
   GError *error = NULL;
   guint signature = 0;
@@ -965,11 +997,22 @@ load_messages_thread (GTask        *task,
       return;
     }
 
+  /* #357: Konversation aus Ordner und Gesendet: Liste, Flags und Live-Änderungen über den Suchordner
+   * (mail-thread.c); abgeglichen wird weiter der Ordner selbst. #408: eigenes Cancellable je Vorgang. */
+  list = load->sent_full_name != NULL ? revolution_mail_thread_folder_sync (folder, load->sent_full_name, &sent,
+                                                                            load_op, &error)
+                                      : g_object_ref (folder);
+  if (list == NULL)
+    {
+      g_task_return_error (task, error);
+      return;
+    }
+
   {
     FolderReady *ready = g_new0 (FolderReady, 1);
 
     ready->self = g_object_ref (g_task_get_source_object (task));
-    ready->folder = g_object_ref (folder);
+    ready->folder = g_object_ref (list);
     ready->generation = load->generation;
     g_main_context_invoke_full (NULL, G_PRIORITY_DEFAULT, use_folder, ready, (GDestroyNotify) folder_ready_free);
   }
@@ -980,7 +1023,7 @@ load_messages_thread (GTask        *task,
    * Zählerstand des Stores (gemessen: 63 statt 100 ungelesen, auch nach Neustart; EDS
    * camel-imapx-server.c:6590-6600, camel-store-summary.c:1011-1050). Nach dem Wechsel läuft er
    * zu Ende, die Liste bekommt ihn nicht mehr (send_messages prüft cancellable). */
-  if (!send_messages (task, folder, "Cache", &signature))
+  if (!send_messages (task, list, "Cache", &signature))
     {
       g_task_return_error_if_cancelled (task);
       return;
@@ -1008,6 +1051,16 @@ load_messages_thread (GTask        *task,
         g_task_return_boolean (task, TRUE);
       return;
     }
+  /* #357: Gesendet des neuen Suchordners einmal abgleichen (mail-thread.c); die Liste folgt über
+   * „changed“ des Suchordners. Ein Fehler hier bleibt im Log, die Liste zeigt dann den Cache. */
+  if (refreshed_ok && sent != NULL)
+    {
+      g_autoptr (GError) sent_error = NULL;
+
+      if (!revolution_eds_folder_refresh_info_sync (sent, refresh_op, &sent_error))
+        g_debug ("Konversationen: %s %s nicht abgeglichen: %s", load->uid, camel_folder_get_full_name (sent),
+                 sent_error->message);
+    }
   if (!refreshed_ok)
     {
       if (error == NULL)
@@ -1028,7 +1081,7 @@ load_messages_thread (GTask        *task,
   }
 
   if (g_cancellable_is_cancelled (cancellable) ||
-      !send_messages (task, folder, "Server", &signature))
+      !send_messages (task, list, "Server", &signature))
     {
       g_task_return_error_if_cancelled (task);
       return;
@@ -1056,6 +1109,8 @@ typedef struct
   GPtrArray          *items;
   /* Ordnerwechsel A→B→A: Ergebnis zur alten Liste verwerfen (load_generation). */
   guint               generation;
+  /* #357: Konversationen: ganze Liste neu threaden und abgleichen (folder_changes_thread). */
+  gboolean            full;
 } FolderChanges;
 
 static void
@@ -1212,6 +1267,30 @@ folder_changes_thread (GTask        *task,
 
   g_autoptr (GPtrArray) infos = g_ptr_array_new_with_free_func (g_object_unref);
 
+  /* #357: Eine neue oder entfernte Nachricht kann Threads verbinden oder trennen; daher in
+   * Konversationen alles neu threaden wie Evolution im Thread-Modus (message_list_folder_changed,
+   * message-list.c:5127-5128, 5178-5186: Neuaufbau statt Einzeländerung) und als Ganzes abgleichen. */
+  if (changes->full)
+    {
+      GPtrArray *uids;
+
+      camel_folder_summary_prepare_fetch_all (camel_folder_get_folder_summary (changes->folder), NULL);
+      uids = camel_folder_get_uids (changes->folder);
+      for (guint i = 0; i < uids->len; i++)
+        {
+          CamelMessageInfo *info = camel_folder_get_message_info (changes->folder, uids->pdata[i]);
+
+          if (info != NULL && (camel_message_info_get_flags (info) & hidden) == 0)
+            g_ptr_array_add (infos, info);
+          else
+            g_clear_object (&info);
+        }
+      camel_folder_free_uids (changes->folder, uids);
+      changes->items = revolution_mail_thread_build (changes->folder, infos, now);
+      g_task_return_boolean (task, TRUE);
+      return;
+    }
+
   for (guint i = 0; i < changes->changed->len; i++)
     {
       const char *uid = changes->changed->pdata[i];
@@ -1257,6 +1336,16 @@ on_folder_changes_done (GObject      *source_object,
         if (!g_hash_table_contains (self->pending_changed, changes->removed->pdata[i]))
           g_hash_table_add (self->pending_removed, g_strdup (changes->removed->pdata[i]));
     }
+  else if (changes->full)
+    {
+      guint added = 0, removed = 0, changed = 0, moved = 0;
+
+      merge_messages (self, changes->items, &added, &removed, &changed, &moved);
+      set_list_counts (self);
+      g_debug ("Nachrichten: %s Änderung (Konversationen) %u neu, %u entfernt, %u geändert, %u verschoben, Liste %u",
+               self->loading, added, removed, changed, moved, g_list_model_get_n_items (G_LIST_MODEL (self->messages)));
+      select_message_from_env (self);
+    }
   else
     apply_folder_changes (self, changes->items, changes->removed);
   start_folder_changes (self);
@@ -1290,6 +1379,7 @@ start_folder_changes (RevolutionMailView *self)
   changes->changed = steal_uids (self->pending_changed);
   changes->removed = steal_uids (self->pending_removed);
   changes->generation = self->load_generation;
+  changes->full = self->conversations;
   self->changes_running = TRUE;
 
   task = g_task_new (self, NULL, on_folder_changes_done, NULL);
@@ -1604,9 +1694,31 @@ mark_message (RevolutionMailView    *self,
               const char            *what)
 {
   SetFlags *data;
+  GListModel *members = message != NULL ? revolution_mail_message_get_members (message) : NULL;
 
   if (message == NULL || self->camel_folder == NULL)
     return;
+
+  /* #357: Bedienung an einer Konversation gilt wie in Evolution für alle Nachrichten eines
+   * zugeklappten Threads (e_mail_reader_mark_selected mit e_mail_reader_get_selected_uids_with_collapsed_threads,
+   * e-mail-reader-utils.c:1028-1065, e-mail-reader.c:4357-4363), hier für die, deren Zustand sich ändert. */
+  if (members != NULL)
+    {
+      for (guint i = 0; i < g_list_model_get_n_items (members); i++)
+        {
+          g_autoptr (RevolutionMailMessage) member = g_list_model_get_item (members, i);
+          gboolean change = ((mask & CAMEL_MESSAGE_SEEN) != 0 &&
+                             revolution_mail_message_get_unread (member) == ((set & CAMEL_MESSAGE_SEEN) != 0)) ||
+                            ((mask & CAMEL_MESSAGE_FLAGGED) != 0 &&
+                             revolution_mail_message_get_starred (member) != ((set & CAMEL_MESSAGE_FLAGGED) != 0));
+
+          if (change)
+            mark_message (self, member, mask, set, what);
+        }
+      revolution_mail_message_sync_conversation (message);
+      set_list_counts (self);
+      return;
+    }
 
   /* Ungelesen beendet den Gelesen-Timer wie Evolution (e-mail-reader.c:1187-1190). */
   if ((mask & CAMEL_MESSAGE_SEEN) != 0 && (set & CAMEL_MESSAGE_SEEN) == 0)
@@ -1628,6 +1740,9 @@ mark_message (RevolutionMailView    *self,
                                                                       : revolution_mail_message_get_unread (message),
                                      (mask & CAMEL_MESSAGE_FLAGGED) != 0 ? (set & CAMEL_MESSAGE_FLAGGED) != 0
                                                                          : revolution_mail_message_get_starred (message));
+  /* #357: einzelne Nachricht der gewählten Konversation: Zeile der Konversation nachziehen. */
+  if (self->selected != NULL && self->selected != message && revolution_mail_message_get_members (self->selected) != NULL)
+    revolution_mail_message_sync_conversation (self->selected);
   set_list_counts (self);
 
   g_queue_push_tail (&self->flag_jobs, data);
@@ -1758,6 +1873,7 @@ watch_selected_message (RevolutionMailView *self)
     return;
 
   g_clear_handle_id (&self->seen_id, g_source_remove);
+  clear_member_seen (self);
   g_clear_signal_handler (&self->selected_handler, self->selected);
   g_set_object (&self->selected, message);
   if (message != NULL)
@@ -1804,6 +1920,79 @@ revolution_mail_view_update_folders (RevolutionMailView *self,
   g_debug ("Ordner: %s abgeglichen, %u neu, %u entfernt", uid, added, removed);
 }
 
+/* #357: Gelesen-Timer je Nachricht der Konversation: jede angezeigte (aufgeklappte, geladene) ungelesene
+ * Nachricht wird nach mark-seen-timeout gelesen wie oben die gewählte (Evolution e-mail-reader.c:3784-3801).
+ * Ein Wechsel der Auswahl verwirft alle (clear_member_seen). */
+typedef struct
+{
+  RevolutionMailView    *self;
+  RevolutionMailMessage *member;
+} MemberSeen;
+
+static void
+member_seen_free (MemberSeen *seen)
+{
+  g_object_unref (seen->member);
+  g_free (seen);
+}
+
+static gboolean
+on_member_seen_timeout (gpointer user_data)
+{
+  MemberSeen *seen = user_data;
+
+  if (revolution_mail_message_get_unread (seen->member))
+    mark_read (seen->self, seen->member, TRUE, "gelesen (automatisch)");
+
+  return G_SOURCE_REMOVE;
+}
+
+static void
+clear_member_seen (RevolutionMailView *self)
+{
+  for (guint i = 0; i < self->member_seen->len; i++)
+    g_source_destroy (self->member_seen->pdata[i]);
+  g_ptr_array_set_size (self->member_seen, 0);
+}
+
+static void
+on_conversation_shown (RevolutionMailView    *self,
+                       RevolutionMailMessage *member)
+{
+  MemberSeen *seen;
+  GSource *source;
+  int timeout;
+
+  if (!revolution_mail_message_get_unread (member) || !g_settings_get_boolean (self->settings, "mark-seen"))
+    return;
+
+  timeout = MAX (g_settings_get_int (self->settings, "mark-seen-timeout"), 0);
+  g_debug ("Gelesen: %s %s in %d ms", self->loading, revolution_mail_message_get_uid (member), timeout);
+  seen = g_new0 (MemberSeen, 1);
+  seen->self = self;
+  seen->member = g_object_ref (member);
+  source = g_timeout_source_new (timeout);
+  g_source_set_callback (source, on_member_seen_timeout, seen, (GDestroyNotify) member_seen_free);
+  g_source_attach (source, NULL);
+  g_ptr_array_add (self->member_seen, source);
+}
+
+/* #357: Markieren und Gelesen an einer Nachricht der Konversation (mail-conversation.c). */
+static void
+on_conversation_mark (RevolutionMailView    *self,
+                      RevolutionMailMessage *member,
+                      guint                  mask,
+                      guint                  set)
+{
+  const char *what = (mask & CAMEL_MESSAGE_FLAGGED) != 0 ? (set != 0 ? "markiert" : "nicht markiert")
+                                                         : (set != 0 ? "gelesen" : "ungelesen");
+
+  /* Ungelesen beendet den Gelesen-Timer wie in der Liste (mark_message, Evolution e-mail-reader.c:1187-1190). */
+  if ((mask & CAMEL_MESSAGE_SEEN) != 0 && (set & CAMEL_MESSAGE_SEEN) == 0)
+    clear_member_seen (self);
+  mark_message (self, member, mask, set, what);
+}
+
 /* #353: Ordner neu vom Server (list.refresh, F5 wie Evolution mail-folder-refresh,
  * e-mail-shell-view-actions.c:1721-1726; Strg+R ist dort Antworten, e-mail-reader.c:3382-3387).
  * camel_folder_refresh_info_sync im Worker, die Liste folgt über „changed“. Ohne geladenen
@@ -1820,7 +2009,8 @@ refresh_thread (GTask        *task,
   /* #408: eigenes Cancellable je Vorgang wie load_messages_thread. */
   g_autoptr (GCancellable) op = camel_operation_new_proxy (cancellable);
 
-  if (revolution_eds_folder_refresh_info_sync (task_data, op, &error))
+  /* #357: in Konversationen den Ordner und Gesendet am Server abgleichen (mail-thread.c). */
+  if (revolution_mail_thread_refresh_sync (task_data, op, &error))
     g_task_return_boolean (task, TRUE);
   else if (session != NULL && !camel_session_get_online (session))
     {
@@ -2048,6 +2238,51 @@ on_messages_loaded (GObject      *source_object,
            (g_get_monotonic_time () - self->load_started) / 1000.0, distinct_uids (self));
 }
 
+/* #357: Ordner eines Typs (CAMEL_FOLDER_TYPE_*) im Ordnerbaum eines Kontos, neue Referenz oder NULL. */
+static RevolutionMailFolder *
+find_folder_type (GListModel *model,
+                  guint32     type)
+{
+  for (guint i = 0; model != NULL && i < g_list_model_get_n_items (model); i++)
+    {
+      g_autoptr (RevolutionMailFolder) folder = g_list_model_get_item (model, i);
+      guint32 flags = revolution_mail_folder_get_flags (folder);
+      RevolutionMailFolder *found;
+
+      if ((flags & CAMEL_FOLDER_TYPE_MASK) == type && (flags & CAMEL_FOLDER_NOSELECT) == 0)
+        return g_steal_pointer (&folder);
+
+      found = find_folder_type (revolution_mail_folder_get_children (folder), type);
+      if (found != NULL)
+        return found;
+    }
+
+  return NULL;
+}
+
+/* #357: Gesendet-Ordner, den die Konversation dieses Ordners mischt (Dokument #10 „Eingang und Gesendet
+ * gemischt“), oder NULL: nicht für Favoriten (Suchordner über alle Konten), nicht für Gesendet, Entwürfe,
+ * Postausgang, Papierkorb und Spam selbst, und nicht ohne erkannten Gesendet-Ordner (Gmail, #350). */
+static RevolutionMailFolder *
+conversation_sent_folder (RevolutionMailView    *self,
+                          RevolutionMailAccount *account,
+                          RevolutionMailFolder  *folder)
+{
+  guint32 type = revolution_mail_folder_get_flags (folder) & CAMEL_FOLDER_TYPE_MASK;
+  RevolutionMailFolder *sent;
+
+  if (account == self->favorites || type == CAMEL_FOLDER_TYPE_SENT || type == CAMEL_FOLDER_TYPE_DRAFTS ||
+      type == CAMEL_FOLDER_TYPE_OUTBOX || type == CAMEL_FOLDER_TYPE_TRASH || type == CAMEL_FOLDER_TYPE_JUNK)
+    return NULL;
+
+  sent = find_folder_type (gtk_tree_list_model_get_model (account_tree (account)), CAMEL_FOLDER_TYPE_SENT);
+  if (sent == NULL)
+    g_debug ("Konversationen: %s %s ohne Gesendet-Ordner", revolution_mail_account_get_uid (account),
+             revolution_mail_folder_get_full_name (folder));
+
+  return sent;
+}
+
 /* Auswahl im Ordnerbaum: Nachrichten dieses Ordners laden, laufendes Laden abbrechen. */
 static void
 on_folder_selected (RevolutionMailView *self)
@@ -2115,6 +2350,23 @@ on_folder_selected (RevolutionMailView *self)
   load->generation = self->load_generation;
   load->refresh_cancellable = self->cancellable != NULL ? g_object_ref (self->cancellable) : NULL;
 
+  /* #357: Konversationen; mit Gesendet lädt der Lesebereich ihre Nachrichten aus dem Suchordner. */
+  self->conversations = g_settings_get_boolean (self->settings, "conversations");
+  load->conversations = self->conversations;
+  g_clear_object (&self->thread_folder);
+  if (self->conversations)
+    {
+      g_autoptr (RevolutionMailFolder) sent = conversation_sent_folder (self, account, folder);
+
+      if (sent != NULL)
+        {
+          g_autofree char *name = revolution_mail_thread_folder_name (load->uid, load->full_name);
+
+          load->sent_full_name = g_strdup (revolution_mail_folder_get_full_name (sent));
+          self->thread_folder = revolution_mail_folder_new (name, display_name, NULL, self->favorites);
+        }
+    }
+
   g_free (self->loading);
   self->loading = g_strdup_printf ("%s %s", load->uid, load->full_name);
   self->load_started = g_get_monotonic_time ();
@@ -2136,24 +2388,72 @@ static void
 on_message_selected (RevolutionMailView *self)
 {
   RevolutionMailMessage *message = gtk_single_selection_get_selected_item (self->message_selection);
-  g_autoptr (RevolutionMailAccount) account = NULL;
   g_autoptr (RevolutionMailFolder) place = NULL;
-  const char *source_uid, *source_folder;
+  GListModel *members;
 
   if (message == NULL || self->folder == NULL || self->session == NULL)
     {
       revolution_mail_reader_clear (self->reader);
+      revolution_mail_conversation_clear (self->conversation_view);
       gtk_stack_set_visible_child_name (self->message_stack, "empty");
       return;
     }
 
+  /* #357: Konversation: alle Nachrichten untereinander (mail-conversation.c), geladen aus dem Ordner der
+   * Liste bzw. dem Suchordner aus Ordner und Gesendet. */
+  members = revolution_mail_message_get_members (message);
+  if (members != NULL && g_list_model_get_n_items (members) > 1)
+    {
+      revolution_mail_reader_clear (self->reader);
+      gtk_stack_set_visible_child_name (self->message_stack, "conversation");
+      revolution_mail_conversation_show (self->conversation_view, self->session,
+                                         self->thread_folder != NULL ? self->thread_folder : self->folder, message);
+      return;
+    }
+  revolution_mail_conversation_clear (self->conversation_view);
+
+  /* #357: Konversation aus einer Nachricht: wie eine einzelne Nachricht anzeigen (UID der Nachricht, aus
+   * dem Suchordner der Konversation, falls gemischt). */
+  if (members != NULL)
+    {
+      g_autoptr (RevolutionMailMessage) member = g_list_model_get_item (members, 0);
+
+      place = revolution_mail_view_find_place (self, member);
+      gtk_stack_set_visible_child_name (self->message_stack, "content");
+      revolution_mail_reader_show (self->reader, self->session, self->thread_folder != NULL ? self->thread_folder : self->folder,
+                                   place, member);
+      return;
+    }
+
   /* #351: In den Favoriten zeigt der Kopf den echten Ordner (Prototyp „Eingang — Privat“). */
+  place = revolution_mail_view_find_place (self, message);
+  gtk_stack_set_visible_child_name (self->message_stack, "content");
+  revolution_mail_reader_show (self->reader, self->session, self->folder, place, message);
+}
+
+/* #351/#357: Ort einer Nachricht für den Kopf: der echte Ordner (Nachricht aus einem Suchordner, Favoriten
+ * oder Konversation mit Gesendet), sonst der gewählte Ordner. Neue Referenz, NULL ohne Ordner. */
+RevolutionMailFolder *
+revolution_mail_view_find_place (RevolutionMailView    *self,
+                                 RevolutionMailMessage *message)
+{
+  g_autoptr (RevolutionMailAccount) account = NULL;
+  const char *source_uid, *source_folder;
+
+  g_return_val_if_fail (REVOLUTION_IS_MAIL_VIEW (self), NULL);
+  g_return_val_if_fail (REVOLUTION_IS_MAIL_MESSAGE (message), NULL);
+
   if (revolution_mail_message_get_source (message, &source_uid, &source_folder) &&
       (account = find_account (self, source_uid)) != NULL)
-    place = revolution_mail_folder_find (gtk_tree_list_model_get_model (account_tree (account)), source_folder);
+    {
+      RevolutionMailFolder *place = revolution_mail_folder_find (gtk_tree_list_model_get_model (account_tree (account)),
+                                                                 source_folder);
 
-  gtk_stack_set_visible_child_name (self->message_stack, "content");
-  revolution_mail_reader_show (self->reader, self->session, self->folder, place != NULL ? place : self->folder, message);
+      if (place != NULL)
+        return place;
+    }
+
+  return self->folder != NULL ? g_object_ref (self->folder) : NULL;
 }
 
 /* #352: Nur für Testläufe (tests/nachrichtenliste.sh) wie REVOLUTION_THEME (main.c):
@@ -2195,6 +2495,22 @@ on_dark_changed (AdwStyleManager    *manager,
     gtk_widget_add_css_class (GTK_WIDGET (self), "dark");
   else
     gtk_widget_remove_css_class (GTK_WIDGET (self), "dark");
+}
+
+/* #357: Umschalter Konversation/flach (list.conversations, Strg+T wie Evolution „Nach Threads gruppieren“,
+ * e-mail-shell-view-actions.c:1922-1927): gewählten Ordner neu laden. */
+static void
+on_conversations_changed (RevolutionMailView *self)
+{
+  g_debug ("Konversationen: %s", g_settings_get_boolean (self->settings, "conversations") ? "an" : "aus");
+  if (self->folder == NULL)
+    return;
+
+  g_clear_object (&self->folder);
+  on_folder_selected (self);
+  /* Der Fokus lag evtl. im Lesebereich, der jetzt leer ist: zurück in die Liste, damit Kürzel (Strg+T)
+   * weiter wirken (gemessen: zweites Strg+T ohne Wirkung, build/m4-357/lauf1). */
+  gtk_widget_grab_focus (GTK_WIDGET (self->message_list));
 }
 
 enum { PROP_0, PROP_STACK, N_PROPS };
@@ -2244,9 +2560,13 @@ revolution_mail_view_dispose (GObject *object)
   g_clear_object (&self->cancellable);
   g_signal_handlers_disconnect_by_data (self->message_selection, self);
   g_clear_handle_id (&self->seen_id, g_source_remove);
+  if (self->member_seen != NULL)
+    clear_member_seen (self);
+  g_clear_pointer (&self->member_seen, g_ptr_array_unref);
   g_clear_signal_handler (&self->selected_handler, self->selected);
   g_clear_object (&self->selected);
   g_clear_object (&self->camel_folder);
+  g_clear_object (&self->thread_folder);
   g_clear_pointer (&self->pending_changed, g_hash_table_unref);
   g_clear_pointer (&self->pending_removed, g_hash_table_unref);
   g_clear_object (&self->settings);
@@ -2294,6 +2614,7 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   g_type_ensure (REVOLUTION_TYPE_MAIL_FOLDER);
   g_type_ensure (REVOLUTION_TYPE_MAIL_MESSAGE);
   g_type_ensure (REVOLUTION_TYPE_MAIL_READER);
+  g_type_ensure (REVOLUTION_TYPE_MAIL_CONVERSATION);
 
   gtk_widget_class_set_template_from_resource (widget_class, "/de/freiraum_medien/Revolution/mail-view.ui");
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, folder_selection);
@@ -2312,6 +2633,7 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, row_menu);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, message_stack);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, reader);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, conversation_view);
   gtk_widget_class_bind_template_callback (widget_class, on_search_toggled);
   gtk_widget_class_bind_template_callback (widget_class, on_row_secondary_click);
   gtk_widget_class_bind_template_callback (widget_class, on_row_swipe);
@@ -2385,6 +2707,19 @@ revolution_mail_view_init (RevolutionMailView *self)
   gtk_widget_insert_action_group (GTK_WIDGET (self), "message", G_ACTION_GROUP (message_group));
   update_message_actions (self);
   g_signal_connect_object (self->reader, "shown", G_CALLBACK (on_reader_shown), self, G_CONNECT_SWAPPED);
+  /* #357: Konversationen: Umschalter (GSettings-Aktion, Haken im Filter-Menü), Lesebereich. */
+  {
+    g_autoptr (GAction) conversations = g_settings_create_action (self->settings, "conversations");
+
+    g_action_map_add_action (G_ACTION_MAP (list_group), conversations);
+  }
+  g_signal_connect_object (self->settings, "changed::conversations", G_CALLBACK (on_conversations_changed), self,
+                           G_CONNECT_SWAPPED);
+  self->member_seen = g_ptr_array_new_with_free_func ((GDestroyNotify) g_source_unref);
+  g_signal_connect_object (self->conversation_view, "shown", G_CALLBACK (on_conversation_shown), self,
+                           G_CONNECT_SWAPPED);
+  g_signal_connect_object (self->conversation_view, "mark", G_CALLBACK (on_conversation_mark), self,
+                           G_CONNECT_SWAPPED);
   g_signal_connect_object (self->message_selection, "notify::selected-item", G_CALLBACK (watch_selected_message),
                            self, G_CONNECT_SWAPPED);
   self->row_popover = gtk_popover_menu_new_from_model (self->row_menu);

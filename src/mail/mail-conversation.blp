@@ -1,0 +1,60 @@
+// Lesebereich einer Konversation (#357): Betreff oben, darunter alle Nachrichten des Threads
+// untereinander, neueste oben, je Nachricht ein Kopf zum Auf- und Zuklappen. Vorlage Stamp
+// stamp-message-list.c:560-620 (create_carousel_page_view: Betreff als title-2, Nachrichten in einer
+// scrollbaren Liste ohne Auswahl). Einträge und Lesebereiche je Nachricht setzt mail-conversation.c.
+using Gtk 4.0;
+using Adw 1;
+
+template $RevolutionMailConversation: Adw.Bin {
+  child: ScrolledWindow scroller {
+    hscrollbar-policy: never;
+
+    child: Viewport {
+      // Oben anliegend: der Viewport gibt dem Kind mindestens seine Höhe, der Rest bleibt leer statt
+      // die Karte einer Nachricht zu strecken.
+      child: Box {
+        orientation: vertical;
+        valign: start;
+        spacing: 6;
+        margin-start: 12;
+        margin-end: 12;
+        margin-top: 14;
+        margin-bottom: 12;
+
+        Label subject_label {
+          xalign: 0;
+          wrap: true;
+          wrap-mode: word_char;
+          selectable: true;
+          margin-start: 12;
+          margin-end: 6;
+
+          styles [
+            "title-3",
+          ]
+        }
+
+        // „3 E-Mails“ (mail-conversation.c, show_count).
+        Label count_label {
+          xalign: 0;
+          margin-start: 12;
+          margin-bottom: 6;
+
+          styles [
+            "caption",
+            "dimmed",
+          ]
+        }
+
+        Box entries {
+          orientation: vertical;
+          spacing: 6;
+
+          accessibility {
+            label: _("Nachrichten der Konversation");
+          }
+        }
+      };
+    };
+  };
+}

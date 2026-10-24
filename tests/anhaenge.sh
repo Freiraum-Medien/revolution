@@ -123,6 +123,16 @@ touch -a -m -d '3 hours ago' "$alt/alt.txt" "$alt"
 aufraeumen_geprueft=0
 
 # ---- Läufe je Konto
+# #357: Standard ist die Konversationsansicht. Dieser Test wählt die Anhang-Mail als einzelne Zeile
+# (REVOLUTION_MESSAGE) und bedient die Anhangleiste des Lesebereichs der Nachricht (#356); flach
+# (conversations=false per .gschema.override), damit Auswahl und Koordinaten wie bisher gelten.
+# Anhänge in der Konversation prüft tests/konversationen.sh (Anhangleiste je Nachricht).
+SCHEMA="$OUT/schema"
+mkdir -p "$SCHEMA"
+cp "$APP_DIR/data/"*.gschema.xml "$SCHEMA/"
+printf '[de.freiraum_medien.Revolution]\nconversations=false\n' >"$SCHEMA/90_test.gschema.override"
+glib-compile-schemas --strict "$SCHEMA" || { echo "FEHLER  Schema: glib-compile-schemas $SCHEMA"; exit 1; }
+
 for konto in $KONTEN; do
   name="m4-356-${konto%%@*}"
   teile="$OUT/$name-server"
@@ -146,7 +156,7 @@ for konto in $KONTEN; do
   sleep 1
   rundir="$(mktemp -d)"
   timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
-    XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$BUILD/data" GSETTINGS_BACKEND=memory \
+    XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$SCHEMA" GSETTINGS_BACKEND=memory \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
     GTK_A11Y=none NO_AT_BRIDGE=1 ADW_DEBUG_COLOR_SCHEME=prefer-light \
     G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER="$ordner" \

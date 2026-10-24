@@ -113,3 +113,72 @@ revolution_eds_folder_refresh_info_sync (CamelFolder   *folder,
 
   return ok;
 }
+
+/* #357: Threads (Konversationen). EDS 3.56: camel_folder_thread_messages_new mit offener Struktur
+ * CamelFolderThreadNode (camel-folder-thread.h:32-38, 51); der Baum ist nach Datum sortiert
+ * (camel-folder-thread.c:410-505 sort_thread, 627). Threads nur über Message-ID/References, nicht über
+ * den Betreff, wie Evolutions Standard thread-subject false (org.gnome.evolution.mail.gschema.xml.in:528-532).
+ * Ab EDS 3.62 heißt die API camel_folder_thread_new mit Zugriffsfunktionen; Namen wie die Vorlage
+ * Stamp (stamp-conversation-list.c:242, 628-636, stamp-conversation-item.c:75-77), dort ungeprüft
+ * übersetzt: auf diesem System gibt es nur EDS 3.56. */
+CamelFolderThread *
+revolution_eds_thread_new (CamelFolder *folder,
+                           GPtrArray   *uids)
+{
+#if EDS_CHECK_VERSION (3, 62, 0)
+  return camel_folder_thread_new (folder, uids, CAMEL_FOLDER_THREAD_FLAG_SORT);
+#else
+  return camel_folder_thread_messages_new (folder, uids, FALSE);
+#endif
+}
+
+void
+revolution_eds_thread_free (CamelFolderThread *thread)
+{
+#if EDS_CHECK_VERSION (3, 62, 0)
+  g_object_unref (thread);
+#else
+  camel_folder_thread_messages_unref (thread);
+#endif
+}
+
+CamelFolderThreadNode *
+revolution_eds_thread_get_tree (CamelFolderThread *thread)
+{
+#if EDS_CHECK_VERSION (3, 62, 0)
+  return camel_folder_thread_get_tree (thread);
+#else
+  return thread->tree;
+#endif
+}
+
+CamelFolderThreadNode *
+revolution_eds_thread_node_get_next (CamelFolderThreadNode *node)
+{
+#if EDS_CHECK_VERSION (3, 62, 0)
+  return camel_folder_thread_node_get_next (node);
+#else
+  return node->next;
+#endif
+}
+
+CamelFolderThreadNode *
+revolution_eds_thread_node_get_child (CamelFolderThreadNode *node)
+{
+#if EDS_CHECK_VERSION (3, 62, 0)
+  return camel_folder_thread_node_get_child (node);
+#else
+  return node->child;
+#endif
+}
+
+/* NULL bei Platzhaltern (Nachricht fehlt, nur aus References bekannt). */
+CamelMessageInfo *
+revolution_eds_thread_node_get_item (CamelFolderThreadNode *node)
+{
+#if EDS_CHECK_VERSION (3, 62, 0)
+  return camel_folder_thread_node_get_item (node);
+#else
+  return (CamelMessageInfo *) node->message;
+#endif
+}

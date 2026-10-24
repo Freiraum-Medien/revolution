@@ -57,6 +57,15 @@ libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering'
 [[ "$ORDNER" == */* ]] || { sed -n '4,10p' "$0" >&2; exit 2; }
 [[ "$LAEUFE" =~ ^[0-9]+$ && "$TIMEOUT" =~ ^[0-9]+$ && "$NACHLAUF" =~ ^[0-9]+$ ]] \
   || { echo "LAEUFE/TIMEOUT/NACHLAUF als Zahl" >&2; exit 2; }
+# #357: Standard ist die Konversationsansicht. Dieser Test vergleicht die Zeilen der Liste mit der Zahl
+# der Nachrichten am Server (--anzahl) und prüft je Nachricht auf Rücksprünge/Duplikate (#410/#414),
+# daher flach (conversations=false per .gschema.override); Konversationen prüft tests/konversationen.sh.
+mkdir -p "$OUT"
+SCHEMA="$OUT/schema"
+mkdir -p "$SCHEMA"
+cp "$APP_DIR/data/"*.gschema.xml "$SCHEMA/"
+printf '[de.freiraum_medien.Revolution]\nconversations=false\n' >"$SCHEMA/90_test.gschema.override"
+glib-compile-schemas --strict "$SCHEMA" || { echo "FEHLER  Schema: glib-compile-schemas $SCHEMA"; exit 1; }
 KONTO="${ORDNER%%/*}"
 NAME_="${ORDNER#*/}"
 KEY="$KONTO $NAME_"
@@ -123,7 +132,7 @@ lauf () {
   fi
   warte "$log" "$OUT/$name.ready" & watcher=$!
   env XDG_CACHE_HOME="$cache" G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER="$ORDNER" \
-    BUILD="$BUILD" OUT_DIR="$OUT" LOG="$log" READY="$OUT/$name.ready" QUIT="$OUT/$name.quit" \
+    BUILD="$BUILD" SCHEMA_DIR="$SCHEMA" OUT_DIR="$OUT" LOG="$log" READY="$OUT/$name.ready" QUIT="$OUT/$name.quit" \
     WAIT=$((TIMEOUT + NACHLAUF + 5)) \
     timeout -k 10 $((TIMEOUT + NACHLAUF + 120)) "$APP_DIR/scripts/screenshot.sh" "$name" prefer-light 1200x760 >"$OUT/$name.out" 2>&1 \
     || fehler "$name: scripts/screenshot.sh Exit $? (siehe $OUT/$name.out)"

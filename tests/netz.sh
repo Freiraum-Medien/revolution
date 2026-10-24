@@ -79,7 +79,9 @@ abbrechen () {
 SCHEMA="$OUT/schema"
 mkdir -p "$SCHEMA"
 cp "$APP_DIR/data/"*.gschema.xml "$SCHEMA/"
-printf '[de.freiraum_medien.Revolution]\nmark-seen=false\n' >"$SCHEMA/90_test.gschema.override"
+# #357: Standard ist die Konversationsansicht; dieser Test (#408) prüft Laden und Live-Änderungen je
+# Nachricht beim Netzwechsel wie vor #357, daher flach (conversations=false).
+printf '[de.freiraum_medien.Revolution]\nmark-seen=false\nconversations=false\n' >"$SCHEMA/90_test.gschema.override"
 glib-compile-schemas --strict "$SCHEMA" || { echo "FEHLER  Schema: glib-compile-schemas $SCHEMA"; exit 1; }
 
 if ! td --ordner >"$OUT/ordner-testdaten.txt" 2>&1; then

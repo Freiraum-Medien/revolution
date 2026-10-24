@@ -67,6 +67,13 @@ template $RevolutionMailView: Adw.BreakpointBin {
       trigger: "F5";
       action: "action(list.refresh)";
     }
+
+    // #357: Konversation/flach umschalten, Strg+T wie Evolution „Nach Threads gruppieren“
+    // (e-mail-shell-view-actions.c:1922-1927); Aktion aus GSettings „conversations“ (mail-view.c).
+    Shortcut {
+      trigger: "<primary>t";
+      action: "action(list.conversations)";
+    }
   }
 
   // Briefing 1.2: ≤ 1000 sp Seitenleiste eingeklappt, ≤ 600 sp „mobile“ (stamp-mail-view.blp:8-26).
@@ -469,11 +476,12 @@ template $RevolutionMailView: Adw.BreakpointBin {
                       }
                     }
 
+                    // #357: in Konversationen der Absender der neuesten Nachricht (Eigenschaft avatar).
                     Adw.Avatar {
                       size: 40;
                       valign: start;
                       show-initials: true;
-                      text: bind template.item as <$RevolutionMailMessage>.sender;
+                      text: bind template.item as <$RevolutionMailMessage>.avatar;
                       margin-end: 6;
                     }
 
@@ -503,6 +511,19 @@ template $RevolutionMailView: Adw.BreakpointBin {
                           hexpand: true;
                           xalign: 0;
                           ellipsize: end;
+                        }
+
+                        // #357: Zahl der Nachrichten einer Konversation (ab zwei), klein und gedimmt.
+                        Label {
+                          label: bind template.item as <$RevolutionMailMessage>.count-label;
+                          visible: bind template.item as <$RevolutionMailMessage>.show-count;
+                          tooltip-text: _("Nachrichten in der Konversation");
+
+                          styles [
+                            "caption",
+                            "numeric",
+                            "conversation-count",
+                          ]
                         }
 
                         // #351: Konto der Nachricht in den Favoriten (mail-message.c), Kurzform, klein
@@ -807,6 +828,12 @@ template $RevolutionMailView: Adw.BreakpointBin {
           name: "content";
           child: $RevolutionMailReader reader {};
         }
+
+        // #357: Konversation: alle Nachrichten untereinander (mail-conversation.{blp,c}).
+        StackPage {
+          name: "conversation";
+          child: $RevolutionMailConversation conversation_view {};
+        }
       };
     }
 
@@ -930,6 +957,15 @@ menu filter_menu {
       label: _("Mit Anhang");
       action: "list.filter";
       target: "attachment";
+    }
+  }
+
+  // #357: Umschalter Konversation/flach (Haken aus GSettings „conversations“).
+  section {
+    item {
+      label: _("Nach _Konversationen");
+      action: "list.conversations";
+      accel: "<primary>t";
     }
   }
 }

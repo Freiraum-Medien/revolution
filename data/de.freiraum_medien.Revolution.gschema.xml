@@ -46,5 +46,11 @@
       <summary>Zuletzt gewählter Ordner</summary>
       <description>UID des Kontos und voller Name des zuletzt gewählten Mail-Ordners als „UID/Ordner“; leer wählt den Posteingang des ersten Kontos.</description>
     </key>
+    <!-- #357: Konversationen wie Evolution „Nach Threads gruppieren“ (Strg+T, e-mail-shell-view-actions.c:1922-1927), Nutzer mail-view.c. Standard an (Entscheidung Arnd 24.10.2026). -->
+    <key name="conversations" type="b">
+      <default>true</default>
+      <summary>Nach Konversationen</summary>
+      <description>Die Nachrichtenliste zeigt je Konversation (Thread aus Ordner und Gesendet) eine Zeile statt jeder Nachricht einzeln.</description>
+    </key>
   </schema>
 </schemalist>

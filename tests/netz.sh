@@ -31,6 +31,10 @@
 #                       den Posteingang von NUR_LESEND_3@example.invalid (microsoft365, nur lesend), je 4×,
 #                       danach lädt er ohne Abbruch, F5 fertig (tests/netz-treiber.py)
 #   m4-408-gmail        ohne Netz starten, Netz weg 0,4 s beim Verbinden, Markieren ohne Netz (KONTO2)
+#   m4-421              Netzmonitor „online“, aber jede Verbindung scheitert (Relais „kaputt“): Ordner,
+#                       Liste, Nachricht und Zähler aus dem Cache, Banner; Verbindung zurück mit
+#                       Netzwechsel: Konten verbunden, Ordner und Liste vom Server. Ohne
+#                       NUR_LESEND_3@example.invalid und bei GMAIL=0 ohne KONTO2 (REVOLUTION_SKIP_ACCOUNTS)
 #   PAUSE    Sekunden ohne Netz je Zyklus, Standard 20 (Gmail zählt getrennte Verbindungen einige
 #            Minuten weiter, ab 15 „Too many simultaneous connections“)
 # Nach jedem „down“ prüft der Treiber per ss, dass die App keine Verbindung nach außen hält.
@@ -115,7 +119,7 @@ trap 'kill $AUSSEN 2>/dev/null; rm -rf "$SOCKDIR"' EXIT
 for _ in $(seq 50); do [ -S "$SOCKDIR/r.sock" ] && break; sleep 0.1; done
 
 lauf () {
-  local name="$1" zustand="$2" konto="$3" ordner="$4" phasen="$5" ohne="${6:-}" rundir rc=0
+  local name="$1" zustand="$2" konto="$3" ordner="$4" phasen="$5" ohne="${6:-}" skip="${7:-}" vorher="${8:-}" rundir rc=0
   rundir="$(mktemp -d)"
   timeout -k 10 "$LAUF_TIMEOUT" unshare -n --map-current-user --keep-caps \
     python3 "$APP_DIR/tests/netz-relay.py" innen "$SOCKDIR/r.sock" "$SOCKDIR/c-$name.sock" "$zustand" -- \
@@ -127,7 +131,7 @@ lauf () {
     BIN="$BIN" OUT="$OUT" NAME="$name" APP_DIR="$APP_DIR" CTRL="$SOCKDIR/c-$name.sock" \
     RELAIS_LOG="$RELAIS_LOG" RELAIS_SOCK="$SOCKDIR/r.sock" REF="$OUT/ordner-testdaten.txt" \
     KONTO="$konto" PHASEN="$phasen" ORDNER_KONTO="$ORDNER_KONTO $ordner_uid" \
-    OHNE="$ohne" APP_ID="$APP_ID" REVOLUTION_TEST_HOOKS=1 \
+    OHNE="$ohne" APP_ID="$APP_ID" REVOLUTION_TEST_HOOKS=1 ${skip:+REVOLUTION_SKIP_ACCOUNTS=$skip} VORHER="$vorher" \
     xvfb-run -a -s "-screen 0 1200x1100x24" python3 -I "$APP_DIR/tests/netz-treiber.py" || rc=$?
   rm -rf "$rundir"
   # #411: bis 10 s auf die Freigabe des Namens warten (nach Zeitlimit endet die App per Signal).
@@ -154,6 +158,15 @@ if [ "${GMAIL:-1}" = 1 ]; then
 else
   echo "WERT    m4-408-gmail ausgelassen (GMAIL=0)"
 fi
+
+# #421: Netzmonitor „online“, Verbindung scheitert; Zähler gegen das Ende des vorigen Laufs.
+vorher="$OUT/m4-408.log"
+skip="$(awk '$1 == "ANZAHL" && $4 == "NUR_LESEND_3@example.invalid" {print $2}' "$OUT/ordner-testdaten.txt")"
+if [ "${GMAIL:-1}" = 1 ]; then vorher="$OUT/m4-408-gmail.log"; else skip="$skip,${ordner2%%/*}"; fi
+lauf m4-421 kaputt "$KONTO" "$ordner" kaputt "" "$skip" "$vorher" | tee "$OUT/m4-421.txt"
+teilschritt m4-421 "${PIPESTATUS[0]}" "$OUT/m4-421.txt"
+FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/m4-421.txt")))
+cp "$RELAIS_LOG" "$OUT/relais-m4-421.log"
 
 abbruch_bilanz
 echo "Ergebnis: $FEHLER Fehler, Ausgaben in $OUT"

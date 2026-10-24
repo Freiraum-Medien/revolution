@@ -1095,8 +1095,11 @@ load_messages_thread (GTask        *task,
   refresh_end (key);
   /* #408: Offline (Pille „Offline“) bleibt es beim Stand des Caches. imapx überspringt den
    * Abgleich dann (camel-imapx-folder.c:878-880), microsoft365 meldet „You must be working
-   * online“ (camel-m365-folder.c:961, camel-m365-store.c:1754-1758); das ist kein Fehler. */
-  if (!refreshed_ok && error != NULL && !camel_session_get_online (load->session))
+   * online“ (camel-m365-folder.c:961, camel-m365-store.c:1754-1758); das ist kein Fehler.
+   * #421: ebenso, wenn main.c den Store nach gescheiterter Verbindung offline geschaltet hat. */
+  if (!refreshed_ok && error != NULL &&
+      (!camel_session_get_online (load->session) ||
+       (CAMEL_IS_OFFLINE_STORE (service) && !camel_offline_store_get_online (CAMEL_OFFLINE_STORE (service)))))
     {
       g_debug ("Nachrichten: %s %s offline, Stand des Caches (%s)", load->uid, load->full_name, error->message);
       g_clear_error (&error);
@@ -2990,14 +2993,22 @@ void
 revolution_mail_view_set_offline (RevolutionMailView *self,
                                   gboolean            offline)
 {
-  BannerErrors *errors;
-
   g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
 
   gtk_widget_set_visible (self->offline_notice, offline);
   g_debug ("Hinweis Offline: %s", offline ? "sichtbar" : "weg");
-  if (!offline)
-    return;
+  if (offline)
+    revolution_mail_view_clear_connection_errors (self);
+}
+
+/* #421: Sammel-Banner weg, wenn es nur aus „Keine Verbindung“ besteht (set_offline; main.c vor dem
+ * erneuten Verbinden nach einem Netzwechsel, retry_stores). */
+void
+revolution_mail_view_clear_connection_errors (RevolutionMailView *self)
+{
+  BannerErrors *errors;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
 
   errors = g_object_get_data (G_OBJECT (self), "banner-errors");
   if (errors != NULL && errors->kinds->len == 1 &&
@@ -3005,6 +3016,7 @@ revolution_mail_view_set_offline (RevolutionMailView *self,
     {
       g_object_set_data (G_OBJECT (self), "banner-errors", NULL);
       adw_banner_set_revealed (self->banner, FALSE);
+      g_debug ("Banner: Keine Verbindung weg");
     }
 }
 

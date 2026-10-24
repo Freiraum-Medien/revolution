@@ -15,6 +15,7 @@ char        *revolution_mail_thread_folder_name (const char    *uid,
                                                  const char    *full_name);
 CamelFolder *revolution_mail_thread_folder_sync (CamelFolder   *folder,
                                                  const char    *sent_full_name,
+                                                 CamelFolder  **sent_out,
                                                  GCancellable  *cancellable,
                                                  GError       **error);
 GPtrArray   *revolution_mail_thread_build       (CamelFolder   *folder,

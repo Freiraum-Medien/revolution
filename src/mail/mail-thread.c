@@ -47,13 +47,16 @@ revolution_mail_thread_folder_name (const char *uid,
 }
 
 /* Im Worker: Suchordner aus folder und dem Gesendet-Ordner seines Kontos (sent_full_name, Spezialordner
- * aus #350), Gelöschte und Spam ausgeblendet wie die Favoriten. Gesendet wird dabei einmal abgeglichen
- * wie dort (add_sources_thread), danach folgt der Suchordner seinen Quellen über „changed“
- * (camel-vee-folder.c:575-610). Einmal angelegt bleibt er für die Sitzung; gehört er noch zu einer
- * früheren Instanz des Ordners (Store neu angelegt, #351), bekommt er die neuen Quellen. */
+ * aus #350), Gelöschte und Spam ausgeblendet wie die Favoriten. Danach folgt der Suchordner seinen
+ * Quellen über „changed“ (camel-vee-folder.c:575-610). Einmal angelegt bleibt er für die Sitzung; gehört
+ * er noch zu einer früheren Instanz des Ordners (Store neu angelegt, #351), bekommt er die neuen Quellen.
+ * Neu angelegt: *sent_out ist der Gesendet-Ordner, den der Aufrufer einmal abgleicht wie die Favoriten
+ * (add_sources_thread), nach der ersten Anzeige aus dem Cache (mail-view.c load_messages_thread; vorher
+ * kostete der Abgleich hier bis 1,2 s bis zur ersten Zeile, build/m4-357/last-konv), sonst NULL. */
 CamelFolder *
 revolution_mail_thread_folder_sync (CamelFolder   *folder,
                                     const char    *sent_full_name,
+                                    CamelFolder  **sent_out,
                                     GCancellable  *cancellable,
                                     GError       **error)
 {
@@ -65,7 +68,6 @@ revolution_mail_thread_folder_sync (CamelFolder   *folder,
   g_autofree char *name = NULL;
   g_autoptr (CamelFolder) sent = NULL;
   g_autoptr (CamelFolder) vee = NULL;
-  g_autoptr (GError) local = NULL;
   gint64 started = g_get_monotonic_time ();
   GHashTable *cache;
   GList *sources;
@@ -102,9 +104,6 @@ revolution_mail_thread_folder_sync (CamelFolder   *folder,
       g_mutex_unlock (&conversations_lock);
       return NULL;
     }
-  if (!camel_folder_refresh_info_sync (sent, cancellable, &local))
-    g_debug ("Konversationen: %s %s nicht abgeglichen: %s", uid, sent_full_name, local->message);
-
   if (vee == NULL)
     {
       vee = camel_store_get_folder_sync (CAMEL_STORE (vee_store), name, 0, cancellable, error);
@@ -125,6 +124,7 @@ revolution_mail_thread_folder_sync (CamelFolder   *folder,
 
   g_debug ("Konversationen: %s %s mit %s als %s nach %.0f ms", uid, camel_folder_get_full_name (folder),
            sent_full_name, name, (g_get_monotonic_time () - started) / 1000.0);
+  *sent_out = g_steal_pointer (&sent);
 
   return g_steal_pointer (&vee);
 }

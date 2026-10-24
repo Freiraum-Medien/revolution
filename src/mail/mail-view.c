@@ -976,6 +976,7 @@ load_messages_thread (GTask        *task,
   g_autoptr (GCancellable) refresh_op = camel_operation_new_proxy (load->refresh_cancellable);
   g_autoptr (CamelFolder) folder = NULL;
   g_autoptr (CamelFolder) list = NULL;
+  g_autoptr (CamelFolder) sent = NULL;
   g_autofree char *key = NULL;
   GError *error = NULL;
   guint signature = 0;
@@ -998,7 +999,8 @@ load_messages_thread (GTask        *task,
 
   /* #357: Konversation aus Ordner und Gesendet: Liste, Flags und Live-Änderungen über den Suchordner
    * (mail-thread.c); abgeglichen wird weiter der Ordner selbst. */
-  list = load->sent_full_name != NULL ? revolution_mail_thread_folder_sync (folder, load->sent_full_name, cancellable, &error)
+  list = load->sent_full_name != NULL ? revolution_mail_thread_folder_sync (folder, load->sent_full_name, &sent,
+                                                                            cancellable, &error)
                                       : g_object_ref (folder);
   if (list == NULL)
     {
@@ -1048,6 +1050,16 @@ load_messages_thread (GTask        *task,
       if (!g_task_return_error_if_cancelled (task))
         g_task_return_boolean (task, TRUE);
       return;
+    }
+  /* #357: Gesendet des neuen Suchordners einmal abgleichen (mail-thread.c); die Liste folgt über
+   * „changed“ des Suchordners. Ein Fehler hier bleibt im Log, die Liste zeigt dann den Cache. */
+  if (refreshed_ok && sent != NULL)
+    {
+      g_autoptr (GError) sent_error = NULL;
+
+      if (!camel_folder_refresh_info_sync (sent, refresh_op, &sent_error))
+        g_debug ("Konversationen: %s %s nicht abgeglichen: %s", load->uid, camel_folder_get_full_name (sent),
+                 sent_error->message);
     }
   if (!refreshed_ok)
     {

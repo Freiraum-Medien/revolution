@@ -115,6 +115,7 @@ static void on_refresh (GSimpleAction *action, GVariant *parameter, gpointer use
 static void on_context_menu (GSimpleAction *action, GVariant *parameter, gpointer user_data);
 static void start_folder_changes (RevolutionMailView *self);
 static void clear_member_seen (RevolutionMailView *self);
+static void on_message_selected (RevolutionMailView *self);
 
 static const GActionEntry list_actions[] = {
   { "compose", on_compose, NULL, NULL, NULL, { 0 } },
@@ -475,6 +476,29 @@ log_order (RevolutionMailView *self)
            selected != NULL ? revolution_mail_message_get_uid (selected) : "-");
 }
 
+/* #419: Nach einem Abgleich der Liste (Server-Stand oder Live-Änderung): Zeigt der Lesebereich die gewählte
+ * Konversation noch als einzelne Nachricht (beim Wählen hatte sie eine, on_message_selected) und hat sie
+ * jetzt mehrere, zeigt er sie als Konversation (mail-conversation.c: neueste und ungelesene offen), wie
+ * eine schon als Konversation gezeigte neue Nachrichten aufnimmt (on_members_changed). Der Gelesen-Timer
+ * der Zeile gälte sonst allen ihren Nachrichten (mark_read an der Konversation), auch der neuen, noch nicht
+ * angezeigten; er wird verworfen, die Konversation startet je angezeigter Nachricht einen eigenen
+ * (on_conversation_shown, #353). */
+static void
+follow_conversation (RevolutionMailView *self)
+{
+  RevolutionMailMessage *message = gtk_single_selection_get_selected_item (self->message_selection);
+  GListModel *members = message != NULL ? revolution_mail_message_get_members (message) : NULL;
+
+  if (members == NULL || g_list_model_get_n_items (members) < 2 ||
+      g_strcmp0 (gtk_stack_get_visible_child_name (self->message_stack), "content") != 0)
+    return;
+
+  g_debug ("Konversation: %s jetzt mit %u Nachrichten", revolution_mail_message_get_uid (message),
+           g_list_model_get_n_items (members));
+  g_clear_handle_id (&self->seen_id, g_source_remove);
+  on_message_selected (self);
+}
+
 /* Im UI-Thread: Server-Stand items (ganz, sortiert) als Abgleich auf die angezeigte Liste:
  * nur fehlende Einträge entfernen, neue einfügen, geänderte am bestehenden Eintrag
  * aktualisieren. Auswahl und Scrollposition bleiben erhalten. #414: Abgleich über die UID, nicht
@@ -697,6 +721,7 @@ add_messages_block (gpointer data)
       g_debug ("Nachrichten: %s Abgleich %u neu, %u entfernt, %u geändert, %u verschoben", self->loading,
                added, removed, changed, moved);
       log_order (self);
+      follow_conversation (self);
     }
   else if (block->reset)
     {
@@ -1380,6 +1405,7 @@ on_folder_changes_done (GObject      *source_object,
       g_debug ("Nachrichten: %s Änderung (Konversationen) %u neu, %u entfernt, %u geändert, %u verschoben, Liste %u",
                self->loading, added, removed, changed, moved, g_list_model_get_n_items (G_LIST_MODEL (self->messages)));
       log_order (self);
+      follow_conversation (self);
       select_message_from_env (self);
     }
   else

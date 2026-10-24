@@ -1026,22 +1026,35 @@ fit_content (RevolutionMailReader *self)
                                         NULL, on_height_reply, g_object_ref (self));
 }
 
-/* Unterbricht load_html eine laufende Ladung, meldet WebKitGTK 2.52.6 für die neue weder STARTED noch
- * COMMITTED, nur FINISHED (Prüf-Lauf #354 R3, p354/ladefolge3.py: „committed uri=…#A“, danach nur
- * „finished uri=…#B“). Daher sichtbar bei COMMITTED oder FINISHED, sofern die Adresse die der
- * aktuellen Ladung ist (load_uri); Ereignisse älterer Ladungen bleiben so ohne Wirkung. */
+/* Sichtbar bei COMMITTED oder FINISHED der aktuellen Ladung (load_uri); Ereignisse älterer Ladungen
+ * bleiben so ohne Wirkung. #412: Unterbricht load_html eine laufende Ladung, meldet WebKitGTK 2.52.6
+ * zuerst ein FINISHED der alten Ladung mit schon neuer Adresse, danach (STARTED,) COMMITTED und
+ * FINISHED der neuen; beim falschen FINISHED lädt die WebView noch (webkit_web_view_is_loading TRUE),
+ * beim echten nicht mehr. Die Adresse bei STARTED ist dabei unzuverlässig (alte Adresse oder
+ * about:blank), und folgen zwei Ladungen dicht aufeinander (Theme-Wechsel), kommt für die letzte unter
+ * Umständen nur FINISHED (#354 R3). Gemessen: Prüf-Lauf #354 R4 und #412 (ladefolge, rennen). */
 static void
 on_load_changed (RevolutionMailReader *self,
                  WebKitLoadEvent       event)
 {
+  const char *uri = webkit_web_view_get_uri (self->web_view);
+
+  if (self->showing && event == WEBKIT_LOAD_FINISHED && g_strcmp0 (uri, self->load_uri) == 0 &&
+      webkit_web_view_is_loading (self->web_view))
+    {
+      g_debug ("Nachricht: %s übergangen (finished der vorigen Ladung, lädt noch)", self->load_uri);
+      return;
+    }
+
   if (self->showing && (event == WEBKIT_LOAD_COMMITTED || event == WEBKIT_LOAD_FINISHED) &&
-      g_strcmp0 (webkit_web_view_get_uri (self->web_view), self->load_uri) == 0)
+      g_strcmp0 (uri, self->load_uri) == 0)
     {
       if (!gtk_widget_get_visible (GTK_WIDGET (self->web_view)))
         g_debug ("Nachricht: sichtbar %s (%s)", self->load_uri, event == WEBKIT_LOAD_FINISHED ? "finished" : "committed");
       gtk_widget_set_visible (GTK_WIDGET (self->web_view), TRUE);
       if (event == WEBKIT_LOAD_FINISHED)
         {
+          g_debug ("Nachricht: fertig %s", self->load_uri);
           self->showing = FALSE;
           fit_content (self);
           g_signal_emit (self, shown_signal, 0);

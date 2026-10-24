@@ -1394,6 +1394,77 @@ def testordner(k, aktion):
     return 0
 
 
+# #412: Wechsel weg von einer großen Mail. Drei Mails per APPEND in den Posteingang (nicht privat@,
+# Quota): Start (blau), Schwer (≥ 500 KB, 8000 Tabellenzeilen, gelb), Ziel (grün, ungelesen). Datum
+# jetzt bzw. 1 und 2 Minuten davor (nie in der Zukunft): nach Datum absteigend stehen sie in dieser
+# Folge untereinander. Flächenfarben, damit der Treiber jedes Bild der Anzeige zuordnen kann.
+SCHWER = (('Start', '#3465a4', True), ('Schwer', '#f5c211', True), ('Ziel', '#2ec27e', False))
+
+
+def schwer_html(rolle, farbe):
+    if rolle == 'Schwer':
+        zeilen = ''.join('<tr style="background:%s"><td>Zeile %d</td><td>Testinhalt der großen Mail #412</td>'
+                         '<td>%d</td></tr>' % (farbe, i, i * 7) for i in range(8000))
+        return '<html><body><table width="100%%">%s</table></body></html>\n' % zeilen
+    return ('<html><body><div style="background:%s;height:2000px">%s (#412)</div></body></html>\n'
+            % (farbe, rolle))
+
+
+def schwer(k, aktion):
+    """#412: neu (APPEND, idempotent) oder papierkorb (UID MOVE in den Ordner mit \\Trash, nicht
+    endgültig gelöscht). Zeilen „ORDNER <Konto-UID>/INBOX“, „SCHWER <Rolle> <UID> <Bytes>“."""
+    nur_testkonten([k.adresse])
+    if k.adresse == 'KONTO_IMAP_1@example.invalid':
+        sys.exit('ABBRUCH: --schwer nicht in privat@ (Quota, #411)')
+    if not k.goa.get_mail().props.imap_supported:
+        sys.exit('ABBRUCH: --schwer nur für IMAP')
+    c = imap_verbinden(k)
+    c.select('INBOX')
+
+    def vorhanden():
+        out = {}
+        for rolle, _, _ in SCHWER:
+            _, daten = c.uid('SEARCH', None, 'SUBJECT', '"Pruef412 %s"' % rolle)
+            uids = daten[0].split()
+            if uids:
+                _, d = c.uid('FETCH', uids[-1], '(RFC822.SIZE)')
+                out[rolle] = (uids[-1].decode(), re.search(rb'RFC822\.SIZE (\d+)', d[0]).group(1).decode())
+        return out
+
+    if aktion == 'neu':
+        jetzt = time.time()
+        da = vorhanden()
+        for n, (rolle, farbe, gelesen) in enumerate(SCHWER):
+            if rolle in da:
+                # Ausgangszustand eines früheren Laufs: Ziel ungelesen.
+                if not gelesen:
+                    print(c.uid('STORE', da[rolle][0], '-FLAGS', '(\\Seen)'))
+                continue
+            m = EmailMessage(policy=email.policy.SMTP)
+            m.set_content('%s (#412), Inhalt nur in der HTML-Fassung.\n' % rolle)
+            m.add_alternative(schwer_html(rolle, farbe), subtype='html')
+            m['Subject'] = '%s Pruef412 %s' % (PREFIX, rolle)
+            m['From'] = email.utils.formataddr(('Revolution Testdaten', k.adresse))
+            m['To'] = k.adresse
+            m['Date'] = email.utils.formatdate(jetzt - 60 * n, localtime=True)
+            print(c.append('INBOX', '(\\Seen)' if gelesen else None, imaplib.Time2Internaldate(jetzt - 60 * n),
+                           m.as_bytes()))
+    else:
+        papierkorb = next(re.match(rb'.*" "?(.*?)"?$', z).group(1).decode() for z in c.list()[1]
+                          if b'\\Trash' in z)
+        for rolle, _, _ in SCHWER:
+            _, daten = c.uid('SEARCH', None, 'SUBJECT', '"Pruef412 %s"' % rolle)
+            for uid in daten[0].split():
+                print(rolle, uid.decode(), c.uid('MOVE', uid, '"%s"' % papierkorb))
+        c.logout()
+        return 0
+    print('ORDNER %s/INBOX' % k.account.get_uid())
+    for rolle, (uid, groesse) in vorhanden().items():
+        print('SCHWER %s %s %s' % (rolle, uid, groesse))
+    c.logout()
+    return 0
+
+
 # ---------------------------------------------------------------- #350: Ungelesen-Zähler
 
 def mutf7_decode(name):
@@ -1635,6 +1706,8 @@ def main():
                     help='#418: Faden, Antwort und neue Konversation im Posteingang (IMAP, Testkonten)')
     ap.add_argument('--konversation', action='store_true',
                     help='#357: Konversation (5 Mails) per APPEND in Posteingang und Gesendet (geops@, outlook.com)')
+    ap.add_argument('--schwer', nargs=2, metavar=('KONTO', 'neu|papierkorb'),
+                    help='#412: große Mail mit Start- und Zielmail im Posteingang (IMAP, nicht privat@)')
     args = ap.parse_args()
     if args.last is not None and args.last < 1:
         ap.error('--last N mit N ≥ 1 (#411)')
@@ -1646,6 +1719,14 @@ def main():
             ap.error('--testordner KONTO anlegen|loeschen')
         k = konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse]
         return testordner(k, args.testordner[1])
+
+    if args.schwer:
+        adresse = args.schwer[0].lower()
+        nur_testkonten([adresse])
+        if args.schwer[1] not in ('neu', 'papierkorb'):
+            ap.error('--schwer KONTO neu|papierkorb')
+        k = konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse]
+        return schwer(k, args.schwer[1])
 
     if args.live_flags:
         adresse = args.live_flags.lower()
@@ -1767,7 +1848,7 @@ def main():
 # und als Zeile in der Datei TESTDATEN_WIEDERHOLT (Umgebung, tests/abbruch.sh zählt sie).
 TRANSIENT = (imaplib.IMAP4.abort, ConnectionError, TimeoutError, ssl.SSLError, urllib.error.URLError)
 MODI = ('--pruefen', '--ordner', '--anzeige', '--anhang', '--anhang-teile', '--last', '--flags', '--ungelesen',
-        '--zaehler', '--anzahl', '--server', '--kombiniert', '--live-flags')
+        '--zaehler', '--anzahl', '--server', '--kombiniert', '--live-flags', '--schwer')
 
 
 def main_mit_wiederholung():

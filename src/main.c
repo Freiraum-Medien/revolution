@@ -17,6 +17,7 @@
 
 #include "contacts/contacts-view.h"
 #include "calendar/calendar-view.h"
+#include "eds-compat.h"
 #include "mail/mail-favorites.h"
 #include "mail/mail-folder.h"
 #include "mail/mail-session.h"
@@ -346,7 +347,7 @@ refresh_inbox_thread (GTask        *task,
       return;
     }
 
-  if (camel_folder_refresh_info_sync (folder, cancellable, &error))
+  if (revolution_eds_folder_refresh_info_sync (folder, cancellable, &error))
     g_debug ("Posteingang: %s %s aktualisiert nach %.0f ms", camel_service_get_uid (source_object),
              (const char *) task_data, (g_get_monotonic_time () - started) / 1000.0);
   else

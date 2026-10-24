@@ -63,7 +63,7 @@
  *     Meldung je Store aus add_service an den Account-Store (e-mail-ui-session.c:527-541);
  *     Fehler aus add_service zusätzlich gesammelt für das Banner
  *     (revolution_mail_session_take_errors).
- *   - #348: get_filter_driver ohne Regeln (Vorlage e-mail-ui-session.c, Einzelheiten dort).
+ *   - #348/#415: get_filter_driver liefert keinen Treiber (keine Regeln, Einzelheiten dort).
  *   - #351: Der Suchordner-Store der Favoriten (CamelVeeStore, mail-favorites.c) hat keine ESource:
  *     add_service konfiguriert ihn nicht, der Abgleich entfernt ihn nicht.
  */
@@ -829,19 +829,24 @@ mail_session_authenticate_sync (CamelSession *session,
 
 /* #348: Filter für neue Nachrichten. Ein Ordner mit CAMEL_FOLDER_FILTER_RECENT (imapx setzt
  * es für den Posteingang bei „FilterInbox=true“ in der ESource, EDS camel-imapx-folder.c:
- * 1346-1361) ruft bei neuen Nachrichten get_filter_driver (camel-folder.c:1320-1324); ohne
- * Methode gibt Camel ein CRITICAL aus (camel-session.c:1454). Nach Evolution
- * main_get_filter_driver (src/mail/e-mail-ui-session.c:246-345), gekürzt auf
- * camel_filter_driver_new (dort 271): Revolution hat keine Filterregeln und liest Evolutions
- * filters.xml nicht (Architektur-Festlegung 4), ohne Regeln bleiben die Nachrichten
- * unverändert. Der Aufrufer gibt den Treiber frei (camel-folder.c:350-351). */
+ * 1346-1361; microsoft365 ebenso, evolution-ews camel-m365-folder.c:1903-1908, Standard TRUE
+ * camel-store-settings.c:97-100) ruft bei neuen Nachrichten get_filter_driver
+ * (camel-folder.c:1320-1325); ohne Methode gibt Camel ein CRITICAL aus (camel-session.c:1454).
+ * #415: Revolution hat keine Filterregeln und liest Evolutions filters.xml nicht
+ * (Architektur-Festlegung 4), daher kein Treiber (NULL). Ein leerer Treiber (#348, nach Evolution
+ * main_get_filter_driver, e-mail-ui-session.c:246-345) änderte nichts, löste aber nach jeder neuen
+ * Mail einen Filter-Job aus, der den Ordner sofort synchronisiert (camel-folder.c:1327-1364,
+ * 556-564) und bei microsoft365 gerade abgeglichene Server-Änderungen als PATCH zurückschrieb
+ * (Vorfall #415). Ohne Treiber entfällt nur dieser Job (camel-folder.c:1335); Lernen für den
+ * Junk-Filter (1297-1318) braucht camel_session_get_junk_filter, das Revolution nicht setzt. NULL
+ * ohne Warnung: der Aufrufer übergibt kein GError (camel-session.c:1456-1457, camel-debug.h:59-80). */
 static CamelFilterDriver *
-mail_session_get_filter_driver (CamelSession *session,
+mail_session_get_filter_driver (CamelSession *session G_GNUC_UNUSED,
                                 const gchar *type G_GNUC_UNUSED,
                                 CamelFolder *for_folder G_GNUC_UNUSED,
                                 GError **error G_GNUC_UNUSED)
 {
-	return camel_filter_driver_new (session);
+	return NULL;
 }
 
 static void

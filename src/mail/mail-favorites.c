@@ -34,6 +34,7 @@
 
 #include <glib/gi18n.h>
 
+#include "eds-compat.h"
 #include "mail-favorites.h"
 #include "mail-folder.h"
 
@@ -238,7 +239,7 @@ add_sources_thread (GTask        *task,
         }
 
       if (favorites[i].source_type != CAMEL_FOLDER_TYPE_INBOX &&
-          !camel_folder_refresh_info_sync (folder, cancellable, &error))
+          !revolution_eds_folder_refresh_info_sync (folder, cancellable, &error))
         g_debug ("Favoriten: %s %s nicht abgeglichen: %s", uid, sources->names[i], error->message);
 
       g_object_set_data_full (G_OBJECT (folder), SOURCE_UID_KEY, g_strdup (uid), g_free);

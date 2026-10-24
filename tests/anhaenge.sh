@@ -41,9 +41,10 @@ set -u
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
-OUT="${1:-$BUILD/m4-356}"
+# #411: absolut, der Treiber vergleicht Pfade aus dem Log der App mit ZIEL.
+OUT="$(realpath -m "${1:-$BUILD/m4-356}")"
 KONTEN="${KONTEN:-KONTO_IMAP_2@example.invalid KONTO_GOOGLE@example.invalid KONTO_M365@example.invalid}"
-SPEICHER="${SPEICHER:-$OUT/speichern}"
+SPEICHER="$(realpath -m "${SPEICHER:-$OUT/speichern}")"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-900}"
 FEHLER=0
 

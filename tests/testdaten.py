@@ -1400,6 +1400,8 @@ def main():
     ap.add_argument('--testordner', nargs=2, metavar=('KONTO', 'anlegen|loeschen'),
                     help='#408: Ordner %s am Server anlegen oder löschen (IMAP, Testkonten)' % TESTORDNER)
     args = ap.parse_args()
+    if args.last is not None and args.last < 1:
+        ap.error('--last N mit N ≥ 1 (#411)')
 
     if args.testordner:
         adresse = args.testordner[0].lower()
@@ -1464,7 +1466,8 @@ def main():
     session.setup({s.get_uid(): k.goa for k in konten.values()
                    for s in (k.account, k.transport) if s})
     session.set_online(True)
-    if args.last:
+    # #411: „is not None“, damit --last 0 nicht in den Standardlauf (Versand) fällt.
+    if args.last is not None:
         k = konten[LAST_KONTO]
         k.store = dienst(session, k.account, EDataServer.SOURCE_EXTENSION_MAIL_ACCOUNT,
                          Camel.ProviderType.STORE)

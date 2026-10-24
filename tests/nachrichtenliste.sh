@@ -50,7 +50,9 @@ wert () { echo "WERT    $*"; }
 EGL_RAUSCHEN='libEGL warning: DRI3 error: Could not get DRI3 device
 libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering'
 
-[[ "$ANZAHL" =~ ^[0-9]+$ && "$TIMEOUT" =~ ^[0-9]+$ ]] || { echo "LAST_ANZAHL/LAST_TIMEOUT als Zahl" >&2; exit 2; }
+# #411: LAST_ANZAHL ab 1 (testdaten.py --last 0 lehnt ab, fiel früher in den Standardlauf mit Versand).
+[[ "$ANZAHL" =~ ^[1-9][0-9]*$ && "$TIMEOUT" =~ ^[0-9]+$ ]] \
+  || { echo "FEHLER  LAST_ANZAHL als Zahl ab 1, LAST_TIMEOUT als Zahl"; exit 2; }
 mkdir -p "$OUT"
 . "$APP_DIR/tests/abbruch.sh"
 rm -f "$OUT"/m4-352-{oben,unten}{.log,.out,.png,.ready,.quit,-ping.txt,-rest.txt} "$OUT/testdaten.txt"

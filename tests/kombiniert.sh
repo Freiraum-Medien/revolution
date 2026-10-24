@@ -18,8 +18,11 @@
 #      ungelesen = Zähler „Alle Eingänge“.
 #   2. m4-351-zyklus: Store von KONTO aus der Session nehmen und wieder anlegen (Test-Aktion, main.c):
 #      Liste ohne seine Mails, danach genau einmal wieder (Zählung, keine doppelten UIDs).
-#   3. m4-351-hell: Live-Mail per APPEND in den Posteingang von KONTO (vor dem Start), dann
-#      Gelesen nach Verzögerung, Markieren, Markierung entfernen, Ungelesen aus „Alle Eingänge“,
+#   3. m4-351-hell: Live-Mail per APPEND in den Posteingang von KONTO (vor dem Start); #411: mit
+#      mark-seen=false (die Auswahl schreibt nichts); bedient wird nur, wenn die gewählte oberste
+#      Zeile nachweislich die Live-Mail ist (UID aus Konto-UID und APPENDUID), sonst beendet der
+#      Treiber die App sofort; fehlen APPENDUID oder Konto-UID, startet die App nicht. Dann
+#      Gelesen (Strg+K), Markieren, Markierung entfernen, Ungelesen aus „Alle Eingänge“,
 #      jede Änderung am Server von KONTO geprüft; neue Mail und Löschen live (IDLE); am Ende sind
 #      die Live-Mails gelöscht (Ausgangszustand).
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“, „WERT …“ für Messwerte; Exit 0 ohne Fehler.
@@ -51,17 +54,24 @@ bus_hat_app () {
 [ "$(bus_hat_app)" = "(false,)" ] || { echo "FEHLER  Session-Bus: $APP_ID läuft schon"; exit 1; }
 mkdir -p "$OUT"
 . "$APP_DIR/tests/abbruch.sh"
+# #411: Schema mit mark-seen=false für m4-351-hell (wie tests/flags.sh).
+SCHEMA="$OUT/schema"
+mkdir -p "$SCHEMA"
+cp "$APP_DIR/data/"*.gschema.xml "$SCHEMA/"
+printf '[de.freiraum_medien.Revolution]\nmark-seen=false\n' >"$SCHEMA/90_test.gschema.override"
+glib-compile-schemas --strict "$SCHEMA" || { echo "FEHLER  Schema: glib-compile-schemas $SCHEMA"; exit 1; }
 
 lauf () {
   local name="$1" schema="$2" rundir rc=0
   rundir="$(mktemp -d)"
   timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
-    XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$BUILD/data" GSETTINGS_BACKEND=memory \
+    XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="${SCHEMA_DIR:-$BUILD/data}" GSETTINGS_BACKEND=memory \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
     GTK_A11Y=none NO_AT_BRIDGE=1 ADW_DEBUG_COLOR_SCHEME="$schema" \
     G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER=revolution-favoriten/inbox \
     CAMEL_DEBUG=imapx:command M365_DEBUG=1 REVOLUTION_TEST_HOOKS=1 \
     BIN="$BIN" OUT="$OUT" NAME="$name" KONTO="$KONTO" APP_DIR="$APP_DIR" APP_ID="$APP_ID" ZYKLUS_UID="${ZYKLUS_UID:-}" \
+    LIVE_STORE="${LIVE_STORE:-}" LIVE_UID="${LIVE_UID:-}" \
     xvfb-run -a -s "-screen 0 1200x760x24" python3 -I "$APP_DIR/tests/kombiniert-treiber.py" || rc=$?
   rm -rf "$rundir"
   [ "$(bus_hat_app)" = "(false,)" ] || echo "FEHLER  $name: App nach dem Lauf noch auf dem Bus"
@@ -117,18 +127,24 @@ FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/$name.txt")))
 name=m4-351-hell
 td --server "$KONTO" weg INBOX >/dev/null 2>&1
 td --server "$KONTO" neu INBOX >"$OUT/$name-vorher.txt" 2>&1
-lauf "$name" prefer-light | tee "$OUT/$name.txt"
-teilschritt "$name" "${PIPESTATUS[0]}" "$OUT/$name.txt"
-# Gegenprobe zur Prüfung „nur lesend“: jede Bedienung (Flags: … gespeichert) ist genau ein UID STORE;
-# weitere schreibende Befehle gibt es nicht, also keinen in einem anderen (nur lesend freigegebenen) Konto.
-store="$(grep -cE '^\[imapx:[A-Za-z]\] UID STORE ' "$OUT/$name.log")"
-alle="$(grep -cE "$SCHREIBEND_RE" "$OUT/$name.log")"
-flags="$(grep -cE 'revolution-DEBUG: [0-9:.]+: Flags: revolution-favoriten inbox \S+ .* gespeichert nach' "$OUT/$name.log")"
-if [ "$store" -gt 0 ] && [ "$store" = "$flags" ] && [ "$alle" = "$store" ]; then
-  echo "OK      $name: Gegenprobe: $store× UID STORE = $flags Bedienungen in $KONTO (am Server geprüft), keine weiteren Schreibbefehle"
+LIVE_STORE="$ZYKLUS_UID"
+LIVE_UID="$(sed -nE 's/.*\[APPENDUID [0-9]+ ([0-9]+)\].*/\1/p' "$OUT/$name-vorher.txt")"
+if [ -z "$LIVE_STORE" ] || [ -z "$LIVE_UID" ]; then
+  echo "FEHLER  $name: Live-Mail in $KONTO nicht belegt (Konto-UID ${LIVE_STORE:-?}, APPENDUID ${LIVE_UID:-?}), kein Start" | tee "$OUT/$name.txt"
 else
-  echo "FEHLER  $name: Gegenprobe: UID STORE $store, schreibend gesamt $alle, Bedienungen $flags"
-fi | tee -a "$OUT/$name.txt"
+  SCHEMA_DIR="$SCHEMA" lauf "$name" prefer-light | tee "$OUT/$name.txt"
+  teilschritt "$name" "${PIPESTATUS[0]}" "$OUT/$name.txt"
+  # Gegenprobe zur Prüfung „nur lesend“: jede Bedienung (Flags: … gespeichert) ist genau ein UID STORE;
+  # weitere schreibende Befehle gibt es nicht, also keinen in einem anderen (nur lesend freigegebenen) Konto.
+  store="$(grep -cE '^\[imapx:[A-Za-z]\] UID STORE ' "$OUT/$name.log")"
+  alle="$(grep -cE "$SCHREIBEND_RE" "$OUT/$name.log")"
+  flags="$(grep -cE 'revolution-DEBUG: [0-9:.]+: Flags: revolution-favoriten inbox \S+ .* gespeichert nach' "$OUT/$name.log")"
+  if [ "$store" -gt 0 ] && [ "$store" = "$flags" ] && [ "$alle" = "$store" ]; then
+    echo "OK      $name: Gegenprobe: $store× UID STORE = $flags Bedienungen in $KONTO (am Server geprüft), keine weiteren Schreibbefehle"
+  else
+    echo "FEHLER  $name: Gegenprobe: UID STORE $store, schreibend gesamt $alle, Bedienungen $flags"
+  fi | tee -a "$OUT/$name.txt"
+fi
 rest="$(td --live-flags "$KONTO" | grep -c '^FLAGS')"
 if [ "$rest" = 0 ]; then echo "OK      $name: Ausgangszustand, keine Live-Mail mehr im Posteingang von $KONTO"
 else echo "FEHLER  $name: $rest Live-Mails im Posteingang von $KONTO übrig"; fi | tee -a "$OUT/$name.txt"

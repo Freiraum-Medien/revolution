@@ -1109,6 +1109,8 @@ set_notice (RevolutionMailReader *self,
             gboolean              visible)
 {
   gtk_widget_set_visible (self->notice, visible);
+  /* #422: Rand des Kopfs wie revolution_mail_reader_set_compact (Abstand zwischen Hinweis und „An:“). */
+  gtk_widget_set_margin_top (self->header_grid, self->compact && !visible ? 0 : 14);
   g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (G_ACTION_MAP (self->actions), "load-remote")),
                                visible);
   g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (G_ACTION_MAP (self->actions), "allow-remote")),
@@ -1874,8 +1876,9 @@ revolution_mail_reader_set_compact (RevolutionMailReader *self,
   gtk_widget_set_visible (GTK_WIDGET (self->avatar), !compact);
   gtk_widget_set_visible (self->sender_row, !compact);
   gtk_widget_set_visible (GTK_WIDGET (self->subject_label), !compact);
-  /* #422: „An:“ direkt unter dem Kopf der Nachricht in der Konversation (sonst Lücke, Rand 14 wie mail-reader.blp). */
-  gtk_widget_set_margin_top (self->header_grid, compact ? 0 : 14);
+  /* #422: „An:“ direkt unter dem Kopf der Nachricht in der Konversation (sonst Lücke, Rand 14 wie mail-reader.blp);
+   * mit sichtbarem Hinweis bleibt der Rand als Abstand zur Pille (set_notice). */
+  gtk_widget_set_margin_top (self->header_grid, compact && !gtk_widget_get_visible (self->notice) ? 0 : 14);
   gtk_widget_set_vexpand (self->content_card, !compact);
   gtk_widget_set_size_request (self->content_card, -1, compact ? 48 : -1);
 }

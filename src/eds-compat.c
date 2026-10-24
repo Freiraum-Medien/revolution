@@ -35,6 +35,71 @@ ref_if_folder_flagged (CamelFolderSummary *summary,
   return info;
 }
 
+/* #409: Sperre je Ordner für Flag-Aufträge und Abgleich. camel_folder_lock wirkt bei imapx und
+ * microsoft365 nicht: beide rufen camel_folder_set_lock_async (folder, TRUE) (EDS
+ * camel-imapx-folder.c:1237, evolution-ews camel-m365-folder.c:1773), danach kehren
+ * camel_folder_lock/-unlock sofort zurück (camel-folder.c:1613-1617, 3117-3140). Am Ordner gespeichert
+ * (g_object_set_data_full), freigegeben mit ihm; wer sperrt, hält eine Referenz auf den Ordner.
+ * Nur Revolution nimmt sie (set_flags_thread, revolution_eds_folder_refresh_info_sync), nie im UI-Thread,
+ * und wer sie hält, wartet auf keinen anderen Halter: kein Deadlock. */
+static GMutex folder_locks_mutex;
+
+static void
+free_folder_lock (gpointer data)
+{
+  g_rec_mutex_clear (data);
+  g_free (data);
+}
+
+static GRecMutex *
+folder_lock (CamelFolder *folder)
+{
+  GRecMutex *lock;
+
+  g_mutex_lock (&folder_locks_mutex);
+  lock = g_object_get_data (G_OBJECT (folder), "revolution-folder-lock");
+  if (lock == NULL)
+    {
+      lock = g_new0 (GRecMutex, 1);
+      g_rec_mutex_init (lock);
+      g_object_set_data_full (G_OBJECT (folder), "revolution-folder-lock", lock, free_folder_lock);
+    }
+  g_mutex_unlock (&folder_locks_mutex);
+
+  return lock;
+}
+
+void
+revolution_eds_folder_lock (CamelFolder *folder)
+{
+  g_rec_mutex_lock (folder_lock (folder));
+}
+
+void
+revolution_eds_folder_unlock (CamelFolder *folder)
+{
+  g_rec_mutex_unlock (folder_lock (folder));
+}
+
+/* UIDs der lokal geänderten, noch nicht an den Server geschickten Nachrichten. */
+static GHashTable *
+folder_flagged_uids (CamelFolderSummary *summary)
+{
+  GHashTable *uids = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  GPtrArray *changed = camel_folder_summary_get_changed (summary);
+
+  for (guint i = 0; i < changed->len; i++)
+    {
+      g_autoptr (CamelMessageInfo) info = ref_if_folder_flagged (summary, changed->pdata[i]);
+
+      if (info != NULL)
+        g_hash_table_add (uids, g_strdup (changed->pdata[i]));
+    }
+  camel_folder_summary_free_array (changed);
+
+  return uids;
+}
+
 /* #415: camel_folder_refresh_info_sync, bei microsoft365 ohne Rückschreiben dessen, was der Server
  * gerade geliefert hat. evolution-ews 3.56.2 übernimmt Server-Änderungen an vorhandenen Nachrichten
  * mit camel_message_info_set_flags (camel-m365-folder.c:902-904, 666-674), das folder_flagged setzt
@@ -44,17 +109,26 @@ ref_if_folder_flagged (CamelFolderSummary *summary,
  * Teilobjekten des Deltas mit „categories“:[] und „importance“ normal. EWS und imapx setzen
  * folder_flagged nach dem Server-Abgleich zurück (evolution-ews camel-ews-utils.c:1004-1019, EDS
  * camel-imapx-utils.c:394); dasselbe hier: was vorher nicht lokal geändert war, gilt danach als
- * gespeichert. Vorher-Stand, Abgleich, Zurücksetzen und Speichern unter camel_folder_lock (GRecMutex,
- * camel-folder.c:3117-3123; camel_folder_refresh_info_sync sperrt darin erneut, 4020-4040). Die
+ * gespeichert. Vorher-Stand, Abgleich, Zurücksetzen und Speichern unter revolution_eds_folder_lock
+ * (#409; camel_folder_lock wirkt bei microsoft365 nicht, siehe oben). Die
  * Summary danach speichern: microsoft365 speichert sie am Ende des Abgleichs noch mit folder_flagged
  * (camel-m365-folder.c:1000); ohne erneutes Speichern ginge das Echo nach Beenden oder Absturz
  * innerhalb von store-changes-interval beim nächsten Start doch noch raus.
- * Restrisiko: Eine eigene Flag-Änderung an einer vorher unveränderten Nachricht, die gesetzt wird,
- * während diese Funktion den Ordner gesperrt hält (Abgleich inklusive Netz), wird mit
- * zurückgesetzt und bleibt nur lokal: camel_folder_set_message_flags sperrt den Ordner nicht,
- * erst das Speichern in set_flags_thread (camel_folder_synchronize_sync, camel-folder.c:4162-4179)
- * wartet auf die Sperre. Nur über öffentliche Camel-API (die Server-Flags des Providers sind nicht
- * öffentlich). Im Worker. */
+ * Nur über öffentliche Camel-API (die Server-Flags des Providers sind nicht öffentlich). Im Worker.
+ * #409: Eine eigene Flag-Änderung während des Abgleichs wird nicht mit zurückgesetzt: set_flags_thread
+ * (mail-view.c) setzt sie unter derselben Sperre, also erst nach dem Abgleich. Lokal geänderte
+ * Nachrichten (folder_flagged, z. B. offline gesetzt oder nach abgebrochenem Speichern) zuerst
+ * schicken, wie imapx vor jedem Abgleich (camel_imapx_conn_manager_refresh_info_sync: erst
+ * sync_changes, bei Fehler kein Abgleich,
+ * camel-imapx-conn-manager.c:1548-1549). microsoft365 tut das nicht (camel-m365-folder.c:932-1022),
+ * und camel_offline_store_set_online_sync synchronisiert nur geöffnete Ordner; sonst ginge eine solche
+ * Änderung beim nächsten Start nicht an den Server.
+ * Grenze: Camels Zeitgeber store-changes (camel-folder.c:214-253, Job 140-150) synchronisiert ohne
+ * diese Sperre. Er startet nach jedem „changed“ neu (camel-folder.c:222-224) und schickt nur
+ * Nachrichten mit folder_flagged; ein Echo bliebe nur möglich, wenn zwischen zwei Seiten des Deltas
+ * mehr als store-changes-interval (Standard 3 s, camel-store-settings.c:110-116) vergehen.
+ * Abschalten ginge nur über CamelStoreSettings, die an Evolutions ESource gebunden sind
+ * (e-source-camel.c:539-545, bidirektional); daher nicht geändert. */
 gboolean
 revolution_eds_folder_refresh_info_sync (CamelFolder   *folder,
                                          GCancellable  *cancellable,
@@ -71,17 +145,22 @@ revolution_eds_folder_refresh_info_sync (CamelFolder   *folder,
   if (provider == NULL || summary == NULL || g_strcmp0 (provider->protocol, "microsoft365") != 0)
     return camel_folder_refresh_info_sync (folder, cancellable, error);
 
-  camel_folder_lock (folder);
-  before = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
-  changed = camel_folder_summary_get_changed (summary);
-  for (guint i = 0; i < changed->len; i++)
+  revolution_eds_folder_lock (folder);
+  before = folder_flagged_uids (summary);
+  if (g_hash_table_size (before) > 0)
     {
-      g_autoptr (CamelMessageInfo) info = ref_if_folder_flagged (summary, changed->pdata[i]);
+      guint local = g_hash_table_size (before);
 
-      if (info != NULL)
-        g_hash_table_add (before, g_strdup (changed->pdata[i]));
+      if (!camel_folder_synchronize_sync (folder, FALSE, cancellable, error))
+        {
+          revolution_eds_folder_unlock (folder);
+          return FALSE;
+        }
+      g_clear_pointer (&before, g_hash_table_unref);
+      before = folder_flagged_uids (summary);
+      g_debug ("Abgleich: %s %s: %u lokale Änderungen vorher gespeichert", camel_service_get_uid (CAMEL_SERVICE (store)),
+               camel_folder_get_full_name (folder), local);
     }
-  camel_folder_summary_free_array (changed);
 
   ok = camel_folder_refresh_info_sync (folder, cancellable, error);
 
@@ -109,7 +188,7 @@ revolution_eds_folder_refresh_info_sync (CamelFolder   *folder,
       g_debug ("Abgleich: %s %s: %u Server-Änderungen nicht zurückgeschrieben",
                camel_service_get_uid (CAMEL_SERVICE (store)), camel_folder_get_full_name (folder), reset);
     }
-  camel_folder_unlock (folder);
+  revolution_eds_folder_unlock (folder);
 
   return ok;
 }

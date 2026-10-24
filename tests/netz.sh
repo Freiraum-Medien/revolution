@@ -10,6 +10,7 @@
 #   ORDNER_KONTO  IMAP-Testkonto für Ordner anlegen/löschen ohne Netz, Standard KONTO_IMAP_2@example.invalid
 #   PHASEN, PHASEN2  Schritte der Läufe m4-408 bzw. m4-408-gmail (tests/netz-treiber.py)
 #   GMAIL    1 (Standard): Lauf m4-408-gmail; 0 lässt ihn aus (Gmail schonen, #411)
+#   M365_DEBUG wird für die App nicht weitergegeben (Logprüfung: nur DEBUG-Zeilen, #409)
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 2400; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
 # Netz: die App läuft in einem eigenen Netz-Namensraum (unshare -n --map-current-user --keep-caps,
@@ -118,7 +119,7 @@ lauf () {
   rundir="$(mktemp -d)"
   timeout -k 10 "$LAUF_TIMEOUT" unshare -n --map-current-user --keep-caps \
     python3 "$APP_DIR/tests/netz-relay.py" innen "$SOCKDIR/r.sock" "$SOCKDIR/c-$name.sock" "$zustand" -- \
-    env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
+    env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK -u M365_DEBUG \
     XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$SCHEMA" GSETTINGS_BACKEND=memory \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
     GTK_A11Y=none NO_AT_BRIDGE=1 ADW_DEBUG_COLOR_SCHEME=prefer-light GIO_USE_NETWORK_MONITOR=netlink \

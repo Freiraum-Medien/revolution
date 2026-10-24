@@ -404,7 +404,8 @@ def m365_laden(uids):
     with open(REF, encoding='utf-8') as f:
         for zeile in f:
             teile = zeile.split()
-            if teile[0] == 'ANZAHL':
+            # #409: Leerzeilen in REF (IndexError, Phase m365 brach ab)
+            if len(teile) > 3 and teile[0] == 'ANZAHL':
                 namen[teile[3]] = teile[1]
     uid = namen['NUR_LESEND_3@example.invalid']
     key = re.escape('%s Posteingang' % uid)

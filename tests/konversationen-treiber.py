@@ -153,7 +153,7 @@ def fenster():
 
 def datum(nr):
     """Datum der Mail Nr. wie tests/testdaten.py konversation_datum (Unix-Zeit)."""
-    return int((datetime.datetime(2026, 10, 24, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=2)))
+    return int((datetime.datetime(2026, 10, 23, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=2)))
                 + datetime.timedelta(minutes=17 * (nr - 1))).timestamp())
 
 

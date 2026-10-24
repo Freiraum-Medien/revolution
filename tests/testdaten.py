@@ -524,8 +524,10 @@ KONVERSATION = [
 ]
 
 
+# Feste Daten in der Vergangenheit (PM 24.10.2026: nie in der Zukunft, sonst stehen sie in anderen Tests
+# oben); fest, damit die Erkennung über das Absendedatum idempotent bleibt.
 def konversation_datum(nr):
-    return datetime.datetime(2026, 10, 24, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=2))) \
+    return datetime.datetime(2026, 10, 23, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=2))) \
         + datetime.timedelta(minutes=17 * (nr - 1))
 
 
@@ -579,14 +581,26 @@ def konversation(konten, registry, dry):
         sent_name, quelle = gesendet_holen(k, registry)
         sent = k.store.get_folder_sync(sent_name, 0, cancellable())
         print('  %s: Gesendet %s (%s)' % (a, sent_name, quelle))
+        soll = {int(konversation_datum(nr).timestamp()) for nr, _, _, _ in KONVERSATION}
         for folder in (k.inbox, sent):
             folder.refresh_info_sync(cancellable())
             vorhanden = set()
+            veraltet = 0
             for uid in folder.get_uids():
                 info = folder.get_message_info(uid)
                 if info and (info.get_subject() or '').endswith(KONVERSATION_BETREFF) \
                         and not info.get_flags() & Camel.MessageFlags.DELETED:
-                    vorhanden.add(info.get_date_sent())
+                    if info.get_date_sent() in soll:
+                        vorhanden.add(info.get_date_sent())
+                    else:
+                        # Eigene Konversationsmails mit anderem Datum (frühere Fassung) ersetzen.
+                        print('  %s: Konversation (veraltet, %s) löschen in %s' % (
+                            a, datetime.datetime.fromtimestamp(info.get_date_sent()).isoformat(), folder.get_full_name()))
+                        veraltet += 1
+                        if not dry:
+                            folder.set_message_flags(uid, Camel.MessageFlags.DELETED, Camel.MessageFlags.DELETED)
+            if veraltet and not dry:
+                folder.synchronize_sync(True, cancellable())
             neu = 0
             for nr, eigen, gelesen, text in KONVERSATION:
                 if (folder is sent) != eigen:

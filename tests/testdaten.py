@@ -84,6 +84,15 @@
 #                                 „KFLAGS <Nr> <gelesen 0|1> <markiert 0|1> <Ordner>“ (IMAP EXAMINE + UID
 #                                 SEARCH HEADER Message-ID + UID FETCH FLAGS in INBOX und Sent bzw. Graph
 #                                 GET nach internetMessageId; markiert = importance high wie --flags)
+#   tests/testdaten.py --sortierung KONTO basis|neu|papierkorb
+#                                 #418, schreibend nur in Testkonten (IMAP, nicht privat@): basis legt
+#                                 „Pruef418 Faden“ mit festem Datum in der Vergangenheit und „Pruef418
+#                                 Oben“ (Datum jetzt) in den Posteingang (idempotent); neu legt eine
+#                                 Antwort auf den Faden (Datum jetzt) und eine neue Konversation
+#                                 „Pruef418 Neu“ (eine Sekunde davor) ab;
+#                                 papierkorb verschiebt alle Pruef418-Mails per UID MOVE in den
+#                                 Papierkorb (nicht endgültig gelöscht). Zeilen „ORDNER <UID>/INBOX“
+#                                 und „SORTIERUNG <Rolle> <IMAP-UID> <Datum>“
 #   tests/testdaten.py --live-flags KONTO
 #                                 #351, nur lesend: Flags der Live-Mails (--server KONTO neu INBOX) im
 #                                 Posteingang (IMAP EXAMINE + UID SEARCH SUBJECT + UID FETCH FLAGS);
@@ -645,6 +654,68 @@ def konversation_flags(k):
                 if ordner in ('Gelöschte Elemente', 'Deleted Items'):
                     continue
                 print('KFLAGS %d %d %d %s' % (nr, m['isRead'], m['importance'] == 'high', ordner))
+    return 0
+
+
+# #418: Konversationsliste nach dem Server-Durchgang. basis: Faden mit festem Tag in der Vergangenheit
+# (steht weit unten) und „Oben“ mit Datum jetzt (oberste Zeile im Cache). neu: Antwort auf den Faden mit
+# Datum jetzt, neue Konversation eine Sekunde davor (nie in der Zukunft): nach dem Abgleich stehen
+# Faden, Neu, Oben in dieser Folge oben.
+SORTIERUNG_BETREFF = PREFIX + ' Pruef418 Faden'
+SORTIERUNG_NEU = PREFIX + ' Pruef418 Neu'
+SORTIERUNG_OBEN = PREFIX + ' Pruef418 Oben'
+
+
+def sortierung(k, aktion):
+    nur_testkonten([k.adresse])
+    if k.adresse == 'KONTO_IMAP_1@example.invalid':
+        sys.exit('ABBRUCH: --sortierung nicht in privat@ (Quota, #411)')
+    if not k.goa.get_mail().props.imap_supported:
+        sys.exit('ABBRUCH: --sortierung nur für IMAP')
+    c = imap_verbinden(k)
+    c.select('INBOX')
+
+    def suche(betreff):
+        return c.uid('SEARCH', None, 'SUBJECT', '"%s"' % betreff.replace(PREFIX + ' ', ''))[1][0].split()
+
+    def ablegen(betreff, datum, gelesen, mid, antwort=False):
+        m = EmailMessage(policy=email.policy.SMTP)
+        m.set_content('%s (#418).\n' % betreff)
+        m['Subject'] = ('Re: ' if antwort else '') + betreff
+        m['From'] = email.utils.formataddr(('Revolution Testdaten', k.adresse))
+        m['To'] = k.adresse
+        m['Date'] = email.utils.formatdate(datum, localtime=True)
+        m['Message-ID'] = msgid(mid)
+        if antwort:
+            m['In-Reply-To'] = m['References'] = msgid('sortierung-418-faden')
+        print(c.append('INBOX', '(\\Seen)' if gelesen else None, imaplib.Time2Internaldate(datum), m.as_bytes()))
+
+    if aktion == 'basis':
+        if not suche(SORTIERUNG_BETREFF):
+            ablegen(SORTIERUNG_BETREFF, datetime.datetime(2026, 10, 20, 9, 0).astimezone().timestamp(), True,
+                    'sortierung-418-faden')
+        if not suche(SORTIERUNG_OBEN):
+            jetzt = time.time()
+            ablegen(SORTIERUNG_OBEN, jetzt, True, 'sortierung-418-oben-%d' % jetzt)
+    elif aktion == 'neu':
+        jetzt = time.time()
+        ablegen(SORTIERUNG_BETREFF, jetzt, False, 'sortierung-418-antwort-%d' % jetzt, antwort=True)
+        ablegen(SORTIERUNG_NEU, jetzt - 1, False, 'sortierung-418-neu-%d' % jetzt)
+    else:
+        papierkorb = next(re.match(rb'.*" "?(.*?)"?$', z).group(1).decode() for z in c.list()[1]
+                          if b'\\Trash' in z)
+        for uid in suche(SORTIERUNG_BETREFF) + suche(SORTIERUNG_NEU) + suche(SORTIERUNG_OBEN):
+            print('PAPIERKORB', uid.decode(), c.uid('MOVE', uid, '"%s"' % papierkorb))
+        c.logout()
+        return 0
+    print('ORDNER %s/INBOX' % k.account.get_uid())
+    for betreff in (SORTIERUNG_BETREFF, SORTIERUNG_NEU, SORTIERUNG_OBEN):
+        for uid in suche(betreff):
+            kopf = c.uid('FETCH', uid, '(BODY.PEEK[HEADER.FIELDS (DATE SUBJECT)])')[1][0][1].decode()
+            datum = re.search(r'Date: (.*)', kopf).group(1).strip()
+            rolle = betreff.split()[-1] if betreff != SORTIERUNG_BETREFF or 'Re:' not in kopf else 'Antwort'
+            print('SORTIERUNG %s %s %s' % (rolle, uid.decode(), datum))
+    c.logout()
     return 0
 
 
@@ -1560,6 +1631,8 @@ def main():
                     help='#408: Ordner %s am Server anlegen oder löschen (IMAP, Testkonten)' % TESTORDNER)
     ap.add_argument('--konversation-flags', metavar='KONTO',
                     help='#357: nur lesend Flags der Konversation vom Server')
+    ap.add_argument('--sortierung', nargs=2, metavar=('KONTO', 'basis|neu|papierkorb'),
+                    help='#418: Faden, Antwort und neue Konversation im Posteingang (IMAP, Testkonten)')
     ap.add_argument('--konversation', action='store_true',
                     help='#357: Konversation (5 Mails) per APPEND in Posteingang und Gesendet (geops@, outlook.com)')
     args = ap.parse_args()
@@ -1581,6 +1654,13 @@ def main():
         if not k.goa.get_mail().props.imap_supported:
             ap.error('--live-flags nur für IMAP')
         return live_flags(k)
+
+    if args.sortierung:
+        adresse = args.sortierung[0].lower()
+        nur_testkonten([adresse])
+        if args.sortierung[1] not in ('basis', 'neu', 'papierkorb'):
+            ap.error('--sortierung KONTO basis|neu|papierkorb')
+        return sortierung(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse], args.sortierung[1])
 
     if args.konversation_flags:
         adresse = args.konversation_flags.lower()

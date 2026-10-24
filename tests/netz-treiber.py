@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 import time
+import traceback
 
 from PIL import Image
 from Xlib import X, XK, display, protocol
@@ -144,6 +145,10 @@ def testdaten(*args):
     """tests/testdaten.py im normalen Netz (über außen), unabhängig vom Netz der App."""
     r = subprocess.run([sys.executable, os.path.join(APP_DIR, 'tests', 'netz-relay.py'), 'testdaten', RELAIS_SOCK]
                        + list(args), capture_output=True, text=True, timeout=320)
+    # #411: Exit ≠ 0 von testdaten.py (letzte Zeile von netz-relay.py) ist ein Abbruch des Schritts.
+    rc = re.search(r'^TESTDATEN-EXIT (\d+)$', r.stdout, re.M)
+    if rc is None or rc.group(1) != '0':
+        falsch('tests/testdaten.py %s: %s' % (' '.join(args), (r.stdout + r.stderr).strip().replace('\n', ' | ')[-300:]))
     return r.stdout
 
 
@@ -562,4 +567,9 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as e:  # #411: Abbruch (Traceback, Zeitlimit eines Aufrufs) zählt als FEHLER
+        traceback.print_exc()
+        falsch('Abbruch: %s: %s' % (type(e).__name__, str(e).replace('\n', ' ')[:300]))
+        sys.exit(1)

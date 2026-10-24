@@ -27,6 +27,8 @@
 #              „vollständig N“) in Reihenfolge nie kleiner als der vorige
 #   Log        nur DEBUG-Zeilen (wie tests/smoke.sh (d)); Beenden Exit 0, App nicht mehr auf dem Bus
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“, dazu „WERT …“; Exit 0 ohne Fehler.
+# #411: Jeder Abbruch eines Teilschritts (Traceback, Exit ≠ 0 von testdaten.py, Zeitlimit) ist ein
+# FEHLER (tests/abbruch.sh); jeder App-Start mit Zeitlimit TIMEOUT + NACHLAUF + 120 s.
 #
 # Copyright 2026 Arnd Messer
 #
@@ -59,6 +61,7 @@ KONTO="${ORDNER%%/*}"
 NAME_="${ORDNER#*/}"
 KEY="$KONTO $NAME_"
 mkdir -p "$OUT"
+. "$APP_DIR/tests/abbruch.sh"
 
 [ -x "$BIN" ] || { fehler "Build: $BIN fehlt (meson compile)"; exit 1; }
 APP_ID="$(sed -n 's/.*<id>\(.*\)<\/id>.*/\1/p' "$BUILD/data/"*.metainfo.xml | head -1)"
@@ -68,7 +71,7 @@ bus_hat_app () {
 }
 
 server () {
-  timeout 120 python3 "$APP_DIR/tests/testdaten.py" --anzahl "$KONTO" "$NAME_" 2>&1 \
+  td --anzahl "$KONTO" "$NAME_" 2>&1 \
     | sed -nE 's#^ANZAHL .* ([0-9]+) EXISTS [0-9]+$#\1#p'
 }
 
@@ -122,7 +125,7 @@ lauf () {
   env XDG_CACHE_HOME="$cache" G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER="$ORDNER" \
     BUILD="$BUILD" OUT_DIR="$OUT" LOG="$log" READY="$OUT/$name.ready" QUIT="$OUT/$name.quit" \
     WAIT=$((TIMEOUT + NACHLAUF + 5)) \
-    "$APP_DIR/scripts/screenshot.sh" "$name" prefer-light 1200x760 >"$OUT/$name.out" 2>&1 \
+    timeout -k 10 $((TIMEOUT + NACHLAUF + 120)) "$APP_DIR/scripts/screenshot.sh" "$name" prefer-light 1200x760 >"$OUT/$name.out" 2>&1 \
     || fehler "$name: scripts/screenshot.sh Exit $? (siehe $OUT/$name.out)"
   kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
   [ -n "$live" ] && { kill "$live" 2>/dev/null; wait "$live" 2>/dev/null; }
@@ -162,7 +165,7 @@ lauf () {
     else
       fehler "$name Anzahl: Liste ${letzt:-?}, Server vorher ${vorher:-?}, nachher ${nachher:-?} (erwartet vorher + 1)"
     fi
-    timeout 120 python3 "$APP_DIR/tests/testdaten.py" --server "$LIVE" weg INBOX >"$OUT/$name.weg.out" 2>&1
+    TD_TIMEOUT=120 td --server "$LIVE" weg INBOX >"$OUT/$name.weg.out" 2>&1
     if [ "$(server)" = "$vorher" ]; then
       ok "$name Live-Mail gelöscht, Server wieder $vorher"
     else
@@ -202,5 +205,6 @@ for i in $(seq "$LAEUFE"); do
   lauf "m4-410-lauf$i"
 done
 
+abbruch_bilanz
 echo "Ergebnis: $FEHLER Fehler, Ausgaben in $OUT"
 [ "$FEHLER" -eq 0 ]

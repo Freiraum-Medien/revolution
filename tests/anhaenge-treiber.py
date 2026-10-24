@@ -17,6 +17,7 @@ import stat
 import subprocess
 import sys
 import time
+import traceback
 
 from PIL import Image
 from Xlib import X, XK, display, protocol
@@ -425,4 +426,9 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as e:  # #411: Abbruch (Traceback, Zeitlimit eines Aufrufs) zählt als FEHLER
+        traceback.print_exc()
+        falsch('Abbruch: %s: %s' % (type(e).__name__, str(e).replace('\n', ' ')[:300]))
+        sys.exit(1)

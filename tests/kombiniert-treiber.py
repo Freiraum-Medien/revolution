@@ -11,21 +11,30 @@
 #            „Alle Eingänge“ und kommen genau einmal wieder (Zählung, keine doppelten UIDs); kein
 #            Schreibzugriff
 #   -hell    laden, Screenshot, dann im Testkonto KONTO an der Live-Mail (tests/testdaten.py --server
-#            KONTO neu INBOX, vor dem Start) Gelesen nach Verzögerung, Markieren, Markierung entfernen,
+#            KONTO neu INBOX, vor dem Start) Gelesen (Strg+K), Markieren, Markierung entfernen,
 #            Ungelesen; jede Änderung direkt am Server geprüft (tests/testdaten.py --live-flags, nur
 #            lesend); neue Mail und Löschen am Server live (IMAP IDLE); Zähler „Alle Eingänge“.
+#            #411: kein Klick in die Liste: die App wählt die Live-Mail über ihren eindeutigen Betreff
+#            (REVOLUTION_MESSAGE, auch aus Live-Änderungen, mail-view.c), mit mark-seen=false (die
+#            Auswahl allein schreibt nichts). Bedient wird nur, wenn die gewählte Nachricht nachweislich
+#            die Live-Mail in KONTO ist: UID in „Alle Eingänge“ = Ordner-ID der Quelle (LIVE_STORE,
+#            INBOX) + APPENDUID (LIVE_UID); jede Bedienung muss diese UID treffen. Sonst Abbruch, die
+#            App wird sofort beendet. Gelesen per Strg+K.
 # Ausgabe: „OK …“, „FEHLER …“, „WERT …“; Screenshots OUT/NAME-<Schritt>.png.
 #
 # Copyright 2026 Arnd Messer
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import base64
+import hashlib
 import os
 import re
 import subprocess
 import sys
 import threading
 import time
+import traceback
 
 from PIL import Image
 from Xlib import X, XK, display, protocol
@@ -34,8 +43,6 @@ from Xlib.ext import xtest
 BIN, OUT, NAME, APP_DIR = os.environ['BIN'], os.environ['OUT'], os.environ['NAME'], os.environ['APP_DIR']
 KONTO = os.environ.get('KONTO', '')
 FAV = 'revolution-favoriten inbox'
-# Fenster 1200×760: erste Zeile der Liste (wie tests/flags-treiber.py).
-ZEILE = (420, 108)
 
 fehler = 0
 d = display.Display()
@@ -61,12 +68,22 @@ def wert(text):
     print('WERT    %s: %s' % (NAME, text), flush=True)
 
 
-def filtern(quelle, ziel):
+# #411: Wächter im Lesefaden: wählt die App eine andere Nachricht als die Live-Mail (live_vee_uid,
+# in -dunkel/-zyklus jede), wird sie sofort beendet; jeder weitere Blick ins Log bricht dann ab.
+FREMD = []
+
+
+def filtern(quelle, ziel, app):
     """Ausgabe der App zeilenweise nach LOG, ohne Anmeldedaten und ohne HTTP-Kopf/Rumpf."""
     for roh in quelle:
         zeile = roh.decode('utf-8', 'replace')
         if 'revolution-DEBUG' in zeile or 'WARNING' in zeile or 'CRITICAL' in zeile:
             ziel.write(zeile)
+            g = re.search(r'revolution-DEBUG: [0-9:.]+: Nachricht: %s (\S+) geladen' % re.escape(FAV), zeile)
+            if g and g.group(1) != live_vee_uid():
+                app.kill()
+                FREMD.append('App beendet: Nachricht %s gewählt, nicht die Live-Mail %s in %s'
+                             % (g.group(1), live_vee_uid() or '(keine)', KONTO))
         elif re.search(r'Authorization:', zeile, re.I) or \
                 ('[imapx' in zeile and re.search(r'AUTHENTICATE|LOGIN|XOAUTH|PLAIN', zeile, re.I)):
             continue
@@ -85,6 +102,8 @@ def filtern(quelle, ziel):
 
 
 def log_zeilen():
+    if FREMD:
+        raise RuntimeError(FREMD[0])
     out = []
     with open(LOG, encoding='utf-8', errors='replace') as f:
         for zeile in f:
@@ -148,7 +167,9 @@ def server_flags():
 def server_aendern(aktion):
     r = subprocess.run([sys.executable, os.path.join(APP_DIR, 'tests', 'testdaten.py'), '--server', KONTO, aktion, 'INBOX'],
                        capture_output=True, text=True, timeout=180)
-    wert('Server %s: %s' % (aktion, (r.stdout + r.stderr).strip().replace('\n', ' | ')))
+    # #411: Exit ≠ 0 von testdaten.py (Traceback, ABBRUCH) ist ein Abbruch des Schritts.
+    (wert if r.returncode == 0 else falsch)('Server %s: %s%s' % (
+        aktion, (r.stdout + r.stderr).strip().replace('\n', ' | '), '' if r.returncode == 0 else ' (Exit %d)' % r.returncode))
 
 
 def pruefe_server(schritt, gelesen=None, markiert=None):
@@ -168,14 +189,6 @@ def taste(kombi, pause=0.3):
         xtest.fake_input(d, X.KeyRelease, c)
     d.sync()
     time.sleep(pause)
-
-
-def klick(p):
-    xtest.fake_input(d, X.MotionNotify, x=p[0], y=p[1])
-    xtest.fake_input(d, X.ButtonPress, 1)
-    xtest.fake_input(d, X.ButtonRelease, 1)
-    d.sync()
-    time.sleep(0.5)
 
 
 def bild(schritt):
@@ -228,23 +241,45 @@ def geladen():
 def flag_schritt(schritt, aktion, was, gelesen=None, markiert=None):
     ab = marke()
     aktion()
-    t = warte(r'^Flags: %s \S+ %s gespeichert nach' % (re.escape(FAV), re.escape(was)), ab)
+    # #411: nur die Live-Mail (UID aus live_vee_uid) zählt als Bedienung.
+    t = warte(r'^Flags: %s %s %s gespeichert nach' % (re.escape(FAV), re.escape(live_vee_uid()), re.escape(was)), ab)
     if t is None:
-        falsch('%s: Log „Flags: %s … %s gespeichert“ fehlt' % (schritt, FAV, was))
+        falsch('%s: Log „Flags: %s %s %s gespeichert“ fehlt' % (schritt, FAV, live_vee_uid(), was))
         return
     ok('%s: %s' % (schritt, t[1]))
     pruefe_server(schritt, gelesen, markiert)
 
 
+def live_vee_uid():
+    """UID der Live-Mail in „Alle Eingänge“: Ordner-ID der Quelle + UID im Quellordner. Ordner-ID wie
+    EDS camel-vee-data-cache.c:82-114 (MD5 aus Store-UID und vollem Ordnernamen, die ersten 6 Byte
+    Base64, „+“ → „.“, „/“ → „_“), UID wie dort Zeile 265 (Ordner-ID + Original-UID)."""
+    store, uid = os.environ.get('LIVE_STORE', ''), os.environ.get('LIVE_UID', '')
+    if not store or not uid:
+        return None
+    kennung = base64.b64encode(hashlib.md5((store + 'INBOX').encode()).digest()[:6]).decode()
+    return kennung.replace('+', '.').replace('/', '_') + uid
+
+
 def testkonto():
+    # #411: Auswahl durch die App über den Betreff (REVOLUTION_MESSAGE), nicht die oberste Zeile:
+    # die hängt von neueren Mails in allen Konten ab und könnte ein nur lesend freigegebenes Konto
+    # treffen. mark-seen=false (die Auswahl schreibt nichts), Beleg der Auswahl vor jeder Bedienung.
+    soll = live_vee_uid()
+    if soll is None:
+        raise RuntimeError('Live-Mail in %s nicht belegt (LIVE_STORE/LIVE_UID)' % KONTO)
+    t = warte(r'^Nachricht: %s \S+ geladen' % re.escape(FAV), 0, 60)
+    ist = re.match(r'^Nachricht: %s (\S+) geladen' % re.escape(FAV), t[1]).group(1) if t else None
+    if ist != soll:
+        raise RuntimeError('Auswahl %s ist nicht die Live-Mail %s in %s (INBOX UID %s); keine Bedienung'
+                           % (ist or 'keine', soll, KONTO, os.environ['LIVE_UID']))
+    ok('Auswahl über den Betreff: Live-Mail %s = %s INBOX UID %s' % (ist, KONTO, os.environ['LIVE_UID']))
+    (falsch if warte(r'^Gelesen: ', 0, 2) else ok)('mark-seen=false: kein Gelesen-Timer beim Auswählen')
     u0 = ungelesen_fav()
-    wert('Ungelesen „Alle Eingänge“ vor der Auswahl: %s' % u0)
+    wert('Ungelesen „Alle Eingänge“ vor dem Gelesen: %s' % u0)
     ab = marke()
-    klick(ZEILE)
-    t = warte(r'^Flags: %s \S+ gelesen \(automatisch\) gespeichert' % re.escape(FAV), ab, 30)
-    (ok if t else falsch)('Auswahl der Live-Mail → gelesen nach Verzögerung: %s' % (t[1] if t else 'fehlt'))
-    pruefe_server('Auswahl', gelesen=1)
-    if warte(r'^Ungelesen: %s %d$' % (re.escape(FAV), (u0 or 0) - 1), ab, 15):
+    flag_schritt('Strg+K', lambda: taste('Control_L+k'), 'gelesen', gelesen=1)
+    if u0 is not None and warte(r'^Ungelesen: %s %d$' % (re.escape(FAV), u0 - 1), ab, 15):
         ok('Zähler „Alle Eingänge“ %d → %d' % (u0, u0 - 1))
     else:
         falsch('Zähler „Alle Eingänge“ nach Gelesen nicht %s - 1 (Log: %s)' % (u0, ungelesen_fav()))
@@ -301,7 +336,7 @@ def test_store(uid, vorhanden):
                         'org.gtk.Actions.Activate', 'test-store',
                         "[<('%s', %s)>]" % (uid, 'true' if vorhanden else 'false'), '{}'],
                        capture_output=True, text=True, timeout=30)
-    wert('app.test-store %s %s: %s' % (uid, vorhanden, (r.stdout + r.stderr).strip()))
+    (wert if r.returncode == 0 else falsch)('app.test-store %s %s: %s' % (uid, vorhanden, (r.stdout + r.stderr).strip()))
 
 
 def zyklus():
@@ -340,7 +375,7 @@ def zyklus():
 def main():
     log = open(LOG, 'w')
     app = subprocess.Popen([BIN], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    leser = threading.Thread(target=filtern, args=(app.stdout, log), daemon=True)
+    leser = threading.Thread(target=filtern, args=(app.stdout, log, app), daemon=True)
     leser.start()
     try:
         w = fenster()
@@ -381,4 +416,9 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as e:  # #411: Abbruch (Traceback, Zeitlimit eines Aufrufs) zählt als FEHLER
+        traceback.print_exc()
+        falsch('Abbruch: %s: %s' % (type(e).__name__, str(e).replace('\n', ' ')[:300]))
+        sys.exit(1)

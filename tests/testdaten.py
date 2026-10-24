@@ -1381,8 +1381,10 @@ def schwer(k, aktion):
     else:
         papierkorb = next(re.match(rb'.*" "?(.*?)"?$', z).group(1).decode() for z in c.list()[1]
                           if b'\\Trash' in z)
-        for rolle, (uid, _) in vorhanden().items():
-            print(rolle, c.uid('MOVE', uid, '"%s"' % papierkorb))
+        for rolle, _, _ in SCHWER:
+            _, daten = c.uid('SEARCH', None, 'SUBJECT', '"Pruef412 %s"' % rolle)
+            for uid in daten[0].split():
+                print(rolle, uid.decode(), c.uid('MOVE', uid, '"%s"' % papierkorb))
         c.logout()
         return 0
     print('ORDNER %s/INBOX' % k.account.get_uid())

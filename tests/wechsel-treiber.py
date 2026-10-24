@@ -33,9 +33,13 @@ START, SCHWER, ZIEL = os.environ['UIDS'].split()
 PAUSEN = [float(p) for p in os.environ.get('PAUSEN', '0.2 0.24 0.3').split()]
 WDH = int(os.environ.get('WDH', '3'))
 LOGKEY = ORDNER.replace('/', ' ', 1)
-# Fenster 1200×760 (Screenshot build/m4-412/probe.png): erste Zeile der Liste, Lesebereich mit
-# Kopf; Betreffzeile im Kopf; Inhalt (Karte mit WebView).
-ZEILE = (420, 100)
+# #357: in Konversationen (Standard) nennt das Log die Nachricht über den Suchordner der Konversation
+# (UID mit 8 Zeichen Präfix, z. B. „Nl4YRJvS196“), sonst Konto und Ordner mit der IMAP-UID.
+NACHRICHT = r'\S+ \S+ (?:\S{8})?%s'
+# Fenster 1200×760 (Screenshot build/m4-412/probe.png): Spalte der Liste, Farbe der gewählten Zeile
+# (wie tests/flags-treiber.py), Lesebereich mit Kopf; Betreffzeile im Kopf; Inhalt (Karte mit WebView).
+LISTE_X = 300
+GEWAEHLT = (211, 70, 21)
 BEREICH = (580, 55, 1190, 750)
 BETREFF = (80, 28, 400, 50)
 INHALT = (30, 120, 590, 690)
@@ -99,6 +103,15 @@ def taste(kombi):
     d.sync()
 
 
+def zeile_start():
+    """Mitte der gewählten Zeile (Start, gewählt über REVOLUTION_MESSAGE) oder None."""
+    root = d.screen().root
+    spalte = Image.frombytes('RGB', (1, 700), root.get_image(LISTE_X, 55, 1, 700, X.ZPixmap, 0xffffffff).data,
+                             'raw', 'BGRX')
+    ys = [y + 55 for y in range(700) if all(abs(a - b) <= 30 for a, b in zip(spalte.getpixel((0, y)), GEWAEHLT))]
+    return (LISTE_X, (ys[0] + ys[-1]) // 2) if ys else None
+
+
 def klick(p):
     xtest.fake_input(d, X.MotionNotify, x=p[0], y=p[1])
     xtest.fake_input(d, X.ButtonPress, 1)
@@ -160,7 +173,7 @@ def anteile(bild):
 
 
 def geladen(uid, ab, zeit=30):
-    return warte(r'^Nachricht: %s %s geladen nach' % (re.escape(LOGKEY), uid), ab, zeit)
+    return warte(r'^Nachricht: %s geladen nach' % (NACHRICHT % uid), ab, zeit)
 
 
 def lauf(pause, nr):
@@ -185,12 +198,12 @@ def lauf(pause, nr):
     log_pruefen(tag, ab)
 
     # Ausgangszustand: Ziel wieder ungelesen (nach dem automatischen Gelesen).
-    if warte(r'^Flags: %s %s gelesen \(automatisch\) gespeichert' % (re.escape(LOGKEY), ZIEL), ab, 15) is None:
+    if warte(r'^Flags: %s gelesen \(automatisch\) gespeichert' % (NACHRICHT % ZIEL), ab, 15) is None:
         falsch('%s: Gelesen (automatisch) nicht gespeichert' % tag)
         return
     ab = len(log_zeilen())
     taste('Control_L+Shift_L+k')
-    (ok if warte(r'^Flags: %s %s ungelesen gespeichert' % (re.escape(LOGKEY), ZIEL), ab, 15) else falsch)(
+    (ok if warte(r'^Flags: %s ungelesen gespeichert' % (NACHRICHT % ZIEL), ab, 15) else falsch)(
         '%s: Ziel wieder ungelesen' % tag)
 
 
@@ -252,7 +265,7 @@ def log_pruefen(tag, ab):
     started = zeile(r'^Nachricht: lädt %s \(started\)' % re.escape(zeigt))
     sichtbar = zeile(r'^Nachricht: sichtbar %s \((committed|finished)\)' % re.escape(zeigt))
     uebergangen = zeile(r'^Nachricht: %s vor STARTED übergangen' % re.escape(zeigt))
-    gelesen = zeile(r'^Gelesen: %s %s in ' % (re.escape(LOGKEY), ZIEL))
+    gelesen = zeile(r'^Gelesen: %s in ' % (NACHRICHT % ZIEL))
     wert('%s: %s' % (tag, ' | '.join('%.3f %s' % (t, text) for _, t, text in
                                        sorted(filter(None, (started, uebergangen, sichtbar, gelesen))))))
     if started is None or sichtbar is None:
@@ -268,20 +281,60 @@ def log_pruefen(tag, ab):
         % (tag, (gelesen[1] - sichtbar[1]) * 1000))
 
 
+def schliessen(app, w):
+    w.send_event(protocol.event.ClientMessage(
+        window=w, client_type=d.intern_atom('WM_PROTOCOLS'),
+        data=(32, [d.intern_atom('WM_DELETE_WINDOW'), X.CurrentTime, 0, 0, 0])), event_mask=X.NoEventMask)
+    d.sync()
+    try:
+        return app.wait(30)
+    except subprocess.TimeoutExpired:
+        return None
+
+
+def starten(log):
+    """App starten, Start (über REVOLUTION_MESSAGE gewählt) in der Liste suchen: (app, Fenster) oder
+    (app, None). Neue Mails aus dem Server-Durchgang stehen nicht immer an ihrem Platz nach Datum
+    (Konversationen, #357; Bild NAME-ohne-zeile.png); aus dem Cache beim nächsten Start schon."""
+    global ZEILE
+    ab = len(log_zeilen())
+    app = subprocess.Popen([BIN], stdout=log, stderr=subprocess.STDOUT)
+    w = fenster()
+    if w is None:
+        falsch('kein Fenster')
+        return app, None
+    w.configure(width=1200, height=760)
+    d.sync()
+    if warte(r'^Nachrichten: %s vollständig' % re.escape(LOGKEY), ab, 120) is None:
+        falsch('Liste nicht geladen (%s)' % ORDNER)
+        return app, None
+    if geladen(START, ab, 30) is None:
+        falsch('Start (UID %s) nicht über REVOLUTION_MESSAGE gewählt' % START)
+        return app, None
+    time.sleep(1)
+    ZEILE = zeile_start()
+    if ZEILE is None:
+        g = d.screen().root.get_geometry()
+        Image.frombytes('RGB', (g.width, g.height), d.screen().root.get_image(
+            0, 0, g.width, g.height, X.ZPixmap, 0xffffffff).data, 'raw', 'BGRX').save(
+            os.path.join(OUT, NAME + '-ohne-zeile.png'))
+        wert('gewählte Zeile nicht im Bild (%s-ohne-zeile.png), Neustart' % NAME)
+        wert('Beenden für Neustart: Exit %s' % schliessen(app, w))
+        return app, None
+    wert('Zeile von Start bei %s' % (ZEILE,))
+    return app, w
+
+
 def main():
     log = open(LOG, 'w')
-    app = subprocess.Popen([BIN], stdout=log, stderr=subprocess.STDOUT)
+    app = None
     try:
-        w = fenster()
+        app, w = starten(log)
+        if w is None and app.poll() is not None:
+            app, w = starten(log)
         if w is None:
-            falsch('kein Fenster')
+            falsch('Zeile von Start nicht gefunden')
             return 1
-        w.configure(width=1200, height=760)
-        d.sync()
-        if warte(r'^Nachrichten: %s vollständig' % re.escape(LOGKEY), 0, 120) is None:
-            falsch('Liste nicht geladen (%s)' % ORDNER)
-            return 1
-        time.sleep(1)
         # Schwer einmal ganz laden: danach im Cache wie in der Messung #354 R4 („geladen nach 6 ms“);
         # sonst holt der Worker sie vom Server und der Wechsel bricht das Holen statt der Anzeige ab.
         ab = len(log_zeilen())
@@ -295,17 +348,10 @@ def main():
         for pause in PAUSEN:
             for nr in range(1, WDH + 1):
                 lauf(pause, nr)
-        w.send_event(protocol.event.ClientMessage(
-            window=w, client_type=d.intern_atom('WM_PROTOCOLS'),
-            data=(32, [d.intern_atom('WM_DELETE_WINDOW'), X.CurrentTime, 0, 0, 0])), event_mask=X.NoEventMask)
-        d.sync()
-        try:
-            rc = app.wait(30)
-            (ok if rc == 0 else falsch)('Beenden: Exit %d' % rc)
-        except subprocess.TimeoutExpired:
-            falsch('Beenden: nach 30 s nicht beendet')
+        rc = schliessen(app, w)
+        (ok if rc == 0 else falsch)('Beenden: Exit %s' % rc)
     finally:
-        if app.poll() is None:
+        if app is not None and app.poll() is None:
             app.kill()
             app.wait()
         log.close()

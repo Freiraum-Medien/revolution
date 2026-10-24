@@ -53,7 +53,7 @@ else
     XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$BUILD/data" GSETTINGS_BACKEND=memory \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
     GTK_A11Y=none NO_AT_BRIDGE=1 ADW_DEBUG_COLOR_SCHEME=prefer-light \
-    G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER="$uid/INBOX" \
+    G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER="$uid/INBOX" REVOLUTION_MESSAGE="Pruef412 Start" \
     BIN="$BIN" OUT="$OUT" NAME=m4-412 ORDNER="$uid/INBOX" UIDS="$uids" \
     xvfb-run -a -s "-screen 0 1200x760x24" python3 -I "$APP_DIR/tests/wechsel-treiber.py" | tee "$OUT/m4-412.txt"
   rc="${PIPESTATUS[0]}"

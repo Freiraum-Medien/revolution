@@ -28,7 +28,7 @@
 #                 an mit mark-seen-timeout 15000 ms (der Gelesen-Timer der Zeile läuft noch, wenn die Antwort
 #                 kommt). Geprüft im Log: „Konversation: <Faden> jetzt mit 2 Nachrichten“, danach „… mit 2
 #                 Nachrichten angezeigt“, die erste Nachricht darin (oben) ist die Antwort; gewählt bleibt der
-#                 Faden; die Antwort wird erst gelesen (#353: „Flags: … <Antwort> gelesen (automatisch)“) nach
+#                 Faden (ab „vollständig“); die Antwort wird erst gelesen (#353: „Flags: … <Antwort> gelesen (automatisch)“) nach
 #                 „Konversation: <Antwort> aufgeklappt“ und „Gelesen: … <Antwort> in …“. Bild m4-419-lesen-N.png
 #   nicht-oben (#419)  Treiber tests/sortierung-treiber.py: Klick in die vierte Zeile, fünfmal Pfeil ab (die
 #                 neunte Zeile gewählt, Liste nicht oben), dann die Live-Änderung (Neu und Faden kommen über
@@ -180,8 +180,10 @@ teil_lesen () {
   else fehler "lesen $n: kein Wechsel zur Konversation (jetzt mit 2: Zeile $wechsel, angezeigt: Zeile $gezeigt)"; fi
   if [[ "$erste" =~ ^.{8}$antwort$ ]]; then ok "lesen $n: neue Nachricht oben ($erste)"
   else fehler "lesen $n: oben „$erste“ statt Antwort ($antwort)"; fi
-  # Ab der Auswahl (REVOLUTION_MESSAGE wählt den Faden, sobald er in der Liste steht).
-  gewaehlt="$(grep 'Reihenfolge:' "$log" | sed -n 's/.* gewählt \(.*\)$/\1/p' | awk '$0 != "-" { f = 1 } f' | sort -u)"
+  # Ab „vollständig“ (danach kommt die Antwort): vorher kann REVOLUTION_MESSAGE einen Faden eines früheren
+  # Teils aus dem Cache gewählt haben, den der Server-Durchgang entfernt (am Server im Papierkorb).
+  gewaehlt="$(awk -v ab="$(grep -n "Nachrichten: $KONTO_UID INBOX vollständig" "$log" | tail -1 | cut -d: -f1)" \
+    'NR > ab && /Reihenfolge:/ { sub(/.* gewählt /, ""); print }' "$log" | sort -u)"
   if [[ "$gewaehlt" =~ ^.{8}$faden$ ]]; then ok "lesen $n: Auswahl bleibt auf dem Faden"
   else fehler "lesen $n: Auswahl „$(echo $gewaehlt)“ statt Faden ($faden)"; fi
   offen="$(zeile_ab "$log" 0 "Konversation: .{8}$antwort aufgeklappt")"

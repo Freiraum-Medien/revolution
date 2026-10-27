@@ -26,9 +26,13 @@ import sys
 import time
 import traceback
 
+import gi
 from PIL import Image
 from Xlib import X, XK, display, protocol
 from Xlib.ext import xtest
+
+gi.require_version('Atspi', '2.0')
+from gi.repository import Atspi  # noqa: E402
 
 BIN, OUT, NAME, APP_DIR = os.environ['BIN'], os.environ['OUT'], os.environ['NAME'], os.environ['APP_DIR']
 CTRL, RELAIS_LOG, REF = os.environ['CTRL'], os.environ['RELAIS_LOG'], os.environ['REF']
@@ -52,13 +56,9 @@ LOGKEY = ORDNER.replace('/', ' ', 1)
 EINLADUNG = '[Revolution-Test] Einladung: Abstimmung Testdaten'
 # Fenster 1200×1100, erste Zeile der Liste unter der Pille „Offline“ (m4-408-1-offline-start.png).
 ZEILE_OFFLINE = (420, 170)
-# Seitenleiste (Zeilen 30 px, m4-408-7-ordner-neu.png): Favoriten, dann NUR_LESEND_3@example.invalid
-# (microsoft365, nur lesend) mit Posteingang und KAR, dann KONTO_M365@example.invalid mit Revolution-Test.
-M365_POSTEINGANG = (120, 264)
-M365_KAR = (120, 474)
-OUTLOOK_REVOLUTION_TEST = (120, 1030)
 
 fehler = 0
+app_pid = None
 # #421: erwartete Warnungen (Phase kaputt: Anmeldung scheitert), im Abschluss-Check „Log“ ausgenommen.
 erlaubt = set()
 d = display.Display()
@@ -213,6 +213,58 @@ def taste(kombi, pause=0.3):
         xtest.fake_input(d, X.KeyRelease, c)
     d.sync()
     time.sleep(pause)
+
+
+# ------------------------------------------------------------------ Seitenleiste (AT-SPI, #431)
+
+def ordner_waehlen(uid, name, pause=0.5):
+    """Ordner name des Kontos uid in der Seitenleiste wählen, ohne feste Koordinaten (#431: Konto
+    332762 heißt seit 26.10. „GEOPS“, die Seitenleiste sortiert anders). Barrierefreiheitsbaum der App:
+    Liste „Ordner“, Kopfzeile je Konto mit dem Anzeigenamen (Log „Mail-Konto UID „Name“: angezeigt“,
+    mail-view.c), darunter die Ordner („Name“ bzw. „Name, N ungelesen“). Gewählt wird über das
+    Selection-Interface der Liste wie ein Klick (gleiche GtkSingleSelection, notify::selected-item);
+    GTK zählt dort nur Ordnerzeilen, keine Kopfzeilen (gemessen build/m4-431/probe/probe3.txt)."""
+    konto = [m.group(1) for _, t in log_zeilen() for m in [re.match(r'^Mail-Konto %s „(.*)“: angezeigt$' % re.escape(uid), t)] if m]
+    if not konto:
+        falsch('Seitenleiste: Konto %s nicht im Log „Mail-Konto … angezeigt“' % uid)
+        return
+    desktop = Atspi.get_desktop(0)
+    apps = [desktop.get_child_at_index(i) for i in range(desktop.get_child_count())]
+    apps = [a for a in apps if a is not None and a.get_process_id() == app_pid]
+    liste = apps and finde_liste(apps[0])
+    if not liste:
+        falsch('Seitenleiste: Liste „Ordner“ nicht im Barrierefreiheitsbaum')
+        return
+    kopf, position, ziel = None, 0, None
+    for i in range(liste.get_child_count()):
+        kind = liste.get_child_at_index(i)
+        if kind.get_role_name() == 'row header':
+            kopf = kind.get_name()
+            continue
+        zeile = kind.get_name()
+        if kopf == konto[-1] and (zeile == name or zeile.startswith(name + ', ')):
+            ziel = (i, position)
+            break
+        position += 1
+    if ziel is None:
+        falsch('Seitenleiste: „%s“ unter „%s“ nicht gefunden' % (name, konto[-1]))
+        return
+    liste.select_child(ziel[1])
+    gewaehlt = liste.get_selected_child(0) if liste.get_n_selected_children() else None
+    if gewaehlt is None or gewaehlt.get_index_in_parent() != ziel[0]:
+        falsch('Seitenleiste: „%s“ unter „%s“ nicht gewählt (%s)' % (name, konto[-1], gewaehlt and gewaehlt.get_name()))
+    time.sleep(pause)
+
+
+def finde_liste(o):
+    """Liste „Ordner“ (Seitenleiste) im Baum; Nachrichtenliste und Lesebereich werden übersprungen."""
+    if o.get_role_name() == 'list':
+        return o if o.get_name() == 'Ordner' else None
+    for i in range(o.get_child_count()):
+        treffer = finde_liste(o.get_child_at_index(i))
+        if treffer:
+            return treffer
+    return None
 
 
 def bild(schritt):
@@ -409,7 +461,7 @@ def ordner_abgleich(uids):
 
 
 def m365_laden(uids):
-    """Netz weg 0,1/0,2 s nach Klick auf einen microsoft365-Ordner (Laden läuft, Prüfer #408 R2:
+    """Netz weg 0,1/0,2 s nach Wahl eines microsoft365-Ordners (Laden läuft, Prüfer #408 R2:
     soup_session_abort brach das Cancellable der Ansicht ab), je 4×; danach lädt der Ordner ohne
     Abbruch, F5 fertig, keine Warnung."""
     namen = {}
@@ -423,11 +475,11 @@ def m365_laden(uids):
     key = re.escape('%s Posteingang' % uid)
     ab_datei = dateizeilen()
     for nr, verzoegerung in enumerate((0.1, 0.2) * 4):
-        schritt = 'microsoft365 laden %d (Netz weg %.1f s nach Klick)' % (nr + 1, verzoegerung)
-        klick(M365_KAR)
+        schritt = 'microsoft365 laden %d (Netz weg %.1f s nach Wahl)' % (nr + 1, verzoegerung)
+        ordner_waehlen(uid, 'KAR')
         time.sleep(2)
         ab = marke()
-        klick(M365_POSTEINGANG, verzoegerung)
+        ordner_waehlen(uid, 'Posteingang', verzoegerung)
         vorher = app_verbindungen()
         netz('down')
         pruefe('%s: offline' % schritt, r'^Netz: nicht verfügbar, offline', ab, 20)
@@ -443,10 +495,10 @@ def m365_laden(uids):
         pruefe('%s: Liste vom Server' % schritt, r'^Aktualisieren: %s fertig$' % key, ab, 120)
     for nr in range(2):
         schritt = 'microsoft365 laden danach %d' % (nr + 1)
-        klick(M365_KAR)
+        ordner_waehlen(uid, 'KAR')
         time.sleep(2)
         ab = marke()
-        klick(M365_POSTEINGANG)
+        ordner_waehlen(uid, 'Posteingang')
         pruefe(schritt, r'^Nachrichten: %s vollständig' % key, ab, 60)
         time.sleep(3)
         ab2 = marke()
@@ -458,7 +510,7 @@ def m365_laden(uids):
     ohne_warnungen('microsoft365 laden', ab_datei)
     bild('9-m365-laden')
     ab = marke()
-    klick(OUTLOOK_REVOLUTION_TEST)
+    ordner_waehlen(ORDNER.split('/', 1)[0], ORDNER.rsplit('/', 1)[1])
     pruefe('zurück zu %s' % ORDNER, r'^Nachrichten: %s vollständig' % re.escape(LOGKEY), ab, 60)
     time.sleep(2)
 
@@ -603,7 +655,7 @@ def weitere(uids):
         for verzoegerung in (0.2, 0.4, 1.0) if 'abbruch' in PHASEN else (0.4,):
             abbruch(uids, verzoegerung)
         bild('5-nach-abbruch')
-    # 6. Netz weg kurz nach Klick auf einen microsoft365-Ordner.
+    # 6. Netz weg kurz nach Wahl eines microsoft365-Ordners.
     if 'm365' in PHASEN:
         m365_laden(uids)
     # 7. Markieren ohne Netz, nach „Netz zurück“ am Server.
@@ -618,7 +670,9 @@ def main():
     _, anzahl = referenz()
     uids = sorted(u for u in anzahl if u not in SKIP)
     log = open(LOG, 'w')
+    global app_pid
     app = subprocess.Popen([BIN], stdout=log, stderr=subprocess.STDOUT)
+    app_pid = app.pid
     try:
         w = fenster()
         if w is None:

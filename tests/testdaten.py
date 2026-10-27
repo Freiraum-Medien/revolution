@@ -104,6 +104,14 @@
 #   tests/testdaten.py --antwort-kopf
 #                                 #359, nur lesend (IMAP EXAMINE + UID FETCH): Kopfzeilen der Testmail vom
 #                                 Server, je Zeile „KOPF <Name>: <Wert>“ (Vergleich mit der Antwort)
+#   tests/testdaten.py --entwurf KONTO [weg]
+#                                 #360, unabhängig von Camel: Entwürfe mit Präfix [Revolution-Test] (gezählt nur
+#                                 „[Revolution-Test] Entwurf 360…“, in deleteditems nur diese)
+#                                 im Entwürfe-Ordner (IMAP: LIST mit \\Drafts, EXAMINE + UID SEARCH + UID FETCH FLAGS;
+#                                 Graph GET drafts und deleteditems); Zeilen „ENTWURFORDNER <Name>“,
+#                                 „ENTWURF <UID|ID> <gelöscht 0|1> <Betreff>“ und „ENTWUERFE <sichtbar> <markiert-gelöscht>“.
+#                                 weg (schreibend nur in Testkonten): genau diese UIDs per UID STORE +FLAGS \\Deleted
+#                                 und UID EXPUNGE bzw. Graph DELETE genau dieser IDs (auch aus deleteditems)
 #   tests/testdaten.py --live-flags KONTO
 #                                 #351, nur lesend: Flags der Live-Mails (--server KONTO neu INBOX) im
 #                                 Posteingang (IMAP EXAMINE + UID SEARCH SUBJECT + UID FETCH FLAGS);
@@ -486,6 +494,13 @@ def anhang(konten, dry):
         k.inbox.refresh_info_sync(cancellable())
 
 
+def struktur(m):
+    """#360: Aufbau einer Nachricht als Text, z. B. multipart/mixed[text/plain,message/rfc822[text/plain]]."""
+    if m.is_multipart() or m.get_content_type() == 'message/rfc822':
+        return '%s[%s]' % (m.get_content_type(), ','.join(struktur(t) for t in m.get_payload()))
+    return m.get_content_type()
+
+
 def anhang_teile(k, ziel):
     """#356: nur lesend, ohne Camel: Anhänge der Anhang-Mail vom Server nach ziel schreiben."""
     os.makedirs(ziel, exist_ok=True)
@@ -499,6 +514,7 @@ def anhang_teile(k, ziel):
         roh = c.uid('FETCH', uids[-1], '(BODY.PEEK[])')[1][0][1]
         c.logout()
         nachricht = email.message_from_bytes(roh, policy=email.policy.default)
+        print('STRUKTUR %s' % struktur(nachricht))
         for teil in nachricht.iter_attachments():
             if teil.get_content_type() == 'message/rfc822':
                 teile.append((teil.get_payload()[0]['Subject'] + '.eml', teil.get_payload()[0].as_bytes()))
@@ -1489,6 +1505,69 @@ def server(k, aktion, ziel=ORDNER, warte=None):
     return 0
 
 
+ENTWURF = PREFIX + ' Entwurf 360'
+
+
+def imap_entwuerfe(c):
+    """#360: Entwürfe-Ordner per LIST (Attribut \\Drafts, RFC 6154), sonst Name Drafts/Entwürfe."""
+    kandidaten = []
+    for zeile in c.list('""', '*')[1]:
+        treffer = re.match(rb'\((.*?)\) "(.*?)" "?(.*?)"?$', zeile)
+        if not treffer:
+            continue
+        name = treffer.group(3).decode()
+        if b'\\Drafts' in treffer.group(1):
+            return name
+        if mutf7_decode(name).split(treffer.group(2).decode())[-1] in ('Drafts', 'Entwürfe'):
+            kandidaten.append(name)
+    if not kandidaten:
+        sys.exit('ABBRUCH: kein Entwürfe-Ordner')
+    return kandidaten[0]
+
+
+def entwurf(k, weg):
+    """#360: Entwürfe des Tests am Server; weg löscht genau diese (eigene Testdaten)."""
+    nur_testkonten([k.adresse])
+    sichtbar = geloescht = 0
+    if k.goa.get_mail().props.imap_supported:
+        c = imap_verbinden(k)
+        name = imap_entwuerfe(c)
+        print('ENTWURFORDNER %s' % mutf7_decode(name))
+        c.select('"%s"' % name, readonly=not weg)
+        uids = c.uid('SEARCH', None, 'SUBJECT', '"Revolution-Test"')[1][0].split()
+        eigene = []
+        for uid in uids:
+            d = c.uid('FETCH', uid, '(FLAGS BODY.PEEK[HEADER.FIELDS (SUBJECT)])')[1]
+            betreff = str(email.header.make_header(email.header.decode_header(d[0][1].decode().partition(':')[2].strip())))
+            if not betreff.startswith(PREFIX):
+                continue
+            weg_ = '\\Deleted' in d[0][0].decode()
+            print('ENTWURF %s %d %s' % (uid.decode(), weg_, betreff))
+            eigene.append(uid.decode())
+            sichtbar += betreff.startswith(ENTWURF) and not weg_
+            geloescht += betreff.startswith(ENTWURF) and weg_
+        if weg and eigene:
+            if b'UIDPLUS' not in b' '.join(c.capability()[1]):
+                sys.exit('ABBRUCH: kein UIDPLUS, UID EXPUNGE nicht möglich')
+            menge = ','.join(eigene)
+            print('BEFEHL UID STORE %s +FLAGS (\\Deleted) → %s' % (menge, c.uid('STORE', menge, '+FLAGS', '(\\Deleted)')[0]))
+            print('BEFEHL UID EXPUNGE %s → %s' % (menge, c.uid('EXPUNGE', menge)[0]))
+        c.logout()
+    else:
+        for ordner in ('drafts', 'deleteditems'):
+            for m in graph(k, 'GET', '/me/mailFolders/%s/messages?$top=200&$select=id,subject' % ordner)['value']:
+                if not (m['subject'] or '').startswith(PREFIX if ordner == 'drafts' else ENTWURF):
+                    continue
+                print('ENTWURF %s %d %s' % (m['id'][-16:], ordner != 'drafts', m['subject']))
+                sichtbar += ordner == 'drafts' and m['subject'].startswith(ENTWURF)
+                geloescht += ordner != 'drafts'
+                if weg:
+                    graph(k, 'DELETE', '/me/messages/' + m['id'])
+                    print('BEFEHL DELETE /me/messages/…%s' % m['id'][-16:])
+    print('ENTWUERFE %d %d' % (sichtbar, geloescht))
+    return 0
+
+
 TESTORDNER = 'Revolution-Offline'
 
 
@@ -1812,6 +1891,7 @@ def main():
                          '#416: Graph auch an der Einladung im Papierkorb')
     ap.add_argument('--kombiniert', nargs='?', const='', metavar='LOG',
                     help='#351: nur lesend Posteingänge aller Konten (EXAMINE, Graph), Vergleich mit LOG')
+    ap.add_argument('--entwurf', nargs='+', metavar='KONTO [weg]', help='#360: Entwürfe des Tests am Server')
     ap.add_argument('--live-flags', metavar='KONTO', help='#351: nur lesend Flags der Live-Mails im Posteingang')
     ap.add_argument('--antwort', action='store_true',
                     help='#359: Testmail für Antworten per APPEND in den Posteingang von %s' % ANTWORT_KONTO)
@@ -1848,6 +1928,13 @@ def main():
 
     if args.antwort or args.antwort_kopf:
         return antwort(konten_finden(EDataServer.SourceRegistry.new_sync(None))[ANTWORT_KONTO], args.antwort_kopf)
+
+    if args.entwurf:
+        adresse = args.entwurf[0].lower()
+        nur_testkonten([adresse])
+        if args.entwurf[1:] not in ([], ['weg']):
+            ap.error('--entwurf KONTO [weg]')
+        return entwurf(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse], args.entwurf[1:] == ['weg'])
 
     if args.live_flags:
         adresse = args.live_flags.lower()

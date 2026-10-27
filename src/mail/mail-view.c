@@ -1956,6 +1956,38 @@ open_reply (RevolutionMailView     *self,
                                                revolution_mail_message_get_uid (message)));
 }
 
+/* #360: Weiterleiten (Strg+Alt+F wie Evolution e-mail-reader.c:3044-3049). */
+static void
+on_forward (GSimpleAction *action G_GNUC_UNUSED,
+            GVariant      *parameter G_GNUC_UNUSED,
+            gpointer       user_data)
+{
+  open_reply (user_data, REVOLUTION_COMPOSER_FORWARD);
+}
+
+/* #360: Öffnen (Strg+O, Doppelklick, Eingabe) im Entwürfe-Ordner bearbeitet den Entwurf weiter wie Evolution
+ * (e-mail-reader.c:3249-3254, e-mail-reader-utils.c:1438-1442); nur im Ordner selbst, nicht in den Favoriten. */
+static void
+on_open (GSimpleAction *action G_GNUC_UNUSED,
+         GVariant      *parameter G_GNUC_UNUSED,
+         gpointer       user_data)
+{
+  RevolutionMailView *self = user_data;
+  g_autoptr (RevolutionMailAccount) account = NULL;
+
+  if (self->folder == NULL || (revolution_mail_folder_get_flags (self->folder) & CAMEL_FOLDER_TYPE_MASK) != CAMEL_FOLDER_TYPE_DRAFTS)
+    return;
+  g_object_get (self->folder, "account", &account, NULL);
+  if (account != self->favorites)
+    open_reply (self, REVOLUTION_COMPOSER_DRAFT);
+}
+
+static void
+on_message_activate (RevolutionMailView *self)
+{
+  g_action_group_activate_action (G_ACTION_GROUP (self->message_actions), "open", NULL);
+}
+
 static void
 on_reply (GSimpleAction *action G_GNUC_UNUSED,
           GVariant      *parameter G_GNUC_UNUSED,
@@ -2033,6 +2065,8 @@ update_message_actions (RevolutionMailView *self)
     { "star", message != NULL },
     { "reply", message != NULL },
     { "reply-all", message != NULL },
+    { "forward", message != NULL },
+    { "open", message != NULL },
   };
   GAction *star = g_action_map_lookup_action (self->message_actions, "star");
 
@@ -2895,6 +2929,7 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   gtk_widget_class_bind_template_callback (widget_class, on_row_swipe);
   gtk_widget_class_bind_template_callback (widget_class, on_search_started);
   gtk_widget_class_bind_template_callback (widget_class, on_search_stop);
+  gtk_widget_class_bind_template_callback (widget_class, on_message_activate);
 }
 
 /* #353: Aktionen der gewählten Nachricht (update_message_actions); Kürzel in mail-view.blp. */
@@ -2906,6 +2941,8 @@ static const GActionEntry message_actions[] = {
   { "star", NULL, NULL, "false", on_star_change_state, { 0 } },
   { "reply", on_reply, NULL, NULL, NULL, { 0 } },
   { "reply-all", on_reply_all, NULL, NULL, NULL, { 0 } },
+  { "forward", on_forward, NULL, NULL, NULL, { 0 } },
+  { "open", on_open, NULL, NULL, NULL, { 0 } },
 };
 
 static void

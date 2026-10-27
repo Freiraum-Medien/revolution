@@ -279,6 +279,16 @@ menubutton.primary-menu popover.menu separator {
   border-radius: 7px;
 }
 
+/* #360: Anhang-Pille im Composer mit Knopf „Entfernen“ am Ende (Prototyp composer-hell.png). */
+.composer-attachment {
+  padding-right: 4px;
+}
+
+.composer-attachment > button {
+  min-width: 24px;
+  min-height: 24px;
+}
+
 /* Schreibfläche als große abgerundete Karte mit Abstand wie die Mail-Karte (.html-mail,
  * #400 Punkt 7). Themes (#340): hell auch im Dunkelmodus wie die Mail-Karte, Schrift
  * --dark-3 (Textfarbe des hellen Stylesheets); nur Theme „Dunkel“ (.content-dark am

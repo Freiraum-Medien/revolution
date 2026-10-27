@@ -1092,10 +1092,11 @@ on_retry_requested (RevolutionMailView *mail_view,
 
   service = uid != NULL ? camel_session_ref_service (CAMEL_SESSION (session), uid) : NULL;
   waits = service != NULL && g_object_get_data (G_OBJECT (service), "revolution-retry") != NULL;
+  /* #362: F5 sendet den Postausgang, auch Nachrichten mit unklarer Zustellung (mail-outbox.c); vor
+   * retry_stores, dessen eigener Auslöser dann nur einen Folgelauf anfordert. */
+  outbox_flush (mail_view, TRUE, "F5");
   g_clear_handle_id (&retry_id, g_source_remove);
   retry_stores (mail_view);
-  /* #362: F5 sendet den Postausgang, auch Nachrichten mit unklarer Zustellung (mail-outbox.c). */
-  outbox_flush (mail_view, TRUE, "F5");
 
   return waits;
 }

@@ -27,7 +27,7 @@ set -u
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
-OUT="${1:-$BUILD/m5-362}"
+OUT="$(realpath -m "${1:-$BUILD/m5-362}")"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-1800}"
 PHASEN="${PHASEN:-senden netz kill}"
 FEHLER=0

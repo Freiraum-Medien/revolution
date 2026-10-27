@@ -295,6 +295,8 @@ def treiber():
             kurz = absender.split('@')[0]
             mid, ab_s = senden(absender, empfaenger, kurz)
             gesendet_ok(kurz, mid, ab_s, KONTEN[absender]['transport'], protokoll, kopie)
+            # Sendelauf zu Ende, bevor die nächste kommt (sonst ist der Postausgang zu Recht kurz sichtbar).
+            pruefe('%s: Postausgang leer' % kurz, r'^Postausgang: \d+ gesendet, 0 übrig$', ab_s, 60)
             mids.append((kurz, absender, empfaenger, mid))
         nicht('senden: kein Sendefehler', r'^Senden: \S+ fehlgeschlagen', ab)
         nicht('senden: Postausgang nie sichtbar', r'^Postausgang: \d+ Nachrichten, sichtbar$', ab)

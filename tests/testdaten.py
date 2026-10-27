@@ -93,6 +93,14 @@
 #                                 papierkorb verschiebt alle Pruef418-Mails per UID MOVE in den
 #                                 Papierkorb (nicht endgültig gelöscht). Zeilen „ORDNER <UID>/INBOX“
 #                                 und „SORTIERUNG <Rolle> <IMAP-UID> <Datum>“
+#   tests/testdaten.py --suche    #365: Such-Mail (Wort nur im Text) per APPEND in geops@ (Posteingang und
+#                                 Revolution-Test) und outlook.com (Posteingang), idempotent; Zeilen
+#                                 „SUCHE <Adresse> <UID>/<Ordner>“
+#   tests/testdaten.py --suche-zahlen KONTO ORDNER
+#                                 #365, nur lesend, unabhängig von Camel: Treffer des Suchworts (IMAP UID SEARCH
+#                                 OR SUBJECT/FROM/TO/CC/BODY bzw. Graph $search) und der Filter (UNSEEN, FLAGGED,
+#                                 Anhang aus BODYSTRUCTURE bzw. Graph isRead/importance/hasAttachments), ohne
+#                                 Gelöschte und Junk; ORDNER * = alle Ordner (IMAP LIST bzw. Graph /me/messages, nur Text)
 #   tests/testdaten.py --live-flags KONTO
 #                                 #351, nur lesend: Flags der Live-Mails (--server KONTO neu INBOX) im
 #                                 Posteingang (IMAP EXAMINE + UID SEARCH SUBJECT + UID FETCH FLAGS);
@@ -716,6 +724,185 @@ def sortierung(k, aktion):
             rolle = betreff.split()[-1] if betreff != SORTIERUNG_BETREFF or 'Re:' not in kopf else 'Antwort'
             print('SORTIERUNG %s %s %s' % (rolle, uid.decode(), datum))
     c.logout()
+    return 0
+
+
+# #365: Suche. Ein Wort, das nur im Text dieser Mail steht (nicht in Betreff, Absender, Empfänger), in
+# geops@ (Posteingang und Revolution-Test: „Alle Ordner“ findet beide) und outlook.com (Posteingang).
+SUCHE_KONTEN = ('KONTO_IMAP_2@example.invalid', 'KONTO_M365@example.invalid')
+SUCHE_BETREFF = PREFIX + ' Suche Wochenmarkt'
+SUCHE_WORT = 'Quittenbrotkiste'
+
+
+def suche_nachricht():
+    m = EmailMessage(policy=email.policy.SMTP)
+    m.set_content('Testmail für die Suche in Revolution (#365). Am Samstag steht die %s neben der Waage.\n'
+                  % SUCHE_WORT)
+    m['Subject'] = SUCHE_BETREFF
+    m['From'] = email.utils.formataddr(('Revolution Testdaten', ANZEIGE_ABSENDER))
+    m['To'] = ANZEIGE_ABSENDER
+    m['Date'] = 'Mon, 26 Oct 2026 09:00:00 +0100'
+    m['Message-ID'] = msgid('suche-365')
+    msg = Camel.MimeMessage.new()
+    msg.construct_from_stream_sync(Camel.StreamMem.new_with_buffer(m.as_bytes()), None)
+    return msg
+
+
+def suche(konten, dry):
+    """#365: Such-Mail per APPEND (idempotent, als gelesen); Zeilen „SUCHE <Adresse> <UID>/<Ordner>“."""
+    for a in SUCHE_KONTEN:
+        k = konten[a]
+        nur_testkonten([a])
+        ziele = [k.inbox]
+        if k.goa.get_mail().props.imap_supported:
+            ziele.append(ordner_holen(k.store, ORDNER, False))
+        for f in ziele:
+            f.refresh_info_sync(cancellable())
+            if (SUCHE_BETREFF, ANZEIGE_ABSENDER) not in testmails(f):
+                print('  %s: %s per APPEND in %s' % (a, SUCHE_BETREFF, f.get_full_name()))
+                if dry:
+                    continue
+                info = Camel.MessageInfo.new(None)
+                info.set_flags(Camel.MessageFlags.SEEN, Camel.MessageFlags.SEEN)
+                f.append_message_sync(suche_nachricht(), info, cancellable())
+                f.synchronize_sync(False, cancellable())
+                f.refresh_info_sync(cancellable())
+            print('SUCHE %s %s/%s' % (a, k.account.get_uid(), f.get_full_name()))
+
+
+def bodystructure_anhang(teil, eltern=None):
+    """#365: Anhang nach Camel (camel_content_disposition_is_attachment_ex, camel-mime-utils.c:3987-4048) für
+    einen Teil aus IMAP BODYSTRUCTURE und seine Unterteile, wie imapx das Flag „Attachments“ setzt
+    (camel-imapx-server.c:1078-1089, 1393-1400). teil: geparste Liste."""
+    def s(x):
+        return x.decode().lower() if isinstance(x, bytes) else ''
+
+    def params(liste):
+        return {s(liste[i]): liste[i + 1] for i in range(0, len(liste) - 1, 2)} if isinstance(liste, list) else {}
+
+    if isinstance(teil[0], list):
+        n = [i for i, x in enumerate(teil) if not isinstance(x, list)][0]
+        typ, kinder, rest, name = ('multipart', s(teil[n])), teil[:n], teil[n + 1:], {}
+        disp = rest[1] if len(rest) > 1 else None
+    else:
+        typ = (s(teil[0]), s(teil[1]))
+        name = params(teil[2])
+        basis = 7 + (1 if typ[0] == 'text' else 3 if typ == ('message', 'rfc822') else 0)
+        disp = teil[basis + 1] if len(teil) > basis + 1 else None
+        kinder = []
+    disp = (s(disp[0]), params(disp[1])) if isinstance(disp, list) else None
+
+    def ist():
+        a, b = typ
+        if a == 'application' and b in ('pkcs7-mime', 'xpkcs7mime', 'xpkcs7-mime', 'x-pkcs7-mime'):
+            return False
+        if typ == ('application', 'pgp-encrypted'):
+            return eltern != ('multipart', 'encrypted')
+        if typ == ('application', 'octet-stream') and eltern == ('multipart', 'encrypted'):
+            return False
+        if a == 'application' and b in ('pkcs7-signature', 'xpkcs7signature', 'xpkcs7-signature',
+                                        'x-pkcs7-signature', 'pgp-signature'):
+            return eltern != ('multipart', 'signed')
+        if eltern and typ == ('message', 'rfc822'):
+            return True
+        if eltern == ('multipart', 'mixed') and not disp and ('name' in name or 'filename' in name):
+            return True
+        if not disp:
+            return False
+        if disp[0] == 'attachment':
+            return True
+        if disp[0] != 'inline' or a not in ('text', 'image'):
+            return bool(disp[1].get('filename'))
+        return False
+
+    return ist() or any(bodystructure_anhang(k, typ) for k in kinder)
+
+
+def imap_liste(daten):
+    """#365: Antwort von UID FETCH (BODYSTRUCTURE) als verschachtelte Listen (Literale als Strings)."""
+    roh = b''
+    for x in daten:
+        if isinstance(x, tuple):
+            kopf = x[0][:x[0].rfind(b'{')]
+            roh += kopf + b'"' + x[1].replace(b'\\', b'\\\\').replace(b'"', b'\\"') + b'"'
+        elif isinstance(x, bytes):
+            roh += x
+    stapel, aktuell = [], []
+    for t in re.findall(rb'\(|\)|"(?:\\.|[^"\\])*"|[^\s()"]+', roh):
+        if t == b'(':
+            stapel.append(aktuell)
+            aktuell = []
+        elif t == b')':
+            fertig, aktuell = aktuell, stapel.pop()
+            aktuell.append(fertig)
+        elif t.startswith(b'"'):
+            aktuell.append(re.sub(rb'\\(.)', rb'\1', t[1:-1]))
+        else:
+            aktuell.append(None if t.upper() == b'NIL' else t)
+    return aktuell
+
+
+def suche_zahlen(k, ziel):
+    """#365: nur lesend, unabhängig von Camel: Treffer wie die Suche der App (mail-search.c) je Ordner. Text:
+    IMAP UID SEARCH OR SUBJECT/FROM/TO/CC/BODY bzw. Graph $search; Filter: UNSEEN, FLAGGED (Graph isRead,
+    importance high wie camel-m365-folder.c:659-660), Anhang aus BODYSTRUCTURE (bodystructure_anhang) bzw.
+    Graph hasAttachments (camel-m365-folder.c:650-651). Ohne Gelöschte und Junk wie --anzahl. ziel „*“: alle
+    Ordner des Kontos (LIST wie die Seitenleiste bei geops@ ohne Abos; Graph /me/messages), nur Text, Summe. Zeilen
+    „SUCHE <UID>/<Ordner> text N ungelesen N markiert N anhang N“ bzw. „SUCHE <UID>/* text N“."""
+    w = SUCHE_WORT
+    if not k.goa.get_mail().props.imap_supported:
+        def zaehle(pfad):
+            n, url = 0, pfad
+            while url:
+                antwort = graph(k, 'GET', url)
+                n += len(antwort['value'])
+                url = antwort.get('@odata.nextLink', '').replace(GRAPH, '') or None
+            return n
+        if ziel == '*':
+            print('SUCHE %s/* text %d' % (k.account.get_uid(),
+                                          zaehle('/me/messages?$select=id&$top=100&$search=%22' + w + '%22')))
+            return 0
+        basis = '/me/mailFolders/inbox/messages?$select=id&$top=100'
+        print('SUCHE %s/%s text %d ungelesen %d markiert %d anhang %d' % (
+            k.account.get_uid(), ziel, zaehle(basis + '&$search=%22' + w + '%22'),
+            zaehle(basis + '&$filter=isRead%20eq%20false'), zaehle(basis + '&$filter=importance%20eq%20%27high%27'),
+            zaehle(basis + '&$filter=hasAttachments%20eq%20true')))
+        return 0
+    c = imap_verbinden(k)
+    sichtbar = ['UNDELETED', 'UNKEYWORD', 'Junk', 'UNKEYWORD', '$Junk']
+    text = ['OR', 'SUBJECT', w, 'OR', 'FROM', w, 'OR', 'TO', w, 'OR', 'CC', w, 'BODY', w]
+    try:
+        if ziel == '*':
+            summe = 0
+            for z in c.list('""', '*')[1]:
+                m = re.match(rb'\((?P<flags>[^)]*)\) (?P<delim>"[^"]*"|NIL) (?P<name>.*)$', z) \
+                    if isinstance(z, bytes) else None
+                if not m or b'\\noselect' in m.group('flags').lower():
+                    continue
+                roh = m.group('name').decode()
+                c.select(roh if roh.startswith('"') else '"%s"' % roh, readonly=True)
+                n = len(c.uid('SEARCH', None, *(sichtbar + text))[1][0].split())
+                if n:
+                    print('TREFFER %s %d' % (roh, n))
+                summe += n
+            print('SUCHE %s/* text %d' % (k.account.get_uid(), summe))
+            return 0
+        name, _ = imap_ordner(c, ziel)
+        c.select('"%s"' % name, readonly=True)
+        alle = c.uid('SEARCH', None, *sichtbar)[1][0].split()
+        anhang = 0
+        if alle:
+            daten = c.uid('FETCH', b','.join(alle).decode(), '(BODYSTRUCTURE)')[1]
+            for eintrag in imap_liste(daten):
+                if isinstance(eintrag, list):
+                    i = [j for j, x in enumerate(eintrag) if x == b'BODYSTRUCTURE'][0]
+                    anhang += bodystructure_anhang(eintrag[i + 1])
+        print('SUCHE %s/%s text %d ungelesen %d markiert %d anhang %d' % (
+            k.account.get_uid(), ziel, len(c.uid('SEARCH', None, *(sichtbar + text))[1][0].split()),
+            len(c.uid('SEARCH', None, *(sichtbar + ['UNSEEN']))[1][0].split()),
+            len(c.uid('SEARCH', None, *(sichtbar + ['FLAGGED']))[1][0].split()), anhang))
+    finally:
+        c.logout()
     return 0
 
 
@@ -1708,6 +1895,10 @@ def main():
                     help='#357: Konversation (5 Mails) per APPEND in Posteingang und Gesendet (geops@, outlook.com)')
     ap.add_argument('--schwer', nargs=2, metavar=('KONTO', 'neu|papierkorb'),
                     help='#412: große Mail mit Start- und Zielmail im Posteingang (IMAP, nicht privat@)')
+    ap.add_argument('--suche', action='store_true',
+                    help='#365: Such-Mail per APPEND in geops@ (Posteingang, Revolution-Test) und outlook.com')
+    ap.add_argument('--suche-zahlen', nargs=2, metavar=('KONTO', 'ORDNER'),
+                    help='#365: nur lesend Treffer der Suche und der Filter je Ordner (ORDNER * = alle per LIST, nur Text)')
     args = ap.parse_args()
     if args.last is not None and args.last < 1:
         ap.error('--last N mit N ≥ 1 (#411)')
@@ -1742,6 +1933,11 @@ def main():
         if args.sortierung[1] not in ('basis', 'neu', 'papierkorb'):
             ap.error('--sortierung KONTO basis|neu|papierkorb')
         return sortierung(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse], args.sortierung[1])
+
+    if args.suche_zahlen:
+        adresse = args.suche_zahlen[0].lower()
+        nur_testkonten([adresse])
+        return suche_zahlen(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse], args.suche_zahlen[1])
 
     if args.konversation_flags:
         adresse = args.konversation_flags.lower()
@@ -1811,6 +2007,13 @@ def main():
         for a in ANHANG_KONTEN:
             konten[a].store.disconnect_sync(True, None)
         return 0
+    if args.suche:
+        for a in SUCHE_KONTEN:
+            store_oeffnen(session, konten[a])
+        suche(konten, args.dry_run)
+        for a in SUCHE_KONTEN:
+            konten[a].store.disconnect_sync(True, None)
+        return 0
     if args.konversation:
         for a in KONVERSATION_KONTEN:
             store_oeffnen(session, konten[a])
@@ -1848,7 +2051,7 @@ def main():
 # und als Zeile in der Datei TESTDATEN_WIEDERHOLT (Umgebung, tests/abbruch.sh zählt sie).
 TRANSIENT = (imaplib.IMAP4.abort, ConnectionError, TimeoutError, ssl.SSLError, urllib.error.URLError)
 MODI = ('--pruefen', '--ordner', '--anzeige', '--anhang', '--anhang-teile', '--last', '--flags', '--ungelesen',
-        '--zaehler', '--anzahl', '--server', '--kombiniert', '--live-flags', '--schwer')
+        '--zaehler', '--anzahl', '--server', '--kombiniert', '--live-flags', '--schwer', '--suche-zahlen')
 
 
 def main_mit_wiederholung():

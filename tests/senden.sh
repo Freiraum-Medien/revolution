@@ -4,7 +4,7 @@
 # Aufruf: tests/senden.sh [AUSGABEORDNER]   (Standard BUILD/m5-362)
 #   BUILD     Build-Ordner, Standard build/ im Repo (vorher meson compile)
 #   LAEUFE    Zahl der Läufe, Standard 3
-#   PHASEN    Standard „senden netz kill“ (tests/senden-treiber.py)
+#   PHASEN    Standard „senden netz kill kopie“ (tests/senden-treiber.py)
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 1800
 #
 # Netz wie tests/banner.sh: die App läuft im eigenen Netz-Namensraum, tests/netz-relay.py leitet TCP und
@@ -12,7 +12,7 @@
 # sperrt einzelne Ports per nft (SMTP 465 von sslout.df.eu). Serverstand prüft tests/testdaten.py
 # (--zustellung, nur lesend) im normalen Netz über das Relais, am Ende löscht --aufraeumen nur die
 # Testmails des Laufs. Absender und Empfänger nur die vier Testkonten. Die App lädt je Phase nur die
-# sendenden Konten (senden: geops@, outlook.com, Gmail; netz, kill: geops@); alle anderen, auch die nur
+# sendenden Konten (senden: geops@, outlook.com, Gmail; netz, kill, kopie: geops@); alle anderen, auch die nur
 # lesend freigegebenen, schließt REVOLUTION_SKIP_ACCOUNTS aus (REVOLUTION_TEST_HOOKS=1). Jeder Start hat
 # einen eigenen Postausgang (XDG_DATA_HOME unter AUSGABEORDNER, danach gelöscht).
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler. Abbrüche zählen als FEHLER
@@ -29,7 +29,7 @@ BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
 OUT="$(realpath -m "${1:-$BUILD/m5-362}")"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-1800}"
-PHASEN="${PHASEN:-senden netz kill}"
+PHASEN="${PHASEN:-senden netz kill kopie}"
 FEHLER=0
 
 [ -x "$BIN" ] || { echo "FEHLER  Build: $BIN fehlt (meson compile)"; exit 1; }
@@ -40,6 +40,8 @@ bus_hat_app () {
   gdbus call --session -d org.freedesktop.DBus -o /org/freedesktop/DBus \
     -m org.freedesktop.DBus.NameHasOwner "$APP_ID" 2>/dev/null
 }
+# Warten, bis eine vorige Instanz (anderer Lauf unter derselben Sperre) den Bus verlassen hat.
+for _ in $(seq 60); do [ "$(bus_hat_app)" = "(false,)" ] && break; sleep 1; done
 [ "$(bus_hat_app)" = "(false,)" ] || { echo "FEHLER  Session-Bus: $APP_ID läuft schon"; exit 1; }
 mkdir -p "$OUT"
 . "$APP_DIR/tests/abbruch.sh"

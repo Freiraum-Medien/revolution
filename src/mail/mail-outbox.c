@@ -31,11 +31,12 @@
 /* mail-outbox.c – Postausgang und Senden (#362)
  *
  * Übernommen aus Evolution 3.56.2 src/libemail-engine, gekürzt, ohne GTK:
- *   Postausgang im lokalen Store         e-mail-session.c:824-893 (mail_session_configure_local_store)
+ *   Postausgang im lokalen Store         e-mail-session.c:824-894 (mail_session_configure_local_store)
  *   Ablegen im Postausgang               e-mail-session-utils.c:123-232 (append_to_local_folder),
  *                                        Flags wie src/mail/em-composer-utils.c:1555-1580
- *   Versanddienst zur Nachricht          e-mail-session-utils.c:1436-1645 (ref_transport…)
- *   Senden einer Nachricht               mail-ops.c:572-940 (mail_send_message)
+ *   Versanddienst zur Nachricht          e-mail-session-utils.c:1440-1644 (ref_transport…), nur über
+ *                                        X-Evolution-Identity
+ *   Senden einer Nachricht               mail-ops.c:572-920 (mail_send_message)
  *   Senden des Postausgangs              mail-ops.c:965-1126 (send_queue_exec)
  *   X-Evolution-Köpfe entfernen/zurück   mail-tools.c:217-273
  * Geändert gegenüber der Vorlage:
@@ -49,8 +50,12 @@
  *   - Kopie nach Gesendet: Ordner nach der Regel der Seitenleiste (#350,
  *     revolution_mail_folder_mark_special) statt e_mail_session_get_fcc_for_message_sync
  *     (e-mail-session-utils.c:1217-1298), siehe outbox_ref_sent_folder. Ohne lokalen Ordner „Sent“
- *     als Rückfall (dort 1290-1295, mail-ops.c:799-836): scheitert die Kopie, ist die Nachricht
- *     trotzdem gesendet; sie verlässt den Postausgang wie in Evolution, der Fehler kommt ins Banner.
+ *     als Rückfall (dort 1290-1295, mail-ops.c:799-836): scheitert die Kopie, bleibt die gesendete
+ *     Nachricht mit der Marke „revolution-sent“ im Postausgang (Banner „Gesendet, Kopie in Gesendet
+ *     folgt“); der nächste Lauf (F5, Netzwechsel, Store verbunden) legt nur noch die Kopie an. Evolution
+ *     legt sie stattdessen in den lokalen „Sent“ und nimmt die Nachricht aus dem Postausgang.
+ *   - Versanddienst nur aus X-Evolution-Identity (Revolution setzt nur diesen Kopf); ohne Rückfall auf
+ *     X-Evolution-Transport und die Standard-Identität (e-mail-session-utils.c:1579-1641).
  *   - Ohne Filter für ausgehende Nachrichten (Revolution hat keine, mail-session.c
  *     get_filter_driver), ohne X-Evolution-PostTo, Entwurf- und Quellkopf-Nachbereitung (kommen mit
  *     #360), ohne e_mail_session_mark_service_used_sync (in Revolution sendet nur ein Lauf zur Zeit,
@@ -81,7 +86,7 @@
 #define USER_AGENT ("Revolution " PACKAGE_VERSION)
 
 /* Im Worker (main.c, load_session_thread) wie mail_session_configure_local_store
- * (e-mail-session.c:824-893), dort aus constructed: Store anlegen (Evolution über die eingebaute
+ * (e-mail-session.c:824-894), dort aus constructed: Store anlegen (Evolution über die eingebaute
  * Quelle „local“, Backend maildir), Pfad setzen, Postausgang anlegen bzw. öffnen und halten. */
 gboolean
 revolution_mail_outbox_setup (CamelSession  *session,
@@ -288,21 +293,19 @@ outbox_ref_transport_for_identity (CamelSession *session,
 	return transport;
 }
 
-/* e-mail-session-utils.c:1547-1645 (ref_transport_from_x_identity, …_from_x_transport,
- * e_mail_session_ref_transport_for_message, Rückfall auf die Standard-Identität dort 1530-1545). */
+/* e-mail-session-utils.c:1547-1577 (mail_session_ref_transport_from_x_identity). */
 static CamelService *
 outbox_ref_transport_for_message (CamelSession *session,
                                   ESourceRegistry *registry,
                                   CamelMimeMessage *message)
 {
-	CamelMedium *medium = CAMEL_MEDIUM (message);
 	CamelService *transport = NULL;
 	const gchar *header_value;
 	ESource *source;
 	gchar *uid;
 
 	/* Check for "X-Evolution-Identity" header. */
-	header_value = camel_medium_get_header (medium, "X-Evolution-Identity");
+	header_value = camel_medium_get_header (CAMEL_MEDIUM (message), "X-Evolution-Identity");
 	if (header_value != NULL) {
 		uid = g_strstrip (g_strdup (header_value));
 		source = e_source_registry_ref_source (registry, uid);
@@ -311,22 +314,34 @@ outbox_ref_transport_for_message (CamelSession *session,
 		g_free (uid);
 	}
 
-	/* Check for "X-Evolution-Transport" header. */
-	header_value = camel_medium_get_header (medium, "X-Evolution-Transport");
-	if (transport == NULL && header_value != NULL) {
-		uid = g_strstrip (g_strdup (header_value));
-		transport = outbox_ref_transport (session, registry, uid);
-		g_free (uid);
-	}
-
-	/* Fall back to the default mail transport. */
-	if (transport == NULL) {
-		source = e_source_registry_ref_default_mail_identity (registry);
-		transport = outbox_ref_transport_for_identity (session, registry, source);
-		g_clear_object (&source);
-	}
-
 	return transport;
+}
+
+/* #362: Gmail legt gesendete Nachrichten selbst in Gesendet ab; EDS prüft das am Host
+ * (camel_imapx_store_is_gmail_server, camel-imapx-store.c:2562-2586, ohne installierten Header,
+ * nur im Modul libcamelimapx), hier dieselbe Prüfung. */
+static gboolean
+outbox_is_gmail (CamelService *store)
+{
+	CamelSettings *settings;
+	gboolean is_gmail = FALSE;
+
+	settings = camel_service_ref_settings (store);
+	if (CAMEL_IS_NETWORK_SETTINGS (settings)) {
+		gchar *host;
+
+		host = camel_network_settings_dup_host (CAMEL_NETWORK_SETTINGS (settings));
+
+		is_gmail = host && (
+			camel_strstrcase (host, ".gmail.com") != NULL ||
+			camel_strstrcase (host, ".googlemail.com") != NULL);
+
+		g_free (host);
+	}
+
+	g_clear_object (&settings);
+
+	return is_gmail;
 }
 
 static CamelFolderInfo *
@@ -350,14 +365,17 @@ find_sent (CamelFolderInfo *fi)
  * Seitenleiste (#350, revolution_mail_folder_mark_special): ESource „sent-folder“, wenn sie in den Store
  * des Kontos zeigt, sonst die Ersteinrichtung des Stores (Evolution schreibt sie beim ersten Verbinden in
  * die ESource, mail-folder-cache.c:1971-2028; bei den GOA-Konten steht dort sonst folder://local/Sent).
- * „use-sent-folder“ aus wie dort 1060-1066: keine Kopie. NULL ohne Fehler: keine Kopie (Gmail: EDS lässt
- * Gesendet in der Ersteinrichtung aus, weil Gmail gesendete Nachrichten selbst ablegt,
- * camel-imapx-store.c:2874-2881). *out_store: Store des Ordners. */
+ * „use-sent-folder“ aus wie dort 1066-1067: keine Kopie. NULL ohne Fehler: keine Kopie, auch für Gmail
+ * (*out_server_saves): Gmail legt gesendete Nachrichten selbst ab, EDS lässt Gesendet deshalb in der
+ * Ersteinrichtung aus (camel-imapx-store.c:2874-2881); imapx setzt den Typ aber aus \Sent
+ * (camel-imapx-store.c:540-542), daher die Prüfung outbox_is_gmail vor der Ordnersuche.
+ * *out_store: Store des Ordners. */
 static CamelFolder *
 outbox_ref_sent_folder (CamelSession *session,
                         ESourceRegistry *registry,
                         const gchar *identity_uid,
                         CamelStore **out_store,
+                        gboolean *out_server_saves,
                         GCancellable *cancellable,
                         GError **error)
 {
@@ -368,6 +386,7 @@ outbox_ref_sent_folder (CamelSession *session,
 	CamelFolder *folder = NULL;
 
 	*out_store = NULL;
+	*out_server_saves = FALSE;
 
 	identity = identity_uid != NULL ? e_source_registry_ref_source (registry, identity_uid) : NULL;
 	if (identity == NULL || !e_source_has_extension (identity, E_SOURCE_EXTENSION_MAIL_SUBMISSION) ||
@@ -391,6 +410,12 @@ outbox_ref_sent_folder (CamelSession *session,
 
 	if (!CAMEL_IS_STORE (store)) {
 		g_clear_object (&store);
+		return NULL;
+	}
+
+	if (outbox_is_gmail (store)) {
+		*out_server_saves = TRUE;
+		g_object_unref (store);
 		return NULL;
 	}
 
@@ -436,7 +461,7 @@ outbox_sync (CamelFolder *queue)
 	}
 }
 
-/* mail-ops.c:572-940 (mail_send_message), gekürzt (Kopf dieser Datei). out_transport_uid: Versanddienst
+/* mail-ops.c:572-920 (mail_send_message), gekürzt (Kopf dieser Datei). out_transport_uid: Versanddienst
  * bzw. Identität für das Banner, out_name: Anzeigename. */
 static SendResult
 mail_send_message (CamelSession *session,
@@ -484,8 +509,12 @@ mail_send_message (CamelSession *session,
 
 	message = camel_folder_get_message_sync (
 		queue, uid, cancellable, error);
-	if (!message)
+	if (!message) {
+		/* #362: Banner auch ohne lesbare Nachricht (main.c). */
+		*out_transport_uid = g_strdup (REVOLUTION_MAIL_LOCAL_UID);
+		*out_name = g_strdup (_("Postausgang"));
 		return SEND_FAILED;
+	}
 
 	message_id = camel_mime_message_get_message_id (message);
 	queue_info = camel_folder_get_message_info (queue, uid);
@@ -548,7 +577,7 @@ mail_send_message (CamelSession *session,
 		}
 		if (provider && (provider->flags & CAMEL_PROVIDER_IS_REMOTE) != 0 &&
 		    !camel_session_get_online (session)) {
-			/* silently ignore */
+			/* silently ignore (mail-ops.c:656-660) */
 			g_debug ("Senden: %s offline, bleibt im Postausgang", message_id);
 			result = SEND_OFFLINE;
 			goto exit;
@@ -604,20 +633,21 @@ mail_send_message (CamelSession *session,
 	/* post process */
 	mail_tool_restore_xevolution_headers (message, xev_headers);
 
-	if (!sent_message_saved && (provider == NULL
-	    || !(provider->flags & CAMEL_PROVIDER_DISABLE_SENT_FOLDER))) {
-		folder = outbox_ref_sent_folder (session, registry, identity_uid, &sent_store,
-		                                 cancellable, &local_error);
-
+	if (sent_message_saved) {
+		g_debug ("Senden: %s Kopie in Gesendet legt der Server an", message_id);
+	} else if (provider != NULL && g_strcmp0 (provider->protocol, "microsoft365") == 0) {
 		/* #362: microsoft365 legt die Nachricht selbst in Gesendet ab, wenn der Gesendet-Ordner der
 		 * Identität der des Stores ist (evolution-ews 3.56.2 camel-m365-transport.c:32-115, 320-323:
-		 * dann sent_message_saved). Revolution schreibt ihn nicht in die ESource (#350), daher hier
-		 * dieselbe Prüfung mit dem Gesendet-Ordner nach der Regel der Seitenleiste. */
-		if (folder != NULL && provider != NULL && g_strcmp0 (provider->protocol, "microsoft365") == 0 &&
-		    g_strcmp0 (camel_service_get_provider (CAMEL_SERVICE (sent_store))->protocol, "microsoft365") == 0) {
-			g_debug ("Senden: %s Kopie in Gesendet legt der Server an (microsoft365)", message_id);
-			g_clear_object (&folder);
-		} else if (folder != NULL) {
+		 * dann sent_message_saved). Revolution schreibt ihn nicht in die ESource (#350), nimmt aber
+		 * genau diesen Ordner als Gesendet (Seitenleiste, Ordnertyp vom Server); daher keine Kopie. */
+		g_debug ("Senden: %s Kopie in Gesendet legt der Server an (microsoft365)", message_id);
+	} else if (provider == NULL || !(provider->flags & CAMEL_PROVIDER_DISABLE_SENT_FOLDER)) {
+		gboolean server_saves;
+
+		folder = outbox_ref_sent_folder (session, registry, identity_uid, &sent_store, &server_saves,
+		                                 cancellable, &local_error);
+
+		if (folder != NULL) {
 			camel_folder_append_message_sync (
 				folder, message, info, NULL,
 				cancellable, &local_error);
@@ -625,6 +655,8 @@ mail_send_message (CamelSession *session,
 				g_debug ("Senden: %s Kopie in %s/%s", message_id,
 					 camel_service_get_uid (CAMEL_SERVICE (sent_store)),
 					 camel_folder_get_full_name (folder));
+		} else if (server_saves) {
+			g_debug ("Senden: %s Kopie in Gesendet legt der Server an (Gmail)", message_id);
 		} else if (local_error == NULL) {
 			g_debug ("Senden: %s ohne Gesendet-Ordner, keine Kopie", message_id);
 		}
@@ -633,11 +665,13 @@ mail_send_message (CamelSession *session,
 			local_error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
 			goto exit;
 
-		/* Gesendet ist die Nachricht trotzdem (Kopf dieser Datei). */
-		if (local_error != NULL)
-			g_prefix_error (&local_error, _("Gesendet, aber keine Kopie in „Gesendet“: "));
-	} else if (sent_message_saved) {
-		g_debug ("Senden: %s Kopie in Gesendet legt der Server an", message_id);
+		/* #362: gesendet, Kopie fehlt: mit „revolution-sent“ im Postausgang lassen (Kopf dieser Datei). */
+		if (local_error != NULL) {
+			g_debug ("Senden: %s Kopie in Gesendet fehlt, bleibt im Postausgang: %s", message_id,
+				 local_error->message);
+			result = SEND_NO_COPY;
+			goto exit;
+		}
 	}
 
 	camel_folder_set_message_flags (
@@ -647,7 +681,7 @@ mail_send_message (CamelSession *session,
 	 * we keep sending it again on next start. */
 	outbox_sync (queue);
 	g_debug ("Senden: %s aus dem Postausgang entfernt", message_id);
-	result = local_error == NULL ? SEND_DONE : SEND_NO_COPY;
+	result = SEND_DONE;
 
 exit:
 	if (did_connect) {
@@ -664,7 +698,8 @@ exit:
 	}
 
 	if (local_error != NULL) {
-		g_debug ("Senden: %s fehlgeschlagen: %s", message_id, local_error->message);
+		if (result != SEND_NO_COPY)
+			g_debug ("Senden: %s fehlgeschlagen: %s", message_id, local_error->message);
 		g_propagate_error (error, local_error);
 	}
 
@@ -753,10 +788,10 @@ revolution_mail_outbox_flush_sync (CamelSession *session,
 				g_ptr_array_add (flush->sent_uids, g_steal_pointer (&transport_uid));
 				break;
 			case SEND_NO_COPY:
-				/* Gesendet und aus dem Postausgang, nur die Kopie fehlt. */
-				flush->sent++;
+				/* Gesendet, die Kopie folgt im nächsten Lauf (bleibt im Postausgang). */
+				failed++;
 				g_ptr_array_add (flush->failed_uids, g_steal_pointer (&transport_uid));
-				g_ptr_array_add (flush->failed_titles, (gpointer) _("Keine Kopie in Gesendet"));
+				g_ptr_array_add (flush->failed_titles, (gpointer) _("Gesendet, Kopie in Gesendet folgt"));
 				g_ptr_array_add (flush->failed_details, g_strdup_printf ("%s: %s", name, local_error->message));
 				break;
 			case SEND_OFFLINE:
@@ -766,8 +801,9 @@ revolution_mail_outbox_flush_sync (CamelSession *session,
 				g_ptr_array_add (flush->failed_uids, g_steal_pointer (&transport_uid));
 				g_ptr_array_add (flush->failed_titles, (gpointer) _("Versand unterbrochen"));
 				g_ptr_array_add (flush->failed_details, g_strdup_printf (
-					_("%s: Zustellung unklar, das Programm wurde während des Sendens beendet. "
-					  "Die Nachricht bleibt im Postausgang, F5 sendet sie erneut."), name));
+					_("%s: Das Programm wurde während des Sendens beendet, die Nachricht ist "
+					  "vielleicht schon zugestellt. Sie bleibt im Postausgang; F5 sendet sie erneut, "
+					  "dann kommt sie unter Umständen doppelt an."), name));
 				break;
 			case SEND_FAILED:
 			default:
@@ -806,8 +842,8 @@ revolution_mail_outbox_flush_sync (CamelSession *session,
  * composer_save_to_outbox_completed (em-composer-utils.c:1500-1580): Nachricht mit Flag „gelesen“ im
  * Worker in den Postausgang (e_mail_session_append_to_local_folder, e-mail-session-utils.c:123-232),
  * danach sofort senden (emcu_manage_flush_outbox mit Verzögerung 0, dort 1482-1497:
- * e_mail_session_flush_outbox, Signal „flush-outbox“). Die Köpfe X-Evolution-Identity und
- * X-Evolution-Transport setzt hier die Identität wie Evolutions Composer (e-msg-composer.c:710-720);
+ * e_mail_session_flush_outbox, Signal „flush-outbox“). Den Kopf X-Evolution-Identity setzt hier die
+ * Identität wie Evolutions Composer (e-msg-composer.c:710-712); X-Evolution-Transport und
  * X-Evolution-Fcc nicht (Gesendet nach #350, outbox_ref_sent_folder). Die Session hält die
  * Anwendung (main.c, Daten „session“). Das Ergebnis meldet nur das Ablegen; Versand und Fehler folgen
  * über den Postausgang (Banner). */
@@ -902,9 +938,6 @@ revolution_mail_send_message (CamelMimeMessage *message,
 	}
 
 	camel_medium_set_header (CAMEL_MEDIUM (message), "X-Evolution-Identity", identity_uid);
-	camel_medium_set_header (CAMEL_MEDIUM (message), "X-Evolution-Transport",
-		e_source_mail_submission_get_transport_uid (
-			e_source_get_extension (identity, E_SOURCE_EXTENSION_MAIL_SUBMISSION)));
 
 	data = g_new0 (AppendData, 1);
 	data->session = g_object_ref (session);

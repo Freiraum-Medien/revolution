@@ -21,6 +21,10 @@
 #           (3) nach dem Senden; Neustart: Nachricht im Postausgang oder zugestellt, nie verloren,
 #           höchstens einmal beim Empfänger; (2) bleibt mit „Versand unterbrochen“ im Postausgang, F5 sendet
 #           sie nur, wenn sie noch nicht zugestellt ist.
+#   netz    zusätzlich (d) Netz weg während eines laufenden Sendelaufs (465 hängt), sofort zurück: geht raus.
+#   kopie   geops@ → privat@ mit gekapptem IMAP (993), SMTP frei: gesendet, Kopie nach Gesendet scheitert,
+#           Nachricht bleibt im Postausgang (Banner „Gesendet, Kopie in Gesendet folgt“); 993 frei, F5: nur
+#           die Kopie, genau einmal in Gesendet und beim Empfänger.
 # Ausgabe: „OK …“, „FEHLER …“, „WERT …“; Log OUT/NAME.log (alle Starts), Screenshots OUT/NAME-*.png.
 #
 # Copyright 2026 Arnd Messer
@@ -288,7 +292,7 @@ def treiber():
             ('KONTO_IMAP_2@example.invalid', 'KONTO_IMAP_1@example.invalid', 'smtp', r'Kopie in %s/' % KONTEN['KONTO_IMAP_2@example.invalid']['konto']),
             ('KONTO_M365@example.invalid', 'KONTO_GOOGLE@example.invalid', 'microsoft365',
              r'Kopie in Gesendet legt der Server an \(microsoft365\)$'),
-            ('KONTO_GOOGLE@example.invalid', 'KONTO_IMAP_2@example.invalid', 'smtp', r'ohne Gesendet-Ordner, keine Kopie$'),
+            ('KONTO_GOOGLE@example.invalid', 'KONTO_IMAP_2@example.invalid', 'smtp', r'Kopie in Gesendet legt der Server an \(Gmail\)$'),
         )
         mids = []
         for absender, empfaenger, protokoll, kopie in faelle:
@@ -365,8 +369,60 @@ def treiber():
         pruefe('F5: Sendelauf', r'^Postausgang: Sendelauf \(F5\)$', ab_g, 30)
         gesendet_ok('F5', mid, ab_g, transport, 'smtp', r'Kopie in %s/' % KONTEN[absender]['konto'])
         pruefe('F5: Banner weg', r'^Banner: %s verbunden, Nicht gesendet weg, 0 Fehler übrig$' % transport, ab_g, 30)
-        beenden(fall, w)
         genau_einmal('F5', absender, empfaenger, mid)
+
+        # (d) Netz weg während eines laufenden Sendelaufs (Verbindungsaufbau hängt), sofort zurück.
+        kapp('haengen 465')
+        mid, ab_h = senden(absender, empfaenger, 'abbruch')
+        pruefe('Abbruch: Sendelauf läuft', r'^Postausgang: 1 Nachrichten senden$', ab_h, 30)
+        time.sleep(3)
+        ab_i = len(log_zeilen())
+        netz('down')
+        pruefe('Abbruch: Netz weg', r'^Netz: nicht verfügbar, offline', ab_i, 30)
+        pruefe('Abbruch: Lauf zu Ende', r'^Postausgang: \d+ gesendet, 1 übrig$', ab_i, 60)
+        kapp('frei 465')
+        netz('up')
+        pruefe('Abbruch: Netz zurück', r'^Netz: online, ', ab_i, 60)
+        gesendet_ok('Abbruch', mid, ab_i, transport, 'smtp', r'Kopie in %s/' % KONTEN[absender]['konto'])
+        pruefe('Abbruch: Postausgang ausgeblendet', r'^Postausgang: 0 Nachrichten, ausgeblendet$', ab_i, 30)
+        beenden(fall, w)
+        genau_einmal('Abbruch', absender, empfaenger, mid)
+
+    def phase_kopie():
+        """Kopie nach Gesendet scheitert (IMAP 993 gekappt, SMTP 465 frei): gesendet, bleibt im Postausgang,
+        Banner; 993 frei, F5: nur die Kopie, genau einmal in Gesendet und beim Empfänger."""
+        absender, empfaenger = 'KONTO_IMAP_2@example.invalid', 'KONTO_IMAP_1@example.invalid'
+        transport = KONTEN[absender]['transport']
+        fall = 'kopie'
+        ab, w = start(fall, daten_ordner(fall))
+        verbunden(fall, ab, (absender,))
+        kapp('kappen 993')
+        mid, ab_a = senden(absender, empfaenger, 'kopie')
+        pruefe('Kopie: gesendet', r'^Senden: %s gesendet nach' % re.escape(mid), ab_a, 120)
+        pruefe('Kopie: fehlt', r'^Senden: %s Kopie in Gesendet fehlt, bleibt im Postausgang' % re.escape(mid), ab_a, 180)
+        pruefe('Kopie: Banner', r'^Banner: Gesendet, Kopie in Gesendet folgt, \d+ Fehler$', ab_a, 30)
+        pruefe('Kopie: Postausgang sichtbar', r'^Postausgang: 1 Nachrichten, sichtbar$', ab_a, 30)
+        nicht('Kopie: nicht aus dem Postausgang', r'^Senden: %s aus dem Postausgang entfernt$' % re.escape(mid), ab_a)
+        bild('kopie-fehlt')
+        n, z = warte_zustellung(empfaenger, mid, 'eingang', 1)
+        (ok if n == 1 else falsch)('Kopie: beim Empfänger %d× (%s)' % (n, z))
+        g = zustellung(absender, mid).get('gesendet', 0)
+        (ok if g == 0 else falsch)('Kopie: noch nicht in Gesendet (%d)' % g)
+        kapp('frei 993')
+        time.sleep(3)
+        ab_b = len(log_zeilen())
+        taste('F5')
+        pruefe('Kopie F5: Sendelauf', r'^Postausgang: Sendelauf \(F5\)$', ab_b, 30)
+        pruefe('Kopie F5: nur Nachbereitung', r'^Senden: %s schon gesendet, nur Nachbereitung$' % re.escape(mid), ab_b, 60)
+        pruefe('Kopie F5: Kopie', r'^Senden: %s Kopie in %s/' % (re.escape(mid), KONTEN[absender]['konto']), ab_b, 180)
+        pruefe('Kopie F5: aus dem Postausgang', r'^Senden: %s aus dem Postausgang entfernt$' % re.escape(mid), ab_b, 60)
+        pruefe('Kopie F5: Banner weg', r'^Banner: %s verbunden, Gesendet, Kopie in Gesendet folgt weg, \d+ Fehler übrig$'
+               % transport, ab_b, 30)
+        pruefe('Kopie F5: Postausgang ausgeblendet', r'^Postausgang: 0 Nachrichten, ausgeblendet$', ab_b, 30)
+        nicht('Kopie F5: nicht erneut gesendet', r'^Senden: %s über ' % re.escape(mid), ab_b)
+        bild('kopie-nachher')
+        beenden(fall, w)
+        genau_einmal('Kopie', absender, empfaenger, mid, gesendet_soll=1)
 
     def phase_kill():
         absender, empfaenger = 'KONTO_IMAP_2@example.invalid', 'KONTO_IMAP_1@example.invalid'
@@ -427,7 +483,7 @@ def treiber():
             (ok if g == 1 else wert)('%s: Gesendet von %s %d×' % (fall, absender, g))
 
     try:
-        {'senden': phase_senden, 'netz': phase_netz, 'kill': phase_kill}[PHASE]()
+        {'senden': phase_senden, 'netz': phase_netz, 'kill': phase_kill, 'kopie': phase_kopie}[PHASE]()
     finally:
         if app[0] is not None and app[0].poll() is None:
             app[0].kill()

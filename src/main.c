@@ -640,7 +640,7 @@ on_folder_opened (RevolutionMailView *mail_view,
  * 1319-1321), Start („send-recv-on-start“, Vorgabe an, „This includes also sending messages from Outbox“,
  * org.gnome.evolution.mail.gschema.xml.in:794-797), Netz zurück (go_online); dazu nach einem
  * gescheiterten Lauf F5 (Evolution: Senden/Empfangen), Netzwechsel (retry_stores) und ein verbundener
- * Store (on_connection_status). Offline bleibt alles im Postausgang (mail-ops.c:661-665). Fehler je
+ * Store (on_connection_status). Offline bleibt alles im Postausgang (mail-ops.c:656-660). Fehler je
  * Versanddienst ins Sammel-Banner (#420), weg nach dem nächsten erfolgreichen Versand über ihn. */
 static gboolean outbox_running;
 static gboolean outbox_again;
@@ -673,17 +673,19 @@ on_outbox_flushed (GObject      *source_object G_GNUC_UNUSED,
 
   outbox_running = FALSE;
   g_clear_object (&outbox_cancellable);
-  if (flush == NULL)
-    return;
-
-  for (guint i = 0; i < flush->sent_uids->len; i++)
-    revolution_mail_view_clear_account_errors (mail_view, flush->sent_uids->pdata[i]);
-  for (guint i = 0; i < flush->failed_uids->len; i++)
-    revolution_mail_view_show_account_error (mail_view, flush->failed_uids->pdata[i], flush->failed_titles->pdata[i],
-                                             flush->failed_details->pdata[i]);
-  outbox_failed = flush->failed_uids->len > 0 && flush->left > 0;
-  revolution_mail_view_set_outbox (mail_view, flush->left);
-  revolution_mail_outbox_flush_free (flush);
+  /* Auch nach einem abgebrochenen Lauf (Netz weg): Ergebnis und Folgelauf nicht verlieren
+   * (g_task_set_check_cancellable in outbox_flush). */
+  if (flush != NULL)
+    {
+      for (guint i = 0; i < flush->sent_uids->len; i++)
+        revolution_mail_view_clear_account_errors (mail_view, flush->sent_uids->pdata[i]);
+      for (guint i = 0; i < flush->failed_uids->len; i++)
+        revolution_mail_view_show_account_error (mail_view, flush->failed_uids->pdata[i],
+                                                 flush->failed_titles->pdata[i], flush->failed_details->pdata[i]);
+      outbox_failed = flush->failed_uids->len > 0 && flush->left > 0;
+      revolution_mail_view_set_outbox (mail_view, flush->left);
+      revolution_mail_outbox_flush_free (flush);
+    }
 
   if (outbox_again)
     {
@@ -717,6 +719,8 @@ outbox_flush (RevolutionMailView *mail_view,
   outbox_cancellable = camel_operation_new ();
   task = g_task_new (session, outbox_cancellable, on_outbox_flushed, g_object_ref (mail_view));
   g_task_set_source_tag (task, outbox_flush);
+  /* Auch ein abgebrochener Lauf liefert sein Ergebnis (Banner, Zahl, Folgelauf in on_outbox_flushed). */
+  g_task_set_check_cancellable (task, FALSE);
   g_task_set_task_data (task, GINT_TO_POINTER (all), NULL);
   g_task_run_in_thread (task, outbox_flush_thread);
 }
@@ -847,7 +851,7 @@ note_stores (RevolutionMailSession *session,
     {
       g_autoptr (GTask) task = NULL;
 
-          /* #351: der Suchordner-Store der Favoriten hat kein Konto (mail-favorites.c); #362 ebenso der Store
+      /* #351: der Suchordner-Store der Favoriten hat kein Konto (mail-favorites.c); #362 ebenso der Store
        * des Postausgangs (mail-outbox.c). */
       if (!CAMEL_IS_STORE (l->data) || CAMEL_IS_VEE_STORE (l->data) ||
           g_strcmp0 (camel_service_get_uid (l->data), REVOLUTION_MAIL_LOCAL_UID) == 0 ||

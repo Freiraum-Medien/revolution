@@ -2869,7 +2869,7 @@ revolution_mail_view_init (RevolutionMailView *self)
   g_object_set_data (G_OBJECT (self->favorites), "folders-noted", GINT_TO_POINTER (TRUE));
   g_list_store_append (favorites, self->favorites);
   g_list_store_append (sections, favorites);
-  /* #362: Postausgang wie Evolution im lokalen Store „Auf diesem Rechner“ (e-mail-session.c:824-893,
+  /* #362: Postausgang wie Evolution im lokalen Store „Auf diesem Rechner“ (e-mail-session.c:824-894,
    * em-folder-tree-model.c:1534-1538), Name wie dort „Outbox“ mit eigenem Typ; erst sichtbar, wenn er
    * Nachrichten hat (revolution_mail_view_set_outbox). */
   self->local = revolution_mail_account_new (REVOLUTION_MAIL_LOCAL_UID, _("Auf diesem Rechner"));

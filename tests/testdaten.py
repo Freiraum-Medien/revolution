@@ -34,7 +34,8 @@
 #                                 STORE bzw. Graph PATCH), neu (IMAP APPEND einer Live-Mail, Zeile „BETREFF …“) oder
 #                                 weg (Live-Mails löschen: UID STORE \Deleted + EXPUNGE); #414: mit
 #                                 --warte DATEI erst anmelden, „BEREIT“ ausgeben, dann ablegen,
-#                                 sobald DATEI existiert, und „ABGELEGT <Uhrzeit>“ ausgeben
+#                                 sobald DATEI existiert, und „ABGELEGT <Uhrzeit>“ ausgeben; #416: mit
+#                                 Papierkorb (nur Graph) an der Einladung im Papierkorb (tests/verschieben.sh)
 #   tests/testdaten.py --testordner KONTO anlegen|loeschen
 #                                 #408, schreibend nur in Testkonten (IMAP): Ordner Revolution-Offline
 #                                 neben Revolution-Test per CREATE bzw. DELETE; Zeile
@@ -1334,6 +1335,8 @@ def server(k, aktion, ziel=ORDNER, warte=None):
     Posteingang (ziel INBOX, Beleg für IDLE)."""
     nur_testkonten([k.adresse])
     if k.goa.get_mail().props.imap_supported:
+        if ziel == 'Papierkorb':
+            sys.exit('ABBRUCH: Papierkorb nur für Graph')
         c = imap_verbinden(k)
         name, _ = imap_ordner(c, ziel)
         c.select('"%s"' % name)
@@ -1366,8 +1369,14 @@ def server(k, aktion, ziel=ORDNER, warte=None):
     else:
         if aktion in ('neu', 'weg'):
             sys.exit('ABBRUCH: %s nur für IMAP' % aktion)
-        _, mails = graph_mails(k)
-        mid = next(m[0] for m in mails if m[3] == EINLADUNG)
+        if ziel == 'Papierkorb':
+            # #416: Einladung, solange tests/verschieben.sh sie in den Papierkorb verschoben hat.
+            mails = graph(k, 'GET', '/me/mailFolders/deleteditems/messages?$select=subject&$filter='
+                          + urllib.parse.quote("subject eq '%s'" % EINLADUNG))['value']
+            mid = mails[0]['id']
+        else:
+            _, mails = graph_mails(k)
+            mid = next(m[0] for m in mails if m[3] == EINLADUNG)
         daten = {'gelesen': {'isRead': True}, 'ungelesen': {'isRead': False},
                  'markiert': {'importance': 'high'}, 'unmarkiert': {'importance': 'normal'}}[aktion]
         graph(k, 'PATCH', '/me/messages/' + mid, daten)
@@ -1693,8 +1702,9 @@ def main():
                     help='#410: nur lesend Nachrichten eines Ordners (IMAP EXAMINE, UID SEARCH; #414 Graph)')
     ap.add_argument('--warte', metavar='DATEI', help='#414: --server erst ausführen, wenn DATEI existiert')
     ap.add_argument('--soll', metavar='DATEI', help='#353: Ausgabe von --ungelesen als Sollstand')
-    ap.add_argument('--server', nargs='+', metavar='KONTO AKTION [INBOX]',
-                    help='#353: serverseitig gelesen|ungelesen|markiert|unmarkiert|neu|weg [im Posteingang]')
+    ap.add_argument('--server', nargs='+', metavar='KONTO AKTION [INBOX|Papierkorb]',
+                    help='#353: serverseitig gelesen|ungelesen|markiert|unmarkiert|neu|weg [im Posteingang]; '
+                         '#416: Graph auch an der Einladung im Papierkorb')
     ap.add_argument('--kombiniert', nargs='?', const='', metavar='LOG',
                     help='#351: nur lesend Posteingänge aller Konten (EXAMINE, Graph), Vergleich mit LOG')
     ap.add_argument('--live-flags', metavar='KONTO', help='#351: nur lesend Flags der Live-Mails im Posteingang')
@@ -1762,8 +1772,8 @@ def main():
         adresse = (args.flags or args.server[0]).lower()
         nur_testkonten([adresse])
         k = konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse]
-        if args.server and (len(args.server) not in (2, 3) or args.server[2:] not in ([], ['INBOX'])):
-            ap.error('--server KONTO AKTION [INBOX]')
+        if args.server and (len(args.server) not in (2, 3) or args.server[2:] not in ([], ['INBOX'], ['Papierkorb'])):
+            ap.error('--server KONTO AKTION [INBOX|Papierkorb]')
         return flags(k) if args.flags else server(k, *args.server[1:], warte=args.warte)
 
     os.makedirs(os.path.join(CACHE, 'data'), exist_ok=True)

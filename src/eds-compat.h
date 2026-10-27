@@ -15,6 +15,18 @@ gboolean revolution_eds_folder_refresh_info_sync (CamelFolder   *folder,
                                                   GCancellable  *cancellable,
                                                   GError       **error);
 
+/* #416: Verschieben/Kopieren und Papierkorb mit demselben Echo-Schutz (eds-compat.c). */
+gboolean     revolution_eds_folder_transfer_messages_to_sync (CamelFolder   *source,
+                                                              GPtrArray     *uids,
+                                                              CamelFolder   *destination,
+                                                              gboolean       delete_originals,
+                                                              GPtrArray    **transferred_uids,
+                                                              GCancellable  *cancellable,
+                                                              GError       **error);
+CamelFolder *revolution_eds_store_get_trash_folder_sync      (CamelStore    *store,
+                                                              GCancellable  *cancellable,
+                                                              GError       **error);
+
 /* #409: Sperre je Ordner (eds-compat.c). */
 void                   revolution_eds_folder_lock           (CamelFolder           *folder);
 void                   revolution_eds_folder_unlock         (CamelFolder           *folder);

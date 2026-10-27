@@ -465,6 +465,25 @@ attachments_for (Collect *collect)
   return attachments;
 }
 
+/* #359: Inhalt einer Nachricht als HTML wie im Lesebereich (collect_part), für das Zitat im Composer
+ * (composer.c). Im Worker. */
+char *
+revolution_mail_reader_message_html (CamelMimeMessage *message,
+                                     GCancellable     *cancellable)
+{
+  Collect collect = { 0 };
+
+  collect.body = g_string_new (NULL);
+  collect.parts = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, (GDestroyNotify) reader_part_free);
+  collect.attachments = g_ptr_array_new_with_free_func (g_object_unref);
+  collect.cancellable = cancellable;
+  collect_part (&collect, CAMEL_MIME_PART (message), 0);
+  g_hash_table_unref (collect.parts);
+  g_ptr_array_unref (collect.attachments);
+
+  return g_string_free (collect.body, FALSE);
+}
+
 /* Anzeigenamen der Empfänger für die Zeile „An:“, sonst die Adresse. Ein Name in spitzen
  * Klammern gilt als kein Name (microsoft365, camel-m365-folder.c:787-800, wie mail-message.c). */
 static char *

@@ -26,5 +26,7 @@ void revolution_mail_reader_show  (RevolutionMailReader  *self,
 void revolution_mail_reader_clear (RevolutionMailReader  *self);
 void revolution_mail_reader_set_compact (RevolutionMailReader *self,
                                          gboolean              compact);
+char *revolution_mail_reader_message_html (CamelMimeMessage *message,
+                                           GCancellable     *cancellable);
 
 G_END_DECLS

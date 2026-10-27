@@ -631,7 +631,8 @@ on_folder_opened (RevolutionMailView *mail_view,
 /* #420: Verbindungsfehler eines Kontos aus dem Sammel-Banner, sobald sein Store verbunden ist, egal
  * wodurch: Start, Netzwechsel, F5 (retry_stores) oder EDS beim nächsten Zugriff
  * (store_maybe_connect_sync, folder_maybe_connect_sync: camel-store.c:262-315, camel-folder.c:643-688).
- * Wie Evolution (em-folder-tree-model.c:260-267, 1931-1940). CamelService meldet den Status im
+ * Nur bei CONNECTED. Muster: Evolutions Status-Symbol des Kontos folgt demselben Signal
+ * (em-folder-tree-model.c:260-267, 1931-1940). CamelService meldet den Status im
  * Hauptkontext der Session (camel-service.c:458-477, camel_session_idle_add), hier der Standard-Kontext
  * (Session im Worker ohne eigenen Kontext angelegt, camel-session.c:748). */
 static void

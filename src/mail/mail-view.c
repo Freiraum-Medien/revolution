@@ -3080,9 +3080,10 @@ revolution_mail_view_show_account_error (RevolutionMailView *self,
 
 /* #420: Aufruf aus main.c, sobald der Store des Kontos uid verbunden ist („notify::connection-status“
  * CAMEL_SERVICE_CONNECTED): seinen Verbindungsfehler aus dem Sammel-Banner nehmen, das Banner ohne
- * übrige Fehler ausblenden. Wie Evolution: das Symbol des Kontos im Ordnerbaum folgt dem Status des
- * Stores (em-folder-tree-model.c:260-267, 1858-1890, 1931-1940), der Hinweis eines Kontos wird
- * geschlossen, sobald seine Quelle verbunden ist (e-shell.c:672-699). */
+ * übrige Fehler ausblenden. Nur bei CONNECTED, nicht bei anderen Statuswechseln. Muster: Evolutions
+ * Status-Symbol des Kontos im Ordnerbaum folgt „notify::connection-status“ des Stores
+ * (em-folder-tree-model.c:260-267, 1931-1940): Fehler-Symbol bei DISCONNECTED nach CONNECTING,
+ * „network-idle“ bei CONNECTED (dort 1865-1890). */
 void
 revolution_mail_view_clear_account_errors (RevolutionMailView *self,
                                            const char         *uid)

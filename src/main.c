@@ -518,8 +518,17 @@ on_store_noted (GObject      *source_object,
       else
         title = _("Keine Verbindung");
 
-      detail = g_strdup_printf ("%s: %s", display_name, error->message);
-      revolution_mail_view_show_error (mail_view, title, detail, TRUE);
+      /* #420: Die Ordnerliste danach verbindet einen online gebliebenen Store neu
+       * (store_maybe_connect_sync, camel-store.c:262-315); ist er schon verbunden, ist der Fehler
+       * überholt und kommt nur ins Log (Abnahme #358: info@ vor dieser Meldung wieder angemeldet). Sonst
+       * nimmt ihn on_connection_status beim nächsten Verbinden wieder aus dem Banner. */
+      if (camel_service_get_connection_status (service) == CAMEL_SERVICE_CONNECTED)
+        g_debug ("Verbindung gescheitert: %s, inzwischen verbunden, kein Banner", uid);
+      else
+        {
+          detail = g_strdup_printf ("%s: %s", display_name, error->message);
+          revolution_mail_view_show_account_error (mail_view, uid, title, detail);
+        }
       g_debug ("Verbindung gescheitert: %s, %s (%s %d)", uid,
                noted->fallback ? "Ordner aus dem Cache" : "Store bleibt online",
                g_quark_to_string (error->domain), error->code);
@@ -619,6 +628,21 @@ on_folder_opened (RevolutionMailView *mail_view,
   revolution_mail_view_watch_folder (mail_view, folder, FALSE, FALSE);
 }
 
+/* #420: Verbindungsfehler eines Kontos aus dem Sammel-Banner, sobald sein Store verbunden ist, egal
+ * wodurch: Start, Netzwechsel, F5 (retry_stores) oder EDS beim nächsten Zugriff
+ * (store_maybe_connect_sync, folder_maybe_connect_sync: camel-store.c:262-315, camel-folder.c:643-688).
+ * Wie Evolution (em-folder-tree-model.c:260-267, 1931-1940). CamelService meldet den Status im
+ * Hauptkontext der Session (camel-service.c:458-477, camel_session_idle_add), hier der Standard-Kontext
+ * (Session im Worker ohne eigenen Kontext angelegt, camel-session.c:748). */
+static void
+on_connection_status (CamelService       *service,
+                      GParamSpec         *pspec G_GNUC_UNUSED,
+                      RevolutionMailView *mail_view)
+{
+  if (camel_service_get_connection_status (service) == CAMEL_SERVICE_CONNECTED)
+    revolution_mail_view_clear_account_errors (mail_view, camel_service_get_uid (service));
+}
+
 static void
 free_lock (GMutex *lock)
 {
@@ -667,6 +691,8 @@ note_stores (RevolutionMailSession *session,
        * Hauptkontext (EDS camel-store.c:895-925). */
       g_signal_connect_object (l->data, "folder-opened", G_CALLBACK (on_folder_opened), mail_view,
                                G_CONNECT_SWAPPED);
+      g_signal_connect_object (l->data, "notify::connection-status", G_CALLBACK (on_connection_status), mail_view,
+                               G_CONNECT_DEFAULT);
       task = g_task_new (l->data, cancellable, on_store_noted, g_object_ref (mail_view));
       g_task_set_source_tag (task, note_stores);
       g_task_run_in_thread (task, note_store_thread);
@@ -809,8 +835,8 @@ on_network_changed (GNetworkMonitor    *monitor,
  * Stamp jedes Konto bei „network-changed“ verbindet (stamp-account-item.c:324-350, 719); EDS prüft
  * dabei die Erreichbarkeit seiner Stores nach 5 s neu (camel-network-service.c:414-469, 507),
  * Evolution schaltet nur bei „network-available“ (e-shell.c:1845-1850). Hier ebenso nach
- * SET_ONLINE_TIMEOUT_SECONDS seit dem letzten Signal. Vorher verschwindet das Banner „Keine
- * Verbindung“ wie beim Offline-Gehen; ein erneuter Fehler meldet es wieder. */
+ * SET_ONLINE_TIMEOUT_SECONDS seit dem letzten Signal. #420: Den Fehler eines Kontos nimmt
+ * on_connection_status aus dem Banner, sobald es verbunden ist; ein erneuter Fehler ersetzt ihn. */
 static gboolean
 retry_stores (gpointer user_data)
 {
@@ -832,8 +858,7 @@ retry_stores (gpointer user_data)
         continue;
 
       g_object_set_data (l->data, "revolution-retry", NULL);
-      if (count++ == 0)
-        revolution_mail_view_clear_connection_errors (mail_view);
+      count++;
       task = g_task_new (l->data, line, on_store_noted, g_object_ref (mail_view));
       g_task_set_source_tag (task, retry_stores);
       g_task_run_in_thread (task, note_store_thread);

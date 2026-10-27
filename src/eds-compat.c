@@ -41,8 +41,10 @@ ref_if_folder_flagged (CamelFolderSummary *summary,
  * camel-imapx-folder.c:1237, evolution-ews camel-m365-folder.c:1773), danach kehren
  * camel_folder_lock/-unlock sofort zurück (camel-folder.c:1613-1617, 3117-3140). Am Ordner gespeichert
  * (g_object_set_data_full), freigegeben mit ihm; wer sperrt, hält eine Referenz auf den Ordner.
- * Nur Revolution nimmt sie (set_flags_thread, revolution_eds_folder_refresh_info_sync), nie im UI-Thread,
- * und wer sie hält, wartet auf keinen anderen Halter: kein Deadlock. */
+ * Nur Revolution nimmt sie (set_flags_thread, revolution_eds_folder_refresh_info_sync, #416
+ * revolution_eds_folder_transfer_messages_to_sync), nie im UI-Thread, und wer sie hält, wartet auf keinen
+ * anderen Halter. Einzige Ausnahme: revolution_eds_store_get_trash_folder_sync nimmt mehrere Sperren
+ * nacheinander, aber nur unter trash_mutex, also nie zwei solche Halter gleichzeitig: kein Deadlock. */
 static GMutex folder_locks_mutex;
 
 static void
@@ -226,8 +228,8 @@ revolution_eds_folder_refresh_info_sync (CamelFolder   *folder,
 }
 
 /* #416: camel_folder_transfer_messages_to_sync. microsoft365 gleicht danach den Zielordner ab, wenn er
- * nicht eingefroren ist (evolution-ews camel-m365-folder.c:1548-1554), ohne die Rücksetzung oben; die
- * Quelle nicht (dort nur aus der Summary entfernt, :1059-1094). Daher den Zielordner wie
+ * nicht eingefroren ist (evolution-ews camel-m365-folder.c:1547-1553), ohne die Rücksetzung oben; die
+ * Quelle nicht (dort nur aus der Summary entfernt, :1059-1096). Daher den Zielordner wie
  * revolution_eds_folder_refresh_info_sync. Im Worker, ohne gehaltene Ordnersperre. */
 gboolean
 revolution_eds_folder_transfer_messages_to_sync (CamelFolder   *source,
@@ -274,7 +276,7 @@ find_folder_type (CamelFolderInfo *info,
   return NULL;
 }
 
-/* #416: camel_store_get_trash_folder_sync. microsoft365 (evolution-ews camel-m365-store.c:1404-1462)
+/* #416: camel_store_get_trash_folder_sync. microsoft365 (evolution-ews camel-m365-store.c:1405-1463)
  * schickt erst die Änderungen aller offenen Ordner außer dem Papierkorb (:1446-1455) und gleicht dann
  * den Papierkorb ab (:1459), beides ohne die Rücksetzung oben. Papierkorb daher vorher öffnen (Typ aus
  * der Ordnerliste, wie dort :1419 aus der Store-Summary; mit FAST ohne Server, solange ein Delta-Link

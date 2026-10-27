@@ -2954,26 +2954,106 @@ revolution_mail_view_set_session (RevolutionMailView *self,
  * (Architektur-Festlegung 3). #352: aus main.c hierher verlegt, weil auch das Laden der
  * Nachrichten Fehler meldet. Ein Banner für alle Fehler: Titel nach der häufigsten
  * Fehlerart (bei Gleichstand die erste), je Fehler eine Zeile im Tooltip. Frühere Fehler
- * (z. B. „Datenordner fehlt“) bleiben im Tooltip erhalten, statt überschrieben zu werden. */
+ * (z. B. „Datenordner fehlt“) bleiben im Tooltip erhalten, statt überschrieben zu werden.
+ * #420: Verbindungsfehler gehören einem Konto (uid): höchstens einer je Konto, er verschwindet,
+ * sobald der Store des Kontos verbunden ist (revolution_mail_view_clear_account_errors). */
 typedef struct
 {
   const char *title;
-  guint count;
+  char *detail;
+  char *uid;
   gboolean per_account;
-} BannerKind;
-
-typedef struct
-{
-  GString *details;
-  GArray *kinds;
-} BannerErrors;
+} BannerError;
 
 static void
-banner_errors_free (BannerErrors *errors)
+banner_error_free (BannerError *error)
 {
-  g_string_free (errors->details, TRUE);
-  g_array_unref (errors->kinds);
-  g_free (errors);
+  g_free (error->detail);
+  g_free (error->uid);
+  g_free (error);
+}
+
+/* Banner nach den Fehlern in „banner-errors“ zeigen bzw. ausblenden; removed: Titel des zuletzt
+ * entfernten Fehlers (Log). */
+static void
+update_banner (RevolutionMailView *self,
+               const char         *removed)
+{
+  GPtrArray *errors = g_object_get_data (G_OBJECT (self), "banner-errors");
+  g_autoptr (GString) details = g_string_new (NULL);
+  g_autofree char *shown = NULL;
+  BannerError *best = NULL;
+  guint best_count = 0;
+
+  if (errors == NULL || errors->len == 0)
+    {
+      g_object_set_data (G_OBJECT (self), "banner-errors", NULL);
+      adw_banner_set_revealed (self->banner, FALSE);
+      g_debug ("Banner: %s weg", removed);
+      return;
+    }
+
+  for (guint i = 0; i < errors->len; i++)
+    {
+      BannerError *error = g_ptr_array_index (errors, i);
+      guint count = 0;
+
+      if (i > 0)
+        g_string_append_c (details, '\n');
+      g_string_append (details, error->detail);
+      for (guint j = 0; j < errors->len; j++)
+        count += g_strcmp0 (((BannerError *) g_ptr_array_index (errors, j))->title, error->title) == 0;
+      if (count > best_count)
+        {
+          best = error;
+          best_count = count;
+        }
+    }
+
+  if (best->per_account && best_count > 1)
+    /* Translators: Titel des Fehlerbanners, z. B. „Keine Verbindung (7 Konten)“:
+     * Fehlerart und Zahl der Konten mit dieser Fehlerart. */
+    shown = g_strdup_printf (ngettext ("%s (%u Konto)", "%s (%u Konten)", best_count),
+                             best->title, best_count);
+  else
+    shown = g_strdup (best->title);
+
+  adw_banner_set_title (self->banner, shown);
+  gtk_widget_set_tooltip_text (GTK_WIDGET (self->banner), details->str);
+  adw_banner_set_revealed (self->banner, TRUE);
+  g_debug ("Banner: %s, %u Fehler", shown, errors->len);
+}
+
+static void
+add_error (RevolutionMailView *self,
+           const char         *uid,
+           const char         *title,
+           const char         *detail,
+           gboolean            per_account)
+{
+  GPtrArray *errors;
+  BannerError *error;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
+
+  errors = g_object_get_data (G_OBJECT (self), "banner-errors");
+  if (errors == NULL)
+    {
+      errors = g_ptr_array_new_with_free_func ((GDestroyNotify) banner_error_free);
+      g_object_set_data_full (G_OBJECT (self), "banner-errors", errors, (GDestroyNotify) g_ptr_array_unref);
+    }
+  /* #420: ein neuer Verbindungsfehler eines Kontos ersetzt seinen vorigen. */
+  for (guint i = errors->len; uid != NULL && i > 0; i--)
+    if (g_strcmp0 (((BannerError *) g_ptr_array_index (errors, i - 1))->uid, uid) == 0)
+      g_ptr_array_remove_index (errors, i - 1);
+
+  error = g_new0 (BannerError, 1);
+  error->title = title;
+  error->detail = g_strdup (detail);
+  error->uid = g_strdup (uid);
+  error->per_account = per_account;
+  g_ptr_array_add (errors, error);
+  update_banner (self, NULL);
 }
 
 /* title: statische Zeichenkette (Ergebnis von _()); per_account: Fehler zählen als Konten. */
@@ -2983,53 +3063,48 @@ revolution_mail_view_show_error (RevolutionMailView *self,
                                  const char         *detail,
                                  gboolean            per_account)
 {
-  g_autofree char *shown = NULL;
-  BannerErrors *errors;
-  BannerKind *best = NULL;
-  guint i;
+  add_error (self, NULL, title, detail, per_account);
+}
+
+/* #420: Verbindungsfehler des Kontos uid (main.c, on_store_noted); zählt als Konto. */
+void
+revolution_mail_view_show_account_error (RevolutionMailView *self,
+                                         const char         *uid,
+                                         const char         *title,
+                                         const char         *detail)
+{
+  g_return_if_fail (uid != NULL);
+
+  add_error (self, uid, title, detail, TRUE);
+}
+
+/* #420: Aufruf aus main.c, sobald der Store des Kontos uid verbunden ist („notify::connection-status“
+ * CAMEL_SERVICE_CONNECTED): seinen Verbindungsfehler aus dem Sammel-Banner nehmen, das Banner ohne
+ * übrige Fehler ausblenden. Nur bei CONNECTED, nicht bei anderen Statuswechseln. Muster: Evolutions
+ * Status-Symbol des Kontos im Ordnerbaum folgt „notify::connection-status“ des Stores
+ * (em-folder-tree-model.c:260-267, 1931-1940): Fehler-Symbol bei DISCONNECTED nach CONNECTING,
+ * „network-idle“ bei CONNECTED (dort 1865-1890). */
+void
+revolution_mail_view_clear_account_errors (RevolutionMailView *self,
+                                           const char         *uid)
+{
+  GPtrArray *errors;
+  const char *removed = NULL;
 
   g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
 
   errors = g_object_get_data (G_OBJECT (self), "banner-errors");
-  if (errors == NULL)
-    {
-      errors = g_new0 (BannerErrors, 1);
-      errors->details = g_string_new (NULL);
-      errors->kinds = g_array_new (FALSE, TRUE, sizeof (BannerKind));
-      g_object_set_data_full (G_OBJECT (self), "banner-errors", errors,
-                              (GDestroyNotify) banner_errors_free);
-    }
-  else
-    g_string_append_c (errors->details, '\n');
+  for (guint i = errors != NULL ? errors->len : 0; i > 0; i--)
+    if (g_strcmp0 (((BannerError *) g_ptr_array_index (errors, i - 1))->uid, uid) == 0)
+      {
+        removed = ((BannerError *) g_ptr_array_index (errors, i - 1))->title;
+        g_ptr_array_remove_index (errors, i - 1);
+      }
+  if (removed == NULL)
+    return;
 
-  g_string_append (errors->details, detail);
-
-  for (i = 0; i < errors->kinds->len; i++)
-    if (g_strcmp0 (g_array_index (errors->kinds, BannerKind, i).title, title) == 0)
-      break;
-  if (i == errors->kinds->len)
-    {
-      BannerKind kind = { title, 0, per_account };
-
-      g_array_append_val (errors->kinds, kind);
-    }
-  g_array_index (errors->kinds, BannerKind, i).count++;
-
-  for (i = 0; i < errors->kinds->len; i++)
-    if (best == NULL || g_array_index (errors->kinds, BannerKind, i).count > best->count)
-      best = &g_array_index (errors->kinds, BannerKind, i);
-
-  if (best->per_account && best->count > 1)
-    /* Translators: Titel des Fehlerbanners, z. B. „Keine Verbindung (7 Konten)“:
-     * Fehlerart und Zahl der Konten mit dieser Fehlerart. */
-    shown = g_strdup_printf (ngettext ("%s (%u Konto)", "%s (%u Konten)", best->count),
-                             best->title, best->count);
-  else
-    shown = g_strdup (best->title);
-
-  adw_banner_set_title (self->banner, shown);
-  gtk_widget_set_tooltip_text (GTK_WIDGET (self->banner), errors->details->str);
-  adw_banner_set_revealed (self->banner, TRUE);
+  g_debug ("Banner: %s verbunden, %s weg, %u Fehler übrig", uid, removed, errors->len);
+  update_banner (self, removed);
 }
 
 /* #408: Aufruf aus main.c im UI-Thread, wenn die Session nach dem Netzmonitor offline bzw.
@@ -3049,23 +3124,23 @@ revolution_mail_view_set_offline (RevolutionMailView *self,
     revolution_mail_view_clear_connection_errors (self);
 }
 
-/* #421: Sammel-Banner weg, wenn es nur aus „Keine Verbindung“ besteht (set_offline; main.c vor dem
- * erneuten Verbinden nach einem Netzwechsel, retry_stores). */
+/* #421: Sammel-Banner weg, wenn es nur aus „Keine Verbindung“ besteht (set_offline). */
 void
 revolution_mail_view_clear_connection_errors (RevolutionMailView *self)
 {
-  BannerErrors *errors;
+  GPtrArray *errors;
 
   g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
 
   errors = g_object_get_data (G_OBJECT (self), "banner-errors");
-  if (errors != NULL && errors->kinds->len == 1 &&
-      g_strcmp0 (g_array_index (errors->kinds, BannerKind, 0).title, _("Keine Verbindung")) == 0)
-    {
-      g_object_set_data (G_OBJECT (self), "banner-errors", NULL);
-      adw_banner_set_revealed (self->banner, FALSE);
-      g_debug ("Banner: Keine Verbindung weg");
-    }
+  if (errors == NULL)
+    return;
+  for (guint i = 0; i < errors->len; i++)
+    if (g_strcmp0 (((BannerError *) g_ptr_array_index (errors, i))->title, _("Keine Verbindung")) != 0)
+      return;
+
+  g_object_set_data (G_OBJECT (self), "banner-errors", NULL);
+  update_banner (self, _("Keine Verbindung"));
 }
 
 /* #408: Aufruf aus main.c, sobald der Store des Kontos uid nach „Netz zurück“ wieder verbunden

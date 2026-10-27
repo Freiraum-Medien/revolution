@@ -680,8 +680,12 @@ on_outbox_flushed (GObject      *source_object G_GNUC_UNUSED,
       for (guint i = 0; i < flush->sent_uids->len; i++)
         revolution_mail_view_clear_account_errors (mail_view, flush->sent_uids->pdata[i]);
       for (guint i = 0; i < flush->failed_uids->len; i++)
-        revolution_mail_view_show_account_error (mail_view, flush->failed_uids->pdata[i],
-                                                 flush->failed_titles->pdata[i], flush->failed_details->pdata[i]);
+        {
+          g_debug ("Postausgang: Fehler im Banner: %s %s", (const char *) flush->failed_uids->pdata[i],
+                   (const char *) flush->failed_titles->pdata[i]);
+          revolution_mail_view_show_account_error (mail_view, flush->failed_uids->pdata[i],
+                                                   flush->failed_titles->pdata[i], flush->failed_details->pdata[i]);
+        }
       outbox_failed = flush->failed_uids->len > 0 && flush->left > 0;
       revolution_mail_view_set_outbox (mail_view, flush->left);
       revolution_mail_outbox_flush_free (flush);

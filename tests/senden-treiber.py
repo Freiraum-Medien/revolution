@@ -400,7 +400,8 @@ def treiber():
         mid, ab_a = senden(absender, empfaenger, 'kopie')
         pruefe('Kopie: gesendet', r'^Senden: %s gesendet nach' % re.escape(mid), ab_a, 120)
         pruefe('Kopie: fehlt', r'^Senden: %s Kopie in Gesendet fehlt, bleibt im Postausgang' % re.escape(mid), ab_a, 180)
-        pruefe('Kopie: Banner', r'^Banner: Gesendet, Kopie in Gesendet folgt, \d+ Fehler$', ab_a, 30)
+        pruefe('Kopie: Banner', r'^Postausgang: Fehler im Banner: %s Gesendet, Kopie in Gesendet folgt$' % transport,
+               ab_a, 30)
         pruefe('Kopie: Postausgang sichtbar', r'^Postausgang: 1 Nachrichten, sichtbar$', ab_a, 30)
         nicht('Kopie: nicht aus dem Postausgang', r'^Senden: %s aus dem Postausgang entfernt$' % re.escape(mid), ab_a)
         bild('kopie-fehlt')
@@ -506,7 +507,10 @@ def treiber():
     rest = [z.strip() for z in open(LOG, encoding='utf-8', errors='replace')
             if z.strip() and not z.startswith('libEGL warning:') and 'revolution-DEBUG' not in z
             and not z.startswith('==== ')
-            and not re.match(r'^\(revolution:\d+\): revolution-WARNING \*\*: \S+: Anmeldung ', z)]
+            and not re.match(r'^\(revolution:\d+\): revolution-WARNING \*\*: \S+: Anmeldung ', z)
+            # Phase kopie: IMAP gekappt, auch das Laden der Liste scheitert (erwartet).
+            and not (PHASE == 'kopie' and re.match(r'^\(revolution:\d+\): revolution-WARNING \*\*: \S+: '
+                                                     r'Nachrichten \S+ INBOX: Could not connect', z))]
     (falsch if rest else ok)('Log: %s' % ('%d unerwartete Zeilen: %s' % (len(rest), rest[:3]) if rest
                                           else 'nur DEBUG-Zeilen'))
     return 1 if fehler[0] else 0

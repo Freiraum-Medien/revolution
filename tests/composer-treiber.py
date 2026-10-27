@@ -429,8 +429,12 @@ def konversation():
     ab = marke()
     zeiger(HAUPT)
     taste('Control_L+r')
-    pruefe(warte(r'^Composer: Antworten vorbereitet, Von %s$' % re.escape(KONTO), ab, 60) is not None,
-           'konversation: Strg+R öffnet den Composer')
+    # Nr. 5 kommt von KONTO_IMAP_1@example.invalid, einer eigenen Identität: Allen antworten (R2, em-composer-utils.c:5127-5131);
+    # ohne andere Empfänger füllt Evolution An mit dem Absender auf (3818-3823).
+    pruefe(warte(r'^Composer: Absender privat@arndmesser\.de ist eigene Adresse, Allen antworten$', ab, 60) is not None,
+           'konversation: Absender ist eigene Adresse')
+    pruefe(warte(r'^Composer: Allen antworten vorbereitet, Von %s$' % re.escape(KONTO), ab, 60) is not None,
+           'konversation: Strg+R öffnet den Composer (Allen antworten)')
     w = fenster()
     if w is None:
         falsch('konversation: kein Composer-Fenster')
@@ -444,7 +448,36 @@ def konversation():
     pruefe(str(m['In-Reply-To']) == mid[4], 'konversation: In-Reply-To %s (neueste, Nr. 5)' % m['In-Reply-To'])
     pruefe(' '.join(str(m['References']).split()) == ' '.join(mid), 'konversation: References %s' % m['References'])
     pruefe(adressen(m['To']) == ['KONTO_IMAP_1@example.invalid'], 'konversation: To %s' % m['To'])
+    pruefe(not m['Cc'], 'konversation: kein Cc (%s)' % m['Cc'])
     pruefe(str(m['Subject']) == 'Re: [Revolution-Test] Konversation Marktstand', 'konversation: Subject %s' % m['Subject'])
+
+
+def antwort_eigen(schritt, nr, an, kopie, betreff, regel):
+    """R2: Strg+R auf eine eigene Nachricht wird Allen antworten (Evolution em-composer-utils.c:5127-5131 bzw.
+    Gesendet 5149-5151), Empfänger ohne eigene Adressen (tests/testdaten.py --antwort, eigen_nachricht)."""
+    ab = marke()
+    zeiger(HAUPT)
+    taste('Control_L+r')
+    pruefe(warte(r'^Composer: %s' % re.escape(regel), ab, 60) is not None, '%s: Log „Composer: %s“' % (schritt, regel))
+    pruefe(warte(r'^Composer: Allen antworten vorbereitet, Von %s$' % re.escape(KONTO), ab, 60) is not None,
+           '%s: Strg+R ergibt Allen antworten' % schritt)
+    w = fenster()
+    if w is None:
+        falsch('%s: kein Composer-Fenster' % schritt)
+        return
+    time.sleep(3)
+    bild(schritt, w)
+    if not senden(schritt, w):
+        return
+    m = email.message_from_bytes(open(os.path.join(OUT, '%s-%s.eml' % (NAME, schritt)), 'rb').read(),
+                                 policy=email.policy.default)
+    mid = ['<revolution-test-eigen-359-%d@example.invalid>' % i for i in (1, 2, 3)]
+    refs = ' '.join(mid[:2]) if nr == 2 else mid[2]
+    pruefe(adressen(m['To']) == an, '%s: To %s (erwartet %s)' % (schritt, adressen(m['To']), an))
+    pruefe(adressen(m['Cc']) == kopie, '%s: Cc %s (erwartet %s)' % (schritt, adressen(m['Cc']), kopie))
+    pruefe(str(m['In-Reply-To']) == mid[nr - 1], '%s: In-Reply-To %s' % (schritt, m['In-Reply-To']))
+    pruefe(' '.join(str(m['References']).split()) == refs, '%s: References %s' % (schritt, m['References']))
+    pruefe(str(m['Subject']) == betreff, '%s: Subject „%s“ (erwartet „%s“)' % (schritt, m['Subject'], betreff))
 
 
 def escape():
@@ -485,6 +518,13 @@ def main():
             escape()
         elif NAME.endswith('-a11y'):
             a11y()
+        elif NAME.endswith('-eigen'):
+            antwort_eigen('eigen', 3, ['HILFS_JANA@example.invalid'], ['HILFS_LENA@example.invalid'],
+                  'Re: [Revolution-Test] Eigene Mail im Eingang', 'Absender KONTO_IMAP_2@example.invalid ist eigene Adresse')
+        elif NAME.endswith('-eigen-konversation'):
+            antwort_eigen('eigen-konversation', 2, ['HILFS_JANA@example.invalid'],
+                  ['HILFS_LENA@example.invalid', 'HILFS_TOM@example.invalid'],
+                  'Re: [Revolution-Test] Eigene Antwort Kisten', 'Nachricht aus Gesendet')
         elif NAME.endswith('-konversation'):
             konversation()
         else:

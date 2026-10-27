@@ -97,8 +97,9 @@
 #                                 antworten per APPEND in den Posteingang (kein Versand), idempotent über
 #                                 die Message-ID; mehrere Empfänger, „RE:“ im Betreff, References. Absender
 #                                 und fremde Empfänger als Plus-Adressen der Testkonten (keine Identität in
-#                                 GOA, sonst entfernt sie Allen antworten wie Evolution); Zeile „ANTWORT
-#                                 <UID>/INBOX <Betreff>“
+#                                 GOA, sonst entfernt sie Allen antworten wie Evolution); R2: dazu Konversation
+#                                 mit eigener Antwort im Gesendet-Ordner und eine eigene Mail im Posteingang
+#                                 (Antwort auf eigene Mail); Zeile „ANTWORT <UID>/INBOX <Betreff>“
 #   tests/testdaten.py --antwort-kopf
 #                                 #359, nur lesend (IMAP EXAMINE + UID FETCH): Kopfzeilen der Testmail vom
 #                                 Server, je Zeile „KOPF <Name>: <Wert>“ (Vergleich mit der Antwort)
@@ -706,6 +707,47 @@ def antwort_nachricht():
     return m
 
 
+# #359 R2: Antwort auf eigene Mail (Evolution em-composer-utils.c:5127-5131, 5149-5151). Konversation „Eigene
+# Antwort Kisten“: Mail von Jana im Posteingang, eigene Antwort (neueste) im Gesendet-Ordner; dazu eine eigene
+# Mail im Posteingang (Kopie an sich selbst, außerhalb von Gesendet; Betreff mit deutschem „AW:“ wie Outlook,
+# em-utils.c:1661-1670). Feste Daten in der Vergangenheit.
+EIGEN_BETREFF = PREFIX + ' Eigene Antwort Kisten'
+EIGEN_EINGANG_BETREFF = 'AW: ' + PREFIX + ' Eigene Mail im Eingang'
+
+
+def eigen_nachricht(nr):
+    m = EmailMessage(policy=email.policy.SMTP)
+    ich = email.utils.formataddr(('Revolution Test', ANTWORT_KONTO))
+    jana = email.utils.formataddr(('Jana Albrecht', 'HILFS_JANA@example.invalid'))
+    lena = email.utils.formataddr(('Lena Hoffmann', 'HILFS_LENA@example.invalid'))
+    tom = email.utils.formataddr(('Tom Becker', 'HILFS_TOM@example.invalid'))
+    if nr == 1:
+        m.set_content('Bringt jemand die Kisten mit?\n')
+        m['Subject'], m['From'], m['To'], m['Cc'] = EIGEN_BETREFF, jana, ich, lena
+    elif nr == 2:
+        m.set_content('Ja, ich bringe sie mit.\n')
+        m['Subject'], m['From'], m['To'], m['Cc'] = 'Re: ' + EIGEN_BETREFF, ich, jana, ', '.join([lena, tom])
+        m['In-Reply-To'] = msgid('eigen-359-1')
+        m['References'] = msgid('eigen-359-1')
+    else:
+        m.set_content('Erinnerung an mich selbst und Jana.\n')
+        m['Subject'], m['From'], m['To'], m['Cc'] = EIGEN_EINGANG_BETREFF, ich, jana, ', '.join([ich, lena])
+    m['Date'] = email.utils.format_datetime(
+        datetime.datetime(2026, 10, 24, 10, {1: 20, 2: 40, 3: 50}[nr], tzinfo=datetime.timezone(datetime.timedelta(hours=2))))
+    m['Message-ID'] = msgid('eigen-359-%d' % nr)
+    return m
+
+
+def antwort_eigen(c):
+    """Fehlende Mails für „Antwort auf eigene Mail“ per APPEND (idempotent über die Message-ID)."""
+    for nr, ziel in ((1, 'INBOX'), (2, 'Sent'), (3, 'INBOX')):
+        name, _ = imap_ordner(c, ziel)
+        c.select('"%s"' % name)
+        if not c.uid('SEARCH', None, 'HEADER', 'Message-ID', msgid('eigen-359-%d' % nr))[1][0].split():
+            print(c.append('"%s"' % name, '(\\Seen)', None, eigen_nachricht(nr).as_bytes()))
+        print('EIGEN %d %s' % (nr, ziel))
+
+
 def antwort(k, nur_kopf):
     c = imap_verbinden(k)
     c.select('INBOX', readonly=nur_kopf)
@@ -723,6 +765,7 @@ def antwort(k, nur_kopf):
         if not uids:
             print(c.append('INBOX', '(\\Seen)', None, antwort_nachricht().as_bytes()))
             uids = c.uid('SEARCH', None, 'HEADER', 'Message-ID', ANTWORT_MID)[1][0].split()
+        antwort_eigen(c)
         print('ANTWORT %s/INBOX %s' % (k.account.get_uid(), ANTWORT_BETREFF))
     c.logout()
     return 0 if uids else 1

@@ -3,7 +3,7 @@
 #
 # Aufruf: tests/composer.sh [AUSGABEORDNER]   (Standard BUILD/m5-359)
 #   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
-#   LAEUFE   Auswahl der Läufe, Standard „hell dunkel a11y konversation“
+#   LAEUFE   Auswahl der Läufe, Standard „hell dunkel a11y konversation eigen eigen-konversation“
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 600; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
 # Testmail: tests/testdaten.py --antwort (APPEND in den Posteingang von geops@, idempotent; mehrere
@@ -18,6 +18,9 @@
 # Dritter Start (m5-359-a11y) ohne GTK_A11Y=none: a11y-Namen aller Felder und Knöpfe über AT-SPI (Bus
 # org.a11y.Bus der Sitzung), Escape mit Fokus im Editor. Vierter Start (m5-359-konversation) in der
 # Konversationsansicht (Testdaten --konversation, #357): Strg+R antwortet auf die neueste Nachricht (Nr. 5).
+# R2, Antwort auf eigene Mail (Evolution em-composer-utils.c:5127-5131, 5149-5151): m5-359-eigen (flach, eigene
+# Mail im Posteingang mit „AW:“) und m5-359-eigen-konversation (eigene Antwort aus Gesendet als neueste):
+# Strg+R wird Allen antworten, ohne eigene Adressen.
 # Screenshots des Composers je Theme.
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler (tests/abbruch.sh).
 #
@@ -66,7 +69,11 @@ BETREFF="$(sed -n 's/^KOPF Subject: //p' "$OUT/original-kopf.txt")"
 
 lauf () {
   local name="$1" theme="$2" schema="$3" a11y="$4" rundir rc=0 einstellungen="$SCHEMA" betreff="$BETREFF"
-  if [ "$name" = m5-359-konversation ]; then einstellungen="$SCHEMA_K"; betreff="Konversation Marktstand"; fi
+  case "$name" in
+    m5-359-konversation) einstellungen="$SCHEMA_K"; betreff="Konversation Marktstand" ;;
+    m5-359-eigen-konversation) einstellungen="$SCHEMA_K"; betreff="Eigene Antwort Kisten" ;;
+    m5-359-eigen) betreff="Eigene Mail im Eingang" ;;
+  esac
   rundir="$(mktemp -d)"
   timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
     XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$einstellungen" GSETTINGS_BACKEND=memory \
@@ -83,9 +90,10 @@ lauf () {
 }
 
 for lauf in "m5-359-hell hell prefer-light aus" "m5-359-dunkel dunkel prefer-dark aus" "m5-359-a11y hell prefer-light" \
-           "m5-359-konversation hell prefer-light aus"; do
+           "m5-359-konversation hell prefer-light aus" "m5-359-eigen hell prefer-light aus" \
+           "m5-359-eigen-konversation hell prefer-light aus"; do
   set -- $lauf
-  case " ${LAEUFE:-hell dunkel a11y konversation} " in *" ${1#m5-359-} "*) ;; *) continue ;; esac
+  case " ${LAEUFE:-hell dunkel a11y konversation eigen eigen-konversation} " in *" ${1#m5-359-} "*) ;; *) continue ;; esac
   lauf "$1" "$2" "$3" "${4:-}" | tee "$OUT/$1.txt"
   teilschritt "$1" "${PIPESTATUS[0]}" "$OUT/$1.txt"
   FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/$1.txt")))

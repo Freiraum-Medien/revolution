@@ -75,7 +75,7 @@ static const char EDITOR_HEAD[] =
   "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
   "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\">"
   "<style>body { margin: 24px 28px; overflow-wrap: anywhere; } body:focus { outline: none; }</style>"
-  "<title>Nachrichtentext</title></head><body aria-label=\"Nachrichtentext\">";
+  "<title>%s</title></head><body aria-label=\"%s\">";
 
 /* Inhalt holen: HTML des Körpers und Text für text/plain. Zitate (blockquote) werden wie in Evolution zu
  * Zeilen mit „> “ (je Ebene eines), über Platzhalter, damit innerText die Zeilenumbrüche des Layouts behält. */
@@ -147,15 +147,17 @@ show_toast (RevolutionComposer *self,
 /* ------------------------------------------------------------------ Antwort (Worker) */
 
 /* Übernommen aus Evolution 3.56.2 src/mail/em-utils.c:1575-1625 (check_prefix) und 1630-1680
- * (em_utils_is_re_in_subject), nur der unlokalisierte Präfix „Re“ mit „:“ bzw. „︰“ (Vorgaben
- * composer-localized-re und composer-localized-re-separators leer). Lizenz: LGPL (Evolution COPYING:1-4),
- * Weitergabe unter GPL-3.0-or-later. */
+ * (em_utils_is_re_in_subject): Präfix „Re“ und lokalisiert (1661-1670, deutsch „AW“ wie Evolution
+ * po/de.po:20408-20411), je mit „:“ bzw. „︰“ (Vorgaben composer-localized-re und
+ * composer-localized-re-separators leer). Lizenz: LGPL (Evolution COPYING:1-4), Weitergabe unter
+ * GPL-3.0-or-later. */
 static gsize
-re_prefix_length (const char *subject)
+check_prefix (const char *subject,
+              const char *prefix)
 {
-  gsize len = 2;
+  gsize len = strlen (prefix);
 
-  if (strlen (subject) < 3 || g_ascii_strncasecmp (subject, "Re", 2) != 0)
+  if (strlen (subject) < 3 || g_ascii_strncasecmp (subject, prefix, len) != 0)
     return 0;
 
   if (g_ascii_isspace (subject[len]))
@@ -170,6 +172,15 @@ re_prefix_length (const char *subject)
     len++;
 
   return len;
+}
+
+static gsize
+re_prefix_length (const char *subject)
+{
+  gsize len = check_prefix (subject, "Re");
+
+  /* Translators: lokalisiertes „Re“ im Betreff einer Antwort (Evolution: „AW“). */
+  return len > 0 ? len : check_prefix (subject, C_("reply-attribution", "AW"));
 }
 
 /* Übernommen aus Evolution em-composer-utils.c:3210-3250 (emcu_construct_reply_subject): vorhandenes
@@ -441,6 +452,22 @@ prepare_reply (Prepare          *prepare,
   g_autoptr (CamelInternetAddress) to = camel_internet_address_new ();
   g_autoptr (CamelInternetAddress) cc = camel_internet_address_new ();
   g_autofree char *message_id = NULL, *references = NULL, *credits = NULL, *quote = NULL, *escaped = NULL;
+  const char *sender = NULL;
+
+  /* Antwort auf eine eigene Nachricht geht an alle wie Evolution (em-composer-utils.c:5127-5131,
+   * em_utils_sender_is_user e-mail-utils.c:1011-1029: Absender ist Adresse oder Alias einer eingeschalteten
+   * Mail-Identität); Gesendet-Ordner (5149-5151) prüft mail-view.c open_reply. */
+  if (prepare->type == REVOLUTION_COMPOSER_REPLY && camel_mime_message_get_from (message) != NULL &&
+      camel_internet_address_get (camel_mime_message_get_from (message), 0, NULL, &sender) && sender != NULL)
+    {
+      g_autoptr (GHashTable) own = own_addresses (prepare->registry);
+
+      if (g_hash_table_contains (own, sender))
+        {
+          g_debug ("Composer: Absender %s ist eigene Adresse, Allen antworten", sender);
+          prepare->type = REVOLUTION_COMPOSER_REPLY_ALL;
+        }
+    }
 
   if (prepare->type == REVOLUTION_COMPOSER_REPLY_ALL)
     reply_all (prepare->registry, message, to, cc);
@@ -537,7 +564,9 @@ static void
 load_editor (RevolutionComposer *self,
              const char         *body)
 {
-  g_autofree char *html = g_strconcat (EDITOR_HEAD, body != NULL ? body : "<div><br></div>", "</body></html>", NULL);
+  g_autofree char *label = g_markup_escape_text (_("Nachrichtentext"), -1);
+  g_autofree char *head = g_strdup_printf (EDITOR_HEAD, label, label);
+  g_autofree char *html = g_strconcat (head, body != NULL ? body : "<div><br></div>", "</body></html>", NULL);
 
   self->editor_loaded = FALSE;
   webkit_web_view_load_html (self->editor, html, NULL);
@@ -853,6 +882,7 @@ on_built (GObject      *source_object,
         return;
       g_warning ("Composer: MIME nicht geschrieben: %s", error->message);
       show_toast (self, _("Nachricht konnte nicht erstellt werden"));
+      g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (G_ACTION_MAP (self->actions), "send")), TRUE);
       return;
     }
 
@@ -880,6 +910,8 @@ on_content (GObject      *source,
         {
           g_warning ("Composer: Inhalt nicht lesbar: %s", error != NULL ? error->message : "kein Feld");
           show_toast (self, _("Nachricht konnte nicht erstellt werden"));
+          g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (G_ACTION_MAP (self->actions), "send")),
+                                       TRUE);
         }
       return;
     }
@@ -912,7 +944,7 @@ on_content (GObject      *source,
 
 /* Senden folgt mit #362; bis dahin nur im Test (send_enabled): Nachricht in die Datei. */
 static void
-send_message (GSimpleAction *action G_GNUC_UNUSED,
+send_message (GSimpleAction *action,
               GVariant      *parameter G_GNUC_UNUSED,
               gpointer       user_data)
 {
@@ -921,6 +953,8 @@ send_message (GSimpleAction *action G_GNUC_UNUSED,
   if (!self->editor_loaded)
     return;
 
+  /* Nur einmal: aus bis on_built (bei Fehler wieder an, sonst schließt das Fenster). */
+  g_simple_action_set_enabled (action, FALSE);
   webkit_web_view_evaluate_javascript (self->editor, GET_CONTENT_JS, -1, NULL, NULL, self->cancellable, on_content,
                                        g_object_ref (self));
 }
@@ -1051,6 +1085,9 @@ create_editor (RevolutionComposer *self)
                                                 "default-font-size", size,
                                                 NULL);
   pango_font_description_free (font);
+  /* Keine Vorab-Verbindungen aus zitiertem HTML (<link rel=preconnect …>): die CSP greift dort nicht (Prüfer #359
+   * R1, build-pruef/probe-netz: 1 TCP-Verbindung); wie der Lesebereich. */
+  revolution_mail_reader_disable_prefetch (settings);
 
   editor = g_object_new (WEBKIT_TYPE_WEB_VIEW, "network-session", network_session, "settings", settings, NULL);
   webkit_web_view_set_editable (editor, TRUE);
@@ -1079,6 +1116,8 @@ revolution_composer_dispose (GObject *object)
     webkit_web_view_terminate_web_process (self->editor);
   g_clear_pointer (&self->emoji_chooser, gtk_widget_unparent);
   gtk_widget_dispose_template (GTK_WIDGET (object), REVOLUTION_TYPE_COMPOSER);
+  /* Die WebView gehörte editor_bin (Vorlage) und ist jetzt freigegeben. */
+  self->editor = NULL;
 
   G_OBJECT_CLASS (revolution_composer_parent_class)->dispose (object);
 }

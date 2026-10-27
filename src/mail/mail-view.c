@@ -1941,6 +1941,13 @@ open_reply (RevolutionMailView     *self,
   g_object_get (place, "account", &place_account, NULL);
   if (account == NULL || place_account == NULL)
     return;
+  /* Antworten im Gesendet-Ordner geht an alle wie Evolution (em-composer-utils.c:5149-5151). */
+  if (type == REVOLUTION_COMPOSER_REPLY &&
+      (revolution_mail_folder_get_flags (place) & CAMEL_FOLDER_TYPE_MASK) == CAMEL_FOLDER_TYPE_SENT)
+    {
+      g_debug ("Composer: Nachricht aus Gesendet, Allen antworten");
+      type = REVOLUTION_COMPOSER_REPLY_ALL;
+    }
   gtk_window_present (revolution_composer_new (gtk_window_get_application (GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (self)))),
                                                self->registry, self->session, type,
                                                revolution_mail_account_get_uid (place_account),

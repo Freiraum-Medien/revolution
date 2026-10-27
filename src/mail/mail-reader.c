@@ -1418,10 +1418,27 @@ static const char * const PREFETCH_FEATURES[] = {
   "SpeculationRulesPrefetch", NULL
 };
 
+/* Vorab-Verbindungen aus <link rel=preconnect|dns-prefetch|preload|prefetch> und Speculation
+ * Rules laufen nicht über WebKitWebPage::send-request: im ersten Lauf unter strace baute der
+ * Netzwerkprozess für <link rel=preconnect> eine TCP-Verbindung zum Bildserver auf. Daher aus.
+ * #359: auch für den Composer (zitierte Mails, composer.c create_editor). */
+void
+revolution_mail_reader_disable_prefetch (WebKitSettings *settings)
+{
+  g_autoptr (WebKitFeatureList) features = webkit_settings_get_all_features ();
+
+  for (gsize i = 0; i < webkit_feature_list_get_length (features); i++)
+    {
+      WebKitFeature *feature = webkit_feature_list_get (features, i);
+
+      if (g_strv_contains (PREFETCH_FEATURES, webkit_feature_get_identifier (feature)))
+        webkit_settings_set_feature_enabled (settings, feature, FALSE);
+    }
+}
+
 static gpointer
 create_settings (gpointer data G_GNUC_UNUSED)
 {
-  g_autoptr (WebKitFeatureList) features = webkit_settings_get_all_features ();
   g_autofree char *font_name = NULL;
   PangoFontDescription *font;
   WebKitSettings *settings;
@@ -1458,16 +1475,7 @@ create_settings (gpointer data G_GNUC_UNUSED)
    * (Laufzeit: „webkit_settings_set_enable_hyperlink_auditing is deprecated and does nothing“, Wert
    * bleibt TRUE), daher nicht gesetzt. Die ping-Anfrage läuft über send-request und wird gesperrt
    * (Beleg build/m4-354/m4-354-ping.log, -ping-strace.txt: 0 connect zum ping-Host). */
-  /* Vorab-Verbindungen aus <link rel=preconnect|dns-prefetch|preload|prefetch> und Speculation
-   * Rules laufen nicht über WebKitWebPage::send-request: im ersten Lauf unter strace baute der
-   * Netzwerkprozess für <link rel=preconnect> eine TCP-Verbindung zum Bildserver auf. Daher aus. */
-  for (gsize i = 0; i < webkit_feature_list_get_length (features); i++)
-    {
-      WebKitFeature *feature = webkit_feature_list_get (features, i);
-
-      if (g_strv_contains (PREFETCH_FEATURES, webkit_feature_get_identifier (feature)))
-        webkit_settings_set_feature_enabled (settings, feature, FALSE);
-    }
+  revolution_mail_reader_disable_prefetch (settings);
 
   return settings;
 }

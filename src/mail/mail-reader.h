@@ -9,6 +9,7 @@
 
 #include <adwaita.h>
 #include <camel/camel.h>
+#include <webkit/webkit.h>
 
 #include "mail-folder.h"
 #include "mail-message.h"
@@ -28,5 +29,6 @@ void revolution_mail_reader_set_compact (RevolutionMailReader *self,
                                          gboolean              compact);
 char *revolution_mail_reader_message_html (CamelMimeMessage *message,
                                            GCancellable     *cancellable);
+void revolution_mail_reader_disable_prefetch (WebKitSettings *settings);
 
 G_END_DECLS

@@ -100,6 +100,10 @@ struct _RevolutionMailView
 
 G_DEFINE_FINAL_TYPE (RevolutionMailView, revolution_mail_view, ADW_TYPE_BREAKPOINT_BIN)
 
+/* #421: Signal „retry-stores“ (UID des Kontos der offenen Liste oder NULL), main.c: gescheiterte Stores
+ * erneut verbinden; TRUE, wenn das Konto der Liste dazugehört. */
+static guint retry_signal;
+
 /* list.compose öffnet den Composer (#337) als eigenes Fenster wie Stamp. */
 static void
 on_compose (GSimpleAction *action G_GNUC_UNUSED,
@@ -1095,8 +1099,11 @@ load_messages_thread (GTask        *task,
   refresh_end (key);
   /* #408: Offline (Pille „Offline“) bleibt es beim Stand des Caches. imapx überspringt den
    * Abgleich dann (camel-imapx-folder.c:878-880), microsoft365 meldet „You must be working
-   * online“ (camel-m365-folder.c:961, camel-m365-store.c:1754-1758); das ist kein Fehler. */
-  if (!refreshed_ok && error != NULL && !camel_session_get_online (load->session))
+   * online“ (camel-m365-folder.c:961, camel-m365-store.c:1754-1758); das ist kein Fehler.
+   * #421: ebenso, wenn main.c den Store nach gescheiterter Verbindung offline geschaltet hat. */
+  if (!refreshed_ok && error != NULL &&
+      (!camel_session_get_online (load->session) ||
+       (CAMEL_IS_OFFLINE_STORE (service) && !camel_offline_store_get_online (CAMEL_OFFLINE_STORE (service)))))
     {
       g_debug ("Nachrichten: %s %s offline, Stand des Caches (%s)", load->uid, load->full_name, error->message);
       g_clear_error (&error);
@@ -2116,6 +2123,28 @@ on_conversation_mark (RevolutionMailView    *self,
  * e-mail-shell-view-actions.c:1721-1726; Strg+R ist dort Antworten, e-mail-reader.c:3382-3387).
  * camel_folder_refresh_info_sync im Worker, die Liste folgt über „changed“. Ohne geladenen
  * Ordner (Fehler beim Laden) lädt es den Ordner neu. */
+/* #421: Store des Ordners offline (main.c schaltet ihn nach gescheiterter Verbindung offline), bei
+ * Suchordnern (Konversation, Favoriten) der Store eines Quellordners; wie load_messages_thread. */
+static gboolean
+folder_store_offline (CamelFolder *folder)
+{
+  CamelStore *store = camel_folder_get_parent_store (folder);
+  gboolean offline = FALSE;
+
+  if (CAMEL_IS_VEE_FOLDER (folder))
+    {
+      GList *sources = camel_vee_folder_ref_folders (CAMEL_VEE_FOLDER (folder));
+
+      for (GList *l = sources; l != NULL && !offline; l = l->next)
+        offline = folder_store_offline (l->data);
+      g_list_free_full (sources, g_object_unref);
+    }
+  else if (CAMEL_IS_OFFLINE_STORE (store))
+    offline = !camel_offline_store_get_online (CAMEL_OFFLINE_STORE (store));
+
+  return offline;
+}
+
 static void
 refresh_thread (GTask        *task,
                 gpointer      source_object G_GNUC_UNUSED,
@@ -2131,7 +2160,7 @@ refresh_thread (GTask        *task,
   /* #357: in Konversationen den Ordner und Gesendet am Server abgleichen (mail-thread.c). */
   if (revolution_mail_thread_refresh_sync (task_data, op, &error))
     g_task_return_boolean (task, TRUE);
-  else if (session != NULL && !camel_session_get_online (session))
+  else if ((session != NULL && !camel_session_get_online (session)) || folder_store_offline (task_data))
     {
       /* #408: offline bleibt der Cache (wie load_messages_thread). */
       g_debug ("Aktualisieren: offline, Stand des Caches (%s)", error->message);
@@ -2173,11 +2202,8 @@ on_refreshed (GObject      *source_object,
 static void on_folder_selected (RevolutionMailView *self);
 
 static void
-on_refresh (GSimpleAction *action G_GNUC_UNUSED,
-            GVariant      *parameter G_GNUC_UNUSED,
-            gpointer       user_data)
+refresh_list (RevolutionMailView *self)
 {
-  RevolutionMailView *self = user_data;
   g_autoptr (GTask) task = NULL;
 
   if (self->camel_folder == NULL)
@@ -2192,6 +2218,28 @@ on_refresh (GSimpleAction *action G_GNUC_UNUSED,
   g_task_set_source_tag (task, on_refresh);
   g_task_set_task_data (task, g_object_ref (self->camel_folder), g_object_unref);
   g_task_run_in_thread (task, refresh_thread);
+}
+
+/* #421: F5 verbindet zuerst die Stores, deren Verbindung bei Netzmonitor „online“ scheiterte (main.c,
+ * retry_stores), wie Evolution einen getrennten Store beim nächsten Zugriff neu verbindet
+ * (camel-m365-store.c:1754-1762, camel-store.c:262-313). Gehört das Konto der Liste dazu, folgt die
+ * Liste nach dem Verbinden (revolution_mail_view_refresh_account); sonst gleich. */
+static void
+on_refresh (GSimpleAction *action G_GNUC_UNUSED,
+            GVariant      *parameter G_GNUC_UNUSED,
+            gpointer       user_data)
+{
+  RevolutionMailView *self = user_data;
+  g_autoptr (RevolutionMailAccount) account = NULL;
+  gboolean waits = FALSE;
+
+  if (self->folder != NULL)
+    g_object_get (self->folder, "account", &account, NULL);
+  g_signal_emit (self, retry_signal, 0, account != NULL ? revolution_mail_account_get_uid (account) : NULL, &waits);
+  if (waits)
+    g_debug ("Aktualisieren: %s nach erneutem Verbinden", self->loading);
+  else
+    refresh_list (self);
 }
 
 /* #353: Kontextmenü der Zeile wie GNOME Dateien (Nautilus): Rechtsklick wählt die Zeile und
@@ -2740,6 +2788,9 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   object_class->finalize = revolution_mail_view_finalize;
   widget_class->unroot = revolution_mail_view_unroot;
 
+  retry_signal = g_signal_new ("retry-stores", G_TYPE_FROM_CLASS (klass), G_SIGNAL_RUN_LAST, 0,
+                               g_signal_accumulator_first_wins, NULL, NULL, G_TYPE_BOOLEAN, 1, G_TYPE_STRING);
+
   g_object_class_install_property (object_class, PROP_STACK,
                                    g_param_spec_object ("stack", NULL, NULL, ADW_TYPE_VIEW_STACK,
                                                         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
@@ -2990,14 +3041,22 @@ void
 revolution_mail_view_set_offline (RevolutionMailView *self,
                                   gboolean            offline)
 {
-  BannerErrors *errors;
-
   g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
 
   gtk_widget_set_visible (self->offline_notice, offline);
   g_debug ("Hinweis Offline: %s", offline ? "sichtbar" : "weg");
-  if (!offline)
-    return;
+  if (offline)
+    revolution_mail_view_clear_connection_errors (self);
+}
+
+/* #421: Sammel-Banner weg, wenn es nur aus „Keine Verbindung“ besteht (set_offline; main.c vor dem
+ * erneuten Verbinden nach einem Netzwechsel, retry_stores). */
+void
+revolution_mail_view_clear_connection_errors (RevolutionMailView *self)
+{
+  BannerErrors *errors;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
 
   errors = g_object_get_data (G_OBJECT (self), "banner-errors");
   if (errors != NULL && errors->kinds->len == 1 &&
@@ -3005,11 +3064,12 @@ revolution_mail_view_set_offline (RevolutionMailView *self,
     {
       g_object_set_data (G_OBJECT (self), "banner-errors", NULL);
       adw_banner_set_revealed (self->banner, FALSE);
+      g_debug ("Banner: Keine Verbindung weg");
     }
 }
 
 /* #408: Aufruf aus main.c, sobald der Store des Kontos uid nach „Netz zurück“ wieder verbunden
- * ist: die offene Liste, wenn sie zu diesem Konto gehört, vom Server wie F5 (on_refresh). */
+ * ist: die offene Liste, wenn sie zu diesem Konto gehört, vom Server wie F5 (refresh_list). */
 void
 revolution_mail_view_refresh_account (RevolutionMailView *self,
                                       const char         *uid)
@@ -3023,7 +3083,7 @@ revolution_mail_view_refresh_account (RevolutionMailView *self,
 
   g_object_get (self->folder, "account", &account, NULL);
   if (account != NULL && g_strcmp0 (revolution_mail_account_get_uid (account), uid) == 0)
-    on_refresh (NULL, NULL, self);
+    refresh_list (self);
 }
 
 /* #350: Ordner der Seitenleiste auswählen (Position im flachen Modell der Auswahl). */

@@ -196,6 +196,22 @@ load_session_thread (GTask        *task,
   g_task_return_pointer (task, session, g_object_unref);
 }
 
+/* #421: Fehler beim Verbinden, die heißen „Server nicht erreichbar“: Namensauflösung (G_RESOLVER_ERROR,
+ * gresolver.h:293; microsoft365 über libsoup), Netz/Host nicht erreichbar, abgewiesen, Zeitüberschreitung
+ * (G_IO_ERROR_*, gioenums.h:566, 579-581) und CAMEL_SERVICE_ERROR_UNAVAILABLE, das imapx statt eines
+ * Resolver-Fehlers meldet („You must be working online …“, camel-imapx-conn-manager.c:973-987) und
+ * das EDS selbst wie „offline“ behandelt (camel-store.c:302-306). */
+static gboolean
+server_unreachable (const GError *error)
+{
+  return error->domain == G_RESOLVER_ERROR ||
+         g_error_matches (error, G_IO_ERROR, G_IO_ERROR_NETWORK_UNREACHABLE) ||
+         g_error_matches (error, G_IO_ERROR, G_IO_ERROR_HOST_UNREACHABLE) ||
+         g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CONNECTION_REFUSED) ||
+         g_error_matches (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT) ||
+         g_error_matches (error, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_UNAVAILABLE);
+}
+
 /* #348: Ergebnis des Worker-Tasks je Store (note_store_thread). */
 typedef struct
 {
@@ -206,6 +222,8 @@ typedef struct
    * Ordner aus dem Cache ohne Verbindungsversuch. */
   gboolean offline;
   GError *offline_error;
+  /* #421: Verbindung gescheitert bei Session online, Store offline geschaltet, Ordner aus dem Cache. */
+  gboolean fallback;
 } NoteStoreResult;
 
 static void
@@ -305,6 +323,26 @@ note_store_thread (GTask        *task,
            camel_service_get_connection_status (CAMEL_SERVICE (store)) != CAMEL_SERVICE_DISCONNECTED)
     camel_service_disconnect_sync (CAMEL_SERVICE (store), TRUE, cancellable, &result->offline_error);
 
+  /* #421: Verbindung gescheitert, obwohl der Netzmonitor „online“ meldet (DNS-Ausfall, Captive
+   * Portal). Der Store bleibt dann online, aber getrennt (camel-offline-store.c:293-301), und
+   * camel_store_get_folder_info_sync verbindet neu (store_maybe_connect_sync, camel-store.c:262-313,
+   * 1713); dessen Fehler gibt es außer G_IO_ERROR und CAMEL_SERVICE_ERROR_UNAVAILABLE weiter (dort
+   * 302-309), microsoft365 scheitert mit G_RESOLVER_ERROR: keine Ordner. Evolution zeigt das Konto
+   * dann ohne Ordner (mail-folder-cache.c:2138-2149, em-folder-tree.c:233-241). Hier wird der Store
+   * offline geschaltet wie ohne Netz (#408); offline liefert er die Ordner aus dem Cache
+   * (camel-store.c:288-293, camel-m365-store.c:1187, 1302-1306). camel_offline_store_set_online_sync
+   * verbindet dabei einen getrennten Store noch einmal (camel-offline-store.c:288-301); dafür
+   * entfällt der Versuch in camel_store_get_folder_info_sync. Wieder verbinden beim nächsten
+   * Netzwechsel oder mit F5 (retry_stores).
+   * Nur wenn der Server nicht erreichbar ist (server_unreachable); jeder andere Fehler (Anmeldung,
+   * Zertifikat, abgebrochene Verbindung) lässt den Store wie vor #421 online: EDS verbindet ihn
+   * beim nächsten Zugriff neu (store_maybe_connect_sync, camel-m365-store.c:1754-1762). */
+  if (result->connect_error != NULL && CAMEL_IS_OFFLINE_STORE (store) && server_unreachable (result->connect_error))
+    {
+      result->fallback = TRUE;
+      camel_offline_store_set_online_sync (CAMEL_OFFLINE_STORE (store), FALSE, cancellable, &result->offline_error);
+    }
+
   if (provider != NULL && (provider->flags & (CAMEL_PROVIDER_IS_STORAGE | CAMEL_PROVIDER_IS_EXTERNAL)) != 0)
     result->info = camel_store_get_folder_info_sync (store, NULL,
                                                      CAMEL_STORE_FOLDER_INFO_RECURSIVE |
@@ -395,8 +433,11 @@ find_inbox (CamelFolderInfo *fi)
  * 300-308). Ein Netzmonitor und eine Session je Prozess. */
 static guint online_id;
 static GCancellable *line;
+/* #421: Quelle des verzögerten erneuten Verbindens (retry_stores). */
+static guint retry_id;
 
 static gboolean go_online (gpointer user_data);
+static gboolean retry_stores (gpointer user_data);
 static void on_network_changed (GNetworkMonitor *monitor, GParamSpec *pspec, RevolutionMailView *mail_view);
 
 static GCancellable *
@@ -448,11 +489,12 @@ on_store_noted (GObject      *source_object,
   g_autoptr (GError) task_error = NULL;
   gboolean online = session != NULL && camel_session_get_online (session);
   gpointer tag = g_task_get_source_tag (G_TASK (result));
-  gboolean again = tag == go_online || tag == on_network_changed;
+  gboolean again = tag == go_online || tag == on_network_changed || tag == retry_stores;
   gboolean merge = again && g_object_get_data (G_OBJECT (service), "revolution-folders") != NULL;
   NoteStoreResult *noted;
   GError *error;
   const char *title;
+  gboolean fallback;
 
   noted = g_task_propagate_pointer (G_TASK (result), &task_error);
   if (noted == NULL)
@@ -478,6 +520,9 @@ on_store_noted (GObject      *source_object,
 
       detail = g_strdup_printf ("%s: %s", display_name, error->message);
       revolution_mail_view_show_error (mail_view, title, detail, TRUE);
+      g_debug ("Verbindung gescheitert: %s, %s (%s %d)", uid,
+               noted->fallback ? "Ordner aus dem Cache" : "Store bleibt online",
+               g_quark_to_string (error->domain), error->code);
     }
   else if (noted->offline_error != NULL)
     /* Wie Evolution (mail_backend_store_operation_done_cb, e-mail-backend.c:128-138): offline
@@ -531,9 +576,12 @@ on_store_noted (GObject      *source_object,
   if (noted->folders_error != NULL && !merge)
     revolution_mail_view_set_folders (mail_view, uid, NULL);
 
+  /* #421: Store mit gescheiterter Verbindung beim nächsten Netzwechsel erneut verbinden (retry_stores). */
+  fallback = noted->fallback;
+  g_object_set_data (G_OBJECT (service), "revolution-retry", GINT_TO_POINTER (fallback));
   note_store_result_free (noted);
 
-  if (again && online)
+  if (again && online && !fallback)
     revolution_mail_view_refresh_account (mail_view, uid);
 }
 
@@ -744,6 +792,7 @@ on_network_changed (GNetworkMonitor    *monitor,
     }
 
   g_clear_handle_id (&online_id, g_source_remove);
+  g_clear_handle_id (&retry_id, g_source_remove);
   if (!camel_session_get_online (CAMEL_SESSION (session)))
     return;
 
@@ -753,10 +802,99 @@ on_network_changed (GNetworkMonitor    *monitor,
   g_debug ("Netz: nicht verfügbar, offline, %u Stores trennen", switch_stores (session, mail_view, on_network_changed));
 }
 
+/* #421: Stores, deren Verbindung bei Session online scheiterte (note_store_thread, Marke
+ * „revolution-retry“ aus on_store_noted), erneut verbinden: derselbe Auftrag wie beim Netzwechsel,
+ * im GCancellable der laufenden Umschaltung (ein Wechsel nach offline bricht ihn ab). Auslöser ist
+ * „network-changed“ des Netzmonitors ohne Wechsel von „network-available“ (z. B. neue Route), wie
+ * Stamp jedes Konto bei „network-changed“ verbindet (stamp-account-item.c:324-350, 719); EDS prüft
+ * dabei die Erreichbarkeit seiner Stores nach 5 s neu (camel-network-service.c:414-469, 507),
+ * Evolution schaltet nur bei „network-available“ (e-shell.c:1845-1850). Hier ebenso nach
+ * SET_ONLINE_TIMEOUT_SECONDS seit dem letzten Signal. Vorher verschwindet das Banner „Keine
+ * Verbindung“ wie beim Offline-Gehen; ein erneuter Fehler meldet es wieder. */
+static gboolean
+retry_stores (gpointer user_data)
+{
+  RevolutionMailView *mail_view = user_data;
+  RevolutionMailSession *session = app_session ();
+  g_autolist (CamelService) services = NULL;
+  guint count = 0;
+
+  retry_id = 0;
+  if (session == NULL || !camel_session_get_online (CAMEL_SESSION (session)))
+    return G_SOURCE_REMOVE;
+
+  services = camel_session_list_services (CAMEL_SESSION (session));
+  for (GList *l = services; l != NULL; l = l->next)
+    {
+      g_autoptr (GTask) task = NULL;
+
+      if (!CAMEL_IS_STORE (l->data) || g_object_get_data (l->data, "revolution-retry") == NULL)
+        continue;
+
+      g_object_set_data (l->data, "revolution-retry", NULL);
+      if (count++ == 0)
+        revolution_mail_view_clear_connection_errors (mail_view);
+      task = g_task_new (l->data, line, on_store_noted, g_object_ref (mail_view));
+      g_task_set_source_tag (task, retry_stores);
+      g_task_run_in_thread (task, note_store_thread);
+    }
+  if (count > 0)
+    g_debug ("Netz: %u Stores erneut verbinden", count);
+
+  return G_SOURCE_REMOVE;
+}
+
+/* Nur wenn schon ein Store gescheitert ist: ein Netzwechsel davor (auch der beim Anlegen des
+ * Monitors, e-network-monitor.c:636) betrifft keine gescheiterte Verbindung. */
+static void
+on_network_event (RevolutionMailView *mail_view)
+{
+  RevolutionMailSession *session = app_session ();
+  g_autolist (CamelService) services = NULL;
+  gboolean failed = FALSE;
+
+  if (session == NULL || !camel_session_get_online (CAMEL_SESSION (session)) || online_id != 0)
+    return;
+
+  services = camel_session_list_services (CAMEL_SESSION (session));
+  for (GList *l = services; l != NULL && !failed; l = l->next)
+    failed = g_object_get_data (l->data, "revolution-retry") != NULL;
+  if (!failed)
+    return;
+
+  g_debug ("Netz: Netzwechsel, erneut verbinden in %d s", SET_ONLINE_TIMEOUT_SECONDS);
+  g_clear_handle_id (&retry_id, g_source_remove);
+  retry_id = g_timeout_add_seconds_full (G_PRIORITY_DEFAULT, SET_ONLINE_TIMEOUT_SECONDS, retry_stores,
+                                         g_object_ref (mail_view), g_object_unref);
+}
+
+/* #421: F5 (mail-view.c, Signal „retry-stores“): gescheiterte Stores gleich erneut verbinden. Rückgabe
+ * TRUE, wenn der Store des Kontos uid dazugehört; dessen Liste folgt dann aus on_store_noted. */
+static gboolean
+on_retry_requested (RevolutionMailView *mail_view,
+                    const char         *uid,
+                    gpointer            user_data G_GNUC_UNUSED)
+{
+  RevolutionMailSession *session = app_session ();
+  g_autoptr (CamelService) service = NULL;
+  gboolean waits;
+
+  if (session == NULL || !camel_session_get_online (CAMEL_SESSION (session)))
+    return FALSE;
+
+  service = uid != NULL ? camel_session_ref_service (CAMEL_SESSION (session), uid) : NULL;
+  waits = service != NULL && g_object_get_data (G_OBJECT (service), "revolution-retry") != NULL;
+  g_clear_handle_id (&retry_id, g_source_remove);
+  retry_stores (mail_view);
+
+  return waits;
+}
+
 static void
 on_shutdown_network (GApplication *app G_GNUC_UNUSED)
 {
   g_clear_handle_id (&online_id, g_source_remove);
+  g_clear_handle_id (&retry_id, g_source_remove);
   if (line != NULL)
     g_cancellable_cancel (line);
   g_clear_object (&line);
@@ -796,6 +934,10 @@ on_session_loaded (GObject      *source_object,
     }
   g_signal_connect_object (e_network_monitor_get_default (), "notify::network-available",
                            G_CALLBACK (on_network_changed), mail_view, G_CONNECT_DEFAULT);
+  /* #421: Netzwechsel ohne Wechsel der Verfügbarkeit (retry_stores). */
+  g_signal_connect_object (e_network_monitor_get_default (), "network-changed",
+                           G_CALLBACK (on_network_event), mail_view, G_CONNECT_SWAPPED);
+  g_signal_connect (mail_view, "retry-stores", G_CALLBACK (on_retry_requested), NULL);
   /* Beim Beenden die laufende Umschaltung abbrechen (auch das erste Verbinden, note_stores). */
   g_signal_connect (source_object, "shutdown", G_CALLBACK (on_shutdown_network), NULL);
 

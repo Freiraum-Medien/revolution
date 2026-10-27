@@ -16,12 +16,18 @@
 #                                  Verbindungen nach außen auf 127.0.0.1:15000, DNS auf
 #                                  127.0.0.53:53 (/etc/resolv.conf); startet BEFEHL ohne
 #                                  Capabilities und nimmt über CTRL „up“/„down“ an.
+#                                  ZUSTAND up, down oder kaputt (#421, nur als Start).
 #
 # up:   Standardroute über d0, Weiterleitung an. Der Netzmonitor von GIO (netlink, liest die
 #       Routen des Namensraums) meldet „network-available“ = TRUE.
 # down: Standardroute weg (connect() scheitert mit ENETUNREACH, der Netzmonitor meldet FALSE),
 #       alle weitergeleiteten Verbindungen hart geschlossen, DNS aus. Das entspricht einem
 #       gezogenen Kabel samt Abbau der Verbindungen.
+# kaputt (#421): Standardroute da (der Netzmonitor meldet TRUE), aber keine Weiterleitung und kein DNS:
+#       jede Verbindung scheitert (Namensauflösung ohne Antwort, TCP abgewiesen), wie DNS-Ausfall oder
+#       Captive Portal. „up“ danach behält die Standardroute und legt eine weitere Route an: der
+#       Netzmonitor meldet „network-changed“ ohne Wechsel von „network-available“. „heil“ danach
+#       schaltet nur Weiterleitung und DNS an, ohne Änderung an den Routen (kein Netzwechsel).
 #
 # Copyright 2026 Arnd Messer
 #
@@ -150,6 +156,7 @@ class Innen:
         self.offen = set()
         self.hoerer = []
         self.oben = False
+        self.kaputt = False
 
     def merke(self, *socks):
         with self.lock:
@@ -196,7 +203,7 @@ class Innen:
                 return
             threading.Thread(target=self.dns_frage, args=(srv, frage, absender), daemon=True).start()
 
-    def up(self):
+    def up(self, wechsel=True):
         if self.oben:
             return
         t = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -208,8 +215,17 @@ class Innen:
         self.hoerer = [t, d]
         threading.Thread(target=self.tcp_hoeren, args=(t,), daemon=True).start()
         threading.Thread(target=self.dns_hoeren, args=(d,), daemon=True).start()
-        subprocess.run(['ip', 'route', 'add', 'default', 'via', '10.99.0.1', 'dev', 'd0'], check=True)
+        if self.kaputt:
+            if wechsel:
+                subprocess.run(['ip', 'route', 'add', '10.98.0.0/24', 'dev', 'd0'], check=True)
+            self.kaputt = False
+        else:
+            subprocess.run(['ip', 'route', 'add', 'default', 'via', '10.99.0.1', 'dev', 'd0'], check=True)
         self.oben = True
+
+    def kaputt_start(self):
+        subprocess.run(['ip', 'route', 'add', 'default', 'via', '10.99.0.1', 'dev', 'd0'], check=True)
+        self.kaputt = True
 
     def down(self):
         if not self.oben:
@@ -246,6 +262,8 @@ def innen(sock_pfad, ctrl_pfad, zustand, befehl):
     netz = Innen(sock_pfad)
     if zustand == 'up':
         netz.up()
+    elif zustand == 'kaputt':
+        netz.kaputt_start()
 
     if os.path.exists(ctrl_pfad):
         os.unlink(ctrl_pfad)
@@ -262,6 +280,11 @@ def innen(sock_pfad, ctrl_pfad, zustand, befehl):
                     netz.up()
                 elif kommando == 'down':
                     netz.down()
+                elif kommando == 'heil' and netz.kaputt:
+                    netz.up(wechsel=False)
+                    c.sendall(b'ok heil\n')
+                    c.close()
+                    continue
                 c.sendall(b'ok up\n' if netz.oben else b'ok down\n')
             except (OSError, subprocess.CalledProcessError) as e:
                 c.sendall(('fehler %s\n' % e).encode())
@@ -301,12 +324,12 @@ def steuere(ctrl_pfad, kommando):
 if __name__ == '__main__':
     if len(sys.argv) == 4 and sys.argv[1] == 'außen':
         aussen(sys.argv[2], sys.argv[3])
-    elif len(sys.argv) > 6 and sys.argv[1] == 'innen' and sys.argv[4] in ('up', 'down') and sys.argv[5] == '--':
+    elif len(sys.argv) > 6 and sys.argv[1] == 'innen' and sys.argv[4] in ('up', 'down', 'kaputt') and sys.argv[5] == '--':
         sys.exit(innen(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[6:]))
     elif len(sys.argv) >= 4 and sys.argv[1] == 'testdaten':
         print(testdaten(sys.argv[2], *sys.argv[3:]), end='')
     elif len(sys.argv) == 4 and sys.argv[1] == 'steuern':
         print(steuere(sys.argv[2], sys.argv[3]))
     else:
-        sys.exit('Aufruf: netz-relay.py außen SOCK LOG | innen SOCK CTRL up|down -- BEFEHL … | steuern CTRL up|down'
+        sys.exit('Aufruf: netz-relay.py außen SOCK LOG | innen SOCK CTRL up|down|kaputt -- BEFEHL … | steuern CTRL up|down'
                  ' | testdaten SOCK ARGUMENTE …')

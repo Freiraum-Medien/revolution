@@ -7,6 +7,12 @@
 #   NAME …              Start ohne Netz: Ordner aller Konten und Nachricht aus dem Cache, Pille
 #                       „Offline“; Netz zurück: online nach 5 s, Konten verbunden, Liste vom Server,
 #                       Pille weg; Netz weg zur Laufzeit: offline, F5 aus dem Cache; Netz zurück.
+#   PHASEN=kaputt (#421) Start mit Netzmonitor „online“, aber jede Verbindung scheitert (Relais
+#                       „kaputt“): Ordner, Liste und Nachricht aus dem Cache, Banner „Keine
+#                       Verbindung“, Zähler wie am Ende des vorigen Laufs (VORHER); Verbindung zurück
+#                       (Relais „up“ mit Netzwechsel): Konten verbunden, Ordner und Liste vom Server.
+#   PHASEN=kaputt-f5     wie kaputt, aber Relais „heil“ ohne Netzwechsel: nichts verbindet von selbst;
+#                       F5 verbindet die Konten, Ordner und Liste vom Server, Banner weg.
 # Ausgabe: „OK …“, „FEHLER …“, „WERT …“; Screenshots OUT/NAME-<Schritt>.png.
 #
 # Copyright 2026 Arnd Messer
@@ -37,6 +43,10 @@ PAUSE = float(os.environ.get('PAUSE', '20'))
 # app.test-store, REVOLUTION_TEST_HOOKS=1, main.c): Gmail nimmt nach vielen Netzwechseln keine
 # Anmeldung mehr an (gemessen #408 R2); es hat einen eigenen Lauf mit wenigen Wechseln.
 OHNE = os.environ.get('OHNE', '')
+# #421: Konten, die die App nicht lädt (REVOLUTION_SKIP_ACCOUNTS, mail-account.c), und Log des vorigen
+# Laufs für den Vergleich der Zähler.
+SKIP = [u for u in os.environ.get('REVOLUTION_SKIP_ACCOUNTS', '').split(',') if u]
+VORHER = os.environ.get('VORHER', '')
 ORDNER = os.environ['REVOLUTION_FOLDER']
 LOGKEY = ORDNER.replace('/', ' ', 1)
 EINLADUNG = '[Revolution-Test] Einladung: Abstimmung Testdaten'
@@ -49,6 +59,8 @@ M365_KAR = (120, 474)
 OUTLOOK_REVOLUTION_TEST = (120, 1030)
 
 fehler = 0
+# #421: erwartete Warnungen (Phase kaputt: Anmeldung scheitert), im Abschluss-Check „Log“ ausgenommen.
+erlaubt = set()
 d = display.Display()
 
 
@@ -451,6 +463,78 @@ def m365_laden(uids):
     time.sleep(2)
 
 
+def zaehler(pfad):
+    """Letzter Stand „Favoriten: Anzahl inbox UID ORDNER N“ je UID (mail-favorites.c, log_counts)."""
+    out = {}
+    with open(pfad, encoding='utf-8', errors='replace') as f:
+        for zeile in f:
+            m = re.search(r'revolution-DEBUG: \S+: Favoriten: Anzahl inbox (\S+) .* (\d+)$', zeile.rstrip('\n'))
+            if m:
+                out[m.group(1)] = int(m.group(2))
+    return out
+
+
+def kaputt(uids):
+    """#421: Netzmonitor „online“, aber keine Verbindung; danach Verbindung zurück mit Netzwechsel."""
+    schritt = 'Verbindung scheitert'
+    fehlt = warte_alle(r'^Verbindung gescheitert: %s, Ordner aus dem Cache \(', uids, 0, 90)
+    (falsch if fehlt else ok)('%s: %s' % (schritt, 'ohne Log „Verbindung gescheitert“: %s' % sorted(fehlt) if fehlt
+                                          else 'alle %d Stores offline geschaltet, Ordner aus dem Cache' % len(uids)))
+    fehlt = warte_alle(r'^Ordner: %s \d+ geladen$', uids, 0, 60)
+    (falsch if fehlt else ok)('%s: %s' % (schritt, 'keine Ordner: %s' % sorted(fehlt) if fehlt
+                                          else 'Ordner aller %d Konten aus dem Cache' % len(uids)))
+    ordner_wie_server(schritt, uids, 0)
+    pruefe('%s: Liste aus dem Cache' % schritt, r'^Nachrichten: %s vollständig' % re.escape(LOGKEY), 0, 60)
+    pruefe('%s: Abgleich übersprungen' % schritt, r'^Nachrichten: %s offline, Stand des Caches' % re.escape(LOGKEY), 0, 60)
+    pruefe('%s: Nachricht aus dem Cache' % schritt, r'^Nachricht: %s \S+ geladen nach' % re.escape(LOGKEY), 0, 60)
+    time.sleep(5)
+    texte = [t for _, t in log_zeilen()]
+    offline = [t for t in texte if t.startswith('Netz: nicht verfügbar') or t == 'Hinweis Offline: sichtbar']
+    (falsch if offline else ok)('%s: Netzmonitor online, keine Pille „Offline“ (%s)' % (schritt, offline[:2] or 'ok'))
+    ohne_warnungen(schritt, 0, erlaubt=(': Anmeldung ', ))
+    anmeldung = [z for z in warnungen(0) if ': Anmeldung ' in z]
+    erlaubt.update(anmeldung)
+    (ok if len(anmeldung) == len(uids) else falsch)('%s: %d Warnungen „Anmeldung …“ (Banner „Keine Verbindung“), '
+                                                    'erwartet %d' % (schritt, len(anmeldung), len(uids)))
+    (ok if not relais_zeilen() else falsch)('%s: keine Verbindung nach außen (%d)' % (schritt, len(relais_zeilen())))
+    if VORHER and os.path.exists(VORHER):
+        vorher, jetzt = zaehler(VORHER), zaehler(LOG)
+        for uid in uids:
+            if uid in vorher:
+                (ok if jetzt.get(uid) == vorher[uid] else falsch)('%s: Zähler Alle Eingänge %s: %s, vorher %s' % (
+                    schritt, uid[:8], jetzt.get(uid), vorher[uid]))
+    bild('1-kaputt')
+
+    ab, ab_datei = marke(), dateizeilen()
+    if 'kaputt-f5' in PHASEN:
+        schritt = 'Verbindung zurück ohne Netzwechsel, F5'
+        netz('heil')
+        time.sleep(15)
+        von_selbst = [t for _, t in log_zeilen()[ab:] if t.startswith('Netz: ') or t.startswith('verbunden: ')]
+        (falsch if von_selbst else ok)('%s: 15 s ohne Netzwechsel nichts verbunden (%s)' % (schritt, von_selbst[:2] or 'ok'))
+        ab = marke()
+        taste('F5')
+        pruefe('%s: F5' % schritt, r'^Aktualisieren: %s nach erneutem Verbinden$' % re.escape(LOGKEY), ab, 20)
+    else:
+        schritt = 'Verbindung zurück'
+        netz('up')
+        pruefe('%s: Netzwechsel' % schritt, r'^Netz: Netzwechsel, erneut verbinden in 5 s$', ab, 20)
+    pruefe('%s: erneut verbinden' % schritt, r'^Netz: %d Stores erneut verbinden$' % len(uids), ab, 30)
+    pruefe('%s: Banner' % schritt, r'^Banner: Keine Verbindung weg$', ab, 30)
+    fehlt = warte_alle(r'^verbunden: %s$', uids, ab, 120)
+    (falsch if fehlt else ok)('%s: %s' % (schritt, 'nicht verbunden: %s' % sorted(fehlt) if fehlt
+                                          else 'alle %d Konten verbunden' % len(uids)))
+    fehlt = warte_alle(r'^Ordner: %s abgeglichen, \d+ neu, \d+ entfernt$', uids, ab, 120)
+    (falsch if fehlt else ok)('%s: %s' % (schritt, 'Ordnerliste nicht abgeglichen: %s' % sorted(fehlt) if fehlt
+                                          else 'Ordnerliste aller Konten vom Server abgeglichen'))
+    pruefe('%s: Liste vom Server' % schritt, r'^Aktualisieren: %s fertig$' % re.escape(LOGKEY), ab, 120)
+    tcp = relais_zeilen()
+    (ok if tcp else falsch)('%s: %d Verbindungen nach außen über das Relais, z. B. %s' % (schritt, len(tcp), tcp[:3]))
+    time.sleep(3)
+    ohne_warnungen(schritt, ab_datei)
+    bild('2-zurueck')
+
+
 def vorbereiten():
     pruefe('Nachricht', r'^Nachricht: %s \S+ geladen nach' % re.escape(LOGKEY), 0, 120)
 
@@ -532,7 +616,7 @@ def weitere(uids):
 
 def main():
     _, anzahl = referenz()
-    uids = sorted(anzahl)
+    uids = sorted(u for u in anzahl if u not in SKIP)
     log = open(LOG, 'w')
     app = subprocess.Popen([BIN], stdout=log, stderr=subprocess.STDOUT)
     try:
@@ -544,6 +628,8 @@ def main():
         d.sync()
         if NAME.endswith('-vorbereiten'):
             vorbereiten()
+        elif 'kaputt' in PHASEN or 'kaputt-f5' in PHASEN:
+            kaputt(uids)
         else:
             wechsel(uids)
         w.send_event(protocol.event.ClientMessage(
@@ -562,7 +648,7 @@ def main():
         log.close()
     rest = [z.strip() for z in open(LOG, encoding='utf-8', errors='replace')
             if not z.startswith('(revolution:') and not z.startswith('libEGL warning:') and z.strip()]
-    rest += warnungen(0)
+    rest += [z for z in warnungen(0) if z not in erlaubt]
     (falsch if rest else ok)('Log: %s' % ('%d unerwartete Zeilen: %s' % (len(rest), rest[:3]) if rest else 'nur DEBUG-Zeilen'))
     return 1 if fehler else 0
 

@@ -85,6 +85,35 @@ template $RevolutionMailView: Adw.BreakpointBin {
       trigger: "<primary>t";
       action: "action(list.conversations)";
     }
+
+    // #363: Löschen mit Entf wie Evolution (e-mail-reader.c:3574-3575) und ⌫ wie Apple Mail, Archivieren
+    // Strg+Alt+A wie Evolution (e-mail-reader.c:2911-2916), Spam Umschalt+Strg+J und Verschieben
+    // Umschalt+Strg+M (Entscheidung PM, #363; Evolution: Strg+J, Umschalt+Strg+V, e-mail-reader.c:3151-3156,
+    // 3256-3261), Rückgängig Strg+Z (HIG Keyboard, Standardkürzel).
+    Shortcut {
+      trigger: "Delete|KP_Delete|BackSpace";
+      action: "action(message.delete)";
+    }
+
+    Shortcut {
+      trigger: "<primary><alt>a";
+      action: "action(message.archive)";
+    }
+
+    Shortcut {
+      trigger: "<primary><shift>j";
+      action: "action(message.junk)";
+    }
+
+    Shortcut {
+      trigger: "<primary><shift>m";
+      action: "action(message.move)";
+    }
+
+    Shortcut {
+      trigger: "<primary>z";
+      action: "action(message.undo)";
+    }
   }
 
   // Briefing 1.2: ≤ 1000 sp Seitenleiste eingeklappt, ≤ 600 sp „mobile“ (stamp-mail-view.blp:8-26).
@@ -222,6 +251,13 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                     child: TreeExpander {
                       list-row: bind template.item as <TreeListRow>;
+
+                      // #363: Nachricht hierher ziehen = verschieben (mail-view.c, on_folder_drop).
+                      DropTarget {
+                        actions: move;
+                        formats: "RevolutionMailMessage";
+                        drop => $on_folder_drop(template);
+                      }
 
                       child: Box {
                         spacing: 12;
@@ -464,6 +500,12 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                     GestureSwipe {
                       swipe => $on_row_swipe(template);
+                    }
+
+                    // #363: Ziehen auf einen Ordner der Seitenleiste verschiebt (on_row_drag_prepare).
+                    DragSource {
+                      actions: move;
+                      prepare => $on_row_drag_prepare(template);
                     }
 
                     // Platz für den Ungelesen-Punkt bleibt auch ohne Punkt frei.
@@ -749,11 +791,11 @@ template $RevolutionMailView: Adw.BreakpointBin {
                   }
                 }
 
-                MenuButton {
+                // #363: Ziele aus dem Ordnerbaum des Kontos (mail-view.c, fill_move_menu).
+                MenuButton move_button {
                   icon-name: "folder-symbolic";
                   always-show-arrow: true;
-                  // Ziele (Ordner) folgen mit #363.
-                  sensitive: false;
+                  menu-model: move_menu;
                   tooltip-text: _("Verschieben");
 
                   accessibility {
@@ -1073,6 +1115,31 @@ menu row_menu {
       action: "message.star-off";
       accel: "<primary><shift>l";
       hidden-when: "action-disabled";
+    }
+  }
+
+  // #363
+  section {
+    item {
+      label: _("_Archivieren");
+      action: "message.archive";
+      accel: "<primary><alt>a";
+    }
+
+    item {
+      label: _("_Löschen");
+      action: "message.delete";
+      accel: "Delete";
+    }
+
+    item {
+      label: _("Als _Spam markieren");
+      action: "message.junk";
+      accel: "<primary><shift>j";
+    }
+
+    submenu move_menu {
+      label: _("_Verschieben nach");
     }
   }
 }

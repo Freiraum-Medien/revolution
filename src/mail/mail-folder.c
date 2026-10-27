@@ -598,8 +598,10 @@ static gboolean
 tree_has_type (CamelFolderInfo *fi,
                guint32          type)
 {
+  /* #363: ohne die virtuellen Ordner von imapx (.#evolution/Trash, /Junk, camel-imapx-store.c:1270-1283). */
   for (; fi != NULL; fi = fi->next)
-    if ((fi->flags & CAMEL_FOLDER_TYPE_MASK) == type || tree_has_type (fi->child, type))
+    if (((fi->flags & CAMEL_FOLDER_TYPE_MASK) == type && (fi->flags & CAMEL_FOLDER_VIRTUAL) == 0) ||
+        tree_has_type (fi->child, type))
       return TRUE;
 
   return FALSE;
@@ -651,6 +653,11 @@ revolution_mail_folder_mark_special (CamelStore      *store,
     { CAMEL_FOLDER_TYPE_DRAFTS,  CAMEL_STORE_SETUP_DRAFTS_FOLDER,  "Entwürfe", NULL, "ESource" },
     { CAMEL_FOLDER_TYPE_SENT,    CAMEL_STORE_SETUP_SENT_FOLDER,    "Gesendet", NULL, "ESource" },
     { CAMEL_FOLDER_TYPE_ARCHIVE, CAMEL_STORE_SETUP_ARCHIVE_FOLDER, "Archiv",   NULL, "ESource" },
+    /* #363: Ziele für Löschen und Spam (mail-view.c, transfer_message). Aus der ESource setzt imapx den
+     * Typ selbst (use-real-trash-path/-junk-path, camel-imapx-store.c:356-372), sonst gilt die
+     * Ersteinrichtung (SPECIAL-USE oder Name, dort 2873-2885), z. B. geops@ „INBOX/Junk“ ohne \Junk. */
+    { CAMEL_FOLDER_TYPE_TRASH,   "Backend:Imapx Backend:real-trash-path:s", "Papierkorb", NULL, "Ersteinrichtung" },
+    { CAMEL_FOLDER_TYPE_JUNK,    "Backend:Imapx Backend:real-junk-path:s",  "Spam",       NULL, "Ersteinrichtung" },
   };
   g_autoptr (ESource) account = e_source_registry_ref_source (registry, uid);
   g_autoptr (ESource) identity = NULL;

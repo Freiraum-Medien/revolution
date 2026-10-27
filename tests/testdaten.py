@@ -112,6 +112,12 @@
 #   tests/testdaten.py --antwort-kopf
 #                                 #359, nur lesend (IMAP EXAMINE + UID FETCH): Kopfzeilen der Testmail vom
 #                                 Server, je Zeile „KOPF <Name>: <Wert>“ (Vergleich mit der Antwort)
+#   tests/testdaten.py --ort KONTO aktion|konversation [anlegen|zurueck]
+#                                 #363: Ordner am Server mit der Aktions-Mail bzw. den eingehenden Mails der
+#                                 Konversation (#357), per Message-ID (IMAP LIST + EXAMINE + UID SEARCH bzw.
+#                                 Graph GET); Zeilen „ORT <Nr> <Ordner> <gelesen 0|1>“. anlegen: fehlende
+#                                 Aktions-Mail per APPEND bzw. Graph in Revolution-Test; zurueck: per UID MOVE
+#                                 bzw. Graph move zurück nach Revolution-Test bzw. INBOX (nur Testkonten)
 #   tests/testdaten.py --live-flags KONTO
 #                                 #351, nur lesend: Flags der Live-Mails (--server KONTO neu INBOX) im
 #                                 Posteingang (IMAP EXAMINE + UID SEARCH SUBJECT + UID FETCH FLAGS);
@@ -1688,6 +1694,63 @@ def server(k, aktion, ziel=ORDNER, warte=None):
     return 0
 
 
+AKTION_ID = msgid('aktionen-363')
+
+
+def ort(k, was, aktion=None):
+    """#363: siehe Kopf (--ort). Gmail: „Alle Nachrichten“ (\\All) enthält jede Mail außer Papierkorb und
+    Spam; zurück daraus per COPY (Label setzen) statt MOVE."""
+    if aktion:
+        nur_testkonten([k.adresse])
+    ids = {'A': AKTION_ID} if was == 'aktion' else \
+        {str(nr): msgid('konversation-357-%d' % nr) for nr, eigen, _, _ in KONVERSATION if not eigen}
+    gefunden = {}
+    if k.goa.get_mail().props.imap_supported:
+        c = imap_verbinden(k)
+        heim = imap_ordner(c, ORDNER if was == 'aktion' else 'INBOX')
+        for zeile in c.list()[1]:
+            m = re.match(rb'\((.*?)\) "(.*?)" "?(.*?)"?$', zeile)
+            if not m or b'\\Noselect' in m.group(1):
+                continue
+            name = m.group(3).decode()
+            camel = mutf7_decode(name).replace(m.group(2).decode(), '/')
+            c.select('"%s"' % name, readonly=True)
+            for nr, mid in ids.items():
+                for uid in c.uid('SEARCH', None, 'UNDELETED', 'HEADER', 'Message-ID', mid)[1][0].split():
+                    print('ORT %s %s %d' % (nr, camel, '\\Seen' in c.uid('FETCH', uid, '(FLAGS)')[1][0].decode()))
+                    gefunden.setdefault(nr, []).append((name, camel, uid, b'\\All' in m.group(1)))
+        for nr, orte in gefunden.items():
+            if aktion == 'zurueck' and all(o[1] != heim[1] for o in orte):
+                quelle = next((o for o in orte if not o[3]), orte[0])
+                c.select('"%s"' % quelle[0])
+                print(c.uid('COPY' if quelle[3] else 'MOVE', quelle[2], '"%s"' % heim[0]))
+        if aktion == 'anlegen' and 'A' not in gefunden:
+            m = EmailMessage(policy=email.policy.SMTP)
+            m.set_content('Testmail für Löschen, Archiv, Spam, Verschieben (#363).\n')
+            m['Subject'], m['From'], m['To'] = PREFIX + ' Aktionen 363', ANZEIGE_ABSENDER, k.adresse
+            m['Date'], m['Message-ID'] = email.utils.formatdate(localtime=True), AKTION_ID
+            print(c.append('"%s"' % heim[0], None, None, m.as_bytes()))
+        c.logout()
+        return 0
+    heim = graph_mails(k)[0] if was == 'aktion' else graph(k, 'GET', '/me/mailFolders/inbox')['id']
+    for nr, mid in ids.items():
+        for m in graph(k, 'GET', "/me/messages?$filter=internetMessageId%20eq%20'" + urllib.parse.quote(mid)
+                       + "'&$select=isRead,parentFolderId")['value']:
+            ordner = graph(k, 'GET', '/me/mailFolders/%s?$select=displayName' % m['parentFolderId'])['displayName']
+            print('ORT %s %s %d' % (nr, ordner, m['isRead']))
+            gefunden[nr] = True
+            if aktion == 'zurueck' and m['parentFolderId'] != heim:
+                print(graph(k, 'POST', '/me/messages/%s/move' % m['id'], {'destinationId': heim})['parentFolderId'] == heim)
+    if aktion == 'anlegen' and 'A' not in gefunden:
+        # PR_MESSAGE_FLAGS 0 (ungelesen, nicht MSGFLAG_UNSENT): keine Entwurf-Mail.
+        graph(k, 'POST', '/me/mailFolders/%s/messages' % heim, {
+            'subject': PREFIX + ' Aktionen 363', 'internetMessageId': AKTION_ID,
+            'body': {'contentType': 'text', 'content': 'Testmail für Löschen, Archiv, Spam, Verschieben (#363).'},
+            'from': {'emailAddress': {'address': ANZEIGE_ABSENDER}}, 'toRecipients': [{'emailAddress': {'address': k.adresse}}],
+            'singleValueExtendedProperties': [{'id': 'Integer 0x0E07', 'value': '0'}]})
+    return 0
+
+
 TESTORDNER = 'Revolution-Offline'
 
 
@@ -2122,6 +2185,8 @@ def main():
                          '#416: Graph auch an der Einladung im Papierkorb')
     ap.add_argument('--kombiniert', nargs='?', const='', metavar='LOG',
                     help='#351: nur lesend Posteingänge aller Konten (EXAMINE, Graph), Vergleich mit LOG')
+    ap.add_argument('--ort', nargs='+', metavar='KONTO aktion|konversation [anlegen|zurueck]',
+                    help='#363: Ordner der Aktions-Mail bzw. Konversation am Server; anlegen bzw. zurück')
     ap.add_argument('--live-flags', metavar='KONTO', help='#351: nur lesend Flags der Live-Mails im Posteingang')
     ap.add_argument('--antwort', action='store_true',
                     help='#359: Testmail für Antworten per APPEND in den Posteingang von %s' % ANTWORT_KONTO)
@@ -2175,6 +2240,14 @@ def main():
 
     if args.antwort or args.antwort_kopf:
         return antwort(konten_finden(EDataServer.SourceRegistry.new_sync(None))[ANTWORT_KONTO], args.antwort_kopf)
+
+    if args.ort:
+        if len(args.ort) not in (2, 3) or args.ort[1] not in ('aktion', 'konversation') or \
+                args.ort[2:] not in ([], ['anlegen'], ['zurueck']):
+            ap.error('--ort KONTO aktion|konversation [anlegen|zurueck]')
+        adresse = args.ort[0].lower()
+        nur_testkonten([adresse])
+        return ort(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse], *args.ort[1:])
 
     if args.live_flags:
         adresse = args.live_flags.lower()
@@ -2309,7 +2382,7 @@ def main():
 TRANSIENT = (imaplib.IMAP4.abort, ConnectionError, TimeoutError, ssl.SSLError, urllib.error.URLError)
 MODI = ('--pruefen', '--ordner', '--anzeige', '--anhang', '--anhang-teile', '--last', '--flags', '--ungelesen',
         '--zaehler', '--anzahl', '--server', '--kombiniert', '--live-flags', '--schwer', '--suche-zahlen',
-        '--antwort', '--antwort-kopf', '--zustellung')
+        '--antwort', '--antwort-kopf', '--zustellung', '--ort')
 
 
 def main_mit_wiederholung():

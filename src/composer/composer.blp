@@ -3,7 +3,7 @@ using Adw 1;
 
 // Composer (Prototyp #337, Briefing 1.3). Vorlage
 // quelltext/stamp/src/views/mail/composer/stamp-composer.blp, Apple V5.
-// Nur Oberfläche mit fiktiven Beispieldaten, keine Logik.
+// #359: Logik in composer.c (Neu, Antworten, Allen antworten, Editor).
 template $RevolutionComposer: Adw.ApplicationWindow {
   styles [
     "composer",
@@ -14,7 +14,6 @@ template $RevolutionComposer: Adw.ApplicationWindow {
   default-height: 720;
   width-request: 360;
   height-request: 294;
-  focus-widget: body_view;
 
   // Kürzel wie Stamp (stamp-composer.c:2376-2389): Strg+Enter Senden;
   // Fangphase, damit das Textfeld sie nicht verschluckt.
@@ -41,6 +40,12 @@ template $RevolutionComposer: Adw.ApplicationWindow {
       trigger: "<primary>u";
       action: "action(composer.underline)";
     }
+
+    // #359: Emoji an der Schreibmarke im Editor wie Stamp (stamp-composer.c:2382-2383).
+    Shortcut {
+      trigger: "<primary>period";
+      action: "action(composer.insert-emoji)";
+    }
   }
 
   // Escape schließt den Composer, in der Standardphase (bubble): Ein offenes
@@ -52,537 +57,550 @@ template $RevolutionComposer: Adw.ApplicationWindow {
     }
   }
 
-  content: Adw.ToolbarView {
-    // #402: Formatierungsleiste flach auf dem Fensterhintergrund wie die Mail-Ansicht.
-    bottom-bar-style: flat;
-    reveal-bottom-bars: bind format_button.active;
+  // #359: Fehler als AdwToast (Architektur 3).
+  content: Adw.ToastOverlay toast_overlay {
+    child: Adw.ToolbarView {
+      // #402: Formatierungsleiste flach auf dem Fensterhintergrund wie die Mail-Ansicht.
+      bottom-bar-style: flat;
+      reveal-bottom-bars: bind format_button.active;
 
-    [top]
-    Adw.HeaderBar {
-      // Briefing 1.3: Titel = Betreff bzw. „Neue E-Mail“ (stamp-composer.blp:17-19).
-      title-widget: Adw.WindowTitle {
-        title: _("Neue E-Mail");
+      [top]
+      Adw.HeaderBar {
+        // Briefing 1.3: Titel = Betreff bzw. „Neue E-Mail“ (stamp-composer.blp:17-19).
+        title-widget: Adw.WindowTitle window_title {
+          title: _("Neue E-Mail");
+        };
+
+        // #402 (Arnd 22.10.): Hauptmenü oben links, ausdrücklich abweichend von HIG
+        // („Ende“). Klasse primary-menu: Nautilus-Optik aus style.css (#401 Punkt 2).
+        [start]
+        MenuButton {
+          icon-name: "open-menu-symbolic";
+          tooltip-text: _("Hauptmenü");
+          menu-model: composer_menu;
+          primary: true;
+
+          accessibility {
+            label: _("Hauptmenü");
+          }
+
+          styles [
+            "primary-menu",
+          ]
+        }
+
+        // Briefing 1.3 (Vorschlag): Anhang und Formatierung ein/aus am Anfang.
+        [start]
+        Button {
+          icon-name: "mail-attachment-symbolic";
+          tooltip-text: _("Anhang hinzufügen");
+          action-name: "composer.attach";
+
+          accessibility {
+            label: _("Anhang hinzufügen");
+          }
+        }
+
+        [start]
+        ToggleButton format_button {
+          icon-name: "format-text-rich-symbolic";
+          tooltip-text: _("Formatierung anzeigen");
+          active: true;
+
+          accessibility {
+            label: _("Formatierung anzeigen");
+          }
+        }
+
+        // Senden mit suggested-action (stamp-composer.blp:37-49).
+        [end]
+        // #402: Symbolknopf auf Akzentfläche statt Textknopf (Arnd 22.10.).
+        Button {
+          icon-name: "sent-symbolic";
+          tooltip-text: _("Senden (Strg+Enter)");
+          action-name: "composer.send";
+
+          accessibility {
+            label: _("Senden");
+          }
+
+          styles [
+            "suggested-action",
+          ]
+        }
+      }
+
+      // #402: Designsprache der Mail-Ansicht (mail-view.blp): Felder frei auf dem
+      // Fensterhintergrund wie der Mailkopf, darunter der Text als große abgerundete Karte.
+      content: Box {
+        orientation: vertical;
+
+        // Felder untereinander mit Trennlinien (stamp-composer.blp:61-285),
+        // Reihenfolge wie Apple V5: An, Kopie, Betreff, Von + Signatur.
+        Grid {
+          column-spacing: 12;
+          row-spacing: 3;
+          margin-start: 12;
+          margin-end: 12;
+
+          styles [
+            "composer-fields",
+          ]
+
+          Label to_label {
+            label: _("An");
+            halign: start;
+            xalign: 0;
+            margin-start: 12;
+
+            styles [
+              "dimmed",
+            ]
+
+            layout {
+              column: 0;
+              row: 0;
+            }
+          }
+
+          Entry to_entry {
+            hexpand: true;
+
+            accessibility {
+              labelled-by: to_label;
+            }
+
+            styles [
+              "flat",
+            ]
+
+            layout {
+              column: 1;
+              column-span: 2;
+              row: 0;
+            }
+          }
+
+          // #402: Kopie und Blindkopie getrennt über das Hauptmenü (composer.show-cc,
+          // composer.show-bcc schalten die Sichtbarkeit der Felder, composer.c).
+          Separator {
+            visible: bind cc_entry.visible;
+
+            layout {
+              column: 0;
+              column-span: 3;
+              row: 1;
+            }
+          }
+
+          Label cc_label {
+            label: _("Kopie");
+            halign: start;
+            xalign: 0;
+            margin-start: 12;
+            visible: bind cc_entry.visible;
+
+            styles [
+              "dimmed",
+            ]
+
+            layout {
+              column: 0;
+              row: 2;
+            }
+          }
+
+          Entry cc_entry {
+
+            accessibility {
+              labelled-by: cc_label;
+            }
+
+            styles [
+              "flat",
+            ]
+
+            layout {
+              column: 1;
+              column-span: 2;
+              row: 2;
+            }
+          }
+
+          Separator {
+            visible: bind bcc_entry.visible;
+
+            layout {
+              column: 0;
+              column-span: 3;
+              row: 3;
+            }
+          }
+
+          Label bcc_label {
+            label: _("Blindkopie");
+            halign: start;
+            xalign: 0;
+            margin-start: 12;
+            visible: bind bcc_entry.visible;
+
+            styles [
+              "dimmed",
+            ]
+
+            layout {
+              column: 0;
+              row: 4;
+            }
+          }
+
+          Entry bcc_entry {
+            accessibility {
+              labelled-by: bcc_label;
+            }
+
+            styles [
+              "flat",
+            ]
+
+            layout {
+              column: 1;
+              column-span: 2;
+              row: 4;
+            }
+          }
+
+          Separator {
+            layout {
+              column: 0;
+              column-span: 3;
+              row: 5;
+            }
+          }
+
+          Label subject_label {
+            label: _("Betreff");
+            halign: start;
+            xalign: 0;
+            margin-start: 12;
+
+            styles [
+              "dimmed",
+            ]
+
+            layout {
+              column: 0;
+              row: 6;
+            }
+          }
+
+          Entry subject_entry {
+
+            accessibility {
+              labelled-by: subject_label;
+            }
+
+            styles [
+              "flat",
+            ]
+
+            layout {
+              column: 1;
+              column-span: 2;
+              row: 6;
+            }
+          }
+
+          Separator {
+            layout {
+              column: 0;
+              column-span: 3;
+              row: 7;
+            }
+          }
+
+          Label from_label {
+            label: _("Von");
+            halign: start;
+            xalign: 0;
+            margin-start: 12;
+
+            styles [
+              "dimmed",
+            ]
+
+            layout {
+              column: 0;
+              row: 8;
+            }
+          }
+
+          // Identität wählbar (stamp-composer.blp:80, DropDown from).
+          DropDown from_dropdown {
+            halign: start;
+            valign: center;
+
+            styles [
+              "composer-dropdown",
+            ]
+
+            // Identitäten folgen mit #360; bis dahin ausgeblendet (leere Liste zeigt „(None)“),
+            // an seiner Stelle from_value.
+            visible: false;
+            model: StringList {};
+
+            accessibility {
+              labelled-by: from_label;
+            }
+
+            layout {
+              column: 1;
+              row: 8;
+            }
+          }
+
+          // #359: Absender nur angezeigt (Identität des Kontos, composer.c), Auswahl folgt mit #360.
+          Label from_value {
+            halign: start;
+            valign: center;
+            xalign: 0;
+            ellipsize: end;
+            margin-start: 2;
+
+            accessibility {
+              labelled-by: from_label;
+            }
+
+            layout {
+              column: 1;
+              row: 8;
+            }
+          }
+
+          // Signatur rechts in der Von-Zeile wie Apple V5 („Signatur: Ohne“).
+          Box {
+            spacing: 6;
+            halign: end;
+            valign: center;
+            margin-end: 6;
+
+            Label signature_label {
+              label: _("Signatur");
+
+              styles [
+                "dimmed",
+              ]
+            }
+
+            DropDown {
+              styles [
+                "composer-dropdown",
+              ]
+
+              model: StringList {
+                strings [
+                  _("Ohne"),
+                ]
+              };
+
+              accessibility {
+                labelled-by: signature_label;
+              }
+            }
+
+            layout {
+              column: 2;
+              row: 8;
+            }
+          }
+
+          Separator {
+            layout {
+              column: 0;
+              column-span: 3;
+              row: 9;
+            }
+          }
+        }
+
+        // Anhangbereich (WrapBox, stamp-composer.blp:270-284) folgt mit #360,
+        // Muster im Tag m2-prototyp.
+
+        // Nachrichtentext: WebView als Editor (Stamp stamp-composer.blp:287-297), eingesetzt in
+        // composer.c (create_editor, a11y-Label „Nachrichtentext“).
+        // #402: große abgerundete Karte mit Abstand wie die Mail-Karte (style.css .html-mail).
+        Adw.Bin editor_bin {
+          vexpand: true;
+          overflow: hidden;
+          margin-start: 12;
+          margin-end: 12;
+          margin-bottom: 12;
+
+          styles [
+            "composer-card",
+          ]
+        }
       };
 
-      // #402 (Arnd 22.10.): Hauptmenü oben links, ausdrücklich abweichend von HIG
-      // („Ende“). Klasse primary-menu: Nautilus-Optik aus style.css (#401 Punkt 2).
-      [start]
-      MenuButton {
-        icon-name: "open-menu-symbolic";
-        tooltip-text: _("Hauptmenü");
-        menu-model: composer_menu;
-        primary: true;
-
-        accessibility {
-          label: _("Hauptmenü");
-        }
-
-        styles [
-          "primary-menu",
-        ]
-      }
-
-      // Briefing 1.3 (Vorschlag): Anhang und Formatierung ein/aus am Anfang.
-      [start]
-      Button {
-        icon-name: "mail-attachment-symbolic";
-        tooltip-text: _("Anhang hinzufügen");
-        action-name: "composer.attach";
-
-        accessibility {
-          label: _("Anhang hinzufügen");
-        }
-      }
-
-      [start]
-      ToggleButton format_button {
-        icon-name: "format-text-rich-symbolic";
-        tooltip-text: _("Formatierung anzeigen");
-        active: true;
-
-        accessibility {
-          label: _("Formatierung anzeigen");
-        }
-      }
-
-      // Senden mit suggested-action (stamp-composer.blp:37-49).
-      [end]
-      // #402: Symbolknopf auf Akzentfläche statt Textknopf (Arnd 22.10.).
-      Button {
-        icon-name: "sent-symbolic";
-        tooltip-text: _("Senden (Strg+Enter)");
-        action-name: "composer.send";
-
-        accessibility {
-          label: _("Senden");
-        }
-
-        styles [
-          "suggested-action",
-        ]
-      }
-    }
-
-    // #402: Designsprache der Mail-Ansicht (mail-view.blp): Felder frei auf dem
-    // Fensterhintergrund wie der Mailkopf, darunter der Text als große abgerundete Karte.
-    content: Box {
-      orientation: vertical;
-
-      // Felder untereinander mit Trennlinien (stamp-composer.blp:61-285),
-      // Reihenfolge wie Apple V5: An, Kopie, Betreff, Von + Signatur.
-      Grid {
-        column-spacing: 12;
-        row-spacing: 3;
+      // Formatierungsleiste unten wie Stamp ([bottom] Adw.WrapBox button_bar,
+      // stamp-composer.blp:300-420); Auswahl laut Briefing 1.3.
+      [bottom]
+      Adw.WrapBox format_bar {
+        child-spacing: 6;
+        line-spacing: 6;
+        margin-top: 0;
+        margin-bottom: 6;
         margin-start: 12;
         margin-end: 12;
 
-        styles [
-          "composer-fields",
-        ]
-
-        Label to_label {
-          label: _("An");
-          halign: start;
-          xalign: 0;
-          margin-start: 12;
-
-          styles [
-            "dimmed",
-          ]
-
-          layout {
-            column: 0;
-            row: 0;
-          }
+        // #402: Absatzformat (Arnd 22.10.), Auswahlliste in Nautilus-Optik wie Von/Signatur;
+        // #359: FormatBlock p/h1/h2/h3 (composer.c BLOCKS).
+        // a11y: GtkDropDown nennt sich sonst nach dem gewählten Eintrag („Text“, gemessen über AT-SPI,
+        // build/m5-359); labelled-by geht vor wie bei Signatur.
+        Label paragraph_label {
+          label: _("Absatzformat");
+          visible: false;
         }
 
-        Entry to_entry {
-          hexpand: true;
-
-          accessibility {
-            labelled-by: to_label;
-          }
-
-          styles [
-            "flat",
-          ]
-
-          layout {
-            column: 1;
-            column-span: 2;
-            row: 0;
-          }
-        }
-
-        // #402: Kopie und Blindkopie getrennt über das Hauptmenü (composer.show-cc,
-        // composer.show-bcc schalten die Sichtbarkeit der Felder, composer.c).
-        Separator {
-          visible: bind cc_entry.visible;
-
-          layout {
-            column: 0;
-            column-span: 3;
-            row: 1;
-          }
-        }
-
-        Label cc_label {
-          label: _("Kopie");
-          halign: start;
-          xalign: 0;
-          margin-start: 12;
-          visible: bind cc_entry.visible;
-
-          styles [
-            "dimmed",
-          ]
-
-          layout {
-            column: 0;
-            row: 2;
-          }
-        }
-
-        Entry cc_entry {
-
-          accessibility {
-            labelled-by: cc_label;
-          }
-
-          styles [
-            "flat",
-          ]
-
-          layout {
-            column: 1;
-            column-span: 2;
-            row: 2;
-          }
-        }
-
-        Separator {
-          visible: bind bcc_entry.visible;
-
-          layout {
-            column: 0;
-            column-span: 3;
-            row: 3;
-          }
-        }
-
-        Label bcc_label {
-          label: _("Blindkopie");
-          halign: start;
-          xalign: 0;
-          margin-start: 12;
-          visible: bind bcc_entry.visible;
-
-          styles [
-            "dimmed",
-          ]
-
-          layout {
-            column: 0;
-            row: 4;
-          }
-        }
-
-        Entry bcc_entry {
-          accessibility {
-            labelled-by: bcc_label;
-          }
-
-          styles [
-            "flat",
-          ]
-
-          layout {
-            column: 1;
-            column-span: 2;
-            row: 4;
-          }
-        }
-
-        Separator {
-          layout {
-            column: 0;
-            column-span: 3;
-            row: 5;
-          }
-        }
-
-        Label subject_label {
-          label: _("Betreff");
-          halign: start;
-          xalign: 0;
-          margin-start: 12;
-
-          styles [
-            "dimmed",
-          ]
-
-          layout {
-            column: 0;
-            row: 6;
-          }
-        }
-
-        Entry subject_entry {
-
-          accessibility {
-            labelled-by: subject_label;
-          }
-
-          styles [
-            "flat",
-          ]
-
-          layout {
-            column: 1;
-            column-span: 2;
-            row: 6;
-          }
-        }
-
-        Separator {
-          layout {
-            column: 0;
-            column-span: 3;
-            row: 7;
-          }
-        }
-
-        Label from_label {
-          label: _("Von");
-          halign: start;
-          xalign: 0;
-          margin-start: 12;
-
-          styles [
-            "dimmed",
-          ]
-
-          layout {
-            column: 0;
-            row: 8;
-          }
-        }
-
-        // Identität wählbar (stamp-composer.blp:80, DropDown from).
-        DropDown from_dropdown {
-          halign: start;
+        DropDown paragraph_dropdown {
+          tooltip-text: _("Absatzformat");
           valign: center;
 
           styles [
             "composer-dropdown",
           ]
 
-          // Identitäten folgen mit #360; bis dahin ausgeblendet (leere Liste zeigt „(None)“).
-          visible: false;
-          model: StringList {};
+          model: StringList {
+            strings [
+              _("Text"),
+              _("Überschrift 1"),
+              _("Überschrift 2"),
+              _("Überschrift 3"),
+            ]
+          };
 
           accessibility {
-            labelled-by: from_label;
-          }
-
-          layout {
-            column: 1;
-            row: 8;
-          }
-        }
-
-        // Signatur rechts in der Von-Zeile wie Apple V5 („Signatur: Ohne“).
-        Box {
-          spacing: 6;
-          halign: end;
-          valign: center;
-          margin-end: 6;
-
-          Label signature_label {
-            label: _("Signatur");
-
-            styles [
-              "dimmed",
-            ]
-          }
-
-          DropDown {
-            styles [
-              "composer-dropdown",
-            ]
-
-            model: StringList {
-              strings [
-                _("Ohne"),
-              ]
-            };
-
-            accessibility {
-              labelled-by: signature_label;
-            }
-          }
-
-          layout {
-            column: 2;
-            row: 8;
+            labelled-by: paragraph_label;
           }
         }
 
         Separator {
-          layout {
-            column: 0;
-            column-span: 3;
-            row: 9;
-          }
+          orientation: vertical;
+          margin-top: 6;
+          margin-bottom: 6;
         }
-      }
 
-      // Anhangbereich (WrapBox, stamp-composer.blp:270-284) folgt mit #360,
-      // Muster im Tag m2-prototyp.
+        ToggleButton {
+          icon-name: "format-text-bold-symbolic";
+          tooltip-text: _("Fett (Strg+B)");
+          action-name: "composer.bold";
 
-      // Nachrichtentext (Stamp: WebView, stamp-composer.blp:287-297), Editor folgt mit #359.
-      // #402: große abgerundete Karte mit Abstand wie die Mail-Karte (style.css .html-mail).
-      Adw.Bin {
-        vexpand: true;
-        overflow: hidden;
-        margin-start: 12;
-        margin-end: 12;
-        margin-bottom: 12;
+          accessibility {
+            label: _("Fett");
+          }
 
-        styles [
-          "composer-card",
-        ]
+          styles [
+            "flat",
+          ]
+        }
 
-        child: ScrolledWindow {
-          hscrollbar-policy: never;
+        ToggleButton {
+          icon-name: "format-text-italic-symbolic";
+          tooltip-text: _("Kursiv (Strg+I)");
+          action-name: "composer.italic";
 
-          child: TextView body_view {
-            wrap-mode: word_char;
-            top-margin: 24;
-            bottom-margin: 24;
-            left-margin: 28;
-            right-margin: 28;
+          accessibility {
+            label: _("Kursiv");
+          }
 
-            accessibility {
-              label: _("Nachrichtentext");
-            }
-          };
-        };
+          styles [
+            "flat",
+          ]
+        }
+
+        ToggleButton {
+          icon-name: "format-text-underline-symbolic";
+          tooltip-text: _("Unterstrichen (Strg+U)");
+          action-name: "composer.underline";
+
+          accessibility {
+            label: _("Unterstrichen");
+          }
+
+          styles [
+            "flat",
+          ]
+        }
+
+        ToggleButton {
+          icon-name: "format-text-strikethrough-symbolic";
+          tooltip-text: _("Durchgestrichen");
+          action-name: "composer.strikethrough";
+
+          accessibility {
+            label: _("Durchgestrichen");
+          }
+
+          styles [
+            "flat",
+          ]
+        }
+
+        Separator {
+          orientation: vertical;
+          margin-top: 6;
+          margin-bottom: 6;
+        }
+
+        ToggleButton {
+          icon-name: "view-list-bullet-symbolic";
+          tooltip-text: _("Aufzählung");
+          action-name: "composer.bullet-list";
+
+          accessibility {
+            label: _("Aufzählung");
+          }
+
+          styles [
+            "flat",
+          ]
+        }
+
+        ToggleButton {
+          icon-name: "view-list-ordered-symbolic";
+          tooltip-text: _("Nummerierung");
+          action-name: "composer.numbered-list";
+
+          accessibility {
+            label: _("Nummerierung");
+          }
+
+          styles [
+            "flat",
+          ]
+        }
+
+        Separator {
+          orientation: vertical;
+          margin-top: 6;
+          margin-bottom: 6;
+        }
+
+        Button {
+          icon-name: "insert-link-symbolic";
+          tooltip-text: _("Link einfügen");
+          action-name: "composer.insert-link";
+
+          accessibility {
+            label: _("Link einfügen");
+          }
+
+          styles [
+            "flat",
+          ]
+        }
       }
     };
-
-    // Formatierungsleiste unten wie Stamp ([bottom] Adw.WrapBox button_bar,
-    // stamp-composer.blp:300-420); Auswahl laut Briefing 1.3.
-    [bottom]
-    Adw.WrapBox format_bar {
-      child-spacing: 6;
-      line-spacing: 6;
-      margin-top: 0;
-      margin-bottom: 6;
-      margin-start: 12;
-      margin-end: 12;
-
-      // #402: Absatzformat (Arnd 22.10.), Auswahlliste in Nautilus-Optik wie Von/Signatur;
-      // Funktion folgt mit #359, bis dahin ausgegraut wie die übrige Formatierung.
-      DropDown {
-        sensitive: false;
-        tooltip-text: _("Absatzformat");
-        valign: center;
-
-        styles [
-          "composer-dropdown",
-        ]
-
-        model: StringList {
-          strings [
-            _("Text"),
-            _("Überschrift 1"),
-            _("Überschrift 2"),
-            _("Überschrift 3"),
-          ]
-        };
-
-        accessibility {
-          label: _("Absatzformat");
-        }
-      }
-
-      Separator {
-        orientation: vertical;
-        margin-top: 6;
-        margin-bottom: 6;
-      }
-
-      ToggleButton {
-        icon-name: "format-text-bold-symbolic";
-        tooltip-text: _("Fett (Strg+B)");
-        action-name: "composer.bold";
-
-        accessibility {
-          label: _("Fett");
-        }
-
-        styles [
-          "flat",
-        ]
-      }
-
-      ToggleButton {
-        icon-name: "format-text-italic-symbolic";
-        tooltip-text: _("Kursiv (Strg+I)");
-        action-name: "composer.italic";
-
-        accessibility {
-          label: _("Kursiv");
-        }
-
-        styles [
-          "flat",
-        ]
-      }
-
-      ToggleButton {
-        icon-name: "format-text-underline-symbolic";
-        tooltip-text: _("Unterstrichen (Strg+U)");
-        action-name: "composer.underline";
-
-        accessibility {
-          label: _("Unterstrichen");
-        }
-
-        styles [
-          "flat",
-        ]
-      }
-
-      ToggleButton {
-        icon-name: "format-text-strikethrough-symbolic";
-        tooltip-text: _("Durchgestrichen");
-        action-name: "composer.strikethrough";
-
-        accessibility {
-          label: _("Durchgestrichen");
-        }
-
-        styles [
-          "flat",
-        ]
-      }
-
-      Separator {
-        orientation: vertical;
-        margin-top: 6;
-        margin-bottom: 6;
-      }
-
-      ToggleButton {
-        icon-name: "view-list-bullet-symbolic";
-        tooltip-text: _("Aufzählung");
-        action-name: "composer.bullet-list";
-
-        accessibility {
-          label: _("Aufzählung");
-        }
-
-        styles [
-          "flat",
-        ]
-      }
-
-      ToggleButton {
-        icon-name: "view-list-ordered-symbolic";
-        tooltip-text: _("Nummerierung");
-        action-name: "composer.numbered-list";
-
-        accessibility {
-          label: _("Nummerierung");
-        }
-
-        styles [
-          "flat",
-        ]
-      }
-
-      Separator {
-        orientation: vertical;
-        margin-top: 6;
-        margin-bottom: 6;
-      }
-
-      Button {
-        icon-name: "insert-link-symbolic";
-        tooltip-text: _("Link einfügen");
-        action-name: "composer.insert-link";
-
-        accessibility {
-          label: _("Link einfügen");
-        }
-
-        styles [
-          "flat",
-        ]
-      }
-    }
   };
 }
 
@@ -599,8 +617,7 @@ SizeGroup {
   ]
 }
 
-// #402: Hauptmenü des Composers (Arnd 22.10.). Emoji-Kürzel Strg+. ist die
-// eingebaute Belegung von GtkTextView::insert-emoji (Gtk-4.0.gir).
+// #402: Hauptmenü des Composers (Arnd 22.10.). Emoji-Kürzel Strg+. oben im ShortcutController (#359).
 menu composer_menu {
   section {
     item {

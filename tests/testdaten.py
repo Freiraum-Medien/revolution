@@ -94,6 +94,16 @@
 #                                 papierkorb verschiebt alle Pruef418-Mails per UID MOVE in den
 #                                 Papierkorb (nicht endgültig gelöscht). Zeilen „ORDNER <UID>/INBOX“
 #                                 und „SORTIERUNG <Rolle> <IMAP-UID> <Datum>“
+#   tests/testdaten.py --antwort  #359, schreibend nur in geops@ (IMAP): Testmail für Antworten/Allen
+#                                 antworten per APPEND in den Posteingang (kein Versand), idempotent über
+#                                 die Message-ID; mehrere Empfänger, „RE:“ im Betreff, References. Absender
+#                                 und fremde Empfänger als Plus-Adressen der Testkonten (keine Identität in
+#                                 GOA, sonst entfernt sie Allen antworten wie Evolution); R2: dazu Konversation
+#                                 mit eigener Antwort im Gesendet-Ordner und eine eigene Mail im Posteingang
+#                                 (Antwort auf eigene Mail); Zeile „ANTWORT <UID>/INBOX <Betreff>“
+#   tests/testdaten.py --antwort-kopf
+#                                 #359, nur lesend (IMAP EXAMINE + UID FETCH): Kopfzeilen der Testmail vom
+#                                 Server, je Zeile „KOPF <Name>: <Wert>“ (Vergleich mit der Antwort)
 #   tests/testdaten.py --live-flags KONTO
 #                                 #351, nur lesend: Flags der Live-Mails (--server KONTO neu INBOX) im
 #                                 Posteingang (IMAP EXAMINE + UID SEARCH SUBJECT + UID FETCH FLAGS);
@@ -665,6 +675,101 @@ def konversation_flags(k):
 SORTIERUNG_BETREFF = PREFIX + ' Pruef418 Faden'
 SORTIERUNG_NEU = PREFIX + ' Pruef418 Neu'
 SORTIERUNG_OBEN = PREFIX + ' Pruef418 Oben'
+
+
+# #359: Testmail für Antworten und Allen antworten in geops@ (Posteingang). Eigene Adressen (Identitäten
+# in GOA: geops@, privat@, KONTO_M365@example.invalid) entfernt Allen antworten wie Evolution
+# (em-composer-utils.c:3669-3734, 3790-3810); die übrigen Adressen sind Plus-Adressen der Testkonten
+# (Zustellung ins Testkonto, aber keine Identität). Festes Datum in der Vergangenheit.
+ANTWORT_KONTO = 'KONTO_IMAP_2@example.invalid'
+ANTWORT_BETREFF = 'RE: ' + PREFIX + ' Standplan Samstag'
+ANTWORT_MID = msgid('antwort-359-3')
+
+
+def antwort_nachricht():
+    m = EmailMessage(policy=email.policy.SMTP)
+    m.set_content('Hallo zusammen,\n\nder Standplan für Samstag steht: Aufbau ab 8 Uhr, Stand 12.\n\nViele Grüße\nJana\n')
+    m.add_alternative('<html><head><style>p { margin: 0 0 8px; }</style></head><body>'
+                      '<p>Hallo zusammen,</p><p>der <b>Standplan</b> für Samstag steht: Aufbau ab 8 Uhr, '
+                      '<span style="color:#1a5fb4">Stand 12</span>.</p><p>Viele Grüße<br>Jana</p>'
+                      '</body></html>\n', subtype='html')
+    m['Subject'] = ANTWORT_BETREFF
+    m['From'] = email.utils.formataddr(('Jana Albrecht', 'HILFS_JANA@example.invalid'))
+    m['To'] = ', '.join([email.utils.formataddr(('Revolution Test', ANTWORT_KONTO)),
+                         email.utils.formataddr(('Tom Becker', 'HILFS_TOM@example.invalid'))])
+    m['Cc'] = ', '.join([email.utils.formataddr(('Privat', 'KONTO_IMAP_1@example.invalid')),
+                         email.utils.formataddr(('Lena Hoffmann', 'HILFS_LENA@example.invalid')),
+                         'KONTO_M365@example.invalid'])
+    m['Date'] = email.utils.format_datetime(
+        datetime.datetime(2026, 10, 24, 9, 30, tzinfo=datetime.timezone(datetime.timedelta(hours=2))))
+    m['Message-ID'] = ANTWORT_MID
+    m['In-Reply-To'] = msgid('antwort-359-2')
+    m['References'] = msgid('antwort-359-1') + ' ' + msgid('antwort-359-2')
+    return m
+
+
+# #359 R2: Antwort auf eigene Mail (Evolution em-composer-utils.c:5127-5131, 5149-5151). Konversation „Eigene
+# Antwort Kisten“: Mail von Jana im Posteingang, eigene Antwort (neueste) im Gesendet-Ordner; dazu eine eigene
+# Mail im Posteingang (Kopie an sich selbst, außerhalb von Gesendet; Betreff mit deutschem „AW:“ wie Outlook,
+# em-utils.c:1661-1670). Feste Daten in der Vergangenheit.
+EIGEN_BETREFF = PREFIX + ' Eigene Antwort Kisten'
+EIGEN_EINGANG_BETREFF = 'AW: ' + PREFIX + ' Eigene Mail im Eingang'
+
+
+def eigen_nachricht(nr):
+    m = EmailMessage(policy=email.policy.SMTP)
+    ich = email.utils.formataddr(('Revolution Test', ANTWORT_KONTO))
+    jana = email.utils.formataddr(('Jana Albrecht', 'HILFS_JANA@example.invalid'))
+    lena = email.utils.formataddr(('Lena Hoffmann', 'HILFS_LENA@example.invalid'))
+    tom = email.utils.formataddr(('Tom Becker', 'HILFS_TOM@example.invalid'))
+    if nr == 1:
+        m.set_content('Bringt jemand die Kisten mit?\n')
+        m['Subject'], m['From'], m['To'], m['Cc'] = EIGEN_BETREFF, jana, ich, lena
+    elif nr == 2:
+        m.set_content('Ja, ich bringe sie mit.\n')
+        m['Subject'], m['From'], m['To'], m['Cc'] = 'Re: ' + EIGEN_BETREFF, ich, jana, ', '.join([lena, tom])
+        m['In-Reply-To'] = msgid('eigen-359-1')
+        m['References'] = msgid('eigen-359-1')
+    else:
+        m.set_content('Erinnerung an mich selbst und Jana.\n')
+        m['Subject'], m['From'], m['To'], m['Cc'] = EIGEN_EINGANG_BETREFF, ich, jana, ', '.join([ich, lena])
+    m['Date'] = email.utils.format_datetime(
+        datetime.datetime(2026, 10, 24, 10, {1: 20, 2: 40, 3: 50}[nr], tzinfo=datetime.timezone(datetime.timedelta(hours=2))))
+    m['Message-ID'] = msgid('eigen-359-%d' % nr)
+    return m
+
+
+def antwort_eigen(c):
+    """Fehlende Mails für „Antwort auf eigene Mail“ per APPEND (idempotent über die Message-ID)."""
+    for nr, ziel in ((1, 'INBOX'), (2, 'Sent'), (3, 'INBOX')):
+        name, _ = imap_ordner(c, ziel)
+        c.select('"%s"' % name)
+        if not c.uid('SEARCH', None, 'HEADER', 'Message-ID', msgid('eigen-359-%d' % nr))[1][0].split():
+            print(c.append('"%s"' % name, '(\\Seen)', None, eigen_nachricht(nr).as_bytes()))
+        print('EIGEN %d %s' % (nr, ziel))
+
+
+def antwort(k, nur_kopf):
+    c = imap_verbinden(k)
+    c.select('INBOX', readonly=nur_kopf)
+    uids = c.uid('SEARCH', None, 'HEADER', 'Message-ID', ANTWORT_MID)[1][0].split()
+    if nur_kopf:
+        if not uids:
+            sys.exit('ABBRUCH: Testmail %s fehlt (--antwort)' % ANTWORT_MID)
+        kopf = c.uid('FETCH', uids[0], '(BODY.PEEK[HEADER])')[1][0][1]
+        m = email.message_from_bytes(kopf, policy=email.policy.default)
+        for name in ('From', 'To', 'Cc', 'Reply-To', 'Subject', 'Message-ID', 'In-Reply-To', 'References'):
+            if m[name] is not None:
+                print('KOPF %s: %s' % (name, ' '.join(str(m[name]).split())))
+    else:
+        nur_testkonten([k.adresse])
+        if not uids:
+            print(c.append('INBOX', '(\\Seen)', None, antwort_nachricht().as_bytes()))
+            uids = c.uid('SEARCH', None, 'HEADER', 'Message-ID', ANTWORT_MID)[1][0].split()
+        antwort_eigen(c)
+        print('ANTWORT %s/INBOX %s' % (k.account.get_uid(), ANTWORT_BETREFF))
+    c.logout()
+    return 0 if uids else 1
 
 
 def sortierung(k, aktion):
@@ -1708,6 +1813,9 @@ def main():
     ap.add_argument('--kombiniert', nargs='?', const='', metavar='LOG',
                     help='#351: nur lesend Posteingänge aller Konten (EXAMINE, Graph), Vergleich mit LOG')
     ap.add_argument('--live-flags', metavar='KONTO', help='#351: nur lesend Flags der Live-Mails im Posteingang')
+    ap.add_argument('--antwort', action='store_true',
+                    help='#359: Testmail für Antworten per APPEND in den Posteingang von %s' % ANTWORT_KONTO)
+    ap.add_argument('--antwort-kopf', action='store_true', help='#359: nur lesend Kopfzeilen der Testmail')
     ap.add_argument('--testordner', nargs=2, metavar=('KONTO', 'anlegen|loeschen'),
                     help='#408: Ordner %s am Server anlegen oder löschen (IMAP, Testkonten)' % TESTORDNER)
     ap.add_argument('--konversation-flags', metavar='KONTO',
@@ -1737,6 +1845,9 @@ def main():
             ap.error('--schwer KONTO neu|papierkorb')
         k = konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse]
         return schwer(k, args.schwer[1])
+
+    if args.antwort or args.antwort_kopf:
+        return antwort(konten_finden(EDataServer.SourceRegistry.new_sync(None))[ANTWORT_KONTO], args.antwort_kopf)
 
     if args.live_flags:
         adresse = args.live_flags.lower()
@@ -1858,7 +1969,8 @@ def main():
 # und als Zeile in der Datei TESTDATEN_WIEDERHOLT (Umgebung, tests/abbruch.sh zählt sie).
 TRANSIENT = (imaplib.IMAP4.abort, ConnectionError, TimeoutError, ssl.SSLError, urllib.error.URLError)
 MODI = ('--pruefen', '--ordner', '--anzeige', '--anhang', '--anhang-teile', '--last', '--flags', '--ungelesen',
-        '--zaehler', '--anzahl', '--server', '--kombiniert', '--live-flags', '--schwer')
+        '--zaehler', '--anzahl', '--server', '--kombiniert', '--live-flags', '--schwer', '--antwort',
+        '--antwort-kopf')
 
 
 def main_mit_wiederholung():

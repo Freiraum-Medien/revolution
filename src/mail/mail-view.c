@@ -104,15 +104,23 @@ G_DEFINE_FINAL_TYPE (RevolutionMailView, revolution_mail_view, ADW_TYPE_BREAKPOI
  * erneut verbinden; TRUE, wenn das Konto der Liste dazugehört. */
 static guint retry_signal;
 
-/* list.compose öffnet den Composer (#337) als eigenes Fenster wie Stamp. */
+/* list.compose öffnet den Composer (#337) als eigenes Fenster wie Stamp. #359: Absender = Konto des
+ * gewählten Ordners (sonst die Standard-Identität, composer.c). */
 static void
 on_compose (GSimpleAction *action G_GNUC_UNUSED,
             GVariant      *parameter G_GNUC_UNUSED,
             gpointer       user_data)
 {
-  GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (user_data));
+  RevolutionMailView *self = user_data;
+  GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (self));
+  g_autoptr (RevolutionMailAccount) account = NULL;
 
-  gtk_window_present (revolution_composer_new (gtk_window_get_application (GTK_WINDOW (root))));
+  if (self->folder != NULL)
+    g_object_get (self->folder, "account", &account, NULL);
+  gtk_window_present (revolution_composer_new (gtk_window_get_application (GTK_WINDOW (root)), self->registry,
+                                               self->session, REVOLUTION_COMPOSER_NEW,
+                                               account != NULL ? revolution_mail_account_get_uid (account) : NULL,
+                                               NULL, NULL, NULL));
 }
 
 static void on_refresh (GSimpleAction *action, GVariant *parameter, gpointer user_data);
@@ -1903,6 +1911,67 @@ selected_message (RevolutionMailView *self)
   return gtk_single_selection_get_selected_item (self->message_selection);
 }
 
+/* #359: message.reply/reply-all (Strg+R, Strg+Umschalt+R wie Evolution e-mail-reader.c:3354-3387) auf die
+ * gewählte Nachricht, in einer Konversation auf die neueste (Mitglieder alt → neu, mail-message.c),
+ * geladen wie im Lesebereich (on_message_selected); Absender = Konto des echten Ordners (find_place). */
+static void
+open_reply (RevolutionMailView     *self,
+            RevolutionComposerType  type)
+{
+  RevolutionMailMessage *message = selected_message (self);
+  RevolutionMailFolder *folder = self->folder;
+  g_autoptr (RevolutionMailMessage) member = NULL;
+  g_autoptr (RevolutionMailFolder) place = NULL;
+  g_autoptr (RevolutionMailAccount) account = NULL, place_account = NULL;
+  GListModel *members;
+
+  if (message == NULL || folder == NULL || self->session == NULL)
+    return;
+
+  members = revolution_mail_message_get_members (message);
+  if (members != NULL && g_list_model_get_n_items (members) > 0)
+    {
+      member = g_list_model_get_item (members, g_list_model_get_n_items (members) - 1);
+      message = member;
+      if (self->thread_folder != NULL)
+        folder = self->thread_folder;
+    }
+  place = revolution_mail_view_find_place (self, message);
+  g_object_get (folder, "account", &account, NULL);
+  g_object_get (place, "account", &place_account, NULL);
+  if (account == NULL || place_account == NULL)
+    return;
+  /* Antworten im Gesendet-Ordner geht an alle wie Evolution (em-composer-utils.c:5149-5151). */
+  if (type == REVOLUTION_COMPOSER_REPLY &&
+      (revolution_mail_folder_get_flags (place) & CAMEL_FOLDER_TYPE_MASK) == CAMEL_FOLDER_TYPE_SENT)
+    {
+      g_debug ("Composer: Nachricht aus Gesendet, Allen antworten");
+      type = REVOLUTION_COMPOSER_REPLY_ALL;
+    }
+  gtk_window_present (revolution_composer_new (gtk_window_get_application (GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (self)))),
+                                               self->registry, self->session, type,
+                                               revolution_mail_account_get_uid (place_account),
+                                               revolution_mail_account_get_uid (account),
+                                               revolution_mail_folder_get_full_name (folder),
+                                               revolution_mail_message_get_uid (message)));
+}
+
+static void
+on_reply (GSimpleAction *action G_GNUC_UNUSED,
+          GVariant      *parameter G_GNUC_UNUSED,
+          gpointer       user_data)
+{
+  open_reply (user_data, REVOLUTION_COMPOSER_REPLY);
+}
+
+static void
+on_reply_all (GSimpleAction *action G_GNUC_UNUSED,
+              GVariant      *parameter G_GNUC_UNUSED,
+              gpointer       user_data)
+{
+  open_reply (user_data, REVOLUTION_COMPOSER_REPLY_ALL);
+}
+
 static void
 on_mark_read (GSimpleAction *action G_GNUC_UNUSED,
               GVariant      *parameter G_GNUC_UNUSED,
@@ -1962,6 +2031,8 @@ update_message_actions (RevolutionMailView *self)
     { "star-on", message != NULL && !starred },
     { "star-off", starred },
     { "star", message != NULL },
+    { "reply", message != NULL },
+    { "reply-all", message != NULL },
   };
   GAction *star = g_action_map_lookup_action (self->message_actions, "star");
 
@@ -2833,6 +2904,8 @@ static const GActionEntry message_actions[] = {
   { "star-on", on_star_on, NULL, NULL, NULL, { 0 } },
   { "star-off", on_star_off, NULL, NULL, NULL, { 0 } },
   { "star", NULL, NULL, "false", on_star_change_state, { 0 } },
+  { "reply", on_reply, NULL, NULL, NULL, { 0 } },
+  { "reply-all", on_reply_all, NULL, NULL, NULL, { 0 } },
 };
 
 static void

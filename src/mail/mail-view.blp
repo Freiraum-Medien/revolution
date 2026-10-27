@@ -28,6 +28,17 @@ template $RevolutionMailView: Adw.BreakpointBin {
       action: "action(list.compose)";
     }
 
+    // #359: Antworten, Allen antworten wie Evolution (e-mail-reader.c:3354-3387).
+    Shortcut {
+      trigger: "<primary>r";
+      action: "action(message.reply)";
+    }
+
+    Shortcut {
+      trigger: "<primary><shift>r";
+      action: "action(message.reply-all)";
+    }
+
     Shortcut {
       trigger: "<primary>p";
       action: "action(message.print)";

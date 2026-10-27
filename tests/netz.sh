@@ -27,8 +27,8 @@
 #   m4-408              ohne Netz starten, dann Netz zurück, Netz weg, Netz zurück; Netz weg 0,2/0,4/1 s
 #                       nach Beginn des Verbindens und zurück (alle Konten müssen verbinden);
 #                       Markieren ohne Netz, nach Netz zurück am Server; Ordner am Server angelegt
-#                       bzw. gelöscht ohne Netz, danach im Baum; Netz weg 0,1/0,2 s nach Klick auf
-#                       den Posteingang von NUR_LESEND_3@example.invalid (microsoft365, nur lesend), je 4×,
+#                       bzw. gelöscht ohne Netz, danach im Baum; Netz weg 0,1/0,2 s nach Wahl des
+#                       Posteingangs von NUR_LESEND_3@example.invalid (microsoft365, nur lesend), je 4×,
 #                       danach lädt er ohne Abbruch, F5 fertig (tests/netz-treiber.py)
 #   m4-408-gmail        ohne Netz starten, Netz weg 0,4 s beim Verbinden, Markieren ohne Netz (KONTO2)
 #   m4-421              Netzmonitor „online“, aber jede Verbindung scheitert (Relais „kaputt“): Ordner,
@@ -44,6 +44,8 @@
 # Verbindungen in kurzer Zeit jede Anmeldung ab (gemessen #408 R2), KONTO2 hat den eigenen Lauf.
 # Serverstand (Flags, Testordner) prüft tests/testdaten.py im normalen Netz über das Relais.
 # Vergleichsliste der Ordner: tests/testdaten.py --ordner (nur lesend, im normalen Netz).
+# #431: Ordner der Seitenleiste wählt der Treiber per Name über den Barrierefreiheitsbaum (AT-SPI,
+# Bus org.a11y.Bus der Sitzung), nicht über feste Koordinaten; daher ohne GTK_A11Y=none.
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler.
 # #411: Jeder Abbruch eines Teilschritts (Traceback, Exit ≠ 0 von Treiber oder testdaten.py,
 # Zeitlimit) ist ein FEHLER (tests/abbruch.sh).
@@ -67,6 +69,7 @@ FEHLER=0
 [ -x "$BIN" ] || { echo "FEHLER  Build: $BIN fehlt (meson compile)"; exit 1; }
 for tool in xvfb-run gdbus python3 unshare setpriv ip nft; do command -v "$tool" >/dev/null || { echo "FEHLER  $tool fehlt"; exit 1; }; done
 python3 -c 'import Xlib, PIL' 2>/dev/null || { echo "FEHLER  python3-xlib/python3-pil fehlt"; exit 1; }
+python3 -c 'import gi; gi.require_version("Atspi", "2.0")' 2>/dev/null || { echo "FEHLER  gir1.2-atspi-2.0 fehlt"; exit 1; }
 APP_ID="$(sed -n 's/.*<id>\(.*\)<\/id>.*/\1/p' "$BUILD/data/"*.metainfo.xml | head -1)"
 bus_hat_app () {
   gdbus call --session -d org.freedesktop.DBus -o /org/freedesktop/DBus \
@@ -127,7 +130,7 @@ lauf () {
     env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK -u M365_DEBUG \
     XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$SCHEMA" GSETTINGS_BACKEND=memory \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
-    GTK_A11Y=none NO_AT_BRIDGE=1 ADW_DEBUG_COLOR_SCHEME=prefer-light GIO_USE_NETWORK_MONITOR=netlink \
+    ADW_DEBUG_COLOR_SCHEME=prefer-light GIO_USE_NETWORK_MONITOR=netlink \
     G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER="$ordner" REVOLUTION_MESSAGE=Einladung \
     BIN="$BIN" OUT="$OUT" NAME="$name" APP_DIR="$APP_DIR" CTRL="$SOCKDIR/c-$name.sock" \
     RELAIS_LOG="$RELAIS_LOG" RELAIS_SOCK="$SOCKDIR/r.sock" REF="$OUT/ordner-testdaten.txt" \

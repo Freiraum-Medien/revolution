@@ -42,7 +42,10 @@ bus_hat_app () {
   gdbus call --session -d org.freedesktop.DBus -o /org/freedesktop/DBus \
     -m org.freedesktop.DBus.NameHasOwner "$APP_ID" 2>/dev/null
 }
-[ "$(bus_hat_app)" = "(false,)" ] || { echo "FEHLER  Session-Bus: $APP_ID läuft schon"; exit 1; }
+# Briefing (PM 27.10.): in run.lock vor jedem App-Start bis 30 s warten, bis der Name frei ist (Vorlauf
+# eines anderen Agenten gibt ihn verzögert frei).
+bus_frei () { for _ in $(seq 30); do [ "$(bus_hat_app)" = "(false,)" ] && return 0; sleep 1; done; [ "$(bus_hat_app)" = "(false,)" ]; }
+bus_frei || { echo "FEHLER  Session-Bus: $APP_ID läuft schon"; exit 1; }
 mkdir -p "$OUT"
 . "$APP_DIR/tests/abbruch.sh"
 
@@ -80,6 +83,7 @@ unveraendert () {
 lauf () {
   local name="$1" konto="$2" uid="$3" ordner="$4" ref="$5" schema="$6" inbox="$7" alle="$8" filter="$9" rundir rc=0
   td --suche-zahlen "$konto" "$ref" >"$OUT/$name-zahlen.txt" 2>&1 || { echo "FEHLER  $name: --suche-zahlen"; return 1; }
+  bus_frei || { echo "FEHLER  $name: Session-Bus: $APP_ID läuft schon"; return 1; }
   rundir="$(mktemp -d)"
   timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK -u M365_DEBUG \
     XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$SCHEMA" GSETTINGS_BACKEND=memory \

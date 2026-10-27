@@ -196,6 +196,22 @@ load_session_thread (GTask        *task,
   g_task_return_pointer (task, session, g_object_unref);
 }
 
+/* #421: Fehler beim Verbinden, die heißen „Server nicht erreichbar“: Namensauflösung (G_RESOLVER_ERROR,
+ * gresolver.h:293; microsoft365 über libsoup), Netz/Host nicht erreichbar, abgewiesen, Zeitüberschreitung
+ * (G_IO_ERROR_*, gioenums.h:566, 579-581) und CAMEL_SERVICE_ERROR_UNAVAILABLE, das imapx statt eines
+ * Resolver-Fehlers meldet („You must be working online …“, camel-imapx-conn-manager.c:973-987) und
+ * das EDS selbst wie „offline“ behandelt (camel-store.c:302-306). */
+static gboolean
+server_unreachable (const GError *error)
+{
+  return error->domain == G_RESOLVER_ERROR ||
+         g_error_matches (error, G_IO_ERROR, G_IO_ERROR_NETWORK_UNREACHABLE) ||
+         g_error_matches (error, G_IO_ERROR, G_IO_ERROR_HOST_UNREACHABLE) ||
+         g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CONNECTION_REFUSED) ||
+         g_error_matches (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT) ||
+         g_error_matches (error, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_UNAVAILABLE);
+}
+
 /* #348: Ergebnis des Worker-Tasks je Store (note_store_thread). */
 typedef struct
 {
@@ -317,9 +333,11 @@ note_store_thread (GTask        *task,
    * (camel-store.c:288-293, camel-m365-store.c:1187, 1302-1306). camel_offline_store_set_online_sync
    * verbindet dabei einen getrennten Store noch einmal (camel-offline-store.c:288-301); dafür
    * entfällt der Versuch in camel_store_get_folder_info_sync. Wieder verbinden beim nächsten
-   * Netzwechsel (retry_stores). */
-  if (result->connect_error != NULL && CAMEL_IS_OFFLINE_STORE (store) &&
-      !g_error_matches (result->connect_error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+   * Netzwechsel oder mit F5 (retry_stores).
+   * Nur wenn der Server nicht erreichbar ist (server_unreachable); jeder andere Fehler (Anmeldung,
+   * Zertifikat, abgebrochene Verbindung) lässt den Store wie vor #421 online: EDS verbindet ihn
+   * beim nächsten Zugriff neu (store_maybe_connect_sync, camel-m365-store.c:1754-1762). */
+  if (result->connect_error != NULL && CAMEL_IS_OFFLINE_STORE (store) && server_unreachable (result->connect_error))
     {
       result->fallback = TRUE;
       camel_offline_store_set_online_sync (CAMEL_OFFLINE_STORE (store), FALSE, cancellable, &result->offline_error);
@@ -502,8 +520,9 @@ on_store_noted (GObject      *source_object,
 
       detail = g_strdup_printf ("%s: %s", display_name, error->message);
       revolution_mail_view_show_error (mail_view, title, detail, TRUE);
-      if (noted->fallback)
-        g_debug ("Verbindung gescheitert: %s, Ordner aus dem Cache", uid);
+      g_debug ("Verbindung gescheitert: %s, %s (%s %d)", uid,
+               noted->fallback ? "Ordner aus dem Cache" : "Store bleibt online",
+               g_quark_to_string (error->domain), error->code);
     }
   else if (noted->offline_error != NULL)
     /* Wie Evolution (mail_backend_store_operation_done_cb, e-mail-backend.c:128-138): offline

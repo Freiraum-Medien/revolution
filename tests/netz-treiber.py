@@ -477,7 +477,7 @@ def zaehler(pfad):
 def kaputt(uids):
     """#421: Netzmonitor „online“, aber keine Verbindung; danach Verbindung zurück mit Netzwechsel."""
     schritt = 'Verbindung scheitert'
-    fehlt = warte_alle(r'^Verbindung gescheitert: %s, Ordner aus dem Cache$', uids, 0, 90)
+    fehlt = warte_alle(r'^Verbindung gescheitert: %s, Ordner aus dem Cache \(', uids, 0, 90)
     (falsch if fehlt else ok)('%s: %s' % (schritt, 'ohne Log „Verbindung gescheitert“: %s' % sorted(fehlt) if fehlt
                                           else 'alle %d Stores offline geschaltet, Ordner aus dem Cache' % len(uids)))
     fehlt = warte_alle(r'^Ordner: %s \d+ geladen$', uids, 0, 60)

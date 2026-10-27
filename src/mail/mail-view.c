@@ -2123,6 +2123,28 @@ on_conversation_mark (RevolutionMailView    *self,
  * e-mail-shell-view-actions.c:1721-1726; Strg+R ist dort Antworten, e-mail-reader.c:3382-3387).
  * camel_folder_refresh_info_sync im Worker, die Liste folgt über „changed“. Ohne geladenen
  * Ordner (Fehler beim Laden) lädt es den Ordner neu. */
+/* #421: Store des Ordners offline (main.c schaltet ihn nach gescheiterter Verbindung offline), bei
+ * Suchordnern (Konversation, Favoriten) der Store eines Quellordners; wie load_messages_thread. */
+static gboolean
+folder_store_offline (CamelFolder *folder)
+{
+  CamelStore *store = camel_folder_get_parent_store (folder);
+  gboolean offline = FALSE;
+
+  if (CAMEL_IS_VEE_FOLDER (folder))
+    {
+      GList *sources = camel_vee_folder_ref_folders (CAMEL_VEE_FOLDER (folder));
+
+      for (GList *l = sources; l != NULL && !offline; l = l->next)
+        offline = folder_store_offline (l->data);
+      g_list_free_full (sources, g_object_unref);
+    }
+  else if (CAMEL_IS_OFFLINE_STORE (store))
+    offline = !camel_offline_store_get_online (CAMEL_OFFLINE_STORE (store));
+
+  return offline;
+}
+
 static void
 refresh_thread (GTask        *task,
                 gpointer      source_object G_GNUC_UNUSED,
@@ -2138,7 +2160,7 @@ refresh_thread (GTask        *task,
   /* #357: in Konversationen den Ordner und Gesendet am Server abgleichen (mail-thread.c). */
   if (revolution_mail_thread_refresh_sync (task_data, op, &error))
     g_task_return_boolean (task, TRUE);
-  else if (session != NULL && !camel_session_get_online (session))
+  else if ((session != NULL && !camel_session_get_online (session)) || folder_store_offline (task_data))
     {
       /* #408: offline bleibt der Cache (wie load_messages_thread). */
       g_debug ("Aktualisieren: offline, Stand des Caches (%s)", error->message);

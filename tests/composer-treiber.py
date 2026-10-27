@@ -402,7 +402,9 @@ def neu():
     pruefe(re.search(r'Hallo (&nbsp;)?<b>fett</b>', t.get('text/html', '')) is not None,
            'neu: Strg+B im Editor ergibt <b>fett</b> (%s)' % t.get('text/html', '')[-120:].replace('\n', ' '))
     pruefe('Hallo fett' in t.get('text/plain', '').replace('\xa0', ' '), 'neu: Text „Hallo fett“')
-    pruefe(re.search(r'<h1>Titel</h1>', t.get('text/html', '')) is not None, 'neu: Absatzformat Überschrift 1 ergibt <h1>Titel</h1>')
+    # Strg+B vor der neuen Zeile schaltet Fett aus: WebKit schreibt dann <span style="font-weight: normal;">.
+    h1 = re.search(r'<h1>(?:<span[^>]*>)?Titel(?:</span>)?</h1>', t.get('text/html', ''))
+    pruefe(h1 is not None, 'neu: Absatzformat Überschrift 1 ergibt %s' % (h1 and h1.group(0)))
 
 
 def a11y():

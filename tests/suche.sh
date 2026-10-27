@@ -12,6 +12,9 @@
 #             Escape stellt Liste und Auswahl wieder her, Filter Ungelesen/Markiert/Mit Anhang, Filter „Alle“.
 #   markiert  geops@ Revolution-Test, dunkel; vorher Einladung am Server markiert (testdaten.py --server,
 #             danach wieder unmarkiert): Filter Markiert mit Treffer.
+#             Danach Abbruch-Test (Prüf-Lauf R2): „Alle Ordner“ nach 2 s mit Escape beenden; während der Suche
+#             Hinweis „Suche läuft …“ und Ordnerbaum gesperrt, danach Liste sofort zurück, Quellen frei.
+#   konversationen  geops@ Posteingang im Konversationsmodus: Suche im Ordner, Escape.
 #   outlook   outlook.com Posteingang (microsoft365), hell: Suche im Ordner und Filter.
 # Treffer je Schritt gegen tests/testdaten.py --suche-zahlen (IMAP UID SEARCH/BODYSTRUCTURE bzw. Graph, nur
 # lesend). Die Suche schreibt nichts: --suche-zahlen vor und nach jedem Lauf gleich (Ungelesen, Markiert).
@@ -55,6 +58,12 @@ cp "$APP_DIR/data/"*.gschema.xml "$SCHEMA/"
 printf '[de.freiraum_medien.Revolution]\nconversations=false\nmark-seen=false\nwindow-width=1400\nwindow-height=900\n' \
   >"$SCHEMA/90_test.gschema.override"
 glib-compile-schemas --strict "$SCHEMA" || { echo "FEHLER  Schema: glib-compile-schemas $SCHEMA"; exit 1; }
+KONV="$OUT/schema-konv"
+mkdir -p "$KONV"
+cp "$APP_DIR/data/"*.gschema.xml "$KONV/"
+printf '[de.freiraum_medien.Revolution]\nconversations=true\nmark-seen=false\nwindow-width=1400\nwindow-height=900\n' \
+  >"$KONV/90_test.gschema.override"
+glib-compile-schemas --strict "$KONV" || { echo "FEHLER  Schema: glib-compile-schemas $KONV"; exit 1; }
 
 if td --suche >"$OUT/testdaten.txt" 2>&1; then
   echo "OK      Testdaten: $(grep -c '^SUCHE ' "$OUT/testdaten.txt") Ordner mit der Such-Mail"
@@ -81,12 +90,13 @@ unveraendert () {
 }
 
 lauf () {
-  local name="$1" konto="$2" uid="$3" ordner="$4" ref="$5" schema="$6" inbox="$7" alle="$8" filter="$9" rundir rc=0
+  local name="$1" konto="$2" uid="$3" ordner="$4" ref="$5" schema="$6" inbox="$7" alle="$8" filter="$9" \
+    schemadir="${10:-$SCHEMA}" rundir rc=0
   td --suche-zahlen "$konto" "$ref" >"$OUT/$name-zahlen.txt" 2>&1 || { echo "FEHLER  $name: --suche-zahlen"; return 1; }
   bus_frei || { echo "FEHLER  $name: Session-Bus: $APP_ID läuft schon"; return 1; }
   rundir="$(mktemp -d)"
   timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK -u M365_DEBUG \
-    XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$SCHEMA" GSETTINGS_BACKEND=memory \
+    XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$schemadir" GSETTINGS_BACKEND=memory \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
     ADW_DEBUG_COLOR_SCHEME="$schema" G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals \
     REVOLUTION_FOLDER="$uid/$ordner" BIN="$BIN" OUT="$OUT" NAME="m5-365-$name" UID="$uid" ORDNER="$ordner" \
@@ -112,6 +122,7 @@ teil geops "$GEOPS" "$GEOPS_UID" INBOX INBOX prefer-light 1 1 "unread starred at
 td --server "$GEOPS" markiert >"$OUT/markiert-server.txt" 2>&1
 teil markiert "$GEOPS" "$GEOPS_UID" "$RT" Revolution-Test prefer-dark 0 0 "starred unread attachment"
 td --server "$GEOPS" unmarkiert >>"$OUT/markiert-server.txt" 2>&1
+teil konversationen "$GEOPS" "$GEOPS_UID" INBOX INBOX prefer-light 1 0 "" "$KONV"
 teil outlook "$OUTLOOK" "$OUTLOOK_UID" "$OUTLOOK_INBOX" "$OUTLOOK_INBOX" prefer-light 1 0 "unread starred attachment"
 
 abbruch_bilanz

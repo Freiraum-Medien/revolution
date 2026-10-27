@@ -8,7 +8,7 @@
 # „Nachrichten: … vollständig N“), verglichen mit tests/testdaten.py --suche-zahlen (Datei ZAHLEN, mit ALLE
 # zusätzlich ZAHLEN_ALLE: Summe „…/* text N“ der Testkonten). Bilder OUT/NAME-<Schritt>.png.
 # Umgebung: BIN, OUT, NAME, UID, ORDNER (Camel-Name), ORDNER_REF (Name in ZAHLEN), INBOX (1: Posteingang),
-# ZAHLEN, ZAHLEN_ALLE, ALLE, FILTER, TIMEOUT. Ausgabe: „OK …“, „FEHLER …“, „WERT …“.
+# ZAHLEN, ZAHLEN_ALLE, ALLE (mit Abbruch-Test), FILTER (leer: ohne Filter), TIMEOUT. Ausgabe: „OK …“, „FEHLER …“, „WERT …“.
 #
 # Copyright 2026 Arnd Messer
 #
@@ -32,7 +32,7 @@ BIN, OUT, NAME = os.environ['BIN'], os.environ['OUT'], os.environ['NAME']
 UID, ORDNER = os.environ['UID'], os.environ['ORDNER']
 ZAHLEN, ZAHLEN_ALLE = os.environ['ZAHLEN'], os.environ.get('ZAHLEN_ALLE', '')
 ALLE = os.environ.get('ALLE') == '1'
-FILTER = os.environ.get('FILTER', 'unread starred attachment').split()
+FILTER = os.environ.get('FILTER', '').split()
 TIMEOUT = int(os.environ.get('TIMEOUT', '300'))
 SUCHWORT = 'Quittenbrotkiste'
 LOG = os.path.join(OUT, NAME + '.log')
@@ -41,6 +41,9 @@ LOGKEY = re.escape('%s %s' % (UID, ORDNER))
 MENUE = {'all': 0, 'unread': 1, 'starred': 2, 'attachment': 3}
 AUSDRUCK = {'unread': 'not (system-flag "Seen")', 'starred': 'system-flag "Flagged"',
             'attachment': 'system-flag "Attachments"'}
+# Lesebereich zeigt eine Nachricht (mail-reader.c) bzw. eine Konversation (mail-conversation.c:407); Konto/Ordner,
+# UID der Nachricht, UID der Zeile. Im Konversationsmodus lädt der Lesebereich aus dem Suchordner der Konversation.
+GELADEN = r'(?:Nachricht: \S+ %s (?:%s) geladen|Konversation: (?:%s) mit \d+ Nachrichten angezeigt)'
 SPALTE = {'unread': 'ungelesen', 'starred': 'markiert', 'attachment': 'anhang'}
 
 fehler = 0
@@ -176,6 +179,22 @@ def alle(o, rolle, out):
     return out
 
 
+def laeuft_pruefen(wann):
+    """#365 Prüf-Lauf R2: während „Alle Ordner“ Leerzustand „Suche läuft …“ und Ordnerbaum gesperrt."""
+    w = wurzel()
+    hinweis = finde(w, 'label', 'Suche läuft …')
+    (ok if hinweis is not None else falsch)('%s: Hinweis „Suche läuft …“ sichtbar' % wann)
+    baum = finde(w, 'list', 'Ordner')
+    gesperrt = baum is not None and not baum.get_state_set().contains(Atspi.StateType.SENSITIVE)
+    (ok if gesperrt else falsch)('%s: Ordnerbaum gesperrt' % wann)
+
+
+def baum_frei(wann):
+    baum = finde(wurzel(), 'list', 'Ordner')
+    (ok if baum is not None and baum.get_state_set().contains(Atspi.StateType.SENSITIVE) else falsch)(
+        '%s: Ordnerbaum wieder bedienbar' % wann)
+
+
 def zeile_waehlen(i):
     liste = finde(wurzel(), 'list', 'Nachrichten')
     if liste is None or not liste.select_child(i):
@@ -219,8 +238,8 @@ def suchen(ref, ref_alle):
         return
     vergleiche('Suche „%s“ im Ordner' % SUCHWORT, liste_nach(ab, 'Suche'), ref.get((ORDNER_REF, 'text')))
     zeile_waehlen(0)
-    m = warte(r'Nachricht: %s (\S+) geladen' % LOGKEY, ab, 60)
-    (ok if m else falsch)('Treffer im Lesebereich geöffnet%s' % (' (UID %s)' % m.group(1) if m else ''))
+    m = warte(GELADEN % (r'\S+', r'(\S+)', r'(\S+)'), ab, 60)
+    (ok if m else falsch)('Treffer im Lesebereich geöffnet%s' % (' (UID %s)' % (m.group(1) or m.group(2)) if m else ''))
     if not ALLE:
         time.sleep(2)
         bild('suche')
@@ -231,11 +250,22 @@ def suchen(ref, ref_alle):
         falsch('Alt+A: Suchbereich „Alle Ordner“ nicht gewählt')
         return
     ok('Alt+A wählt „Alle Ordner“')
+    time.sleep(1)
+    laeuft_pruefen('Alle Ordner')
+    bild('laeuft')
     m = warte(r'Suche: alle Ordner, (\d+) Ordner, (\d+) Treffer nach (\d+) ms', ab)
     if m:
         wert('alle Ordner: %s Ordner durchsucht, %s ms' % (m.group(1), m.group(3)))
+    # Camel durchsucht nur die Summary im Cache (camel-imapx-search.c:367-368): Treffer in Ordnern, die diese
+    # Sitzung nicht abgeglichen hat (z. B. eine von einem anderen Test nach Archiv verschobene Kopie), fehlen wie
+    # in Evolution. Mindestens: die abgeglichenen Ordner (Posteingänge, Revolution-Test), höchstens: alle.
     soll = sum(n for (o, s), n in ref_alle.items() if o == '*' and s == 'text')
-    vergleiche('Suche „%s“ in allen Ordnern' % SUCHWORT, liste_nach(ab, 'Alle Ordner'), soll)
+    mindest = soll - sum(n for z in open(ZAHLEN_ALLE) for m in [re.match(r'^TREFFER (\S+) (\d+)$', z.strip())]
+                         if m and m.group(1) not in ('INBOX', 'INBOX.Revolution-Test') for n in [int(m.group(2))])
+    ist = liste_nach(ab, 'Alle Ordner')
+    (ok if ist is not None and mindest <= ist <= soll else falsch)(
+        'Suche „%s“ in allen Ordnern: %s Treffer, Server %d (davon %d in abgeglichenen Ordnern)'
+        % (SUCHWORT, ist, soll, mindest))
     zeile_waehlen(0)
     m = warte(r'Nachricht: revolution-favoriten suche (\S+) geladen', ab, 60)
     (ok if m else falsch)('Treffer aus „Alle Ordner“ im Lesebereich (Suchordner, UID %s)' % (m and m.group(1)))
@@ -261,8 +291,38 @@ def beenden(n0, gewaehlt, wie):
     m = warte(r'Suche: beendet, Auswahl (\S+) wieder gewählt', ab, 60)
     (ok if m and m.group(1) == gewaehlt else falsch)(
         '%s: Auswahl wie vorher (%s, vorher %s)' % (wie, m and m.group(1), gewaehlt))
-    m = warte(r'Nachricht: %s %s geladen' % (LOGKEY, re.escape(gewaehlt)), ab, 60)
+    m = warte(GELADEN % (r'\S+', re.escape(gewaehlt), re.escape(gewaehlt)), ab, 60)
     (ok if m else falsch)('%s: Lesebereich zeigt wieder die vorher gewählte Nachricht' % wie)
+
+
+def abbruch(n0):
+    """#365 Prüf-Lauf R2 (build-pruef/m5-365-abbruch): „Alle Ordner“ nach 2 s mit Escape abbrechen. Die Suche endet
+    sofort, die Liste ist ohne Warten auf den alten Suchlauf wieder da, der Suchordner gibt seine Quellen frei."""
+    ab = marke()
+    taste('Control_L', 'f')
+    tippe(SUCHWORT)
+    liste_nach(ab, 'Abbruch: Suche im Ordner')
+    ab = marke()
+    taste('Alt_L', 'a')
+    if not warte(r'Suche: \(and .*\) in allen Ordnern$', ab, 30):
+        falsch('Abbruch: Alt+A')
+        return
+    time.sleep(2)
+    laeuft_pruefen('Abbruch')
+    ab = marke()
+    t = time.monotonic()
+    taste('Control_L', 'f')
+    taste('Escape')
+    m = warte(r'Suche: aus in Ordner$', ab, 30)
+    dauer = (time.monotonic() - t) * 1000
+    (ok if m and dauer < 3000 else falsch)('Abbruch: Escape beendet „Alle Ordner“ nach %.0f ms' % dauer)
+    n = liste_nach(ab, 'Abbruch')
+    dauer = (time.monotonic() - t) * 1000
+    (ok if n == n0 else falsch)('Abbruch: Liste wieder %s Zeilen (vorher %s) nach %.0f ms' % (n, n0, dauer))
+    m = warte(r'Suche: alle Ordner beendet, (\d+) Quellen frei', ab, TIMEOUT)
+    (ok if m else falsch)('Abbruch: Suchordner gibt Quellen frei (%s)' % (m and m.group(1)))
+    baum_frei('Abbruch')
+    bild('nach-abbruch')
 
 
 def filtern(ref):
@@ -292,17 +352,22 @@ def pruefen(w):
     d.sync()
     ab = marke()
     zeile_waehlen(1)
-    m = warte(r'Nachricht: %s (\S+) geladen' % LOGKEY, ab, 60)
+    m = warte(GELADEN % (r'\S+', r'(\S+)', r'(\S+)'), ab, 60)
     if m is None:
         falsch('Auswahl vor der Suche: Nachricht nicht geladen')
         return
-    gewaehlt = m.group(1)
+    gewaehlt = m.group(1) or m.group(2)
     wert('Auswahl vor der Suche: UID %s' % gewaehlt)
     ref = zahlen(ZAHLEN)
     suchen(ref, zahlen(ZAHLEN_ALLE) if ALLE else {})
     beenden(n0, gewaehlt, 'escape')
-    filtern(ref)
-    beenden(n0, gewaehlt, 'Filter Alle')
+    if ALLE:
+        baum_frei('Ende der Suche')
+    if FILTER:
+        filtern(ref)
+        beenden(n0, gewaehlt, 'Filter Alle')
+    if ALLE:
+        abbruch(n0)
     andere = [z for z in log_text().splitlines() if z.startswith('(revolution:') and 'revolution-DEBUG' not in z]
     (ok if not andere else falsch)('keine Warnungen/Criticals im Log%s' % ('' if not andere else ': %s' % andere[:3]))
 

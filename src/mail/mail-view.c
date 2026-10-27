@@ -63,6 +63,8 @@ struct _RevolutionMailView
   /* #365: Suche (Ausdruck aus mail-search.c oder NULL), „Alle Ordner“, Suchbereich und Filter (list.filter);
    * die vor der Suche gewählte Nachricht und ob sie nach dem Ende wieder gewählt wird (select_message_from_env). */
   AdwToggleGroup      *search_scope;
+  AdwStatusPage       *empty_page;
+  GtkWidget           *folder_list;
   char                *search;
   gboolean             search_all;
   char                *filter;
@@ -149,6 +151,19 @@ focus_search_entry (RevolutionMailView *self)
   gtk_text_grab_focus_without_selecting (GTK_TEXT (text));
 }
 
+/* #365: Leerzustand der Liste wie Evolution (message-list.c:6524-6531): während „Alle Ordner“ aufgebaut wird
+ * „Suche läuft …“ (dort „Generating message list…“, Suchordner im Aufbau, e-mail-shell-view.c:117-121, 188),
+ * mit Suche ohne Treffer „Keine Nachricht entspricht den Suchkriterien“, sonst „Keine Nachrichten“. */
+static void
+set_empty_page (RevolutionMailView *self,
+                gboolean            searching)
+{
+  adw_status_page_set_icon_name (self->empty_page, self->search != NULL ? "edit-find-symbolic" : "inbox-symbolic");
+  adw_status_page_set_title (self->empty_page, searching          ? _("Suche läuft …")
+                                               : self->search != NULL ? _("Keine Nachricht entspricht den Suchkriterien")
+                                                                      : _("Keine Nachrichten"));
+}
+
 /* #365: Suche aus Suchfeld, Suchbereich und Filter. Die Liste bleibt dieselbe: der gewählte Ordner wird neu
  * geladen (on_folder_selected), mit dem Ausdruck im aktuellen Ordner bzw. aus dem Suchordner „Alle Ordner“
  * (load_messages_thread). „Alle Ordner“ nur mit Suchtext, sonst der Ordner wie Evolution
@@ -177,6 +192,10 @@ update_search (RevolutionMailView *self)
   g_free (self->search);
   self->search = g_steal_pointer (&search);
   self->search_all = all;
+  /* Während „Alle Ordner“ bleibt der Ordnerbaum gesperrt wie Evolution (e-mail-shell-view.c:1457): ein anderer
+   * Ordner hätte die ganze Suche neu gestartet. */
+  gtk_widget_set_sensitive (self->folder_list, !all);
+  set_empty_page (self, FALSE);
   if (self->folder == NULL)
     return;
 
@@ -2558,6 +2577,8 @@ on_messages_loaded (GObject      *source_object,
   if (load->generation != self->load_generation)
     return;
 
+  /* #365: „Alle Ordner“ fertig (auch nach Fehler): Leerzustand ohne „Suche läuft …“. */
+  set_empty_page (self, FALSE);
   n_items = g_list_model_get_n_items (G_LIST_MODEL (self->messages));
   if (n_items == 0)
     {
@@ -2718,6 +2739,8 @@ on_folder_selected (RevolutionMailView *self)
       self->thread_folder = revolution_mail_folder_new (REVOLUTION_MAIL_SEARCH_NAME, _("Alle Ordner"), NULL,
                                                         self->favorites);
       gtk_label_set_label (self->list_title, _("Alle Ordner"));
+      set_empty_page (self, TRUE);
+      gtk_stack_set_visible_child_name (self->list_stack, "empty");
     }
 
   g_free (self->loading);
@@ -3006,6 +3029,8 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, search_entry);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, search_button);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, search_scope);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, empty_page);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, folder_list);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, split);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, row_menu);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, message_stack);

@@ -397,7 +397,8 @@ template $RevolutionMailView: Adw.BreakpointBin {
         StackPage {
           name: "empty";
 
-          child: Adw.StatusPage {
+          // #365: Titel je nach Suche (mail-view.c, set_empty_page).
+          child: Adw.StatusPage empty_page {
             icon-name: "inbox-symbolic";
             title: _("Keine Nachrichten");
           };

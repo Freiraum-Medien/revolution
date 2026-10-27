@@ -117,7 +117,7 @@ def aussen(sock_pfad, log_pfad):
                 # #408: Serverstand unabhängig von der App im normalen Netz (auch während die App
                 # offline ist): nur die Abfragen und Testkonto-Änderungen aus tests/testdaten.py.
                 args = kopf.split()[1:]
-                if args[0] not in ('--flags', '--server', '--testordner'):
+                if args[0] not in ('--flags', '--server', '--testordner', '--zustellung', '--aufraeumen'):
                     raise OSError('nicht erlaubt: %s' % kopf)
                 r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'testdaten.py')]
                                    + args, capture_output=True, text=True, timeout=300)

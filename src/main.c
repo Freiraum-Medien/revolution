@@ -10,6 +10,7 @@
 #include "config.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <glib/gi18n.h>
 #include <adwaita.h>
 #include <camel/camel.h>
@@ -20,6 +21,7 @@
 #include "eds-compat.h"
 #include "mail/mail-favorites.h"
 #include "mail/mail-folder.h"
+#include "mail/mail-outbox.h"
 #include "mail/mail-session.h"
 #include "mail/mail-view.h"
 
@@ -186,6 +188,10 @@ load_session_thread (GTask        *task,
   /* #351: Suchordner der Favoriten, bevor die Konten ihre Quellen melden (on_store_noted). */
   if (!revolution_mail_favorites_setup (CAMEL_SESSION (session), &error))
     g_warning ("Favoriten: %s", error->message);
+  g_clear_error (&error);
+  /* #362: Postausgang im lokalen Store (mail-outbox.c), wie Evolution aus constructed der Session. */
+  if (!revolution_mail_outbox_setup (CAMEL_SESSION (session), &error))
+    g_warning ("Postausgang: %s", error->message);
 
   /* #408: online nur mit Netz wie Evolution beim Start: EShell übernimmt „network-available“
    * des ENetworkMonitor beim Anlegen (e-shell.c:1845-1850, G_BINDING_SYNC_CREATE) und geht ohne
@@ -628,6 +634,168 @@ on_folder_opened (RevolutionMailView *mail_view,
   revolution_mail_view_watch_folder (mail_view, folder, FALSE, FALSE);
 }
 
+/* #362: Postausgang senden (mail-outbox.c) im Worker, ein Lauf zur Zeit; eine Anforderung während eines
+ * Laufs startet danach einen weiteren (wie Evolution info->again, mail-send-recv.c:1119-1137). Auslöser
+ * wie Evolution: neue Nachricht im Postausgang (Signal „flush-outbox“ der Session, e-mail-backend.c:
+ * 1319-1321), Start („send-recv-on-start“, Vorgabe an, „This includes also sending messages from Outbox“,
+ * org.gnome.evolution.mail.gschema.xml.in:794-797), Netz zurück (go_online); dazu nach einem
+ * gescheiterten Lauf F5 (Evolution: Senden/Empfangen), Netzwechsel (retry_stores) und ein verbundener
+ * Store (on_connection_status). Offline bleibt alles im Postausgang (mail-ops.c:661-665). Fehler je
+ * Versanddienst ins Sammel-Banner (#420), weg nach dem nächsten erfolgreichen Versand über ihn. */
+static gboolean outbox_running;
+static gboolean outbox_again;
+static gboolean outbox_again_all;
+/* Letzter Lauf mit Fehler: weitere Auslöser (F5, Netzwechsel, verbunden) senden erneut. */
+static gboolean outbox_failed;
+static GCancellable *outbox_cancellable;
+
+static void outbox_flush (RevolutionMailView *mail_view, gboolean all, const char *reason);
+
+static void
+outbox_flush_thread (GTask        *task,
+                     gpointer      source_object,
+                     gpointer      task_data,
+                     GCancellable *cancellable)
+{
+  g_task_return_pointer (task,
+                         revolution_mail_outbox_flush_sync (source_object, GPOINTER_TO_INT (task_data), cancellable),
+                         (GDestroyNotify) revolution_mail_outbox_flush_free);
+}
+
+static void
+on_outbox_flushed (GObject      *source_object G_GNUC_UNUSED,
+                   GAsyncResult *result,
+                   gpointer      user_data)
+{
+  g_autoptr (RevolutionMailView) mail_view = user_data;
+  RevolutionMailOutboxFlush *flush = g_task_propagate_pointer (G_TASK (result), NULL);
+  gboolean all = outbox_again_all;
+
+  outbox_running = FALSE;
+  g_clear_object (&outbox_cancellable);
+  if (flush == NULL)
+    return;
+
+  for (guint i = 0; i < flush->sent_uids->len; i++)
+    revolution_mail_view_clear_account_errors (mail_view, flush->sent_uids->pdata[i]);
+  for (guint i = 0; i < flush->failed_uids->len; i++)
+    revolution_mail_view_show_account_error (mail_view, flush->failed_uids->pdata[i], flush->failed_titles->pdata[i],
+                                             flush->failed_details->pdata[i]);
+  outbox_failed = flush->failed_uids->len > 0 && flush->left > 0;
+  revolution_mail_view_set_outbox (mail_view, flush->left);
+  revolution_mail_outbox_flush_free (flush);
+
+  if (outbox_again)
+    {
+      outbox_again = FALSE;
+      outbox_again_all = FALSE;
+      outbox_flush (mail_view, all, "erneut angefordert");
+    }
+}
+
+static void
+outbox_flush (RevolutionMailView *mail_view,
+              gboolean            all,
+              const char         *reason)
+{
+  RevolutionMailSession *session = g_object_get_data (G_OBJECT (g_application_get_default ()), "session");
+  g_autoptr (GTask) task = NULL;
+
+  if (session == NULL)
+    return;
+
+  if (outbox_running)
+    {
+      outbox_again = TRUE;
+      outbox_again_all |= all;
+      return;
+    }
+
+  g_debug ("Postausgang: Sendelauf (%s)", reason);
+  outbox_running = TRUE;
+  /* Camel-Vorgang: Netz weg bricht ihn ab wie alle (camel_operation_cancel_all, on_network_changed). */
+  outbox_cancellable = camel_operation_new ();
+  task = g_task_new (session, outbox_cancellable, on_outbox_flushed, g_object_ref (mail_view));
+  g_task_set_source_tag (task, outbox_flush);
+  g_task_set_task_data (task, GINT_TO_POINTER (all), NULL);
+  g_task_run_in_thread (task, outbox_flush_thread);
+}
+
+static void
+on_flush_outbox (RevolutionMailView *mail_view)
+{
+  outbox_flush (mail_view, FALSE, "neue Nachricht");
+}
+
+/* #362: Nur für Tests (REVOLUTION_TEST_HOOKS=1, tests/senden.sh): Aktion app.test-send (Datei, Identität)
+ * über org.gtk.Actions. Liest die .eml-Datei im Worker und sendet sie wie der Composer
+ * (revolution_mail_send_message). */
+static void
+test_read_eml_thread (GTask        *task,
+                      gpointer      source_object G_GNUC_UNUSED,
+                      gpointer      task_data,
+                      GCancellable *cancellable)
+{
+  g_autoptr (CamelMimeMessage) message = camel_mime_message_new ();
+  g_autoptr (CamelStream) stream = NULL;
+  GError *error = NULL;
+
+  stream = camel_stream_fs_new_with_name (task_data, O_RDONLY, 0, &error);
+  if (stream == NULL ||
+      !camel_data_wrapper_construct_from_stream_sync (CAMEL_DATA_WRAPPER (message), stream, cancellable, &error))
+    g_task_return_error (task, error);
+  else
+    g_task_return_pointer (task, g_steal_pointer (&message), g_object_unref);
+}
+
+static void
+on_test_sent (GObject      *source_object G_GNUC_UNUSED,
+              GAsyncResult *result,
+              gpointer      user_data)
+{
+  g_autofree char *path = user_data;
+  g_autoptr (GError) error = NULL;
+
+  if (revolution_mail_send_message_finish (result, &error))
+    g_debug ("Test: %s im Postausgang", path);
+  else
+    g_debug ("Test: %s nicht im Postausgang: %s", path, error->message);
+}
+
+static void
+on_test_eml_read (GObject      *source_object G_GNUC_UNUSED,
+                  GAsyncResult *result,
+                  gpointer      user_data)
+{
+  g_autofree char *identity = user_data;
+  g_autoptr (GError) error = NULL;
+  g_autoptr (CamelMimeMessage) message = g_task_propagate_pointer (G_TASK (result), &error);
+  const char *path = g_task_get_task_data (G_TASK (result));
+
+  if (message == NULL)
+    {
+      g_debug ("Test: %s nicht gelesen: %s", path, error->message);
+      return;
+    }
+
+  revolution_mail_send_message (message, identity, NULL, on_test_sent, g_strdup (path));
+}
+
+static void
+on_test_send (GSimpleAction *action G_GNUC_UNUSED,
+              GVariant      *parameter,
+              gpointer       user_data)
+{
+  const char *path, *identity;
+  g_autoptr (GTask) task = NULL;
+
+  g_variant_get (parameter, "(&s&s)", &path, &identity);
+  task = g_task_new (user_data, NULL, on_test_eml_read, g_strdup (identity));
+  g_task_set_source_tag (task, on_test_send);
+  g_task_set_task_data (task, g_strdup (path), g_free);
+  g_task_run_in_thread (task, test_read_eml_thread);
+}
+
 /* #420: Verbindungsfehler eines Kontos aus dem Sammel-Banner, sobald sein Store verbunden ist, egal
  * wodurch: Start, Netzwechsel, F5 (retry_stores) oder EDS beim nächsten Zugriff
  * (store_maybe_connect_sync, folder_maybe_connect_sync: camel-store.c:262-315, camel-folder.c:643-688).
@@ -641,7 +809,12 @@ on_connection_status (CamelService       *service,
                       RevolutionMailView *mail_view)
 {
   if (camel_service_get_connection_status (service) == CAMEL_SERVICE_CONNECTED)
-    revolution_mail_view_clear_account_errors (mail_view, camel_service_get_uid (service));
+    {
+      revolution_mail_view_clear_account_errors (mail_view, camel_service_get_uid (service));
+      /* #362: Verbindung wieder da: Postausgang nach gescheitertem Lauf erneut senden. */
+      if (outbox_failed)
+        outbox_flush (mail_view, FALSE, "Store verbunden");
+    }
 }
 
 static void
@@ -674,8 +847,10 @@ note_stores (RevolutionMailSession *session,
     {
       g_autoptr (GTask) task = NULL;
 
-      /* #351: der Suchordner-Store der Favoriten hat kein Konto (mail-favorites.c). */
+          /* #351: der Suchordner-Store der Favoriten hat kein Konto (mail-favorites.c); #362 ebenso der Store
+       * des Postausgangs (mail-outbox.c). */
       if (!CAMEL_IS_STORE (l->data) || CAMEL_IS_VEE_STORE (l->data) ||
+          g_strcmp0 (camel_service_get_uid (l->data), REVOLUTION_MAIL_LOCAL_UID) == 0 ||
           g_object_get_data (l->data, "revolution-noted") != NULL)
         continue;
 
@@ -793,6 +968,8 @@ go_online (gpointer user_data)
   camel_session_set_online (CAMEL_SESSION (session), TRUE);
   revolution_mail_view_set_offline (mail_view, FALSE);
   g_debug ("Netz: online, %u Stores verbinden", switch_stores (session, mail_view, go_online));
+  /* #362 */
+  outbox_flush (mail_view, FALSE, "Netz zurück");
 
   return G_SOURCE_REMOVE;
 }
@@ -866,6 +1043,9 @@ retry_stores (gpointer user_data)
     }
   if (count > 0)
     g_debug ("Netz: %u Stores erneut verbinden", count);
+  /* #362 */
+  if (outbox_failed)
+    outbox_flush (mail_view, FALSE, "Netzwechsel");
 
   return G_SOURCE_REMOVE;
 }
@@ -882,6 +1062,8 @@ on_network_event (RevolutionMailView *mail_view)
   if (session == NULL || !camel_session_get_online (CAMEL_SESSION (session)) || online_id != 0)
     return;
 
+  /* #362: auch nach gescheitertem Sendelauf. */
+  failed = outbox_failed;
   services = camel_session_list_services (CAMEL_SESSION (session));
   for (GList *l = services; l != NULL && !failed; l = l->next)
     failed = g_object_get_data (l->data, "revolution-retry") != NULL;
@@ -912,6 +1094,8 @@ on_retry_requested (RevolutionMailView *mail_view,
   waits = service != NULL && g_object_get_data (G_OBJECT (service), "revolution-retry") != NULL;
   g_clear_handle_id (&retry_id, g_source_remove);
   retry_stores (mail_view);
+  /* #362: F5 sendet den Postausgang, auch Nachrichten mit unklarer Zustellung (mail-outbox.c). */
+  outbox_flush (mail_view, TRUE, "F5");
 
   return waits;
 }
@@ -924,6 +1108,9 @@ on_shutdown_network (GApplication *app G_GNUC_UNUSED)
   if (line != NULL)
     g_cancellable_cancel (line);
   g_clear_object (&line);
+  /* #362 */
+  if (outbox_cancellable != NULL)
+    g_cancellable_cancel (outbox_cancellable);
 }
 
 static void
@@ -945,6 +1132,7 @@ on_session_loaded (GObject      *source_object,
     {
       const GActionEntry test_actions[] = {
         { "test-store", on_test_store, "(sb)", NULL, NULL, { 0 } },
+        { "test-send", on_test_send, "(ss)", NULL, NULL, { 0 } },
       };
 
       g_action_map_add_action_entries (G_ACTION_MAP (source_object), test_actions, G_N_ELEMENTS (test_actions),
@@ -968,9 +1156,12 @@ on_session_loaded (GObject      *source_object,
   g_signal_connect (source_object, "shutdown", G_CALLBACK (on_shutdown_network), NULL);
 
   g_signal_connect_object (session, "services-changed", G_CALLBACK (note_stores), mail_view, G_CONNECT_DEFAULT);
+  /* #362 */
+  g_signal_connect_object (session, "flush-outbox", G_CALLBACK (on_flush_outbox), mail_view, G_CONNECT_SWAPPED);
   new_line_change ();
   note_stores (session, mail_view);
   on_network_changed (G_NETWORK_MONITOR (e_network_monitor_get_default ()), NULL, mail_view);
+  outbox_flush (mail_view, FALSE, "Start");
 }
 
 static void

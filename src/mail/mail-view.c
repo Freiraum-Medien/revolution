@@ -29,6 +29,7 @@
 #include "mail-favorites.h"
 #include "mail-folder.h"
 #include "mail-message.h"
+#include "mail-session.h"
 #include "mail-reader.h"
 #include "mail-thread.h"
 #include "mail-view.h"
@@ -89,6 +90,10 @@ struct _RevolutionMailView
   gboolean             initial_done;
   /* #351: Abschnitt „Favoriten“ über den Konten (mail-favorites.c). */
   RevolutionMailAccount *favorites;
+  /* #362: Abschnitt „Auf diesem Rechner“ mit dem Postausgang, nur wenn er nicht leer ist
+   * (revolution_mail_view_set_outbox); local_section leer oder mit local. */
+  RevolutionMailAccount *local;
+  GListStore           *local_section;
   /* #357: Konversationen (GSettings „conversations“, beim Wählen des Ordners übernommen), Lesebereich
    * der Konversation, Suchordner aus Ordner und Gesendet zum Laden ihrer Nachrichten (mail-thread.c)
    * und Gelesen-Timer je angezeigter Nachricht (GSource). */
@@ -219,6 +224,9 @@ find_account (RevolutionMailView *self,
   /* #351: Favoriten für Erstauswahl und Zähler (select_initial_folder, revolution_mail_view_watch_folder). */
   if (self->favorites != NULL && g_strcmp0 (revolution_mail_account_get_uid (self->favorites), uid) == 0)
     return g_object_ref (self->favorites);
+  /* #362: Postausgang (Erstauswahl, Zähler). */
+  if (self->local != NULL && g_strcmp0 (revolution_mail_account_get_uid (self->local), uid) == 0)
+    return g_object_ref (self->local);
 
   return NULL;
 }
@@ -2741,6 +2749,8 @@ revolution_mail_view_dispose (GObject *object)
   g_clear_object (&self->registry);
   g_clear_object (&self->accounts);
   g_clear_object (&self->favorites);
+  g_clear_object (&self->local);
+  g_clear_object (&self->local_section);
   g_clear_object (&self->messages);
   g_clear_object (&self->folder);
   g_clear_object (&self->session);
@@ -2859,6 +2869,23 @@ revolution_mail_view_init (RevolutionMailView *self)
   g_object_set_data (G_OBJECT (self->favorites), "folders-noted", GINT_TO_POINTER (TRUE));
   g_list_store_append (favorites, self->favorites);
   g_list_store_append (sections, favorites);
+  /* #362: Postausgang wie Evolution im lokalen Store „Auf diesem Rechner“ (e-mail-session.c:824-893,
+   * em-folder-tree-model.c:1534-1538), Name wie dort „Outbox“ mit eigenem Typ; erst sichtbar, wenn er
+   * Nachrichten hat (revolution_mail_view_set_outbox). */
+  self->local = revolution_mail_account_new (REVOLUTION_MAIL_LOCAL_UID, _("Auf diesem Rechner"));
+  {
+    CamelFolderInfo *fi = camel_folder_info_new ();
+
+    fi->full_name = g_strdup ("Outbox");
+    fi->display_name = g_strdup (_("Postausgang"));
+    fi->flags = CAMEL_FOLDER_TYPE_OUTBOX | CAMEL_FOLDER_NOCHILDREN;
+    revolution_mail_folder_append_tree (G_LIST_STORE (gtk_tree_list_model_get_model (account_tree (self->local))),
+                                        fi, self->local);
+    camel_folder_info_free (fi);
+  }
+  g_object_set_data (G_OBJECT (self->local), "folders-noted", GINT_TO_POINTER (TRUE));
+  self->local_section = g_list_store_new (REVOLUTION_TYPE_MAIL_ACCOUNT);
+  g_list_store_append (sections, self->local_section);
   g_list_store_append (sections, self->accounts);
   folders = gtk_flatten_list_model_new (G_LIST_MODEL (gtk_map_list_model_new (
     G_LIST_MODEL (gtk_flatten_list_model_new (G_LIST_MODEL (g_steal_pointer (&sections)))), account_folders, NULL, NULL)));
@@ -3306,4 +3333,27 @@ revolution_mail_view_set_folders (RevolutionMailView *self,
   g_debug ("Ordner: %s %u geladen", uid, count);
   g_object_set_data (G_OBJECT (account), "folders-noted", GINT_TO_POINTER (TRUE));
   select_initial_folder (self);
+}
+
+/* #362: Aufruf aus main.c nach jedem Ablegen und Sendelauf, im UI-Thread: Postausgang in der
+ * Seitenleiste, solange er Nachrichten hat. Evolution zeigt ihn immer (lokaler Store); Revolution
+ * nur bei Bedarf (Task #362). */
+void
+revolution_mail_view_set_outbox (RevolutionMailView *self,
+                                 guint               count)
+{
+  gboolean shown;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
+
+  if (self->local_section == NULL)
+    return;
+
+  shown = g_list_model_get_n_items (G_LIST_MODEL (self->local_section)) > 0;
+  if (count > 0 && !shown)
+    g_list_store_append (self->local_section, self->local);
+  else if (count == 0 && shown)
+    g_list_store_remove_all (self->local_section);
+  if ((count > 0) != shown)
+    g_debug ("Postausgang: %u Nachrichten, %s", count, count > 0 ? "sichtbar" : "ausgeblendet");
 }

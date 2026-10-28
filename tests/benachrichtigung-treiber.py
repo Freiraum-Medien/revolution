@@ -424,6 +424,8 @@ def pruefe_composer(weg, ab):
     bild('mailto-' + weg.split()[0].lower(), w)
     taste('Escape', 0.5)
     pruefe(fenster(MAILTO_BETREFF, weg=True), 'mailto %s: Escape schließt den Composer' % weg)
+    # Nur aus dem Link gefüllt, nichts geändert: kein Entwurf am Server (#360 speichert beim Schließen Änderungen).
+    pruefe(warte(r'^Entwurf: ', ab, 2) is None, 'mailto %s: ungeändert geschlossen, kein Entwurf' % weg)
 
 
 def mailto():

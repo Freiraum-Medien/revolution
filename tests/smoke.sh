@@ -200,12 +200,18 @@ pruefe_lauf () {
 
   # (c) Ordner: Namen je Konto wie testdaten.py --ordner, Anzahl „N geladen“ = ANZAHL; beide
   # Zahlen müssen da sein (sonst gälten zwei leere Listen nach Fehlern als gleich).
+  # #363: Virtuellen Papierkorb/Spam von imapx (.#evolution/…) blendet die App neben einem echten Ordner gleichen
+  # Typs aus (mail-folder.c, Log „Spezialordner: UID virtueller Ordner … ausgeblendet“); die Vergleichsliste
+  # ebenso, ausdrücklich als WERT.
   fehlt=""
   for uid in $KONTEN; do
+    versteckt="$(debug "$log" | sed -nE "s/^Spezialordner: $uid virtueller Ordner (\.#evolution\/(Trash|Junk)) ausgeblendet$/\1/p" | sort -u)"
+    [ -n "$versteckt" ] && echo "WERT    $name (c) $uid ausgeblendet: $(echo $versteckt)"
     n_app="$(debug "$log" | sed -nE "s/^Ordner: $uid ([0-9]+) geladen$/\1/p" | tail -1)"
     n_ref="$(awk -v u="$uid" '$1 == "ANZAHL" && $2 == u { print $3 }' "$OUT/ordner-testdaten.txt")"
+    [ -n "$n_ref" ] && n_ref=$((n_ref - $(printf '%s' "$versteckt" | grep -c .)))
     if [ -n "$n_app" ] && [ "$n_app" = "$n_ref" ] \
-       && diff <(sed -n "s/^ORDNER $uid //p" "$OUT/ordner-testdaten.txt" | sort) \
+       && diff <(sed -n "s/^ORDNER $uid //p" "$OUT/ordner-testdaten.txt" | grep -vxF -e "${versteckt:-//}" | sort) \
                <(debug "$log" | sed -n "s/^Ordner: $uid //p" \
                    | grep -vE '^([0-9]+ geladen|nicht geladen: .*|nicht mehr angezeigt)$' | sort -u) \
                >"$OUT/$name-ordner-$uid.diff"; then

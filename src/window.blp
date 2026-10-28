@@ -31,39 +31,43 @@ Adw.ApplicationWindow window {
     }
   }
 
-  // #345: Fehler-Banner jetzt im Inhaltsbereich der Mail-Ansicht (mail-view.blp).
-  // Briefing 0: AdwViewStack Mail/Kontakte/Kalender (stamp-window.blp:88-118).
-  content: Adw.ViewStack app_stack {
-    Adw.ViewStackPage {
-      name: "mail";
-      title: _("Mail");
-      icon-name: "mail-unread-symbolic";
+  // #363: Undo-Hinweis (AdwToast) über allen Ansichten wie Stamp (stamp-mail-view.blp:28), mail-view.c
+  // findet die Überlagerung über gtk_widget_get_ancestor (Muster stamp-message-list-item.c:466).
+  content: Adw.ToastOverlay {
+    // #345: Fehler-Banner jetzt im Inhaltsbereich der Mail-Ansicht (mail-view.blp).
+    // Briefing 0: AdwViewStack Mail/Kontakte/Kalender (stamp-window.blp:88-118).
+    child: Adw.ViewStack app_stack {
+      Adw.ViewStackPage {
+        name: "mail";
+        title: _("Mail");
+        icon-name: "mail-unread-symbolic";
 
-      child: $RevolutionMailView mail_view {
-        stack: app_stack;
-      };
-    }
+        child: $RevolutionMailView mail_view {
+          stack: app_stack;
+        };
+      }
 
-    // Kalender: #339
-    Adw.ViewStackPage {
-      name: "calendar";
-      title: _("Kalender");
-      icon-name: "x-office-calendar-symbolic";
+      // Kalender: #339
+      Adw.ViewStackPage {
+        name: "calendar";
+        title: _("Kalender");
+        icon-name: "x-office-calendar-symbolic";
 
-      child: $RevolutionCalendarView {
-        stack: app_stack;
-      };
-    }
+        child: $RevolutionCalendarView {
+          stack: app_stack;
+        };
+      }
 
-    // Kontakte: #338
-    Adw.ViewStackPage {
-      name: "contacts";
-      title: _("Kontakte");
-      icon-name: "system-users-symbolic";
+      // Kontakte: #338
+      Adw.ViewStackPage {
+        name: "contacts";
+        title: _("Kontakte");
+        icon-name: "system-users-symbolic";
 
-      child: $RevolutionContactsView {
-        stack: app_stack;
-      };
-    }
+        child: $RevolutionContactsView {
+          stack: app_stack;
+        };
+      }
+    };
   };
 }

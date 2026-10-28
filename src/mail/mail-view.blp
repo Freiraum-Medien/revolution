@@ -39,6 +39,17 @@ template $RevolutionMailView: Adw.BreakpointBin {
       action: "action(message.reply-all)";
     }
 
+    // #360: Weiterleiten, Öffnen (Entwurf) wie Evolution (e-mail-reader.c:3044-3049, 3249-3254).
+    Shortcut {
+      trigger: "<primary><alt>f";
+      action: "action(message.forward)";
+    }
+
+    Shortcut {
+      trigger: "<primary>o";
+      action: "action(message.open)";
+    }
+
     Shortcut {
       trigger: "<primary>p";
       action: "action(message.print)";
@@ -84,6 +95,37 @@ template $RevolutionMailView: Adw.BreakpointBin {
     Shortcut {
       trigger: "<primary>t";
       action: "action(list.conversations)";
+    }
+
+    // #363: Löschen mit Entf wie Evolution (e-mail-reader.c:3574-3575), dazu ⌫ (Entscheidung PM, #363), Archivieren
+    // Strg+Alt+A wie Evolution (e-mail-reader.c:2911-2916). Spam Umschalt+Strg+J wie Apple Mail ⇧⌘J („Move the
+    // selected emails to the Junk mailbox“, support.apple.com/guide/mail/mlhlb94f262b) und Dokument #12
+    // („Strg+Umschalt+J“); Konflikt: in Evolution ist Umschalt+Strg+J „Kein Spam“ (e-mail-reader.c:3165-3168), Spam
+    // dort Strg+J (3151-3156). Verschieben Umschalt+Strg+M (Entscheidung PM; Evolution Umschalt+Strg+V,
+    // 3256-3261, Apple Mail ⌃⌘M „predicted mailbox“). Rückgängig Strg+Z (HIG Keyboard, Standardkürzel).
+    Shortcut {
+      trigger: "Delete|KP_Delete|BackSpace";
+      action: "action(message.delete)";
+    }
+
+    Shortcut {
+      trigger: "<primary><alt>a";
+      action: "action(message.archive)";
+    }
+
+    Shortcut {
+      trigger: "<primary><shift>j";
+      action: "action(message.junk)";
+    }
+
+    Shortcut {
+      trigger: "<primary><shift>m";
+      action: "action(message.move)";
+    }
+
+    Shortcut {
+      trigger: "<primary>z";
+      action: "action(message.undo)";
     }
   }
 
@@ -224,6 +266,13 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                     child: TreeExpander {
                       list-row: bind template.item as <TreeListRow>;
+
+                      // #363: Nachricht hierher ziehen = verschieben (mail-view.c, on_folder_drop).
+                      DropTarget {
+                        actions: move;
+                        formats: "gchararray";
+                        drop => $on_folder_drop(template);
+                      }
 
                       child: Box {
                         spacing: 12;
@@ -426,6 +475,8 @@ template $RevolutionMailView: Adw.BreakpointBin {
             // ohne Trennlinien (Vorbild 04/05, style.css).
             child: ListView message_list {
               tab-behavior: item;
+              // #360: Doppelklick/Eingabe = message.open (Entwurf weiter bearbeiten).
+              activate => $on_message_activate() swapped;
 
               // #353: Kontextmenü der Zeile per Tastatur (HIG Keyboard: Menü, Umschalt+F10).
               ShortcutController {
@@ -466,6 +517,12 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                     GestureSwipe {
                       swipe => $on_row_swipe(template);
+                    }
+
+                    // #363: Ziehen auf einen Ordner der Seitenleiste verschiebt (on_row_drag_prepare).
+                    DragSource {
+                      actions: move;
+                      prepare => $on_row_drag_prepare(template);
                     }
 
                     // Platz für den Ungelesen-Punkt bleibt auch ohne Punkt frei.
@@ -751,11 +808,11 @@ template $RevolutionMailView: Adw.BreakpointBin {
                   }
                 }
 
-                MenuButton {
+                // #363: Ziele aus dem Ordnerbaum des Kontos (mail-view.c, fill_move_menu).
+                MenuButton move_button {
                   icon-name: "folder-symbolic";
                   always-show-arrow: true;
-                  // Ziele (Ordner) folgen mit #363.
-                  sensitive: false;
+                  menu-model: move_menu;
                   tooltip-text: _("Verschieben");
 
                   accessibility {
@@ -1075,6 +1132,31 @@ menu row_menu {
       action: "message.star-off";
       accel: "<primary><shift>l";
       hidden-when: "action-disabled";
+    }
+  }
+
+  // #363
+  section {
+    item {
+      label: _("_Archivieren");
+      action: "message.archive";
+      accel: "<primary><alt>a";
+    }
+
+    item {
+      label: _("_Löschen");
+      action: "message.delete";
+      accel: "Delete";
+    }
+
+    item {
+      label: _("Als _Spam markieren");
+      action: "message.junk";
+      accel: "<primary><shift>j";
+    }
+
+    submenu move_menu {
+      label: _("_Verschieben nach");
     }
   }
 }

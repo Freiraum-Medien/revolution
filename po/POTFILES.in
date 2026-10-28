@@ -18,6 +18,7 @@ src/mail/mail-thread.c
 src/mail/mail-conversation.c
 src/window.blp
 src/composer/composer.blp
+src/composer/contact-completion.c
 src/mail/mail-view.blp
 src/mail/mail-reader.blp
 src/mail/mail-attachment.blp

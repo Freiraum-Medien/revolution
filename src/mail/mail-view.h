@@ -52,5 +52,8 @@ void revolution_mail_view_set_outbox (RevolutionMailView *self,
                                       guint               count);
 RevolutionMailFolder *revolution_mail_view_find_place (RevolutionMailView    *self,
                                                        RevolutionMailMessage *message);
+void revolution_mail_view_show_message (RevolutionMailView *self,
+                                        const char         *folder_uri,
+                                        const char         *uid);
 
 G_END_DECLS

@@ -101,6 +101,8 @@ struct _RevolutionComposer
   char            *from_address;
   char            *in_reply_to;
   char            *references;
+  /* #366: Text aus einem mailto-Link (HTML), für den Editor (on_prepared). */
+  char            *mailto_body;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionComposer, revolution_composer, ADW_TYPE_APPLICATION_WINDOW)
@@ -2008,7 +2010,7 @@ on_prepared (GObject      *source_object,
                        prepare->error == NULL;
   if (!self->focus_editor)
     gtk_widget_grab_focus (self->to_entry);
-  load_editor (self, prepare->body);
+  load_editor (self, prepare->body != NULL ? prepare->body : self->mailto_body);
 
   /* #432: Senden über die Identität (revolution_mail_send_message braucht ihre UID und die Session der App). */
   self->can_send = self->identity_uid != NULL && self->session != NULL;
@@ -2144,6 +2146,7 @@ revolution_composer_finalize (GObject *object)
   g_free (self->from_address);
   g_free (self->in_reply_to);
   g_free (self->references);
+  g_free (self->mailto_body);
   g_clear_object (&self->attachments);
   g_clear_object (&self->registry);
   g_clear_object (&self->session);
@@ -2277,6 +2280,144 @@ revolution_composer_new (GtkApplication         *application,
   g_task_set_source_tag (task, revolution_composer_new);
   g_task_set_task_data (task, prepare, (GDestroyNotify) prepare_free);
   g_task_run_in_thread (task, prepare_thread);
+
+  return GTK_WINDOW (self);
+}
+
+/* ------------------------------------------------------------------ mailto (#366) */
+
+/* Übernommen aus Evolution 3.56.2 src/composer/e-msg-composer.c:5508-5532 (add_recipients). */
+static void
+add_recipients (CamelInternetAddress *list,
+                const char           *recips)
+{
+  g_autoptr (CamelInternetAddress) cia = camel_internet_address_new ();
+
+  camel_address_decode (CAMEL_ADDRESS (cia), recips);
+  camel_address_cat (CAMEL_ADDRESS (list), CAMEL_ADDRESS (cia));
+}
+
+static void
+set_addresses (GtkWidget            *entry,
+               CamelInternetAddress *list)
+{
+  g_autofree char *text = camel_address_format (CAMEL_ADDRESS (list));
+
+  if (text != NULL && *text != '\0')
+    gtk_editable_set_text (GTK_EDITABLE (entry), text);
+}
+
+/* Neue Nachricht aus einem mailto-Link (RFC 6068). Übernommen aus Evolution 3.56.2
+ * src/composer/e-msg-composer.c:5654-5865 (handle_mailto), gekürzt auf An, Kopie, Blindkopie, Betreff und
+ * Text: ohne Anhänge (attach/attachment, Anhänge im Composer folgen mit #360), ohne Absender (from),
+ * Reply-To, Mail-Followup-To und weitere Kopfzeilen; Betreff und Text, die kein UTF-8 sind, werden ersetzt
+ * statt aus der Locale umgewandelt. Text wie Evolution mit den Standards composer-magic-links an und
+ * composer-mailto-body-in-pre aus (org.gnome.evolution.mail.gschema.xml.in:97-100, 927-930). */
+GtkWindow *
+revolution_composer_new_mailto (GtkApplication  *application,
+                                ESourceRegistry *registry,
+                                CamelSession    *session,
+                                const char      *mailto)
+{
+  RevolutionComposer *self;
+  g_autoptr (CamelInternetAddress) to = camel_internet_address_new ();
+  g_autoptr (CamelInternetAddress) cc = camel_internet_address_new ();
+  g_autoptr (CamelInternetAddress) bcc = camel_internet_address_new ();
+  g_autofree char *buf = NULL, *subject = NULL, *body = NULL;
+  char *p;
+  gsize len;
+
+  g_return_val_if_fail (g_ascii_strncasecmp (mailto, "mailto:", 7) == 0, NULL);
+
+  self = REVOLUTION_COMPOSER (revolution_composer_new (application, registry, session, REVOLUTION_COMPOSER_NEW, NULL,
+                                                       NULL, NULL, NULL));
+  buf = g_strdup (mailto);
+
+  /* Empfänger: alles nach „:“ und bis zu drei Schrägstrichen bis „?“ oder Ende. */
+  p = buf + 7;
+  while (*p == '/' && p - buf < 10)
+    p++;
+
+  len = strcspn (p, "?");
+  if (len > 0)
+    {
+      g_autofree char *content = g_strndup (p, len);
+
+      camel_url_decode (content);
+      add_recipients (to, content);
+    }
+
+  p += len;
+  if (*p == '?')
+    {
+      p++;
+
+      while (*p != '\0')
+        {
+          char *header;
+          g_autofree char *content = NULL;
+          gsize clen;
+
+          len = strcspn (p, "=&");
+
+          /* Fehlerhaft: aufgeben. */
+          if (p[len] != '=')
+            break;
+
+          header = p;
+          header[len] = '\0';
+          p += len + 1;
+
+          clen = strcspn (p, "&");
+          content = g_strndup (p, clen);
+          camel_url_decode (content);
+
+          if (!g_ascii_strcasecmp (header, "to"))
+            add_recipients (to, content);
+          else if (!g_ascii_strcasecmp (header, "cc"))
+            add_recipients (cc, content);
+          else if (!g_ascii_strcasecmp (header, "bcc"))
+            add_recipients (bcc, content);
+          else if (!g_ascii_strcasecmp (header, "subject"))
+            {
+              g_free (subject);
+              subject = g_utf8_make_valid (content, -1);
+            }
+          else if (!g_ascii_strcasecmp (header, "body"))
+            {
+              g_free (body);
+              body = g_utf8_make_valid (content, -1);
+            }
+          else
+            g_debug ("Composer: mailto-Feld %s übergangen", header);
+
+          p += clen;
+          if (*p == '&')
+            {
+              p++;
+              if (!g_ascii_strncasecmp (p, "amp;", 4))
+                p += 4;
+            }
+        }
+    }
+
+  /* Füllen aus dem Link zählt nicht als Änderung (#360 note_change): ungeändert geschlossen, kein Entwurf. */
+  self->updating = TRUE;
+  set_addresses (self->to_entry, to);
+  set_addresses (self->cc_entry, cc);
+  set_addresses (self->bcc_entry, bcc);
+  if (subject != NULL)
+    gtk_editable_set_text (GTK_EDITABLE (self->subject_entry), subject);
+  self->updating = FALSE;
+  if (body != NULL)
+    self->mailto_body = camel_text_to_html (body, CAMEL_MIME_FILTER_TOHTML_CONVERT_URLS |
+                                                  CAMEL_MIME_FILTER_TOHTML_CONVERT_ADDRESSES |
+                                                  CAMEL_MIME_FILTER_TOHTML_CONVERT_NL |
+                                                  CAMEL_MIME_FILTER_TOHTML_CONVERT_SPACES |
+                                                  CAMEL_MIME_FILTER_TOHTML_DIV, 0);
+  g_debug ("Composer: mailto An %d, Kopie %d, Blindkopie %d, Betreff %s, Text %s",
+           camel_address_length (CAMEL_ADDRESS (to)), camel_address_length (CAMEL_ADDRESS (cc)),
+           camel_address_length (CAMEL_ADDRESS (bcc)), subject != NULL ? "ja" : "nein", body != NULL ? "ja" : "nein");
 
   return GTK_WINDOW (self);
 }

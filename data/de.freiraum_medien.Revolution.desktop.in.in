@@ -1,10 +1,12 @@
 [Desktop Entry]
 Name=Revolution
 Comment=E-Mails lesen und schreiben
-Exec=revolution
+Exec=revolution %U
 Icon=@APPLICATION_ID@
 Terminal=false
 Type=Application
 Categories=GNOME;GTK;Office;Email;
 Keywords=Mail;Email;E-Mail;
 StartupNotify=true
+MimeType=x-scheme-handler/mailto;
+X-GNOME-UsesNotifications=true

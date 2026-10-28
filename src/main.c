@@ -20,7 +20,9 @@
 #include "calendar/calendar-view.h"
 #include "eds-compat.h"
 #include "mail/mail-favorites.h"
+#include "composer/composer.h"
 #include "mail/mail-folder.h"
+#include "mail/mail-notification.h"
 #include "mail/mail-outbox.h"
 #include "mail/mail-session.h"
 #include "mail/mail-view.h"
@@ -93,19 +95,30 @@ on_system_dark_changed (AdwStyleManager *manager,
                              g_variant_new_string (adw_style_manager_get_dark (manager) ? "dunkel-hell" : "hell"));
 }
 
+static void on_show_message (GSimpleAction *action, GVariant *parameter, gpointer user_data);
+static void on_quit (GSimpleAction *action, GVariant *parameter, gpointer user_data);
+
 static void
 on_startup (GtkApplication *app,
             GSettings      *settings)
 {
   const GActionEntry app_actions[] = {
     { "theme", NULL, "s", "'hell'", change_theme, { 0 } },
+    /* #366: Klick auf die Benachrichtigung (mail-notification.c), Beenden. */
+    { "show-message", on_show_message, "(ss)", NULL, NULL, { 0 } },
+    { "quit", on_quit, NULL, NULL, NULL, { 0 } },
   };
   AdwStyleManager *style_manager = adw_style_manager_get_default ();
   g_autofree char *saved = g_settings_get_string (settings, "theme");
   const char *theme = g_getenv ("REVOLUTION_THEME");
+  g_autoptr (GAction) background = g_settings_create_action (settings, "run-in-background");
   GAction *action;
 
   g_action_map_add_action_entries (G_ACTION_MAP (app), app_actions, G_N_ELEMENTS (app_actions), settings);
+  /* #366: Hauptmenü „Im Hintergrund weiterlaufen“ (mail-view.blp), Beenden mit Strg+Q wie Stamp
+   * (stamp-application.c:493). */
+  g_action_map_add_action (G_ACTION_MAP (app), background);
+  gtk_application_set_accels_for_action (app, "app.quit", (const char *[]) { "<primary>q", NULL });
   action = g_action_map_lookup_action (G_ACTION_MAP (app), "theme");
   g_signal_connect_object (style_manager, "notify::dark", G_CALLBACK (on_system_dark_changed), action, G_CONNECT_DEFAULT);
   on_system_dark_changed (style_manager, NULL, G_SIMPLE_ACTION (action));
@@ -391,7 +404,11 @@ on_inbox_refreshed (GObject      *source_object,
   g_autoptr (CamelFolder) folder = g_task_propagate_pointer (G_TASK (result), &error);
 
   if (folder != NULL)
-    revolution_mail_view_watch_folder (mail_view, folder, TRUE, TRUE);
+    {
+      revolution_mail_view_watch_folder (mail_view, folder, TRUE, TRUE);
+      /* #366: neue Nachrichten ab jetzt melden (mail-notification.c). */
+      revolution_mail_notification_watch (folder);
+    }
   else if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
     g_debug ("Posteingang: %s nicht geladen: %s", camel_service_get_uid (CAMEL_SERVICE (source_object)),
              error->message);
@@ -410,6 +427,20 @@ find_inbox (CamelFolderInfo *fi)
     }
 
   return NULL;
+}
+
+/* Posteingang inbox des Stores service abgleichen (refresh_inbox_thread), danach beobachten. */
+static void
+refresh_inbox (CamelService       *service,
+               GCancellable       *cancellable,
+               RevolutionMailView *mail_view,
+               const char         *inbox)
+{
+  g_autoptr (GTask) task = g_task_new (service, cancellable, on_inbox_refreshed, g_object_ref (mail_view));
+
+  g_task_set_source_tag (task, refresh_inbox);
+  g_task_set_task_data (task, g_strdup (inbox), g_free);
+  g_task_run_in_thread (task, refresh_inbox_thread);
 }
 
 /* #408: Netzwechsel. online_id: Quelle des verzögerten Online-Schaltens (go_online). line: der
@@ -550,12 +581,9 @@ on_store_noted (GObject      *source_object,
         g_object_set_data (G_OBJECT (service), "revolution-folders", GINT_TO_POINTER (TRUE));
       if (inbox != NULL)
         {
-          g_autoptr (GTask) task = g_task_new (service, g_task_get_cancellable (G_TASK (result)),
-                                               on_inbox_refreshed, g_object_ref (mail_view));
-
-          g_task_set_source_tag (task, on_store_noted);
-          g_task_set_task_data (task, g_strdup (inbox), g_free);
-          g_task_run_in_thread (task, refresh_inbox_thread);
+          /* #366: für den Abruf alle n Minuten (on_refresh_timeout). */
+          g_object_set_data_full (G_OBJECT (service), "revolution-inbox", g_strdup (inbox), g_free);
+          refresh_inbox (service, g_task_get_cancellable (G_TASK (result)), mail_view, inbox);
         }
     }
   else if (noted->connect_error == NULL)
@@ -812,6 +840,50 @@ free_lock (GMutex *lock)
   g_free (lock);
 }
 
+/* #366: Abruf alle n Minuten wie Evolution: je Store ein Zeitgeber nach der ESourceRefresh des Kontos
+ * (libemail-engine/e-mail-session.c:638-650, e_source_refresh_add_timeout; Standard an, 60 Minuten,
+ * EDS e-source-refresh.c:357-360, 385-388). Bei Ablauf ruft Evolution den Store ab, wenn die Session
+ * online ist (mail/e-mail-ui-session.c:1058-1065); hier der Posteingang wie nach dem Start. Für
+ * microsoft365 der einzige Weg zu neuen Mails ohne F5 (kein Push, README #353). */
+static void
+on_refresh_timeout (ESource  *source,
+                    gpointer  user_data)
+{
+  CamelSession *session = g_object_get_data (G_OBJECT (g_application_get_default ()), "session");
+  g_autoptr (CamelService) service = NULL;
+  const char *inbox = NULL;
+
+  if (session == NULL || !camel_session_get_online (session))
+    return;
+
+  service = camel_session_ref_service (session, e_source_get_uid (source));
+  if (service != NULL)
+    inbox = g_object_get_data (G_OBJECT (service), "revolution-inbox");
+  g_debug ("Abruf: %s %s", e_source_get_uid (source), inbox != NULL ? inbox : "ohne Posteingang");
+  if (inbox != NULL)
+    refresh_inbox (service, line, user_data, inbox);
+}
+
+static void
+add_refresh_timeout (CamelService       *service,
+                     RevolutionMailView *mail_view)
+{
+  ESourceRegistry *registry = g_object_get_data (G_OBJECT (g_application_get_default ()), "registry");
+  g_autoptr (ESource) source = registry != NULL ? e_source_registry_ref_source (registry, camel_service_get_uid (service))
+                                                : NULL;
+  ESourceRefresh *refresh;
+
+  /* Einmal je Konto, auch wenn die Session den Store neu anlegt. */
+  if (source == NULL || g_object_get_data (G_OBJECT (source), "revolution-refresh") != NULL)
+    return;
+
+  g_object_set_data (G_OBJECT (source), "revolution-refresh", GINT_TO_POINTER (TRUE));
+  e_source_refresh_add_timeout (source, NULL, on_refresh_timeout, g_object_ref (mail_view), g_object_unref);
+  refresh = e_source_get_extension (source, E_SOURCE_EXTENSION_REFRESH);
+  g_debug ("Abruf: %s alle %u Minuten%s", e_source_get_uid (source), e_source_refresh_get_interval_minutes (refresh),
+           e_source_refresh_get_enabled (refresh) ? "" : " (aus)");
+}
+
 /* #348: Neue Stores anmelden und ihre Ordner laden, beim Start (on_session_loaded) und nach
  * jedem Abgleich der Session („services-changed“, Konto zur Laufzeit hinzugefügt oder
  * aktiviert); bereits gemeldete Stores sind markiert. Dazu Fehler aus add_service ins Banner. */
@@ -857,6 +929,7 @@ note_stores (RevolutionMailSession *session,
                                G_CONNECT_SWAPPED);
       g_signal_connect_object (l->data, "notify::connection-status", G_CALLBACK (on_connection_status), mail_view,
                                G_CONNECT_DEFAULT);
+      add_refresh_timeout (l->data, mail_view);
       task = g_task_new (l->data, cancellable, on_store_noted, g_object_ref (mail_view));
       g_task_set_source_tag (task, note_stores);
       g_task_run_in_thread (task, note_store_thread);
@@ -921,6 +994,22 @@ on_test_store (GSimpleAction *action G_GNUC_UNUSED,
   g_debug ("Test: Store %s Abgleich", uid);
   if (source != NULL)
     g_signal_emit_by_name (registry, "source-changed", source);
+}
+
+/* #366: Nur für Tests (REVOLUTION_TEST_HOOKS=1): Aktion app.test-refresh (UID) löst den Abruf-Zeitgeber
+ * des Kontos sofort aus (e_source_refresh_force_timeout, EDS e-source-refresh.c), statt n Minuten zu warten. */
+static void
+on_test_refresh (GSimpleAction *action G_GNUC_UNUSED,
+                 GVariant      *parameter,
+                 gpointer       user_data)
+{
+  ESourceRegistry *registry = g_object_get_data (G_OBJECT (user_data), "registry");
+  g_autoptr (ESource) source = registry != NULL ? e_source_registry_ref_source (registry, g_variant_get_string (parameter, NULL))
+                                                : NULL;
+
+  g_debug ("Test: Abruf %s %s", g_variant_get_string (parameter, NULL), source != NULL ? "ausgelöst" : "unbekannt");
+  if (source != NULL)
+    e_source_refresh_force_timeout (source);
 }
 
 /* #408: Online/offline nach Netzstatus, nach Evolution: EShell folgt „network-available“ des
@@ -1102,6 +1191,22 @@ on_shutdown_network (GApplication *app G_GNUC_UNUSED)
     g_cancellable_cancel (outbox_cancellable);
 }
 
+/* #366: mailto-Links, bis Registry und Session geladen sind (Absender, Senden), wie Stamp pending_mailto
+ * (stamp-application.c:176-187, 211-214). */
+static GPtrArray *pending_mailto;
+/* #366: Hauptfenster (on_activate), NULL ohne. Composer-Fenster gehören auch zur Anwendung, daher nicht
+ * gtk_application_get_active_window. */
+static GtkWindow *main_window;
+
+static void
+open_mailto (GApplication *app,
+             const char   *uri)
+{
+  g_debug ("mailto: Composer für %s", uri);
+  gtk_window_present (revolution_composer_new_mailto (GTK_APPLICATION (app), g_object_get_data (G_OBJECT (app), "registry"),
+                                                      g_object_get_data (G_OBJECT (app), "session"), uri));
+}
+
 static void
 on_session_loaded (GObject      *source_object,
                    GAsyncResult *result,
@@ -1117,10 +1222,14 @@ on_session_loaded (GObject      *source_object,
   g_object_set_data_full (source_object, "session", session, g_object_unref);
 
   revolution_mail_view_set_session (mail_view, CAMEL_SESSION (session));
+  for (guint i = 0; pending_mailto != NULL && i < pending_mailto->len; i++)
+    open_mailto (G_APPLICATION (source_object), pending_mailto->pdata[i]);
+  g_clear_pointer (&pending_mailto, g_ptr_array_unref);
   if (g_strcmp0 (g_getenv ("REVOLUTION_TEST_HOOKS"), "1") == 0)
     {
       const GActionEntry test_actions[] = {
         { "test-store", on_test_store, "(sb)", NULL, NULL, { 0 } },
+        { "test-refresh", on_test_refresh, "s", NULL, NULL, { 0 } },
         { "test-send", on_test_send, "(ss)", NULL, NULL, { 0 } },
       };
 
@@ -1202,7 +1311,7 @@ on_activate (GtkApplication *app,
   RevolutionMailView *mail_view;
   GtkWindow *window;
 
-  window = gtk_application_get_active_window (app);
+  window = main_window;
   if (window == NULL)
     {
       g_type_ensure (REVOLUTION_TYPE_MAIL_VIEW);
@@ -1219,12 +1328,18 @@ on_activate (GtkApplication *app,
       g_settings_bind (settings, "window-width", window, "default-width", G_SETTINGS_BIND_DEFAULT);
       g_settings_bind (settings, "window-height", window, "default-height", G_SETTINGS_BIND_DEFAULT);
       g_settings_bind (settings, "window-maximized", window, "maximized", G_SETTINGS_BIND_DEFAULT);
+      /* #366: Schließen verbirgt das Fenster nur, die Anwendung läuft weiter, wie Stamp
+       * (stamp-window.c:203); nur lesend gebunden, damit on_quit es zerstören kann. */
+      g_settings_bind (settings, "run-in-background", window, "hide-on-close", G_SETTINGS_BIND_GET);
+      main_window = window;
+      g_object_add_weak_pointer (G_OBJECT (window), (gpointer *) &main_window);
 #ifdef DEVEL
       /* Entwicklungsvariante gestreift wie Stamp (stamp-window.c:221-223). */
       gtk_widget_add_css_class (GTK_WIDGET (window), "devel");
 #endif
 
       mail_view = REVOLUTION_MAIL_VIEW (gtk_builder_get_object (builder, "mail_view"));
+      g_object_set_data (G_OBJECT (window), "mail-view", mail_view);
       create_user_dirs (mail_view);
 
       /* Beim Beenden abbrechen; der Task hält den GCancellable bis zum Rückruf. */
@@ -1237,6 +1352,74 @@ on_activate (GtkApplication *app,
     }
 
   gtk_window_present (window);
+}
+
+/* #366: mailto-Link als Argument oder von der Standard-Mail-App (Desktop-Datei MimeType
+ * x-scheme-handler/mailto, Exec %U): Hauptfenster und Composer wie Stamp (stamp_application_command_line,
+ * stamp-application.c:191-221). Läuft Revolution schon, kommt der Link über D-Bus an diese Instanz. */
+static void
+on_open (GApplication  *app,
+         GFile        **files,
+         int            n_files,
+         const char    *hint G_GNUC_UNUSED,
+         GSettings     *settings)
+{
+  on_activate (GTK_APPLICATION (app), settings);
+
+  for (int i = 0; i < n_files; i++)
+    {
+      g_autofree char *uri = g_file_get_uri (files[i]);
+
+      if (g_ascii_strncasecmp (uri, "mailto:", 7) != 0)
+        g_debug ("Öffnen: %s ist kein mailto-Link", uri);
+      else if (g_object_get_data (G_OBJECT (app), "session") != NULL)
+        open_mailto (app, uri);
+      else
+        {
+          if (pending_mailto == NULL)
+            pending_mailto = g_ptr_array_new_with_free_func (g_free);
+          g_ptr_array_add (pending_mailto, g_steal_pointer (&uri));
+        }
+    }
+}
+
+/* #366: Klick auf die Benachrichtigung wie Evolution notify_default_action_cb
+ * (plugins/mail-notification/mail-notification.c:409-476): Fenster zeigen, zur Mail-Ansicht, Ordner und
+ * Nachricht wählen, Benachrichtigung entfernen. */
+static void
+on_show_message (GSimpleAction *action G_GNUC_UNUSED,
+                 GVariant      *parameter,
+                 gpointer       user_data)
+{
+  GApplication *app = g_application_get_default ();
+  const char *folder_uri, *uid;
+
+  g_variant_get (parameter, "(&s&s)", &folder_uri, &uid);
+  g_debug ("Benachrichtigung: geöffnet %s %s", folder_uri, uid);
+  on_activate (GTK_APPLICATION (app), user_data);
+  revolution_mail_view_show_message (g_object_get_data (G_OBJECT (main_window), "mail-view"), folder_uri, uid);
+  revolution_mail_notification_reset ();
+}
+
+/* #366: Beenden (Strg+Q, Hauptmenü), nötig, wenn Schließen das Fenster nur verbirgt (run-in-background).
+ * Das Hauptfenster wird zerstört, die übrigen (Composer) geschlossen; die Anwendung endet mit dem letzten
+ * Fenster und wartet dabei laufende Flag-Aufträge ab (mail-view.c, hold_for_flags). */
+static void
+on_quit (GSimpleAction *action G_GNUC_UNUSED,
+         GVariant      *parameter G_GNUC_UNUSED,
+         gpointer       user_data G_GNUC_UNUSED)
+{
+  g_autolist (GtkWindow) windows = g_list_copy (gtk_application_get_windows (GTK_APPLICATION (g_application_get_default ())));
+
+  g_debug ("Beenden: %u Fenster", g_list_length (windows));
+  for (GList *l = windows; l != NULL; l = l->next)
+    {
+      g_object_ref (l->data);
+      if (l->data == main_window)
+        gtk_window_destroy (l->data);
+      else
+        gtk_window_close (l->data);
+    }
 }
 
 int
@@ -1254,12 +1437,13 @@ main (int    argc,
 
   /* Ein Schema für beide Profile wie GNOME Calendar (org.gnome.calendar). */
   settings = g_settings_new ("de.freiraum_medien.Revolution");
-  app = adw_application_new (APPLICATION_ID, G_APPLICATION_DEFAULT_FLAGS);
+  app = adw_application_new (APPLICATION_ID, G_APPLICATION_HANDLES_OPEN);
   /* Fester Pfad für beide Profile (style.css, Icons), wie GNOME Calendar
    * (gcal-application.c:614) und Stamp (stamp-application.c:57). */
   g_application_set_resource_base_path (G_APPLICATION (app), "/de/freiraum_medien/Revolution");
   g_signal_connect (app, "startup", G_CALLBACK (on_startup), settings);
   g_signal_connect (app, "activate", G_CALLBACK (on_activate), settings);
+  g_signal_connect (app, "open", G_CALLBACK (on_open), settings);
 
   return g_application_run (G_APPLICATION (app), argc, argv);
 }

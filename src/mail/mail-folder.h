@@ -41,5 +41,22 @@ void        revolution_mail_folder_mark_special  (CamelStore            *store,
                                                   ESourceRegistry       *registry,
                                                   CamelFolderInfo       *info,
                                                   GCancellable          *cancellable);
+void        revolution_mail_folder_forget_unread (CamelFolderInfo       *fi);
+gboolean    revolution_mail_folder_create_sync   (CamelStore            *store,
+                                                  const char            *parent,
+                                                  const char            *name,
+                                                  char                 **created,
+                                                  GCancellable          *cancellable,
+                                                  GError               **error);
+gboolean    revolution_mail_folder_rename_sync   (CamelStore            *store,
+                                                  const char            *full_name,
+                                                  const char            *name,
+                                                  char                 **new_full_name,
+                                                  GCancellable          *cancellable,
+                                                  GError               **error);
+gboolean    revolution_mail_folder_delete_sync   (CamelStore            *store,
+                                                  const char            *full_name,
+                                                  GCancellable          *cancellable,
+                                                  GError               **error);
 
 G_END_DECLS

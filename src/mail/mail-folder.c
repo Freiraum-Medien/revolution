@@ -18,6 +18,7 @@
 
 #include <glib/gi18n.h>
 
+#include "eds-compat.h"
 #include "mail-folder.h"
 
 struct _RevolutionMailFolder
@@ -378,12 +379,19 @@ revolution_mail_folder_merge_tree (GListStore            *store,
       if (fi->unread >= 0 && (fi->flags & CAMEL_FOLDER_NOSELECT) == 0)
         set_unread (folder, fi->unread);
 
-      if (fi->child != NULL && folder->children == NULL)
+      if ((fi->child != NULL) != (folder->children != NULL))
         {
-          /* Erst jetzt Unterordner: die Zeile zeigt sie erst, wenn das GtkTreeListModel die
-           * Kinder neu erfragt (folder_children, mail-view.c), spätestens beim nächsten Start. */
-          folder->children = g_list_store_new (REVOLUTION_TYPE_MAIL_FOLDER);
-          *added += revolution_mail_folder_append_tree (folder->children, fi->child, account);
+          /* Erst jetzt Unterordner bzw. keine mehr. #364: Kinder fragt das GtkTreeListModel nur beim Anlegen
+           * der Zeile ab (folder_children, mail-view.c), daher neu einsetzen (Auswahl der Zeile geht verloren). */
+          if (folder->children != NULL)
+            revolution_mail_folder_merge_tree (folder->children, NULL, account, added, removed);
+          g_clear_object (&folder->children);
+          if (fi->child != NULL)
+            {
+              folder->children = g_list_store_new (REVOLUTION_TYPE_MAIL_FOLDER);
+              *added += revolution_mail_folder_append_tree (folder->children, fi->child, account);
+            }
+          g_list_store_splice (store, position, 1, (gpointer *) &folder, 1);
         }
       else if (folder->children != NULL)
         revolution_mail_folder_merge_tree (folder->children, fi->child, account, added, removed);
@@ -741,4 +749,151 @@ revolution_mail_folder_mark_special (CamelStore      *store,
 
   for (gsize i = 0; i < G_N_ELEMENTS (special); i++)
     g_free (special[i].name);
+}
+
+/* #350 (aus main.c, #364 auch nach Ordner-Änderungen): Zahlen der Ordnerliste von imapx sind nicht verlässlich
+ * (Stand der Store-Summary beim letzten Öffnen, camel-imapx-store.c:1362, camel-store-summary.c:1011-1050; gemessen
+ * 100 → 0 ab dem zweiten Start), daher unbekannt bis zum Abgleich (revolution_mail_folder_watch). Abweichung von
+ * Evolution (em-folder-tree-model.c:1494). */
+void
+revolution_mail_folder_forget_unread (CamelFolderInfo *fi)
+{
+  for (; fi != NULL; fi = fi->next)
+    {
+      fi->unread = -1;
+      revolution_mail_folder_forget_unread (fi->child);
+    }
+}
+
+/* #364: Name des neuen Ordners: imapx legt oben im persönlichen Namensraum an (camel-imapx-store.c:
+ * 2365-2389, geops@ „INBOX.“), dann eine Ebene tiefer als verlangt. */
+static char *
+created_name (CamelFolderInfo *info,
+              const char      *name)
+{
+  for (CamelFolderInfo *fi = info; fi != NULL; fi = fi->next)
+    if (g_strcmp0 (fi->full_name, name) == 0)
+      return g_strdup (name);
+  for (CamelFolderInfo *fi = info; fi != NULL; fi = fi->next)
+    for (CamelFolderInfo *child = fi->child; child != NULL; child = child->next)
+      {
+        g_autofree char *nested = g_strconcat (fi->full_name, "/", name, NULL);
+
+        if (g_strcmp0 (child->full_name, nested) == 0)
+          return g_steal_pointer (&nested);
+      }
+
+  return g_strdup (name);
+}
+
+/* #364: Anlegen wie Evolution e_mail_store_create_folder_sync (e-mail-store-utils.c:28-68), danach
+ * abonnieren (microsoft365 ohne Serveraufruf, camel-m365-store.c:1547-1553). parent NULL: oberste Ebene;
+ * created: voller Name. Im Worker. */
+gboolean
+revolution_mail_folder_create_sync (CamelStore    *store,
+                                    const char    *parent,
+                                    const char    *name,
+                                    char         **created,
+                                    GCancellable  *cancellable,
+                                    GError       **error)
+{
+  CamelFolderInfo *fi = camel_store_create_folder_sync (store, parent != NULL ? parent : "", name, cancellable, error);
+
+  if (fi == NULL)
+    return FALSE;
+  camel_folder_info_free (fi);
+
+  if (parent != NULL)
+    *created = g_strconcat (parent, "/", name, NULL);
+  else
+    {
+      fi = camel_store_get_folder_info_sync (store, NULL, CAMEL_STORE_FOLDER_INFO_RECURSIVE |
+                                             CAMEL_STORE_FOLDER_INFO_FAST, cancellable, NULL);
+      *created = created_name (fi, name);
+      g_clear_pointer (&fi, camel_folder_info_free);
+    }
+
+  return !CAMEL_IS_SUBSCRIBABLE (store) ||
+         camel_subscribable_subscribe_folder_sync (CAMEL_SUBSCRIBABLE (store), *created, cancellable, error);
+}
+
+/* #364: Umbenennen: neuer letzter Teil des Namens wie Evolution (em-folder-tree.c:683-689); einen vorhandenen
+ * Namen lehnt der Server ab (Banner). Abos stellt imapx selbst um (camel-imapx-store.c:2512-2547). Im Worker. */
+gboolean
+revolution_mail_folder_rename_sync (CamelStore    *store,
+                                    const char    *full_name,
+                                    const char    *name,
+                                    char         **new_full_name,
+                                    GCancellable  *cancellable,
+                                    GError       **error)
+{
+  const char *slash = strrchr (full_name, '/');
+
+  *new_full_name = slash != NULL ? g_strdup_printf ("%.*s/%s", (int) (slash - full_name), full_name, name)
+                                 : g_strdup (name);
+
+  return revolution_eds_store_edit_folder_sync (store, full_name, *new_full_name, cancellable, error);
+}
+
+/* #364: Übernommen aus Evolution 3.56.2 libemail-engine/e-mail-folder-utils.c:997-1066 (mail_folder_remove_recursive)
+ * und 1131-1150 (only: nur dieser Ordner, nicht seine Geschwister), gekürzt: Unterordner zuerst, je Ordner
+ * Nachrichten löschen und bereinigen, Abo beenden, Ordner löschen. */
+static gboolean
+remove_recursive (CamelStore       *store,
+                  CamelFolderInfo  *fi,
+                  const char       *only,
+                  GCancellable     *cancellable,
+                  GError          **error)
+{
+  for (; fi != NULL; fi = fi->next)
+    {
+      g_autoptr (CamelFolder) folder = NULL;
+      GPtrArray *uids;
+      gboolean success;
+
+      if (only != NULL && g_strcmp0 (fi->full_name, only) != 0)
+        continue;
+      if (!remove_recursive (store, fi->child, NULL, cancellable, error) ||
+          !(folder = camel_store_get_folder_sync (store, fi->full_name, 0, cancellable, error)))
+        return FALSE;
+
+      camel_folder_freeze (folder);
+      uids = camel_folder_get_uids (folder);
+      for (guint i = 0; i < uids->len; i++)
+        camel_folder_delete_message (folder, uids->pdata[i]);
+      camel_folder_free_uids (folder, uids);
+      success = camel_folder_synchronize_sync (folder, TRUE, cancellable, error);
+      camel_folder_thaw (folder);
+
+      if (!success ||
+          (CAMEL_IS_SUBSCRIBABLE (store) &&
+           !camel_subscribable_unsubscribe_folder_sync (CAMEL_SUBSCRIBABLE (store), fi->full_name, cancellable, error)) ||
+          !camel_store_delete_folder_sync (store, fi->full_name, cancellable, error))
+        return FALSE;
+    }
+
+  return TRUE;
+}
+
+/* #364: Löschen wie Evolution e_mail_folder_remove_sync (e-mail-folder-utils.c:1080-1171): microsoft365
+ * (CAN_DELETE_FOLDERS_AT_ONCE, camel-m365-store.c:109) in einem Aufruf ohne Abgleich offener Ordner (kein
+ * Echo, #416), sonst remove_recursive. Im Worker. */
+gboolean
+revolution_mail_folder_delete_sync (CamelStore    *store,
+                                    const char    *full_name,
+                                    GCancellable  *cancellable,
+                                    GError       **error)
+{
+  CamelFolderInfo *info;
+  gboolean success;
+
+  if ((camel_store_get_flags (store) & CAMEL_STORE_CAN_DELETE_FOLDERS_AT_ONCE) != 0)
+    return revolution_eds_store_edit_folder_sync (store, full_name, NULL, cancellable, error);
+
+  info = camel_store_get_folder_info_sync (store, full_name, CAMEL_STORE_FOLDER_INFO_RECURSIVE |
+                                           CAMEL_STORE_FOLDER_INFO_SUBSCRIBED, cancellable, error);
+  success = info != NULL && remove_recursive (store, info, full_name, cancellable, error);
+  g_clear_pointer (&info, camel_folder_info_free);
+
+  return success;
 }

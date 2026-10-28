@@ -39,6 +39,7 @@
 #include <webkit/webkit.h>
 
 #include "composer.h"
+#include "contact-completion.h"
 #include "eds-compat.h"
 #include "mail/mail-account.h"
 #include "mail/mail-attachment.h"
@@ -64,6 +65,7 @@ struct _RevolutionComposer
   GtkListView     *attachment_list;
   GListStore      *attachments;       /* RevolutionMailAttachment */
   ESourceRegistry *registry;
+  RevolutionContactCompletion *completion; /* #361 */
   CamelSession    *session;
   GPtrArray       *identities;        /* Identity, Reihenfolge wie from_list */
   GPtrArray       *signatures;        /* ESource, Eintrag i + 1 in signature_list („Ohne“ = 0) */
@@ -2040,6 +2042,10 @@ revolution_composer_dispose (GObject *object)
 
   g_cancellable_cancel (self->cancellable);
   g_clear_handle_id (&self->autosave_id, g_source_remove);
+  /* #361: Popover vor den Feldern lösen; laufende Worker halten das Objekt noch. */
+  if (self->completion != NULL)
+    g_object_run_dispose (G_OBJECT (self->completion));
+  g_clear_object (&self->completion);
   /* Webprozess zuerst beenden wie der Lesebereich (mail-reader.c revolution_mail_reader_dispose): sonst meldet
    * er beim Schließen „Error releasing name …Sandboxed.WebProcess…“ (gemessen, build/m5-359-probe). */
   if (self->editor != NULL)
@@ -2171,6 +2177,14 @@ revolution_composer_new (GtkApplication         *application,
 
   self->registry = registry != NULL ? g_object_ref (registry) : NULL;
   self->session = session != NULL ? g_object_ref (session) : NULL;
+  if (registry != NULL)
+    {
+      GtkWidget *recipients[] = { self->to_entry, self->cc_entry, self->bcc_entry };
+
+      self->completion = revolution_contact_completion_new (registry);
+      for (gsize i = 0; i < G_N_ELEMENTS (recipients); i++)
+        revolution_contact_completion_add_entry (self->completion, GTK_ENTRY (recipients[i]));
+    }
   prepare = g_new0 (Prepare, 1);
   prepare->registry = registry != NULL ? g_object_ref (registry) : NULL;
   prepare->session = session != NULL ? g_object_ref (session) : NULL;

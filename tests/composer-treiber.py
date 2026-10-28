@@ -769,6 +769,126 @@ def entwurf_oeffnen(konto, art):
     entwuerfe(konto, 0, 'öffnen')
 
 
+# ------------------------------------------------------------------ #361 Adressvervollständigung
+
+KONTAKT = 'Revolution-Test Kontakt 361 <HILFS_KONTAKT361@example.invalid>'
+KONTAKT_2 = 'Revolution-Test Kontakt 361 <HILFS_KONTAKT361B@example.invalid>'
+
+
+def vorschlaege():
+    """Zeilen der Vorschlagsliste (AT-SPI „list item“ unter „Adressvorschläge“): [(Name, ausgewählt, Mitte)]."""
+    desktop = Atspi.get_desktop(0)
+    out = []
+    for i in range(desktop.get_child_count()):
+        a = desktop.get_child_at_index(i)
+        if a is None or a.get_process_id() != app_pid:
+            continue
+        for o in knoten(a):
+            if o.get_role_name() == 'list' and o.get_name() == 'Adressvorschläge':
+                for j in range(o.get_child_count()):
+                    z = o.get_child_at_index(j)
+                    e = z.get_extents(Atspi.CoordType.SCREEN)
+                    if e.width > 0 and e.height > 0:
+                        out.append((z.get_name(), z.get_state_set().contains(Atspi.StateType.SELECTED),
+                                    (e.x + e.width // 2, e.y + e.height // 2)))
+    return out
+
+
+def feld_text(titel, name):
+    f = composer_frame(titel)
+    for o in knoten(f) if f else []:
+        if o.get_role_name() in ('text', 'entry') and o.get_name() == name:
+            return Atspi.Text.get_text(o, 0, Atspi.Text.get_character_count(o))
+    return None
+
+
+def vervollstaendigen():
+    """#361: Strg+N; „Re“ (2 Zeichen) sucht nicht, „Rev“ zeigt den Testkontakt (tests/testdaten.py --kontakt anlegen,
+    Google-Adressbuch von KONTO_GOOGLE@example.invalid); Pfeile, Escape, Enter in An, Mausklick in Kopie; Senden (Test)
+    trägt „Name <Adresse>“ in To und Cc."""
+    ab = marke()
+    zeiger(HAUPT)
+    taste('Control_L+n')
+    pruefe(warte(r'^Composer: Neu vorbereitet', ab, 30) is not None, 'adressen: Strg+N öffnet den Composer')
+    w = fenster()
+    if w is None:
+        falsch('adressen: kein Composer-Fenster')
+        return
+    buch = os.environ['ADRESSBUCH']
+    pruefe(warte(r'^Adressvervollständigung: %s verbunden' % re.escape(buch), ab, 60) is not None,
+           'adressen: Google-Adressbuch %s verbunden' % buch)
+    titel = w.get_wm_name()
+    time.sleep(1)
+    zeiger(COMPOSER)
+    popups = len(aufklapper())
+    a = marke()
+    tippe('Re')
+    time.sleep(1.5)
+    pruefe(warte(r'^Adressvervollständigung: \d+ Vorschläge', a, 1) is None and len(aufklapper()) == popups,
+           'adressen: 2 Zeichen suchen nicht (Evolution minimum_query_length 3)')
+    a = marke()
+    tippe('v')
+    z = warte(r'^Adressvervollständigung: \d+ Vorschläge', a, 30)
+    wert('adressen: %s' % z)
+    time.sleep(1)
+    liste = vorschlaege()
+    wert('adressen: Liste %s' % [(n, s) for n, s, _ in liste])
+    pruefe(len(aufklapper()) > popups and {KONTAKT, KONTAKT_2} <= {n for n, _, _ in liste},
+           'adressen: „Rev“ zeigt beide Adressen des Testkontakts (%d Zeilen)' % len(liste))
+    bild('vorschlaege', w)
+    pruefe(liste and liste[0][1], 'adressen: erste Zeile ausgewählt')
+    taste('Down', 0.5)
+    soll = 1 % max(len(liste), 1)
+    pruefe([s for _, s, _ in vorschlaege()].index(True) == soll if vorschlaege() else False,
+           'adressen: Pfeil runter wählt Zeile %d' % soll)
+    taste('Up', 0.5)
+    pruefe(vorschlaege() and vorschlaege()[0][1], 'adressen: Pfeil hoch wählt Zeile 0')
+    taste('Escape', 0.8)
+    pruefe(len(aufklapper()) == popups and fenster() is not None,
+           'adressen: Escape schließt nur die Liste, der Composer bleibt')
+    # Weitertippen grenzt ein; zur Zeile des Testkontakts mit Pfeil runter, Enter setzt ein.
+    a = marke()
+    tippe('olution-Test Kontakt')
+    warte(r'^Adressvervollständigung: \d+ Vorschläge', a, 30)
+    time.sleep(1)
+    for _ in range(len(vorschlaege())):
+        if any(n == KONTAKT and s for n, s, _ in vorschlaege()):
+            break
+        taste('Down', 0.3)
+    taste('Return', 0.8)
+    text = feld_text(titel, 'An')
+    pruefe(text == KONTAKT + ', ', 'adressen: Enter setzt „Name <Adresse>, “ in An ein (%r)' % text)
+    pruefe(len(aufklapper()) == popups, 'adressen: Liste nach Enter geschlossen')
+    # Kopie (Tab aus An): Auswahl per Mausklick auf die Zeile. AT-SPI liefert für Zeilen im Popover keine
+    # brauchbaren Bildschirmkoordinaten (gemessen: y=17); Zeile i liegt bei (i + ½) / n der Popup-Höhe.
+    taste('Tab', 0.5)
+    vorher = {p.id for p in aufklapper()}
+    a = marke()
+    tippe('kontakt361')
+    warte(r'^Adressvervollständigung: \d+ Vorschläge', a, 30)
+    time.sleep(1)
+    namen = [n for n, _, _ in vorschlaege()]
+    popup = [p for p in aufklapper() if p.id not in vorher]
+    pruefe(KONTAKT in namen and len(popup) == 1, 'adressen: Liste unter Kopie zeigt den Testkontakt (%s)' % namen)
+    if KONTAKT in namen and len(popup) == 1:
+        bild('kopie', w)
+        g = popup[0].get_geometry()
+        klick((g.x + g.width // 2, g.y + int(g.height * (namen.index(KONTAKT) + 0.5) / len(namen))))
+    text = feld_text(titel, 'Kopie')
+    pruefe(text == KONTAKT + ', ', 'adressen: Klick setzt „Name <Adresse>, “ in Kopie ein (%r)' % text)
+    taste('Tab', 0.2)
+    taste('Tab', 0.2)
+    tippe('[Revolution-Test] Adressen 361')
+    if not senden('adressen', w):
+        return
+    m = email.message_from_bytes(open(os.path.join(OUT, '%s-adressen.eml' % NAME), 'rb').read(),
+                                 policy=email.policy.default)
+    for kopf in ('To', 'Cc'):
+        pruefe(email.utils.getaddresses([str(m[kopf])]) == [('Revolution-Test Kontakt 361',
+                                                              'HILFS_KONTAKT361@example.invalid')],
+               'adressen: MIME %s %s' % (kopf, m[kopf]))
+
+
 def escape():
     ab = marke()
     zeiger(HAUPT)
@@ -817,6 +937,8 @@ def main():
         time.sleep(1)
         if '-weiterleiten-' in NAME:
             weiterleiten()
+        elif '-adressen-' in NAME:
+            vervollstaendigen()
         elif NAME.endswith('-hell'):
             antwort('antworten', 'Control_L+r', False, eigen)
             antwort('allen', 'Control_L+Shift_L+r', True, eigen)

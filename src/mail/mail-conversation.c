@@ -111,7 +111,7 @@ entry_update (Entry *entry)
   gtk_accessible_update_property (GTK_ACCESSIBLE (entry->read), GTK_ACCESSIBLE_PROPERTY_LABEL,
                                   unread ? _("Mark as Read") : _("Mark as Unread"), -1);
 
-  /* Translators: zugänglicher Name des Kopfs einer Nachricht in der Konversation: Absender, Datum. */
+  /* Translators: accessible name of a message header in the conversation: sender, date. */
   label = g_strdup_printf (_("Message from %s, %s%s%s"), sender, date, unread ? _(", unread") : "",
                            starred ? _(", flagged") : "");
   gtk_accessible_update_property (GTK_ACCESSIBLE (entry->header), GTK_ACCESSIBLE_PROPERTY_LABEL, label, -1);
@@ -259,7 +259,7 @@ entry_new (RevolutionMailConversation *self,
 
         g_object_get (place, "account", &account, "display-name", &folder_name, NULL);
         g_object_get (account, "display-name", &account_name, NULL);
-        /* Translators: Ordner und Konto im Nachrichtenkopf, z. B. „Eingang — Privat“. */
+        /* Translators: folder and account in the message header, e.g. “Inbox — Private”. */
         place_name = g_strdup_printf (_("%s — %s"), folder_name, account_name);
       }
     place_label = gtk_label_new (place_name);

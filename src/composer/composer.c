@@ -238,7 +238,7 @@ re_prefix_length (const char *subject)
 {
   gsize len = check_prefix (subject, "Re");
 
-  /* Translators: lokalisiertes „Re“ im Betreff einer Antwort (Evolution: „AW“). */
+  /* Translators: localized “Re” in the subject of a reply (Evolution: “AW” in German). */
   return len > 0 ? len : check_prefix (subject, C_("reply-attribution", "Re"));
 }
 
@@ -430,8 +430,9 @@ reply_credits (CamelMimeMessage *message)
   if (name == NULL || *name == '\0' || g_strcmp0 (name, "\"") == 0)
     name = addr != NULL ? addr : _("an unknown sender");
 
-  /* Translators: Zuschreibung über dem Zitat wie Evolution (po/de.po:20394-20395). */
-  return g_strdup_printf (_("On %s, %02d/%02d/%04d at %02d:%02d %+05d, %s wrote:"), weekday,
+  /* Translators: attribution above the quote like Evolution (po/de.po:20390-20395); arguments: weekday,
+   * day, month, year, hour, minute, time zone, sender. */
+  return g_strdup_printf (_("On %1$s, %4$04d-%3$02d-%2$02d at %5$02d:%6$02d %7$+05d, %8$s wrote:"), weekday,
                           g_date_time_get_day_of_month (when), g_date_time_get_month (when),
                           g_date_time_get_year (when), g_date_time_get_hour (when),
                           g_date_time_get_minute (when), tzone, name);
@@ -1971,7 +1972,7 @@ on_prepared (GObject      *source_object,
     {
       Identity *identity = g_ptr_array_index (self->identities, i);
       g_autofree char *label = identity->name != NULL && *identity->name != '\0'
-                               /* Translators: Absender im Composer wie der Prototyp „Name – Adresse“. */
+                               /* Translators: sender in the composer like the prototype, “Name – address”. */
                                ? g_strdup_printf (_("%s – %s"), identity->name, identity->address)
                                : g_strdup (identity->address);
 

@@ -1241,7 +1241,7 @@ fill_notice_menu (RevolutionMailReader *self)
     return;
 
   {
-    /* Translators: Menü des Hinweises „Entfernte Inhalte gesperrt“, %s ist die Absenderadresse. */
+    /* Translators: menu of the “Remote Content Blocked” notice, %s is the sender address. */
     g_autofree char *label = g_strdup_printf (_("Always Load for %s"), self->sender);
     g_autoptr (GMenuItem) item = g_menu_item_new (label, NULL);
 
@@ -1251,7 +1251,7 @@ fill_notice_menu (RevolutionMailReader *self)
 
   if (at != NULL && at != self->sender && at[1] != '\0')
     {
-      /* Translators: Menü des Hinweises, %s ist die Domain mit „@“, z. B. „@example.org“. */
+      /* Translators: menu of the notice, %s is the domain with “@”, e.g. “@example.org”. */
       g_autofree char *label = g_strdup_printf (_("Always Load for Everyone at %s"), at);
       g_autoptr (GMenuItem) item = g_menu_item_new (label, NULL);
 
@@ -1537,13 +1537,13 @@ header_date (GDateTime *local)
   g_autofree char *time = g_date_time_format (local, "%H:%M");
 
   if (days == 0)
-    /* Translators: Datum im Nachrichtenkopf, %s ist die Uhrzeit. */
+    /* Translators: date in the message header, %s is the time. */
     return g_strdup_printf (_("Today, %s"), time);
   if (days == 1)
-    /* Translators: Datum im Nachrichtenkopf, %s ist die Uhrzeit. */
+    /* Translators: date in the message header, %s is the time. */
     return g_strdup_printf (_("Yesterday, %s"), time);
 
-  /* Translators: Datum im Nachrichtenkopf (g_date_time_format), z. B. „17.10.2026, 14:05“. */
+  /* Translators: date in the message header (g_date_time_format), e.g. “10/17/2026, 14:05”. */
   return g_date_time_format (local, _("%m/%d/%Y, %H:%M"));
 }
 
@@ -1553,7 +1553,7 @@ set_header (RevolutionMailReader *self,
 {
   g_autoptr (GDateTime) local = load->date > 0 ? g_date_time_new_from_unix_local (load->date) : NULL;
   g_autofree char *date = local != NULL ? header_date (local) : g_strdup ("");
-  /* Translators: vollständiges Datum in den Details (g_date_time_format). */
+  /* Translators: full date in the details (g_date_time_format). */
   g_autofree char *full = local != NULL ? g_date_time_format (local, _("%A, %B %-d, %Y, %H:%M:%S")) : g_strdup ("");
 
   gtk_label_set_label (self->date_label, date);
@@ -1759,7 +1759,7 @@ revolution_mail_reader_init (RevolutionMailReader *self)
   {
     /* Kürzel aus dem Accelerator (mail-reader.blp, Strg+I), nicht als fester Text in der Übersetzung. */
     g_autofree char *accel = gtk_accelerator_get_label (GDK_KEY_i, GDK_CONTROL_MASK);
-    /* Translators: Tooltip des Knopfs „Laden“ im Hinweis, %s ist das Tastenkürzel, z. B. „Strg+I“. */
+    /* Translators: tooltip of the “Load” button in the notice, %s is the shortcut, e.g. “Ctrl+I”. */
     g_autofree char *tooltip = g_strdup_printf (_("Load Remote Content of This Message (%s)"), accel);
 
     gtk_widget_set_tooltip_text (self->notice_button, tooltip);
@@ -1823,7 +1823,7 @@ revolution_mail_reader_show (RevolutionMailReader  *self,
   g_object_get (folder, "account", &account, NULL);
   g_object_get (place_folder, "account", &place_account, "display-name", &folder_name, "icon-name", &icon, NULL);
   g_object_get (place_account, "display-name", &account_name, NULL);
-  /* Translators: Ordner und Konto im Nachrichtenkopf, z. B. „Eingang — Privat“. */
+  /* Translators: folder and account in the message header, e.g. “Inbox — Private”. */
   place = g_strdup_printf (_("%s — %s"), folder_name, account_name);
 
   adw_avatar_set_text (self->avatar, sender);

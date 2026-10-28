@@ -577,7 +577,7 @@ set_list_subtitle (RevolutionMailView *self,
   else
     count = g_strdup_printf (ngettext ("%'u message", "%'u messages", total), total);
   if (unread > 0)
-    /* Translators: „10 E-Mails, 4 ungelesen“; %s ist die Anzahl der E-Mails. */
+    /* Translators: “10 messages, 4 unread”; %s is the number of messages. */
     subtitle = g_strdup_printf (_("%s, %'u unread"), count, unread);
 
   gtk_label_set_label (self->list_subtitle, subtitle != NULL ? subtitle : count);
@@ -4404,8 +4404,8 @@ update_banner (RevolutionMailView *self,
     }
 
   if (best->per_account && best_count > 1)
-    /* Translators: Titel des Fehlerbanners, z. B. „Keine Verbindung (7 Konten)“:
-     * Fehlerart und Zahl der Konten mit dieser Fehlerart. */
+    /* Translators: title of the error banner, e.g. “No Connection (7 accounts)”:
+     * kind of error and number of accounts with this kind of error. */
     shown = g_strdup_printf (ngettext ("%s (%u account)", "%s (%u accounts)", best_count),
                              best->title, best_count);
   else

@@ -11,7 +11,8 @@
 # --konten), also nie eines der nur lesend freigegebenen Konten. Ablauf und Prüfungen: tests/ordner-treiber.py.
 # Angelegt und gelöscht werden nur Ordner „Revolution-Ordnertest…“ dieses Laufs; liegt vorher schon einer am
 # Server (tests/testdaten.py --ordnertest), bricht der Lauf ab. Kontextmenü als Bild hell bzw. dunkel
-# (abwechselnd je Konto und Lauf). Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler.
+# (abwechselnd je Konto und Lauf). #435: nach jedem Schritt kein doppelter Papierkorb/Spam. Eine Zeile je Prüfung
+# „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler.
 #
 # Copyright 2026 Arnd Messer
 #

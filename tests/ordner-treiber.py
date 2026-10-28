@@ -6,7 +6,8 @@
 # Revolution-Ordnertest anlegen (oberste Ebene), umbenennen (F2), Unterordner anlegen (Kontextmenü), löschen
 # (Entf, Bestätigung); landet der Ordner im Papierkorb (microsoft365), dort ein zweites Mal löschen. Nach jedem
 # Schritt gleich: Server (tests/testdaten.py --ordnertest KONTO), Ordnerbaum der App (Log „Ordner: UID …“) und
-# sichtbare Zeilen der Liste „Ordner“ (AT-SPI). Bild des Kontextmenüs OUT/NAME-menue.png.
+# sichtbare Zeilen der Liste „Ordner“ (AT-SPI); #435: beim Start ausgeblendete virtuelle Papierkorb/Spam erscheinen
+# nicht wieder (Log, je eine Zeile „Papierkorb“/„Spam“). Bild des Kontextmenüs OUT/NAME-menue.png.
 # Umgebung: BIN, OUT, NAME, UID, KONTO, TESTDATEN, TIMEOUT. Ausgabe: „OK …“, „FEHLER …“, „WERT …“.
 #
 # Copyright 2026 Arnd Messer
@@ -177,7 +178,7 @@ def dialog_offen():
 
 # ------------------------------------------------------------------ Vergleich Server, Ordnerbaum, Zeilen
 
-def baum():
+def baum(muster=TEST):
     """Ordnerbaum des Kontos aus dem Log: append_tree „Ordner: UID NAME“, merge_tree „neu“/„entfernt“."""
     namen = set()
     for z in log_text().splitlines():
@@ -189,7 +190,7 @@ def baum():
             namen = {n for n in namen if n != m.group(2) and not n.startswith(m.group(2) + '/')}
         else:
             namen.add(m.group(2))
-    return sorted(n for n in namen if TEST.search(n))
+    return sorted(n for n in namen if muster is None or muster.search(n))
 
 
 def server():
@@ -207,6 +208,14 @@ def vergleich(schritt, soll):
     (ok if srv == app_baum else falsch)('%s: Server %s = Ordnerbaum %s' % (schritt, srv, app_baum))
     (ok if sorted(p.split('/')[-1] for p in srv) == sichtbar and (soll is None or sichtbar == sorted(soll)) else falsch)(
         '%s: sichtbare Zeilen %s, Server %s, erwartet %s' % (schritt, sichtbar, srv, soll))
+    # #435: virtuelle .#evolution/Trash und /Junk, beim Start ausgeblendet (mail-folder.c), bleiben es.
+    aus = set(re.findall(r'Spezialordner: %s virtueller Ordner (\S+) ausgeblendet$' % UID, log_text(), re.M))
+    wieder = [n for n in baum(None) if n in aus]
+    namen = [n for n, _ in zeilen()]
+    zahl = {n: namen.count(n) for n in ('Papierkorb', 'Spam')}
+    (ok if not wieder and all(v == 1 if aus else v <= 1 for v in zahl.values()) else falsch)(
+        '%s: kein doppelter Papierkorb/Spam: Zeilen %s, ausgeblendet %s, wieder im Ordnerbaum %s'
+        % (schritt, zahl, sorted(aus), wieder))
     return srv
 
 

@@ -25,8 +25,9 @@
 #     An/Kopie/Blindkopie/Betreff/Text (AT-SPI, Screenshot). Arnds mimeapps.list bleibt unberührt.
 #   - Fenster schließen (WM_DELETE_WINDOW): Prozess läuft weiter, Fenster verborgen; neue Mail meldet sich
 #     weiter; Aktion zeigt das Fenster wieder; app.quit beendet (Exit 0, App-ID nicht mehr auf dem Bus).
-# Lauf „menue“: Hauptmenü per F10, Einträge „Im Hintergrund weiterlaufen“ (Haken) und „Beenden“ (Strg+Q)
-# über AT-SPI, dann Strg+Q beendet.
+# Lauf „menue“: Start mit dem mailto-Link als Argument (Revolution lief nicht: Hauptfenster und Composer,
+# Felder wie oben), Hauptmenü per F10, Einträge „Im Hintergrund weiterlaufen“ (Haken) und „Beenden“ (Strg+Q)
+# über AT-SPI (Name aus „labelled-by“), dann Strg+Q beendet.
 # Danach je Durchgang: die angelegten Testmails per UID STORE \Deleted + UID EXPUNGE genau ihrer UIDs
 # (--benachrichtigung … weg, Befehle in OUT/<Lauf>-weg.txt).
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler (tests/abbruch.sh).

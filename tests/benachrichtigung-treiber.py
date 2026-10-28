@@ -359,9 +359,44 @@ def hinweis_m365():
     pruefe(g and not any(k.get_description() for k in g), 'kein Hinweis bei geops@ (IMAP)')
 
 
-def mailto():
-    uri = 'mailto:%s?subject=%s&cc=%s&bcc=%s&body=%s' % (
+def mailto_uri():
+    return 'mailto:%s?subject=%s&cc=%s&bcc=%s&body=%s' % (
         MAILTO_AN, urllib.parse.quote(MAILTO_BETREFF), MAILTO_CC, MAILTO_BCC, urllib.parse.quote(MAILTO_TEXT))
+
+
+def pruefe_composer(weg, ab):
+    """Composer aus dem mailto-Link: Log, Felder über AT-SPI, Screenshot, Escape schließt."""
+    z = warte(r'^Composer: mailto An 1, Kopie 1, Blindkopie 1, Betreff ja, Text ja', ab, 60)
+    pruefe(z is not None and warte(r'^mailto: Composer für mailto:', ab, 1) is not None,
+           'mailto %s: %s' % (weg, z))
+    warte(r'^Composer: Neu vorbereitet', ab, 30)
+    w = fenster(MAILTO_BETREFF, zeit=20)
+    if not pruefe(w is not None, 'mailto %s: Composer „%s“ offen' % (weg, MAILTO_BETREFF)):
+        return
+    time.sleep(3)
+    f = app_fenster(MAILTO_BETREFF)
+    felder = {}
+    for k in knoten(f):
+        if k.get_name() in ('An', 'Kopie', 'Blindkopie', 'Betreff') and k.get_name() not in felder and \
+                k.get_role_name() in ('entry', 'text'):
+            t = text_von(k)
+            if t is not None:
+                felder[k.get_name()] = t
+        if k.get_role_name() == 'document web':
+            felder['Text'] = dokument_text(k)
+    wert('mailto %s Felder: %s' % (weg, felder))
+    pruefe(felder.get('An') == MAILTO_AN and felder.get('Kopie') == MAILTO_CC and felder.get('Blindkopie') == MAILTO_BCC
+           and felder.get('Betreff') == MAILTO_BETREFF, 'mailto %s: An, Kopie, Blindkopie, Betreff' % weg)
+    # Der Link ist ein eigenes Element (magic links wie Evolution).
+    pruefe('Zeile 1' in felder.get('Text', '') and 'Zeile 2 mit' in felder.get('Text', '') and
+           'https://example.org' in felder.get('Text', ''), 'mailto %s: Text im Editor' % weg)
+    bild('mailto-' + weg.split()[0].lower(), w)
+    taste('Escape', 0.5)
+    pruefe(fenster(MAILTO_BETREFF, weg=True), 'mailto %s: Escape schließt den Composer' % weg)
+
+
+def mailto():
+    uri = mailto_uri()
     wert('mailto: %s' % uri)
     for weg in ('argument', 'gio-open'):
         ab = marke()
@@ -377,34 +412,7 @@ def mailto():
                    'Test-XDG: Standard für mailto ist %s.desktop' % APP_ID)
             r = subprocess.run(['gio', 'open', uri], capture_output=True, text=True, timeout=30, env=umgebung)
         pruefe(r.returncode == 0, 'mailto %s: Exit %d %s' % (weg, r.returncode, (r.stdout + r.stderr).strip()))
-        z = warte(r'^Composer: mailto An 1, Kopie 1, Blindkopie 1, Betreff ja, Text ja', ab, 30)
-        pruefe(z is not None and warte(r'^mailto: Composer für mailto:', ab, 1) is not None,
-               'mailto %s an die laufende Instanz: %s' % (weg, z))
-        warte(r'^Composer: Neu vorbereitet', ab, 30)
-        w = fenster(MAILTO_BETREFF, zeit=20)
-        if not pruefe(w is not None, 'mailto %s: Composer „%s“ offen' % (weg, MAILTO_BETREFF)):
-            continue
-        time.sleep(3)
-        f = app_fenster(MAILTO_BETREFF)
-        felder = {}
-        for k in knoten(f):
-            if k.get_name() in ('An', 'Kopie', 'Blindkopie', 'Betreff') and k.get_name() not in felder and \
-                    k.get_role_name() in ('entry', 'text'):
-                t = text_von(k)
-                if t is not None:
-                    felder[k.get_name()] = t
-            if k.get_role_name() == 'document web':
-                felder['Text'] = dokument_text(k)
-        wert('mailto %s Felder: %s' % (weg, felder))
-        pruefe(felder.get('An') == MAILTO_AN and felder.get('Kopie') == MAILTO_CC and felder.get('Blindkopie') == MAILTO_BCC
-               and felder.get('Betreff') == MAILTO_BETREFF, 'mailto %s: An, Kopie, Blindkopie, Betreff' % weg)
-        # Der Link ist ein eigenes Element (magic links wie Evolution).
-        pruefe('Zeile 1' in felder.get('Text', '') and 'Zeile 2 mit' in felder.get('Text', '') and
-               'https://example.org' in felder.get('Text', ''),
-               'mailto %s: Text im Editor' % weg)
-        bild('mailto-%s' % weg, w)
-        taste('Escape', 0.5)
-        pruefe(fenster(MAILTO_BETREFF, weg=True), 'mailto %s: Escape schließt den Composer' % weg)
+        pruefe_composer(weg + ' an die laufende Instanz', ab)
     pruefe(not any('org.freedesktop.portal' in b for b in dbus_bloecke()), 'kein Portal-Aufruf im Mitschnitt')
 
 
@@ -421,6 +429,8 @@ def menuename(k):
 
 
 def menue():
+    # Start mit mailto-Link als Argument (Revolution lief noch nicht): Hauptfenster und Composer.
+    pruefe_composer('Kaltstart', 0)
     w = fenster('Revolution')
     time.sleep(2)
     zeiger((600, 380))
@@ -457,7 +467,7 @@ def main():
                                 "type='method_call',interface='org.freedesktop.portal.Background'",
                                 "type='error'"], stdout=open(DBUS, 'w'), stderr=subprocess.STDOUT)
     log = open(LOG, 'w')
-    app = subprocess.Popen([BIN], stdout=log, stderr=subprocess.STDOUT)
+    app = subprocess.Popen([BIN] + ([mailto_uri()] if WAS == 'menue' else []), stdout=log, stderr=subprocess.STDOUT)
     app_pid = app.pid
     try:
         w = fenster('Revolution', zeit=60)

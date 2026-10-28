@@ -26,6 +26,8 @@
 
 #include "config.h"
 
+#include <string.h>
+
 #include <glib/gi18n.h>
 #include <libebook/libebook.h>
 
@@ -860,6 +862,634 @@ on_toggle_sidebar (GSimpleAction *action G_GNUC_UNUSED,
   adw_overlay_split_view_set_show_sidebar (self->split, !adw_overlay_split_view_get_show_sidebar (self->split));
 }
 
+/* ------------------------------------------------------------------ Anlegen, Bearbeiten, Löschen (#370) */
+
+/* Schreiben, Löschen und Suche nach der Adresse im Worker (Architektur 1). Ohne verbundenen Client verbindet der
+ * Worker selbst (z. B. „Absender übernehmen“ vor dem ersten Anzeigen der Kontakte). */
+typedef enum { JOB_ADD, JOB_MODIFY, JOB_REMOVE, JOB_FIND } JobKind;
+
+static const char *const job_names[] = { "anlegen", "ändern", "löschen", "suchen" };
+
+typedef struct
+{
+  JobKind      kind;
+  ESource     *source;
+  EBookClient *client;
+  EContact    *contact;  /* anlegen/ändern/löschen: der Kontakt; suchen: Vorlage, danach der Treffer oder NULL */
+  char        *address;  /* suchen */
+  char        *uid;      /* anlegen: neue UID */
+} Job;
+
+static void
+job_free (Job *job)
+{
+  g_clear_object (&job->source);
+  g_clear_object (&job->client);
+  g_clear_object (&job->contact);
+  g_free (job->address);
+  g_free (job->uid);
+  g_free (job);
+}
+
+static void
+job_thread (GTask        *task,
+            gpointer      source_object G_GNUC_UNUSED,
+            gpointer      task_data,
+            GCancellable *cancellable G_GNUC_UNUSED)
+{
+  Job *job = task_data;
+  GError *error = NULL;
+  gboolean done = FALSE;
+
+  if (job->client == NULL)
+    job->client = E_BOOK_CLIENT (e_book_client_connect_sync (job->source, (guint32) -1, NULL, &error));
+  if (job->client == NULL)
+    {
+      g_task_return_error (task, error);
+      return;
+    }
+  switch (job->kind)
+    {
+    case JOB_ADD:
+      done = e_book_client_add_contact_sync (job->client, job->contact, E_BOOK_OPERATION_FLAG_NONE, &job->uid, NULL, &error);
+      break;
+    case JOB_MODIFY:
+      done = e_book_client_modify_contact_sync (job->client, job->contact, E_BOOK_OPERATION_FLAG_NONE, NULL, &error);
+      break;
+    case JOB_REMOVE:
+      done = e_book_client_remove_contact_sync (job->client, job->contact, E_BOOK_OPERATION_FLAG_NONE, NULL, &error);
+      break;
+    case JOB_FIND:
+      {
+        g_autoptr (EBookQuery) query = e_book_query_field_test (E_CONTACT_EMAIL, E_BOOK_QUERY_IS, job->address);
+        g_autofree char *sexp = e_book_query_to_string (query);
+        GSList *found = NULL;
+
+        done = e_book_client_get_contacts_sync (job->client, sexp, &found, NULL, &error);
+        g_clear_object (&job->contact);
+        for (GSList *l = found; done && l != NULL && job->contact == NULL; l = l->next)
+          if (!is_list (l->data))
+            job->contact = g_object_ref (l->data);
+        g_slist_free_full (found, g_object_unref);
+      }
+      break;
+    }
+  if (done)
+    g_task_return_boolean (task, TRUE);
+  else
+    g_task_return_error (task, error);
+}
+
+static void
+run_job (gpointer             source_object,
+         Job                 *job,
+         GAsyncReadyCallback  callback)
+{
+  g_autoptr (GTask) task = g_task_new (source_object, NULL, callback, NULL);
+
+  g_debug ("Kontakt: %s %s %s", job_names[job->kind], e_source_get_uid (job->source),
+           job->contact != NULL && e_contact_get_const (job->contact, E_CONTACT_UID) != NULL
+           ? (const char *) e_contact_get_const (job->contact, E_CONTACT_UID) : "-");
+  g_task_set_source_tag (task, run_job);
+  g_task_set_task_data (task, job, (GDestroyNotify) job_free);
+  g_task_run_in_thread (task, job_thread);
+}
+
+static Job *
+job_new (RevolutionContactsView *self,
+         JobKind                 kind,
+         RevolutionContactsBook *book,
+         EContact               *contact)
+{
+  Job *job = g_new0 (Job, 1);
+  ESource *source = revolution_contacts_book_get_source (book);
+  EBookClient *client = self->clients != NULL ? g_hash_table_lookup (self->clients, e_source_get_uid (source)) : NULL;
+
+  job->kind = kind;
+  job->source = g_object_ref (source);
+  job->client = client != NULL ? g_object_ref (client) : NULL;
+  job->contact = contact != NULL ? g_object_ref (contact) : NULL;
+  return job;
+}
+
+static gboolean
+book_readonly (RevolutionContactsBook *book)
+{
+  gboolean readonly = TRUE;
+
+  if (book != NULL)
+    g_object_get (book, "readonly", &readonly, NULL);
+  return readonly;
+}
+
+static void
+set_enabled (RevolutionContactsView *self,
+             const char             *name,
+             gboolean                enabled)
+{
+  g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (self->contact_actions, name)), enabled);
+}
+
+/* Nur-lesend-Bücher bieten kein Bearbeiten und Löschen an (Dokument #19); vor dem Verbinden ist „nur lesend“
+ * unbekannt, die Knöpfe sind dann sichtbar, aber aus. */
+static void
+update_actions (RevolutionContactsView *self)
+{
+  gboolean writable = self->book != NULL && !book_readonly (self->book);
+  gboolean connected = self->book != NULL && self->clients != NULL &&
+                       g_hash_table_contains (self->clients, book_uid (self));
+  gboolean selected = gtk_single_selection_get_selected_item (self->contact_selection) != NULL;
+  gboolean any_writable = FALSE;
+  GListModel *books = G_LIST_MODEL (self->books);
+
+  if (self->contact_actions == NULL)
+    return;
+  for (guint i = 0; books != NULL && !any_writable && i < g_list_model_get_n_items (books); i++)
+    {
+      g_autoptr (RevolutionContactsBook) book = g_list_model_get_item (books, i);
+
+      any_writable = !book_readonly (book);
+    }
+  set_enabled (self, "new", !self->editing && any_writable);
+  set_enabled (self, "edit", !self->editing && writable && connected && selected);
+  set_enabled (self, "delete", !self->editing && writable && connected && selected);
+  set_enabled (self, "save", self->editing && !self->saving && revolution_contacts_editor_is_valid (self->editor));
+  set_enabled (self, "cancel", self->editing && !self->saving);
+  gtk_widget_set_visible (self->edit_button, writable);
+  gtk_widget_set_visible (self->delete_button, writable);
+}
+
+static void
+on_editor_valid (RevolutionContactsView *self)
+{
+  update_actions (self);
+}
+
+/* Formular im Detailbereich, Kopfleiste Abbrechen | Titel | Hinzufügen/Fertig (GNOME Contacts); Liste und
+ * Seitenleiste ruhen, bis das Formular zu ist. */
+static void
+show_editor (RevolutionContactsView *self,
+             gboolean                editing,
+             gboolean                is_new)
+{
+  self->editing = editing;
+  gtk_label_set_label (self->edit_title, is_new ? _("New Contact") : _("Edit Contact"));
+  gtk_button_set_label (self->done_button, is_new ? _("_Add") : _("_Done"));
+  gtk_stack_set_visible_child_name (self->header_stack, editing ? "edit" : "actions");
+  gtk_stack_set_visible_child_name (self->pane_stack, editing ? "editor" : "detail");
+  gtk_widget_set_visible (GTK_WIDGET (self->search_button), !editing);
+  gtk_widget_set_sensitive (GTK_WIDGET (self->contact_list), !editing);
+  gtk_widget_set_sensitive (GTK_WIDGET (self->book_list), !editing);
+  gtk_widget_set_sensitive (self->letter_bar, !editing);
+  update_actions (self);
+  if (!editing)
+    {
+      g_clear_object (&self->edit_book);
+      g_clear_pointer (&self->edit_books, g_ptr_array_unref);
+      if (!gtk_widget_grab_focus (GTK_WIDGET (self->contact_list)))
+        gtk_widget_grab_focus (GTK_WIDGET (self->book_list));
+    }
+}
+
+/* Anlegen: schreibbare Bücher wie Evolutions Quellen-Auswahl (Bücher, die nicht als nur lesend bekannt sind);
+ * Vorgabe das Buch target (sonst das gewählte, sonst das erste). template: Vorbelegung oder NULL. */
+static void
+open_new (RevolutionContactsView *self,
+          EContact               *template,
+          RevolutionContactsBook *target)
+{
+  GListModel *sorted = G_LIST_MODEL (self->book_sorted);
+  g_autoptr (GtkStringList) labels = gtk_string_list_new (NULL);
+  g_autoptr (GString) log = g_string_new (NULL);
+  guint selected = 0;
+
+  g_clear_pointer (&self->edit_books, g_ptr_array_unref);
+  self->edit_books = g_ptr_array_new_with_free_func (g_object_unref);
+  for (guint i = 0; i < g_list_model_get_n_items (sorted); i++)
+    {
+      g_autoptr (RevolutionContactsBook) book = g_list_model_get_item (sorted, i);
+      g_autofree char *label = NULL;
+
+      if (book_readonly (book))
+        continue;
+      if (book == (target != NULL ? target : self->book))
+        selected = self->edit_books->len;
+      label = g_strdup_printf ("%s (%s)", e_source_get_display_name (revolution_contacts_book_get_source (book)),
+                               revolution_contacts_book_get_group (book));
+      gtk_string_list_append (labels, label);
+      g_string_append_printf (log, " %s", e_source_get_uid (revolution_contacts_book_get_source (book)));
+      g_ptr_array_add (self->edit_books, g_object_ref (book));
+    }
+  if (self->edit_books->len == 0)
+    {
+      show_error (self, _("No Writable Address Book"), _("All address books are read-only."));
+      return;
+    }
+  g_debug ("Kontakt-Formular: neu, Bücher%s, Vorgabe %s", log->str,
+           e_source_get_uid (revolution_contacts_book_get_source (g_ptr_array_index (self->edit_books, selected))));
+  revolution_contacts_editor_edit (self->editor, template, G_LIST_MODEL (labels), selected);
+  show_editor (self, TRUE, TRUE);
+}
+
+static void
+open_edit (RevolutionContactsView *self,
+           RevolutionContactsBook *book,
+           EContact               *contact)
+{
+  g_set_object (&self->edit_book, book);
+  g_debug ("Kontakt-Formular: bearbeiten %s %s", e_source_get_uid (revolution_contacts_book_get_source (book)),
+           (const char *) e_contact_get_const (contact, E_CONTACT_UID));
+  revolution_contacts_editor_edit (self->editor, contact, NULL, 0);
+  show_editor (self, TRUE, FALSE);
+}
+
+static void
+on_new (GSimpleAction *action G_GNUC_UNUSED,
+        GVariant      *parameter G_GNUC_UNUSED,
+        gpointer       user_data)
+{
+  open_new (user_data, NULL, NULL);
+}
+
+static void
+on_edit (GSimpleAction *action G_GNUC_UNUSED,
+         GVariant      *parameter G_GNUC_UNUSED,
+         gpointer       user_data)
+{
+  RevolutionContactsView *self = user_data;
+  RevolutionContactsContact *item = gtk_single_selection_get_selected_item (self->contact_selection);
+
+  if (item != NULL && self->book != NULL)
+    open_edit (self, self->book, revolution_contacts_contact_get_contact (item));
+}
+
+static void
+on_cancel (GSimpleAction *action G_GNUC_UNUSED,
+           GVariant      *parameter G_GNUC_UNUSED,
+           gpointer       user_data)
+{
+  g_debug ("Kontakt-Formular: abgebrochen, nichts geschrieben");
+  show_editor (user_data, FALSE, FALSE);
+}
+
+/* Nach dem Anlegen den neuen Kontakt wählen, sobald die Live-Ansicht ihn meldet (on_objects_added,
+ * on_view_complete). */
+static void
+select_pending (RevolutionContactsView *self)
+{
+  RevolutionContactsContact *item = self->select_uid != NULL ? g_hash_table_lookup (self->by_uid, self->select_uid) : NULL;
+  GListModel *sorted = G_LIST_MODEL (self->contact_sorted);
+
+  if (item == NULL || !self->complete)
+    return;
+  for (guint i = 0; i < g_list_model_get_n_items (sorted); i++)
+    {
+      g_autoptr (RevolutionContactsContact) candidate = g_list_model_get_item (sorted, i);
+
+      if (candidate != item)
+        continue;
+      g_debug ("Kontakte: neuer Kontakt %s gewählt (Zeile %u)", self->select_uid, i);
+      g_clear_pointer (&self->select_uid, g_free);
+      gtk_single_selection_set_selected (self->contact_selection, i);
+      gtk_list_view_scroll_to (self->contact_list, i, GTK_LIST_SCROLL_NONE, NULL);
+      return;
+    }
+}
+
+static void
+select_book (RevolutionContactsView *self,
+             ESource                *source)
+{
+  GListModel *sorted = G_LIST_MODEL (self->book_sorted);
+
+  for (guint i = 0; i < g_list_model_get_n_items (sorted); i++)
+    {
+      g_autoptr (RevolutionContactsBook) book = g_list_model_get_item (sorted, i);
+
+      if (e_source_equal (revolution_contacts_book_get_source (book), source))
+        gtk_single_selection_set_selected (self->book_selection, i);
+    }
+}
+
+static void
+on_saved (GObject      *source_object,
+          GAsyncResult *result,
+          gpointer      user_data G_GNUC_UNUSED)
+{
+  RevolutionContactsView *self = REVOLUTION_CONTACTS_VIEW (source_object);
+  Job *job = g_task_get_task_data (G_TASK (result));
+  g_autoptr (GError) error = NULL;
+
+  self->saving = FALSE;
+  if (self->contacts == NULL)
+    return;
+  if (!g_task_propagate_boolean (G_TASK (result), &error))
+    {
+      /* Formular bleibt mit den Eingaben offen (z. B. ETag-Konflikt, offline). */
+      g_debug ("Kontakt: %s %s Fehler: %s", job_names[job->kind], e_source_get_uid (job->source), error->message);
+      show_error (self, _("Could Not Save Contact"), error->message);
+      update_actions (self);
+      return;
+    }
+  g_debug ("Kontakt: %s %s %s fertig", job_names[job->kind], e_source_get_uid (job->source),
+           job->kind == JOB_ADD ? job->uid : (const char *) e_contact_get_const (job->contact, E_CONTACT_UID));
+  adw_banner_set_revealed (self->banner, FALSE);
+  if (job->kind == JOB_ADD)
+    {
+      g_free (self->select_uid);
+      self->select_uid = g_strdup (job->uid);
+      if (self->book == NULL || !e_source_equal (revolution_contacts_book_get_source (self->book), job->source))
+        select_book (self, job->source);
+      else
+        select_pending (self);
+    }
+  show_editor (self, FALSE, FALSE);
+}
+
+static void
+on_save (GSimpleAction *action G_GNUC_UNUSED,
+         GVariant      *parameter G_GNUC_UNUSED,
+         gpointer       user_data)
+{
+  RevolutionContactsView *self = user_data;
+  g_autoptr (EContact) contact = revolution_contacts_editor_build (self->editor);
+  gboolean is_new = self->edit_book == NULL;
+  RevolutionContactsBook *book = is_new ? g_ptr_array_index (self->edit_books,
+                                                            MIN (revolution_contacts_editor_get_book (self->editor),
+                                                                 self->edit_books->len - 1))
+                                        : self->edit_book;
+
+  if (!revolution_contacts_editor_is_valid (self->editor) || self->saving)
+    return;
+  self->saving = TRUE;
+  update_actions (self);
+  run_job (self, job_new (self, is_new ? JOB_ADD : JOB_MODIFY, book, contact), on_saved);
+}
+
+/* Löschen wie GNOME Contacts (contacts-main-window.vala delete_contacts, contacts-operation-list.vala
+ * execute_with_timeout): Kontakt sofort aus der Liste, Toast mit Rückgängig, gelöscht wird erst nach Ablauf
+ * der Toast-Zeit; Rückgängig davor schreibt nichts. Beim Beenden sofort (contacts-app.vala quit_action:
+ * operations.flush), hier beim Zerstören der Ansicht; das Beenden wartet darauf (g_application_hold). */
+#define DELETE_SECONDS 5
+
+static void
+pending_free (PendingDelete *pending)
+{
+  g_clear_handle_id (&pending->timeout_id, g_source_remove);
+  g_clear_object (&pending->book);
+  g_clear_object (&pending->client);
+  g_clear_object (&pending->item);
+  g_clear_object (&pending->toast);
+  g_free (pending);
+}
+
+/* Eintrag wieder in die Liste (Rückgängig, Fehler), nur wenn sein Buch noch gewählt ist; sonst zeigt die
+ * nächste Ansicht des Buchs ihn ohnehin. */
+static void
+restore_item (RevolutionContactsView    *self,
+              RevolutionContactsBook    *book,
+              RevolutionContactsContact *item)
+{
+  const char *uid = revolution_contacts_contact_get_uid (item);
+
+  if (book != self->book || g_hash_table_contains (self->by_uid, uid))
+    return;
+  g_hash_table_insert (self->by_uid, g_strdup (uid), item);
+  g_list_store_append (self->contacts, item);
+  update_state (self);
+}
+
+static void
+on_removed (GObject      *source_object,
+            GAsyncResult *result,
+            gpointer      user_data)
+{
+  Job *job = g_task_get_task_data (G_TASK (result));
+  RevolutionContactsView *self = source_object != NULL ? REVOLUTION_CONTACTS_VIEW (source_object) : NULL;
+  g_autoptr (RevolutionContactsBook) book = g_object_get_data (G_OBJECT (result), "book") != NULL
+                                            ? g_object_ref (g_object_get_data (G_OBJECT (result), "book")) : NULL;
+  g_autoptr (GError) error = NULL;
+  GApplication *application = user_data;
+
+  if (g_task_propagate_boolean (G_TASK (result), &error))
+    g_debug ("Kontakt: löschen %s %s fertig", e_source_get_uid (job->source),
+             (const char *) e_contact_get_const (job->contact, E_CONTACT_UID));
+  else
+    {
+      g_debug ("Kontakt: löschen %s Fehler: %s", e_source_get_uid (job->source), error->message);
+      if (self != NULL && self->contacts != NULL)
+        {
+          RevolutionContactsContact *item = g_object_get_data (G_OBJECT (result), "item");
+
+          show_error (self, _("Could Not Delete Contact"), error->message);
+          if (item != NULL)
+            restore_item (self, book, item);
+        }
+    }
+  if (application != NULL)
+    {
+      g_application_release (application);
+      g_object_unref (application);
+    }
+}
+
+/* Vorgemerktes Löschen jetzt ausführen (Ablauf, nächstes Löschen, Beenden). detached: die Ansicht wird gerade
+ * zerstört, der Auftrag hängt dann nicht an ihr. */
+static void
+execute_pending (RevolutionContactsView *self,
+                 gboolean                detached)
+{
+  PendingDelete *pending = g_steal_pointer (&self->pending);
+  GApplication *application = g_application_get_default ();
+  g_autoptr (GTask) task = NULL;
+  Job *job;
+
+  if (pending == NULL)
+    return;
+  g_clear_handle_id (&pending->timeout_id, g_source_remove);
+  adw_toast_dismiss (pending->toast);
+  job = g_new0 (Job, 1);
+  job->kind = JOB_REMOVE;
+  job->source = g_object_ref (revolution_contacts_book_get_source (pending->book));
+  job->client = g_object_ref (pending->client);
+  job->contact = g_object_ref (revolution_contacts_contact_get_contact (pending->item));
+  g_debug ("Kontakt: löschen %s %s%s", e_source_get_uid (job->source),
+           (const char *) e_contact_get_const (job->contact, E_CONTACT_UID), detached ? " (beim Beenden)" : "");
+  if (application != NULL)
+    g_application_hold (g_object_ref (application));
+  task = g_task_new (detached ? NULL : self, NULL, on_removed, application);
+  g_task_set_source_tag (task, execute_pending);
+  g_task_set_task_data (task, job, (GDestroyNotify) job_free);
+  g_object_set_data_full (G_OBJECT (task), "book", g_object_ref (pending->book), g_object_unref);
+  g_object_set_data_full (G_OBJECT (task), "item", g_object_ref (pending->item), g_object_unref);
+  g_task_run_in_thread (task, job_thread);
+  pending_free (pending);
+}
+
+static gboolean
+on_delete_timeout (gpointer user_data)
+{
+  RevolutionContactsView *self = user_data;
+
+  self->pending->timeout_id = 0;
+  execute_pending (self, FALSE);
+  return G_SOURCE_REMOVE;
+}
+
+static void
+on_undo (RevolutionContactsView *self)
+{
+  PendingDelete *pending = g_steal_pointer (&self->pending);
+
+  if (pending == NULL)
+    return;
+  g_debug ("Kontakt: Löschen rückgängig %s, nichts geschrieben", revolution_contacts_contact_get_uid (pending->item));
+  restore_item (self, pending->book, pending->item);
+  pending_free (pending);
+}
+
+static void
+on_delete (GSimpleAction *action G_GNUC_UNUSED,
+           GVariant      *parameter G_GNUC_UNUSED,
+           gpointer       user_data)
+{
+  RevolutionContactsView *self = user_data;
+  RevolutionContactsContact *item = gtk_single_selection_get_selected_item (self->contact_selection);
+  EBookClient *client = self->book != NULL ? g_hash_table_lookup (self->clients, book_uid (self)) : NULL;
+  GtkWidget *overlay = gtk_widget_get_ancestor (GTK_WIDGET (self), ADW_TYPE_TOAST_OVERLAY);
+  PendingDelete *pending;
+  guint position;
+
+  if (item == NULL || client == NULL)
+    return;
+  execute_pending (self, FALSE);
+  pending = g_new0 (PendingDelete, 1);
+  pending->book = g_object_ref (self->book);
+  pending->client = g_object_ref (client);
+  pending->item = g_object_ref (item);
+  pending->toast = adw_toast_new (_("Contact deleted"));
+  adw_toast_set_button_label (pending->toast, _("_Undo"));
+  adw_toast_set_timeout (pending->toast, DELETE_SECONDS);
+  g_signal_connect_object (pending->toast, "button-clicked", G_CALLBACK (on_undo), self, G_CONNECT_SWAPPED);
+  pending->timeout_id = g_timeout_add_seconds (DELETE_SECONDS, on_delete_timeout, self);
+  self->pending = pending;
+  g_debug ("Kontakt: Löschen vorgemerkt %s %s „%s“, in %d s", book_uid (self), revolution_contacts_contact_get_uid (item),
+           revolution_contacts_contact_get_name (item), DELETE_SECONDS);
+
+  g_hash_table_remove (self->by_uid, revolution_contacts_contact_get_uid (item));
+  if (g_list_store_find (self->contacts, item, &position))
+    g_list_store_remove (self->contacts, position);
+  update_state (self);
+  if (overlay != NULL)
+    adw_toast_overlay_add_toast (ADW_TOAST_OVERLAY (overlay), g_object_ref (pending->toast));
+}
+
+/* „Absender als Kontakt übernehmen“ (mail-view.c message.add-sender) wie Evolution mail-add-sender
+ * (e-mail-reader.c:163-220 → e_contact_quick_add_email, e-contact-quick-add.c:698-726: „Name <Adresse>“ zerlegen,
+ * Anführungszeichen weg, 589-602). Evolution sucht die Adresse im Zielbuch (eab_merging_book_find_contact,
+ * e-contact-quick-add.c:334-336) und öffnet bei einem Treffer diesen Kontakt im Editor (ce_have_contact,
+ * 259-268); hier ebenso, mit Hinweis, ohne Duplikat-Dialog. Zielbuch: das gewählte, wenn schreibbar, sonst das
+ * erste schreibbare (Evolution: Standard-Adressbuch). */
+static void
+on_sender_found (GObject      *source_object,
+                 GAsyncResult *result,
+                 gpointer      user_data G_GNUC_UNUSED)
+{
+  RevolutionContactsView *self = REVOLUTION_CONTACTS_VIEW (source_object);
+  Job *job = g_task_get_task_data (G_TASK (result));
+  RevolutionContactsBook *book = g_object_get_data (G_OBJECT (result), "book");
+  EContact *template = g_object_get_data (G_OBJECT (result), "template");
+  g_autoptr (GError) error = NULL;
+
+  if (self->contacts == NULL || self->editing)
+    return;
+  if (!g_task_propagate_boolean (G_TASK (result), &error))
+    g_debug ("Kontakt: Absender suchen %s Fehler: %s", e_source_get_uid (job->source), error->message);
+  if (job->contact != NULL)
+    {
+      GtkWidget *overlay = gtk_widget_get_ancestor (GTK_WIDGET (self), ADW_TYPE_TOAST_OVERLAY);
+
+      g_debug ("Kontakt: Absender %s schon im Buch %s als %s", job->address, e_source_get_uid (job->source),
+               (const char *) e_contact_get_const (job->contact, E_CONTACT_UID));
+      if (overlay != NULL)
+        adw_toast_overlay_add_toast (ADW_TOAST_OVERLAY (overlay), adw_toast_new (_("Contact already exists")));
+      open_edit (self, book, job->contact);
+      return;
+    }
+  open_new (self, template, book);
+}
+
+void
+revolution_contacts_view_add_sender (RevolutionContactsView *self,
+                                     const char             *from)
+{
+  g_autoptr (CamelInternetAddress) cia = camel_internet_address_new ();
+  g_autoptr (EContact) template = e_contact_new ();
+  g_autoptr (GTask) task = NULL;
+  g_autofree char *clean = NULL;
+  const char *name = NULL, *address = NULL;
+  RevolutionContactsBook *target = NULL;
+  GListModel *sorted;
+  Job *job;
+
+  g_return_if_fail (REVOLUTION_IS_CONTACTS_VIEW (self));
+
+  if (from == NULL || camel_address_decode (CAMEL_ADDRESS (cia), from) <= 0 ||
+      !camel_internet_address_get (cia, 0, &name, &address) || address == NULL || *address == '\0' || self->editing)
+    return;
+  if (name != NULL)
+    {
+      gsize len;
+
+      clean = g_strstrip (g_strdup (name));
+      len = strlen (clean);
+      if (len >= 2 && ((clean[0] == '\'' && clean[len - 1] == '\'') || (clean[0] == '"' && clean[len - 1] == '"')))
+        {
+          clean[len - 1] = '\0';
+          memmove (clean, clean + 1, len - 1);
+          g_strstrip (clean);
+        }
+    }
+  if (clean != NULL && *clean != '\0' && g_ascii_strcasecmp (clean, address) != 0)
+    e_contact_set (template, E_CONTACT_FULL_NAME, clean);
+  e_contact_set (template, E_CONTACT_EMAIL_1, address);
+
+  sorted = G_LIST_MODEL (self->book_sorted);
+  if (self->book != NULL && !book_readonly (self->book))
+    target = self->book;
+  for (guint i = 0; target == NULL && i < g_list_model_get_n_items (sorted); i++)
+    {
+      g_autoptr (RevolutionContactsBook) book = g_list_model_get_item (sorted, i);
+
+      if (!book_readonly (book))
+        target = book;
+    }
+  g_debug ("Kontakt: Absender übernehmen „%s“ <%s>, Buch %s", clean != NULL ? clean : "", address,
+           target != NULL ? e_source_get_uid (revolution_contacts_book_get_source (target)) : "-");
+  if (target == NULL)
+    {
+      open_new (self, template, NULL);
+      return;
+    }
+  job = job_new (self, JOB_FIND, target, NULL);
+  job->address = g_strdup (address);
+  task = g_task_new (self, NULL, on_sender_found, NULL);
+  g_task_set_source_tag (task, revolution_contacts_view_add_sender);
+  g_task_set_task_data (task, job, (GDestroyNotify) job_free);
+  g_object_set_data_full (G_OBJECT (task), "book", g_object_ref (target), g_object_unref);
+  g_object_set_data_full (G_OBJECT (task), "template", g_object_ref (template), g_object_unref);
+  g_debug ("Kontakt: suchen %s %s", e_source_get_uid (job->source), address);
+  g_task_run_in_thread (task, job_thread);
+}
+
+static const GActionEntry contact_actions[] = {
+  { "new", on_new, NULL, NULL, NULL, { 0 } },
+  { "edit", on_edit, NULL, NULL, NULL, { 0 } },
+  { "delete", on_delete, NULL, NULL, NULL, { 0 } },
+  { "save", on_save, NULL, NULL, NULL, { 0 } },
+  { "cancel", on_cancel, NULL, NULL, NULL, { 0 } },
+};
+
 static const GActionEntry contacts_actions[] = {
   { "search", on_search, NULL, NULL, NULL, { 0 } },
   { "toggle-sidebar", on_toggle_sidebar, NULL, NULL, NULL, { 0 } },
@@ -914,7 +1544,13 @@ revolution_contacts_view_dispose (GObject *object)
   RevolutionContactsView *self = REVOLUTION_CONTACTS_VIEW (object);
 
   g_cancellable_cancel (self->cancellable);
+  /* #370: vorgemerktes Löschen beim Beenden sofort (GNOME Contacts quit_action: flush). */
+  execute_pending (self, TRUE);
   drop_view (self);
+  g_clear_object (&self->edit_book);
+  g_clear_pointer (&self->edit_books, g_ptr_array_unref);
+  g_clear_pointer (&self->select_uid, g_free);
+  self->contact_actions = NULL;
   gtk_widget_dispose_template (GTK_WIDGET (self), REVOLUTION_TYPE_CONTACTS_VIEW);
   g_clear_object (&self->stack);
   g_clear_object (&self->book);
@@ -946,6 +1582,7 @@ revolution_contacts_view_class_init (RevolutionContactsViewClass *klass)
   g_type_ensure (REVOLUTION_TYPE_CONTACTS_BOOK);
   g_type_ensure (REVOLUTION_TYPE_CONTACTS_CONTACT);
   g_type_ensure (REVOLUTION_TYPE_CONTACTS_DETAIL);
+  g_type_ensure (REVOLUTION_TYPE_CONTACTS_EDITOR);
 
   gtk_widget_class_set_template_from_resource (widget_class, "/de/freiraum_medien/Revolution/contacts-view.ui");
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, book_selection);
@@ -964,6 +1601,12 @@ revolution_contacts_view_class_init (RevolutionContactsViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, search_button);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, split);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, letter_bar);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, pane_stack);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, editor);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, edit_title);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, done_button);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, edit_button);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, delete_button);
   gtk_widget_class_bind_template_callback (widget_class, on_search_toggled);
   gtk_widget_class_bind_template_callback (widget_class, on_search_started);
   gtk_widget_class_bind_template_callback (widget_class, on_search_stop);
@@ -976,6 +1619,7 @@ static void
 revolution_contacts_view_init (RevolutionContactsView *self)
 {
   g_autoptr (GSimpleActionGroup) contacts_group = g_simple_action_group_new ();
+  g_autoptr (GSimpleActionGroup) contact_group = g_simple_action_group_new ();
   g_autoptr (GPropertyAction) sidebar_action = NULL;
   AdwStyleManager *style_manager = adw_style_manager_get_default ();
   GtkEventController *shortcuts = gtk_shortcut_controller_new ();
@@ -1018,10 +1662,16 @@ revolution_contacts_view_init (RevolutionContactsView *self)
   sidebar_action = g_property_action_new ("sidebar", self->split, "show-sidebar");
   g_action_map_add_action (G_ACTION_MAP (contacts_group), G_ACTION (sidebar_action));
   gtk_widget_insert_action_group (GTK_WIDGET (self), "contacts", G_ACTION_GROUP (contacts_group));
+  /* #370: contact.new (Strg+N, +), edit, delete (Entf), save, cancel (Escape); Zustand in update_actions. */
+  g_action_map_add_action_entries (G_ACTION_MAP (contact_group), contact_actions, G_N_ELEMENTS (contact_actions), self);
+  gtk_widget_insert_action_group (GTK_WIDGET (self), "contact", G_ACTION_GROUP (contact_group));
+  self->contact_actions = G_ACTION_MAP (contact_group);
+  g_signal_connect_object (self->editor, "notify::valid", G_CALLBACK (on_editor_valid), self, G_CONNECT_SWAPPED);
 
   gtk_widget_add_controller (GTK_WIDGET (self), shortcuts);
 
   g_signal_connect_object (style_manager, "notify::dark", G_CALLBACK (on_dark_changed), self, G_CONNECT_DEFAULT);
   on_dark_changed (style_manager, NULL, self);
   update_state (self);
+  update_actions (self);
 }

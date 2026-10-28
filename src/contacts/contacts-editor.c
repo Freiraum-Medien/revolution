@@ -258,9 +258,9 @@ add_value_row (RevolutionContactsEditor *self,
   adw_preferences_row_set_title (ADW_PREFERENCES_ROW (row), email ? _("Email") : _("Phone"));
   adw_preferences_row_set_use_markup (ADW_PREFERENCES_ROW (row), FALSE);
   if (email)
-    gtk_editable_set_input_purpose (GTK_EDITABLE (row), GTK_INPUT_PURPOSE_EMAIL);
+    adw_entry_row_set_input_purpose (ADW_ENTRY_ROW (row), GTK_INPUT_PURPOSE_EMAIL);
   else
-    gtk_editable_set_input_purpose (GTK_EDITABLE (row), GTK_INPUT_PURPOSE_PHONE);
+    adw_entry_row_set_input_purpose (ADW_ENTRY_ROW (row), GTK_INPUT_PURPOSE_PHONE);
   gtk_editable_set_text (GTK_EDITABLE (row), value != NULL ? value : "");
   adw_entry_row_add_suffix (ADW_ENTRY_ROW (row), GTK_WIDGET (data->type));
   adw_entry_row_add_suffix (ADW_ENTRY_ROW (row), remove_button (email ? _("Remove Email") : _("Remove Phone Number"),
@@ -321,7 +321,7 @@ add_address_row (RevolutionContactsEditor *self,
 
   for (guint i = 0; i < G_N_ELEMENTS (address_types); i++)
     labels[i] = _(address_types[i].label);
-  data->original = address != NULL ? e_contact_address_copy ((EContactAddress *) address) : NULL;
+  data->original = address != NULL ? g_boxed_copy (E_TYPE_CONTACT_ADDRESS, address) : NULL;
   data->type = type_drop_down (_("Address Type"), labels, type);
   g_signal_connect_swapped (data->type, "notify::selected", G_CALLBACK (update_valid), self);
 
@@ -627,7 +627,7 @@ build_addresses (RevolutionContactsEditor *self,
         }
       if (data != NULL)
         {
-          address = data->original != NULL ? e_contact_address_copy (data->original) : e_contact_address_new ();
+          address = data->original != NULL ? g_boxed_copy (E_TYPE_CONTACT_ADDRESS, data->original) : e_contact_address_new ();
           replace (&address->street, data->street);
           replace (&address->code, data->code);
           replace (&address->locality, data->locality);

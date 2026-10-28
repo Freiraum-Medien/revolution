@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Revolution
-Comment=E-Mails lesen und schreiben
+Comment=Read and write email
 Exec=revolution %U
 Icon=@APPLICATION_ID@
 Terminal=false

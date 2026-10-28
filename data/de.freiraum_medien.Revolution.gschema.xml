@@ -11,53 +11,53 @@
         <choice value="dunkel"/>
       </choices>
       <default>'system'</default>
-      <summary>Darstellung</summary>
-      <description>system folgt dem System; hell, dunkel-hell (dunkel mit hellem Inhalt) oder dunkel wie im Hauptmenü gewählt.</description>
+      <summary>Appearance</summary>
+      <description>system follows the system; light, dark-light (dark with light content) or dark as chosen in the main menu.</description>
     </key>
     <key name="window-width" type="i">
       <default>1200</default>
-      <summary>Fensterbreite</summary>
-      <description>Breite des Hauptfensters beim letzten Start.</description>
+      <summary>Window width</summary>
+      <description>Width of the main window when last run.</description>
     </key>
     <key name="window-height" type="i">
       <default>760</default>
-      <summary>Fensterhöhe</summary>
-      <description>Höhe des Hauptfensters beim letzten Start.</description>
+      <summary>Window height</summary>
+      <description>Height of the main window when last run.</description>
     </key>
     <key name="window-maximized" type="b">
       <default>false</default>
-      <summary>Fenster maximiert</summary>
-      <description>Ob das Hauptfenster beim letzten Start maximiert war.</description>
+      <summary>Window maximized</summary>
+      <description>Whether the main window was maximized when last run.</description>
     </key>
     <!-- #353: wie Evolution org.gnome.evolution.mail (gschema.xml.in:424-438), Nutzer mail-view.c. -->
     <key name="mark-seen" type="b">
       <default>true</default>
-      <summary>Nach Verzögerung als gelesen markieren</summary>
-      <description>Eine gewählte ungelesene E-Mail nach mark-seen-timeout als gelesen markieren.</description>
+      <summary>Mark as read after a delay</summary>
+      <description>Mark a selected unread message as read after mark-seen-timeout.</description>
     </key>
     <key name="mark-seen-timeout" type="i">
       <default>1500</default>
-      <summary>Verzögerung bis „gelesen“</summary>
-      <description>Millisekunden, bis eine gewählte E-Mail als gelesen markiert wird.</description>
+      <summary>Delay until “read”</summary>
+      <description>Milliseconds until a selected message is marked as read.</description>
     </key>
     <!-- #350: Erstauswahl beim Start (mail-view.c, select_initial_folder). -->
     <key name="selected-folder" type="s">
       <default>''</default>
-      <summary>Zuletzt gewählter Ordner</summary>
-      <description>UID des Kontos und voller Name des zuletzt gewählten Mail-Ordners als „UID/Ordner“; leer wählt den Posteingang des ersten Kontos.</description>
+      <summary>Last selected folder</summary>
+      <description>Account UID and full name of the last selected mail folder as “UID/folder”; empty selects the inbox of the first account.</description>
     </key>
     <!-- #357: Konversationen wie Evolution „Nach Threads gruppieren“ (Strg+T, e-mail-shell-view-actions.c:1922-1927), Nutzer mail-view.c. Standard an (Entscheidung Arnd 24.10.2026). -->
     <key name="conversations" type="b">
       <default>true</default>
-      <summary>Nach Konversationen</summary>
-      <description>Die Nachrichtenliste zeigt je Konversation (Thread aus Ordner und Gesendet) eine Zeile statt jeder Nachricht einzeln.</description>
+      <summary>Group by conversation</summary>
+      <description>The message list shows one row per conversation (thread from the folder and Sent) instead of one row per message.</description>
     </key>
     <!-- #366: Hintergrundbetrieb wie Stamp „background-notifications“ (Standard aus,
          quelltext/stamp/data/org.tabos.stamp.gschema.xml:34-38), Nutzer main.c. -->
     <key name="run-in-background" type="b">
       <default>false</default>
-      <summary>Im Hintergrund weiterlaufen</summary>
-      <description>Schließen verbirgt das Fenster nur; Revolution läuft weiter und meldet neue E-Mails, bis „Beenden“ gewählt wird.</description>
+      <summary>Run in background</summary>
+      <description>Closing only hides the window; Revolution keeps running and reports new mail until “Quit” is chosen.</description>
     </key>
   </schema>
 </schemalist>

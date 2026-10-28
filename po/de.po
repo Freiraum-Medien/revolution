@@ -1,0 +1,1378 @@
+# German translation for Revolution.
+# Copyright 2026 Arnd Messer
+# This file is distributed under the same license as the revolution package.
+msgid ""
+msgstr ""
+"Project-Id-Version: revolution\n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: 2026-10-28 23:00+0100\n"
+"Last-Translator: Arnd Messer\n"
+"Language-Team: German\n"
+"Language: de\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: data/de.freiraum_medien.Revolution.desktop.in.in:2
+#: data/de.freiraum_medien.Revolution.metainfo.xml.in.in:8 src/main.c:1439
+#: src/window.blp:5
+msgid "Revolution"
+msgstr "Revolution"
+
+#: data/de.freiraum_medien.Revolution.desktop.in.in:3
+msgid "Read and write email"
+msgstr "E-Mails lesen und schreiben"
+
+#: data/de.freiraum_medien.Revolution.desktop.in.in:9
+msgid "Mail;Email;E-Mail;"
+msgstr "Mail;Email;E-Mail;"
+
+#: data/de.freiraum_medien.Revolution.metainfo.xml.in.in:9
+msgid "Email, contacts and calendar for GNOME"
+msgstr "E-Mail, Kontakte und Kalender für GNOME"
+
+#: data/de.freiraum_medien.Revolution.metainfo.xml.in.in:11
+msgid "Revolution is a mail client for GNOME with contacts and calendar. Accounts are set up in GNOME Online Accounts."
+msgstr "Revolution ist ein Mail-Client für GNOME mit Kontakten und Kalender. Konten richtet man in den GNOME-Online-Konten ein."
+
+#: data/de.freiraum_medien.Revolution.metainfo.xml.in.in:15
+msgid "Arnd Messer"
+msgstr "Arnd Messer"
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:14
+#: src/mail/mail-view.blp:1248 src/contacts/contacts-view.blp:560
+#: src/calendar/calendar-view.blp:611
+msgid "Appearance"
+msgstr "Darstellung"
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:15
+msgid "system follows the system; light, dark-light (dark with light content) or dark as chosen in the main menu."
+msgstr "system folgt dem System; hell, dunkel-hell (dunkel mit hellem Inhalt) oder dunkel wie im Hauptmenü gewählt."
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:19
+msgid "Window width"
+msgstr "Fensterbreite"
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:20
+msgid "Width of the main window when last run."
+msgstr "Breite des Hauptfensters beim letzten Start."
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:24
+msgid "Window height"
+msgstr "Fensterhöhe"
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:25
+msgid "Height of the main window when last run."
+msgstr "Höhe des Hauptfensters beim letzten Start."
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:29
+msgid "Window maximized"
+msgstr "Fenster maximiert"
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:30
+msgid "Whether the main window was maximized when last run."
+msgstr "Ob das Hauptfenster beim letzten Start maximiert war."
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:35
+msgid "Mark as read after a delay"
+msgstr "Nach Verzögerung als gelesen markieren"
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:36
+msgid "Mark a selected unread message as read after mark-seen-timeout."
+msgstr "Eine gewählte ungelesene E-Mail nach mark-seen-timeout als gelesen markieren."
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:40
+msgid "Delay until “read”"
+msgstr "Verzögerung bis „gelesen“"
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:41
+msgid "Milliseconds until a selected message is marked as read."
+msgstr "Millisekunden, bis eine gewählte E-Mail als gelesen markiert wird."
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:46
+msgid "Last selected folder"
+msgstr "Zuletzt gewählter Ordner"
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:47
+msgid "Account UID and full name of the last selected mail folder as “UID/folder”; empty selects the inbox of the first account."
+msgstr "UID des Kontos und voller Name des zuletzt gewählten Mail-Ordners als „UID/Ordner“; leer wählt den Posteingang des ersten Kontos."
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:52
+msgid "Group by conversation"
+msgstr "Nach Konversationen"
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:53
+msgid "The message list shows one row per conversation (thread from the folder and Sent) instead of one row per message."
+msgstr "Die Nachrichtenliste zeigt je Konversation (Thread aus Ordner und Gesendet) eine Zeile statt jeder Nachricht einzeln."
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:59
+msgid "Run in background"
+msgstr "Im Hintergrund weiterlaufen"
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:60
+msgid "Closing only hides the window; Revolution keeps running and reports new mail until “Quit” is chosen."
+msgstr "Schließen verbirgt das Fenster nur; Revolution läuft weiter und meldet neue E-Mails, bis „Beenden“ gewählt wird."
+
+#: src/main.c:156
+#, c-format
+msgid "Could not create folder “%s”: %s"
+msgstr "Ordner „%s“ konnte nicht angelegt werden: %s"
+
+#: src/main.c:158
+msgid "Data Folder Missing"
+msgstr "Datenordner fehlt"
+
+#: src/main.c:321
+msgid "Connection closed without an error message"
+msgstr "Verbindung ohne Fehlermeldung abgebrochen"
+
+#: src/main.c:535
+msgid "Certificate Not Trusted"
+msgstr "Zertifikat nicht vertrauenswürdig"
+
+#: src/main.c:537
+msgid "Authentication Failed"
+msgstr "Anmeldung fehlgeschlagen"
+
+#: src/main.c:539 src/mail/mail-view.c:4532 src/mail/mail-view.c:4536
+msgid "No Connection"
+msgstr "Keine Verbindung"
+
+#: src/main.c:596
+msgid "Folders Not Loaded"
+msgstr "Ordner nicht geladen"
+
+#: src/main.c:904
+msgid "Account Not Set Up"
+msgstr "Konto nicht eingerichtet"
+
+#: src/main.c:1301
+#, c-format
+msgid "Could not load accounts: %s"
+msgstr "Konten konnten nicht geladen werden: %s"
+
+#: src/main.c:1303
+msgid "Accounts Unavailable"
+msgstr "Konten nicht verfügbar"
+
+#: src/eds-compat.c:313
+msgid "Trash folder not found"
+msgstr "Papierkorb nicht gefunden"
+
+#: src/mail/mail-folder.c:154
+msgid "Inbox"
+msgstr "Eingang"
+
+#: src/mail/mail-folder.c:155
+msgid "Trash"
+msgstr "Papierkorb"
+
+#: src/mail/mail-folder.c:156
+msgid "Junk"
+msgstr "Spam"
+
+#: src/mail/mail-folder.c:157 src/mail/mail-favorites.c:57
+msgid "Sent"
+msgstr "Gesendet"
+
+#: src/mail/mail-folder.c:158 src/mail/mail-favorites.c:55
+msgid "Drafts"
+msgstr "Entwürfe"
+
+#. #350: nicht in Evolutions Tabelle; Archiv-Ordner aus der Ersteinrichtung von imapx heißen
+#. * „Archive“ (camel-imapx-store.c:2814-2816), Name wie der Prototyp.
+#: src/mail/mail-folder.c:161
+msgid "Archive"
+msgstr "Archiv"
+
+#. Translators: zugänglicher Name einer Ordnerzeile, z. B. „Eingang, 4 ungelesen“.
+#: src/mail/mail-folder.c:254
+#, c-format
+msgid "%s, %d unread"
+msgid_plural "%s, %d unread"
+msgstr[0] "%s, %d ungelesen"
+msgstr[1] "%s, %d ungelesen"
+
+#: src/mail/mail-message.c:168 src/mail/mail-message.c:184
+msgid "Unknown Sender"
+msgstr "Unbekannter Absender"
+
+#. Translators: Uhrzeit heutiger Nachrichten in der Liste (g_date_time_format).
+#: src/mail/mail-message.c:214
+msgid "%H:%M"
+msgstr "%H:%M"
+
+#: src/mail/mail-message.c:216
+msgid "Yesterday"
+msgstr "Gestern"
+
+#. Translators: Wochentag (abgekürzt) für Nachrichten der letzten Woche, z. B. „Mo.“.
+#: src/mail/mail-message.c:219
+#, c-format
+msgid "%a"
+msgstr "%a."
+
+#. Translators: Datum älterer Nachrichten in der Liste, z. B. „17.10.26“.
+#: src/mail/mail-message.c:222
+msgid "%m/%d/%y"
+msgstr "%d.%m.%y"
+
+#: src/mail/mail-message.c:277
+#, c-format
+msgid ", account %s"
+msgstr ", Konto %s"
+
+#. #357: Translators: Anfang des zugänglichen Namens einer Konversationszeile.
+#: src/mail/mail-message.c:280
+#, c-format
+msgid "Conversation with %u message: "
+msgid_plural "Conversation with %u messages: "
+msgstr[0] "Konversation mit %u E-Mail: "
+msgstr[1] "Konversation mit %u E-Mails: "
+
+#: src/mail/mail-message.c:287 src/mail/mail-conversation.c:115
+msgid ", unread"
+msgstr ", ungelesen"
+
+#: src/mail/mail-message.c:288 src/mail/mail-conversation.c:116
+msgid ", flagged"
+msgstr ", markiert"
+
+#: src/mail/mail-message.c:289
+msgid ", with attachment"
+msgstr ", mit Anhang"
+
+#: src/mail/mail-message.c:307
+msgid "(No Subject)"
+msgstr "(Kein Betreff)"
+
+#: src/mail/mail-view.c:189
+msgid "Searching…"
+msgstr "Suche läuft …"
+
+#: src/mail/mail-view.c:190
+msgid "No Messages Match the Search Criteria"
+msgstr "Keine Nachricht entspricht den Suchkriterien"
+
+#: src/mail/mail-view.c:191 src/mail/mail-view.blp:489
+msgid "No Messages"
+msgstr "Keine Nachrichten"
+
+#: src/mail/mail-view.c:576
+#, c-format
+msgid "%'u conversation"
+msgid_plural "%'u conversations"
+msgstr[0] "%'u Konversation"
+msgstr[1] "%'u Konversationen"
+
+#: src/mail/mail-view.c:578
+#, c-format
+msgid "%'u message"
+msgid_plural "%'u messages"
+msgstr[0] "%'u E-Mail"
+msgstr[1] "%'u E-Mails"
+
+#. Translators: „10 E-Mails, 4 ungelesen“; %s ist die Anzahl der E-Mails.
+#: src/mail/mail-view.c:581
+#, c-format
+msgid "%s, %'u unread"
+msgstr "%s, %'u ungelesen"
+
+#: src/mail/mail-view.c:1094
+msgid "Search Failed"
+msgstr "Suche fehlgeschlagen"
+
+#: src/mail/mail-view.c:1263 src/mail/mail-reader.c:730
+#: src/composer/composer.c:883 src/composer/composer.c:1620
+#, c-format
+msgid "Account %s unavailable"
+msgstr "Konto %s nicht verfügbar"
+
+#: src/mail/mail-view.c:1907 src/mail/mail-view.c:3215
+#, c-format
+msgid "Message %s not found"
+msgstr "Nachricht %s nicht gefunden"
+
+#: src/mail/mail-view.c:2084
+msgid "Flags Not Saved"
+msgstr "Markierung nicht gespeichert"
+
+#: src/mail/mail-view.c:2598
+msgid "Refresh Failed"
+msgstr "Aktualisieren fehlgeschlagen"
+
+#: src/mail/mail-view.c:2807
+msgid "Messages Not Loaded"
+msgstr "Nachrichten nicht geladen"
+
+#: src/mail/mail-view.c:2909 src/window.blp:42 src/mail/mail-view.blp:397
+#: src/mail/mail-view.blp:1026
+msgid "Mail"
+msgstr "Mail"
+
+#: src/mail/mail-view.c:2955 src/mail/mail-view.c:2957
+msgid "All Folders"
+msgstr "Alle Ordner"
+
+#: src/mail/mail-view.c:3073
+msgid "Deleted"
+msgstr "Gelöscht"
+
+#: src/mail/mail-view.c:3074
+msgid "Archived"
+msgstr "Archiviert"
+
+#: src/mail/mail-view.c:3075
+msgid "Marked as Junk"
+msgstr "Als Spam markiert"
+
+#: src/mail/mail-view.c:3076
+msgid "Moved"
+msgstr "Verschoben"
+
+#: src/mail/mail-view.c:3318
+msgid "Not Moved"
+msgstr "Nicht verschoben"
+
+#: src/mail/mail-view.c:3451
+msgid "Messages cannot be moved between accounts"
+msgstr "Verschieben zwischen Konten ist nicht möglich"
+
+#: src/mail/mail-view.c:3456
+msgid "The message is already in this folder"
+msgstr "Die Nachricht ist schon in diesem Ordner"
+
+#: src/mail/mail-view.c:3462
+msgid "No Target Folder"
+msgstr "Kein Zielordner"
+
+#: src/mail/mail-view.c:3504
+#, c-format
+msgid "Moved to “%s”"
+msgstr "Verschoben nach „%s“"
+
+#: src/mail/mail-view.c:3507
+msgid "_Undo"
+msgstr "_Rückgängig"
+
+#: src/mail/mail-view.c:3665
+msgid "Cannot move here"
+msgstr "Hierhin lässt sich nicht verschieben"
+
+#: src/mail/mail-view.c:3766
+msgid "Folder Not Created"
+msgstr "Ordner nicht angelegt"
+
+#: src/mail/mail-view.c:3767
+msgid "Folder Not Renamed"
+msgstr "Ordner nicht umbenannt"
+
+#: src/mail/mail-view.c:3768
+msgid "Folder Not Deleted"
+msgstr "Ordner nicht gelöscht"
+
+#: src/mail/mail-view.c:3954
+#, c-format
+msgid "Delete Folder “%s” and All Subfolders?"
+msgstr "Ordner „%s“ und alle Unterordner löschen?"
+
+#: src/mail/mail-view.c:3954
+#, c-format
+msgid "Delete Folder “%s”?"
+msgstr "Ordner „%s“ löschen?"
+
+#: src/mail/mail-view.c:3956
+msgid "New Folder"
+msgstr "Neuer Ordner"
+
+#: src/mail/mail-view.c:3956
+msgid "Rename Folder"
+msgstr "Ordner umbenennen"
+
+#: src/mail/mail-view.c:3958
+msgid "The contents of the folder and its subfolders will be permanently deleted."
+msgstr "Der Inhalt des Ordners und seiner Unterordner wird endgültig gelöscht."
+
+#: src/mail/mail-view.c:3959
+msgid "The contents of the folder will be permanently deleted."
+msgstr "Der Inhalt des Ordners wird endgültig gelöscht."
+
+#: src/mail/mail-view.c:3960
+msgid "Do _Not Delete"
+msgstr "_Nicht löschen"
+
+#: src/mail/mail-view.c:3960
+msgid "_Cancel"
+msgstr "_Abbrechen"
+
+#: src/mail/mail-view.c:3961
+msgid "C_reate"
+msgstr "_Anlegen"
+
+#: src/mail/mail-view.c:3961
+msgid "_Rename"
+msgstr "_Umbenennen"
+
+#: src/mail/mail-view.c:3961 src/mail/mail-view.blp:1171
+msgid "_Delete"
+msgstr "_Löschen"
+
+#: src/mail/mail-view.c:3975
+msgid "Folder Name"
+msgstr "Ordnername"
+
+#: src/mail/mail-view.c:3979
+#, c-format
+msgid "_Subfolder of “%s”"
+msgstr "_Unterordner von „%s“"
+
+#. #351: Favoriten als erster Abschnitt vor den Konten (Prototyp), außerhalb von self->accounts
+#. * (sync_accounts gleicht nur die Konten der Registry ab); Ordner sind gleich da.
+#: src/mail/mail-view.c:4214
+msgid "Favorites"
+msgstr "Favoriten"
+
+#. #362: Postausgang wie Evolution im lokalen Store „Auf diesem Rechner“ (e-mail-session.c:824-894,
+#. * em-folder-tree-model.c:1534-1538), Name wie dort „Outbox“ mit eigenem Typ; erst sichtbar, wenn er
+#. * Nachrichten hat (revolution_mail_view_set_outbox).
+#: src/mail/mail-view.c:4223
+msgid "On This Computer"
+msgstr "Auf diesem Rechner"
+
+#: src/mail/mail-view.c:4228 src/mail/mail-outbox.c:656
+#: src/mail/mail-outbox.c:681
+msgid "Outbox"
+msgstr "Postausgang"
+
+#. Translators: Titel des Fehlerbanners, z. B. „Keine Verbindung (7 Konten)“:
+#. * Fehlerart und Zahl der Konten mit dieser Fehlerart.
+#: src/mail/mail-view.c:4409
+#, c-format
+msgid "%s (%u account)"
+msgid_plural "%s (%u accounts)"
+msgstr[0] "%s (%u Konto)"
+msgstr[1] "%s (%u Konten)"
+
+#: src/mail/mail-reader.c:692
+#, c-format
+msgid "Invalid entry “%s”"
+msgstr "Ungültiger Eintrag „%s“"
+
+#: src/mail/mail-reader.c:893
+msgid "Remote Content Not Loaded"
+msgstr "Entfernte Inhalte nicht geladen"
+
+#: src/mail/mail-reader.c:962
+#, c-format
+msgid "Protection against network access not active: %s"
+msgstr "Schutz vor Netzzugriffen nicht aktiv: %s"
+
+#: src/mail/mail-reader.c:965 src/mail/mail-reader.c:1106
+msgid "Message Not Shown"
+msgstr "Nachricht nicht angezeigt"
+
+#: src/mail/mail-reader.c:1192
+msgid "Permission Not Saved"
+msgstr "Freigabe nicht gespeichert"
+
+#. Translators: Menü des Hinweises „Entfernte Inhalte gesperrt“, %s ist die Absenderadresse.
+#: src/mail/mail-reader.c:1245
+#, c-format
+msgid "Always Load for %s"
+msgstr "Immer für %s laden"
+
+#. Translators: Menü des Hinweises, %s ist die Domain mit „@“, z. B. „@example.org“.
+#: src/mail/mail-reader.c:1255
+#, c-format
+msgid "Always Load for Everyone at %s"
+msgstr "Immer für alle von %s laden"
+
+#: src/mail/mail-reader.c:1512
+msgid "Message Content"
+msgstr "Nachrichteninhalt"
+
+#. Translators: Datum im Nachrichtenkopf, %s ist die Uhrzeit.
+#: src/mail/mail-reader.c:1541
+#, c-format
+msgid "Today, %s"
+msgstr "Heute, %s"
+
+#. Translators: Datum im Nachrichtenkopf, %s ist die Uhrzeit.
+#: src/mail/mail-reader.c:1544
+#, c-format
+msgid "Yesterday, %s"
+msgstr "Gestern, %s"
+
+#. Translators: Datum im Nachrichtenkopf (g_date_time_format), z. B. „17.10.2026, 14:05“.
+#: src/mail/mail-reader.c:1547
+msgid "%m/%d/%Y, %H:%M"
+msgstr "%d.%m.%Y, %H:%M"
+
+#. Translators: vollständiges Datum in den Details (g_date_time_format).
+#: src/mail/mail-reader.c:1557
+msgid "%A, %B %-d, %Y, %H:%M:%S"
+msgstr "%A, %-d. %B %Y, %H:%M:%S"
+
+#: src/mail/mail-reader.c:1591
+msgid "Message Not Loaded"
+msgstr "Nachricht nicht geladen"
+
+#. Translators: Tooltip des Knopfs „Laden“ im Hinweis, %s ist das Tastenkürzel, z. B. „Strg+I“.
+#: src/mail/mail-reader.c:1763
+#, c-format
+msgid "Load Remote Content of This Message (%s)"
+msgstr "Entfernte Inhalte dieser E-Mail laden (%s)"
+
+#. Translators: Ordner und Konto im Nachrichtenkopf, z. B. „Eingang — Privat“.
+#: src/mail/mail-reader.c:1827 src/mail/mail-conversation.c:263
+#, c-format
+msgid "%s — %s"
+msgstr "%s — %s"
+
+#. Translators: zugänglicher Name eines Anhangs: Dateiname, Typ, Größe.
+#: src/mail/mail-attachment.c:119
+#, c-format
+msgid "%s, %s, %s"
+msgstr "%s, %s, %s"
+
+#. Translators: Dateiname eines Anhangs ohne eigenen Namen (Evolution „attachment.dat“).
+#: src/mail/mail-attachment.c:312
+msgid "attachment.dat"
+msgstr "anhang.dat"
+
+#: src/mail/mail-attachment.c:391
+#, c-format
+msgid "Attachment has no content"
+msgstr "Anhang ohne Inhalt"
+
+#: src/mail/mail-attachment.c:587 src/mail/mail-attachment.c:606
+msgid "Attachment Not Opened"
+msgstr "Anhang nicht geöffnet"
+
+#: src/mail/mail-attachment.c:720
+msgid "No free file name"
+msgstr "Kein freier Dateiname"
+
+#. Translators: Alle speichern mit Fehlern, z. B. „2 von 5 nicht gespeichert: …“.
+#: src/mail/mail-attachment.c:728
+#, c-format
+msgid "%u of %u not saved: %s"
+msgstr "%u von %u nicht gespeichert: %s"
+
+#: src/mail/mail-attachment.c:748 src/mail/mail-attachment.c:787
+msgid "Attachment Not Saved"
+msgstr "Anhang nicht gespeichert"
+
+#: src/mail/mail-attachment.c:807
+msgid "Save Attachment"
+msgstr "Anhang speichern"
+
+#: src/mail/mail-attachment.c:809 src/mail/mail-attachment.c:830
+msgid "_Save"
+msgstr "_Speichern"
+
+#: src/mail/mail-attachment.c:829
+msgid "Save All Attachments"
+msgstr "Alle Anhänge speichern"
+
+#: src/mail/mail-favorites.c:51
+msgid "All Inboxes"
+msgstr "Alle Eingänge"
+
+#: src/mail/mail-favorites.c:53 src/mail/mail-view.blp:682
+#: src/mail/mail-view.blp:685 src/mail/mail-view.blp:1079
+msgid "Flagged"
+msgstr "Markiert"
+
+#: src/mail/mail-favorites.c:218
+msgid "Favorites unavailable"
+msgstr "Favoriten nicht verfügbar"
+
+#: src/mail/mail-session.c:657
+#, c-format
+msgid "No data source for the service with UID “%s”"
+msgstr "Keine Datenquelle für den Dienst mit UID „%s“"
+
+#: src/mail/mail-session.c:864
+#, c-format
+msgid "No data source for UID “%s”"
+msgstr "Keine Datenquelle für UID „%s“"
+
+#: src/mail/mail-session.c:894
+#, c-format
+msgid "Authentication with %s failed"
+msgstr "Anmeldung mit %s fehlgeschlagen"
+
+#: src/mail/mail-session.c:899
+msgid "Password authentication failed"
+msgstr "Anmeldung mit Passwort fehlgeschlagen"
+
+#: src/mail/mail-outbox.c:259
+#, c-format
+msgid "Folder %s unavailable"
+msgstr "Ordner %s nicht verfügbar"
+
+#: src/mail/mail-outbox.c:272
+#, c-format
+msgid "Message %s not in %s"
+msgstr "Nachricht %s nicht in %s"
+
+#: src/mail/mail-outbox.c:715
+#, c-format
+msgid "No mail transport for identity %s"
+msgstr "Kein Versanddienst für die Identität %s"
+
+#: src/mail/mail-outbox.c:952
+msgid "Sent, Copy to Sent Pending"
+msgstr "Gesendet, Kopie in Gesendet folgt"
+
+#: src/mail/mail-outbox.c:960
+msgid "Sending Interrupted"
+msgstr "Versand unterbrochen"
+
+#: src/mail/mail-outbox.c:962
+#, c-format
+msgid "%s: The program quit while sending, the message may already have been delivered. It stays in the Outbox; F5 sends it again, in which case it may arrive twice."
+msgstr "%s: Das Programm wurde während des Sendens beendet, die Nachricht ist vielleicht schon zugestellt. Sie bleibt im Postausgang; F5 sendet sie erneut, dann kommt sie unter Umständen doppelt an."
+
+#: src/mail/mail-outbox.c:971
+msgid "Not Sent"
+msgstr "Nicht gesendet"
+
+#: src/mail/mail-outbox.c:974
+msgid "unknown error"
+msgstr "unbekannter Fehler"
+
+#: src/mail/mail-outbox.c:1044
+msgid "No outbox"
+msgstr "Kein Postausgang"
+
+#: src/mail/mail-outbox.c:1091
+#, c-format
+msgid "No identity %s"
+msgstr "Keine Identität %s"
+
+#: src/mail/mail-notification.c:145 src/composer/composer.blp:12
+#: src/composer/composer.blp:82 src/composer/composer.c:1939
+#: src/mail/mail-view.blp:380 src/mail/mail-view.blp:384
+#: src/mail/mail-view.blp:757 src/mail/mail-view.blp:761
+msgid "New Message"
+msgstr "Neue E-Mail"
+
+#. Translators: Betreff, darunter die Zahl der übrigen neuen Nachrichten (Evolution „(and %d more)“).
+#: src/mail/mail-notification.c:148
+#, c-format
+msgid "%s\n(and %u more)"
+msgid_plural "%s\n(and %u more)"
+msgstr[0] "%s\n(und %u weitere)"
+msgstr[1] "%s\n(und %u weitere)"
+
+#: src/mail/mail-account.c:185
+#, c-format
+msgid "Microsoft 365 does not report new mail immediately (no push): checked every %u minutes and with F5"
+msgstr "Microsoft 365 meldet neue E-Mails nicht sofort (kein Push): Abruf alle %u Minuten und mit F5"
+
+#: src/mail/mail-account.c:188
+msgid "Microsoft 365 does not report new mail immediately (no push): check with F5"
+msgstr "Microsoft 365 meldet neue E-Mails nicht sofort (kein Push): Abruf mit F5"
+
+#: src/mail/mail-search.c:132
+#, c-format
+msgid "Search unavailable"
+msgstr "Suche nicht verfügbar"
+
+#: src/mail/mail-thread.c:77
+#, c-format
+msgid "Conversations unavailable"
+msgstr "Konversationen nicht verfügbar"
+
+#: src/mail/mail-conversation.c:101 src/mail/mail-conversation.c:103
+msgid "Remove Flag"
+msgstr "Markierung entfernen"
+
+#: src/mail/mail-conversation.c:101 src/mail/mail-conversation.c:103
+#: src/mail/mail-view.blp:850 src/mail/mail-view.blp:853
+msgid "Flag"
+msgstr "Markieren"
+
+#: src/mail/mail-conversation.c:110 src/mail/mail-conversation.c:112
+#: src/mail/mail-view.blp:1104
+msgid "Mark as Read"
+msgstr "Als gelesen markieren"
+
+#: src/mail/mail-conversation.c:110 src/mail/mail-conversation.c:112
+#: src/mail/mail-view.blp:1111
+msgid "Mark as Unread"
+msgstr "Als ungelesen markieren"
+
+#. Translators: zugänglicher Name des Kopfs einer Nachricht in der Konversation: Absender, Datum.
+#: src/mail/mail-conversation.c:115
+#, c-format
+msgid "Message from %s, %s%s%s"
+msgstr "Nachricht von %s, %s%s%s"
+
+#: src/mail/mail-conversation.c:217
+msgid "Expand or Collapse Message"
+msgstr "Nachricht auf- oder zuklappen"
+
+#: src/mail/mail-conversation.c:231 src/mail/mail-view.blp:562
+#: src/mail/mail-view.blp:565 src/mail/mail-view.blp:1073
+msgid "Unread"
+msgstr "Ungelesen"
+
+#: src/mail/mail-conversation.c:315
+#, c-format
+msgid "%u message"
+msgid_plural "%u messages"
+msgstr[0] "%u E-Mail"
+msgstr[1] "%u E-Mails"
+
+#: src/window.blp:53 src/calendar/calendar-view.blp:193
+msgid "Calendar"
+msgstr "Kalender"
+
+#. Name des gewählten Adressbuchs folgt mit M6.
+#: src/window.blp:64 src/contacts/contacts-view.blp:213
+#: src/contacts/contacts-view.blp:270 src/contacts/contacts-view.blp:498
+msgid "Contacts"
+msgstr "Kontakte"
+
+#: src/composer/composer.blp:90 src/composer/composer.blp:95
+#: src/mail/mail-view.blp:193 src/mail/mail-view.blp:197
+#: src/contacts/contacts-view.blp:99 src/contacts/contacts-view.blp:103
+#: src/calendar/calendar-view.blp:147 src/calendar/calendar-view.blp:151
+msgid "Main Menu"
+msgstr "Hauptmenü"
+
+#: src/composer/composer.blp:107
+msgid "Add Attachment (Ctrl+M)"
+msgstr "Anhang hinzufügen (Strg+M)"
+
+#: src/composer/composer.blp:111 src/composer/composer.c:1396
+msgid "Add Attachment"
+msgstr "Anhang hinzufügen"
+
+#: src/composer/composer.blp:118 src/composer/composer.blp:122
+msgid "Show Formatting"
+msgstr "Formatierung anzeigen"
+
+#: src/composer/composer.blp:131
+msgid "Send (Ctrl+Enter)"
+msgstr "Senden (Strg+Enter)"
+
+#: src/composer/composer.blp:135
+msgid "Send"
+msgstr "Senden"
+
+#: src/composer/composer.blp:162
+msgid "To"
+msgstr "An"
+
+#: src/composer/composer.blp:208
+msgid "Cc"
+msgstr "Kopie"
+
+#: src/composer/composer.blp:252
+msgid "Bcc"
+msgstr "Blindkopie"
+
+#: src/composer/composer.blp:293
+msgid "Subject"
+msgstr "Betreff"
+
+#: src/composer/composer.blp:334
+msgid "From"
+msgstr "Von"
+
+#: src/composer/composer.blp:379
+msgid "Signature"
+msgstr "Signatur"
+
+#: src/composer/composer.blp:394
+msgid "None"
+msgstr "Ohne"
+
+#: src/composer/composer.blp:438 src/mail/mail-attachment.blp:39
+msgid "Attachments"
+msgstr "Anhänge"
+
+#: src/composer/composer.blp:475 src/composer/composer.blp:480
+msgid "Remove Attachment"
+msgstr "Anhang entfernen"
+
+#: src/composer/composer.blp:526 src/composer/composer.blp:531
+msgid "Paragraph Style"
+msgstr "Absatzformat"
+
+#: src/composer/composer.blp:540
+msgid "Normal"
+msgstr "Text"
+
+#: src/composer/composer.blp:541
+msgid "Heading 1"
+msgstr "Überschrift 1"
+
+#: src/composer/composer.blp:542
+msgid "Heading 2"
+msgstr "Überschrift 2"
+
+#: src/composer/composer.blp:543
+msgid "Heading 3"
+msgstr "Überschrift 3"
+
+#: src/composer/composer.blp:560
+msgid "Bold (Ctrl+B)"
+msgstr "Fett (Strg+B)"
+
+#: src/composer/composer.blp:564
+msgid "Bold"
+msgstr "Fett"
+
+#: src/composer/composer.blp:574
+msgid "Italic (Ctrl+I)"
+msgstr "Kursiv (Strg+I)"
+
+#: src/composer/composer.blp:578
+msgid "Italic"
+msgstr "Kursiv"
+
+#: src/composer/composer.blp:588
+msgid "Underline (Ctrl+U)"
+msgstr "Unterstrichen (Strg+U)"
+
+#: src/composer/composer.blp:592
+msgid "Underline"
+msgstr "Unterstrichen"
+
+#: src/composer/composer.blp:602 src/composer/composer.blp:606
+msgid "Strikethrough"
+msgstr "Durchgestrichen"
+
+#: src/composer/composer.blp:622 src/composer/composer.blp:626
+msgid "Bulleted List"
+msgstr "Aufzählung"
+
+#: src/composer/composer.blp:636 src/composer/composer.blp:640
+msgid "Numbered List"
+msgstr "Nummerierung"
+
+#: src/composer/composer.blp:656 src/composer/composer.blp:660
+msgid "Insert Link"
+msgstr "Link einfügen"
+
+#: src/composer/composer.blp:689
+msgid "Show _Cc"
+msgstr "_Kopie anzeigen"
+
+#: src/composer/composer.blp:694
+msgid "Show _Bcc"
+msgstr "_Blindkopie anzeigen"
+
+#: src/composer/composer.blp:701
+msgid "Plain _Text"
+msgstr "_Text-Mail"
+
+#: src/composer/composer.blp:707
+msgid "_HTML"
+msgstr "_HTML-Mail"
+
+#: src/composer/composer.blp:715
+msgid "Save as _Draft"
+msgstr "Als _Entwurf speichern"
+
+#: src/composer/composer.blp:721
+msgid "_Add Attachment…"
+msgstr "_Anhang hinzufügen …"
+
+#: src/composer/composer.blp:729
+msgid "Insert _Emoji…"
+msgstr "_Emoji einfügen…"
+
+#. Translators: lokalisiertes „Re“ im Betreff einer Antwort (Evolution: „AW“).
+#: src/composer/composer.c:242
+msgctxt "reply-attribution"
+msgid "Re"
+msgstr "AW"
+
+#: src/composer/composer.c:431
+msgid "an unknown sender"
+msgstr "einem unbekannten Absender"
+
+#. Translators: Zuschreibung über dem Zitat wie Evolution (po/de.po:20394-20395).
+#: src/composer/composer.c:434
+#, c-format
+msgid "On %s, %02d/%02d/%04d at %02d:%02d %+05d, %s wrote:"
+msgstr "Am %s, dem %02d.%02d.%04d um %02d:%02d %+05d schrieb %s:"
+
+#: src/composer/composer.c:716
+msgid "No Subject"
+msgstr "Kein Betreff"
+
+#: src/composer/composer.c:728
+#, c-format
+msgid "Forwarded Message — %s"
+msgstr "Weitergeleitete Nachricht — %s"
+
+#: src/composer/composer.c:729
+msgid "Forwarded Message"
+msgstr "Weitergeleitete Nachricht"
+
+#: src/composer/composer.c:947
+msgid "Message Text"
+msgstr "Nachrichtentext"
+
+#: src/composer/composer.c:1209
+msgid "Could not load signature"
+msgstr "Signatur konnte nicht geladen werden"
+
+#: src/composer/composer.c:1337
+msgid "Could not add attachment"
+msgstr "Anhang konnte nicht hinzugefügt werden"
+
+#: src/composer/composer.c:1634
+#, c-format
+msgid "No Drafts folder in %s"
+msgstr "Kein Entwürfe-Ordner in %s"
+
+#: src/composer/composer.c:1715
+msgid "Could not send message"
+msgstr "Nachricht konnte nicht gesendet werden"
+
+#: src/composer/composer.c:1739
+msgid "Could not save draft"
+msgstr "Entwurf konnte nicht gespeichert werden"
+
+#: src/composer/composer.c:1740 src/composer/composer.c:1795
+msgid "Could not create message"
+msgstr "Nachricht konnte nicht erstellt werden"
+
+#: src/composer/composer.c:1961
+msgid "Could not load original message"
+msgstr "Ursprüngliche Nachricht konnte nicht geladen werden"
+
+#. Translators: Absender im Composer wie der Prototyp „Name – Adresse“.
+#: src/composer/composer.c:1975
+#, c-format
+msgid "%s – %s"
+msgstr "%s – %s"
+
+#: src/composer/contact-completion.c:391
+msgid "Address Suggestions"
+msgstr "Adressvorschläge"
+
+#: src/mail/mail-view.blp:242
+msgid "Folders"
+msgstr "Ordner"
+
+#: src/mail/mail-view.blp:320
+msgid "Unread Messages"
+msgstr "Ungelesene Nachrichten"
+
+#: src/mail/mail-view.blp:342
+msgid "No Accounts"
+msgstr "Keine Konten"
+
+#: src/mail/mail-view.blp:343
+msgid "Email accounts from Online Accounts or from Evolution appear here."
+msgstr "E-Mail-Konten aus den Online-Konten oder aus Evolution erscheinen hier."
+
+#: src/mail/mail-view.blp:367 src/mail/mail-view.blp:371
+#: src/contacts/contacts-view.blp:183 src/contacts/contacts-view.blp:187
+#: src/calendar/calendar-view.blp:276 src/calendar/calendar-view.blp:280
+msgid "Toggle Sidebar"
+msgstr "Seitenleiste ein-/ausblenden"
+
+#: src/mail/mail-view.blp:422 src/mail/mail-view.blp:426
+msgid "Filter"
+msgstr "Filter"
+
+#: src/mail/mail-view.blp:454
+msgid "No network connection. Showing what is stored on this device; going online happens automatically once the network is back."
+msgstr "Keine Netzwerkverbindung. Angezeigt wird der Stand auf diesem Gerät; online geht es von selbst, sobald das Netz zurück ist."
+
+#: src/mail/mail-view.blp:457 src/mail/mail-view.blp:472
+msgid "Offline"
+msgstr "Offline"
+
+#: src/mail/mail-view.blp:458
+msgid "No network connection. Showing what is stored on this device."
+msgstr "Keine Netzwerkverbindung. Angezeigt wird der Stand auf diesem Gerät."
+
+#: src/mail/mail-view.blp:518
+msgid "Messages"
+msgstr "Nachrichten"
+
+#: src/mail/mail-view.blp:615
+msgid "Messages in the Conversation"
+msgstr "Nachrichten in der Konversation"
+
+#: src/mail/mail-view.blp:666 src/mail/mail-view.blp:669
+#: src/mail/mail-view.blp:1085
+msgid "Has Attachment"
+msgstr "Mit Anhang"
+
+#: src/mail/mail-view.blp:774 src/mail/mail-view.blp:777
+msgid "Reply"
+msgstr "Antworten"
+
+#: src/mail/mail-view.blp:784 src/mail/mail-view.blp:787
+msgid "Reply to All"
+msgstr "Allen antworten"
+
+#: src/mail/mail-view.blp:794 src/mail/mail-view.blp:797
+msgid "Forward"
+msgstr "Weiterleiten"
+
+#: src/mail/mail-view.blp:808 src/mail/mail-view.blp:811
+msgctxt "action"
+msgid "Archive"
+msgstr "Archivieren"
+
+#: src/mail/mail-view.blp:818 src/mail/mail-view.blp:821
+msgid "Delete"
+msgstr "Löschen"
+
+#: src/mail/mail-view.blp:828 src/mail/mail-view.blp:831
+msgid "Mark as Junk"
+msgstr "Als Spam markieren"
+
+#: src/mail/mail-view.blp:840 src/mail/mail-view.blp:843
+msgid "Move"
+msgstr "Verschieben"
+
+#: src/mail/mail-view.blp:862 src/mail/mail-view.blp:866
+msgid "More Actions"
+msgstr "Weitere Aktionen"
+
+#: src/mail/mail-view.blp:881 src/mail/mail-view.blp:892
+msgid "Search Mail"
+msgstr "E-Mails durchsuchen"
+
+#: src/mail/mail-view.blp:904
+msgid "This _Folder"
+msgstr "Dieser _Ordner"
+
+#: src/mail/mail-view.blp:906
+msgid "Search in the selected folder"
+msgstr "Im gewählten Ordner suchen"
+
+#: src/mail/mail-view.blp:911
+msgid "_All Folders"
+msgstr "_Alle Ordner"
+
+#: src/mail/mail-view.blp:913
+msgid "Search in all folders of all accounts"
+msgstr "In allen Ordnern aller Konten suchen"
+
+#: src/mail/mail-view.blp:917
+msgid "Search Scope"
+msgstr "Suchbereich"
+
+#: src/mail/mail-view.blp:926 src/mail/mail-view.blp:930
+#: src/contacts/contacts-view.blp:420 src/contacts/contacts-view.blp:424
+#: src/calendar/calendar-view.blp:318 src/calendar/calendar-view.blp:322
+msgid "Search"
+msgstr "Suchen"
+
+#: src/mail/mail-view.blp:950
+msgid "No Message Selected"
+msgstr "Keine Nachricht ausgewählt"
+
+#: src/mail/mail-view.blp:1047
+msgid "Message"
+msgstr "Nachricht"
+
+#: src/mail/mail-view.blp:1065
+msgid "All"
+msgstr "Alle"
+
+#: src/mail/mail-view.blp:1094
+msgid "Group by _Conversation"
+msgstr "Nach _Konversationen"
+
+#: src/mail/mail-view.blp:1120
+msgid "Print…"
+msgstr "Drucken…"
+
+#: src/mail/mail-view.blp:1132
+msgid "Mark as _Read"
+msgstr "Als _gelesen markieren"
+
+#: src/mail/mail-view.blp:1139
+msgid "Mark as _Unread"
+msgstr "Als _ungelesen markieren"
+
+#: src/mail/mail-view.blp:1148
+msgid "_Flag"
+msgstr "_Markieren"
+
+#: src/mail/mail-view.blp:1155
+msgid "Remove F_lag"
+msgstr "Markierung _entfernen"
+
+#: src/mail/mail-view.blp:1165
+msgid "_Archive"
+msgstr "_Archivieren"
+
+#: src/mail/mail-view.blp:1177
+msgid "Mark as _Junk"
+msgstr "Als _Spam markieren"
+
+#: src/mail/mail-view.blp:1183
+msgid "_Move To"
+msgstr "_Verschieben nach"
+
+#: src/mail/mail-view.blp:1192
+msgid "_New Folder…"
+msgstr "_Neuer Ordner…"
+
+#: src/mail/mail-view.blp:1198
+msgid "_Rename…"
+msgstr "_Umbenennen…"
+
+#: src/mail/mail-view.blp:1205
+msgid "_Delete…"
+msgstr "_Löschen…"
+
+#: src/mail/mail-view.blp:1217
+msgid "_New Message"
+msgstr "_Neue E-Mail"
+
+#: src/mail/mail-view.blp:1223 src/contacts/contacts-view.blp:543
+#: src/calendar/calendar-view.blp:594
+msgid "_Search"
+msgstr "_Suchen"
+
+#: src/mail/mail-view.blp:1230
+msgid "_Refresh"
+msgstr "_Aktualisieren"
+
+#: src/mail/mail-view.blp:1240 src/contacts/contacts-view.blp:552
+#: src/calendar/calendar-view.blp:603
+msgid "Toggle S_idebar"
+msgstr "Seiten_leiste ein-/ausblenden"
+
+#: src/mail/mail-view.blp:1251 src/contacts/contacts-view.blp:563
+#: src/calendar/calendar-view.blp:614
+msgid "_Light"
+msgstr "_Hell"
+
+#: src/mail/mail-view.blp:1257 src/contacts/contacts-view.blp:569
+#: src/calendar/calendar-view.blp:620
+msgid "Dark with Light _Content"
+msgstr "Dunkel _mit hellem Inhalt"
+
+#: src/mail/mail-view.blp:1263 src/contacts/contacts-view.blp:575
+#: src/calendar/calendar-view.blp:626
+msgid "_Dark"
+msgstr "_Dunkel"
+
+#: src/mail/mail-view.blp:1271 src/contacts/contacts-view.blp:583
+#: src/calendar/calendar-view.blp:634
+msgid "_Preferences"
+msgstr "_Einstellungen"
+
+#: src/mail/mail-view.blp:1277 src/contacts/contacts-view.blp:589
+#: src/calendar/calendar-view.blp:640
+msgid "_Keyboard Shortcuts"
+msgstr "_Tastenkürzel"
+
+#: src/mail/mail-view.blp:1283 src/contacts/contacts-view.blp:595
+#: src/calendar/calendar-view.blp:646
+msgid "_About Revolution"
+msgstr "_Info zu Revolution"
+
+#: src/mail/mail-view.blp:1291
+msgid "Run in _Background"
+msgstr "Im _Hintergrund weiterlaufen"
+
+#: src/mail/mail-view.blp:1296
+msgid "_Quit"
+msgstr "_Beenden"
+
+#: src/mail/mail-reader.blp:46
+msgid "Remote Content Blocked"
+msgstr "Entfernte Inhalte gesperrt"
+
+#: src/mail/mail-reader.blp:54
+msgid "Load"
+msgstr "Laden"
+
+#: src/mail/mail-reader.blp:56
+msgid "Always Load Remote Content"
+msgstr "Entfernte Inhalte immer laden"
+
+#: src/mail/mail-reader.blp:61
+msgid "Load Remote Content of This Message"
+msgstr "Entfernte Inhalte dieser E-Mail laden"
+
+#: src/mail/mail-reader.blp:165 src/mail/mail-reader.blp:249
+msgid "To:"
+msgstr "An:"
+
+#: src/mail/mail-reader.blp:188
+msgid "Details"
+msgstr "Details"
+
+#: src/mail/mail-reader.blp:189 src/mail/mail-reader.blp:193
+msgid "Show All Headers"
+msgstr "Alle Kopfzeilen anzeigen"
+
+#: src/mail/mail-reader.blp:217
+msgid "From:"
+msgstr "Von:"
+
+#: src/mail/mail-reader.blp:280
+msgid "Cc:"
+msgstr "Kopie:"
+
+#: src/mail/mail-reader.blp:312
+msgid "Date:"
+msgstr "Datum:"
+
+#: src/mail/mail-attachment.blp:92 src/mail/mail-attachment.blp:97
+msgid "Save All Attachments…"
+msgstr "Alle Anhänge speichern …"
+
+#: src/mail/mail-attachment.blp:113
+msgid "_Open"
+msgstr "_Öffnen"
+
+#: src/mail/mail-attachment.blp:118
+msgid "Save _As…"
+msgstr "_Speichern unter …"
+
+#: src/mail/mail-attachment.blp:125
+msgid "Save A_ll…"
+msgstr "_Alle speichern …"
+
+#: src/mail/mail-conversation.blp:54
+msgid "Conversation Messages"
+msgstr "Nachrichten der Konversation"
+
+#: src/contacts/contacts-view.blp:121
+msgid "Address Books"
+msgstr "Adressbücher"
+
+#: src/contacts/contacts-view.blp:197 src/contacts/contacts-view.blp:201
+#: src/contacts/contacts-view.blp:370 src/contacts/contacts-view.blp:374
+msgid "New Contact"
+msgstr "Neuer Kontakt"
+
+#: src/contacts/contacts-view.blp:244
+msgid "No Contacts"
+msgstr "Keine Kontakte"
+
+#: src/contacts/contacts-view.blp:330
+msgid "Jump to Initial Letter"
+msgstr "Zu Anfangsbuchstabe springen"
+
+#: src/contacts/contacts-view.blp:390 src/contacts/contacts-view.blp:394
+msgid "Edit Contact"
+msgstr "Kontakt bearbeiten"
+
+#: src/contacts/contacts-view.blp:406 src/contacts/contacts-view.blp:412
+msgid "Search Contacts"
+msgstr "Kontakte durchsuchen"
+
+#: src/contacts/contacts-view.blp:438
+msgid "No Contact Selected"
+msgstr "Kein Kontakt ausgewählt"
+
+#: src/contacts/contacts-view.blp:519
+msgid "Contact"
+msgstr "Kontakt"
+
+#: src/contacts/contacts-view.blp:537
+msgid "_New Contact"
+msgstr "_Neuer Kontakt"
+
+#: src/contacts/contacts-view.c:210
+#, c-format
+msgid "Jump to “%s”"
+msgstr "Zu „%s“ springen"
+
+#: src/calendar/calendar-view.blp:173
+msgid "Select Date"
+msgstr "Datum wählen"
+
+#: src/calendar/calendar-view.blp:226
+msgid "Show or Hide Calendar"
+msgstr "Kalender ein- oder ausblenden"
+
+#: src/calendar/calendar-view.blp:303 src/calendar/calendar-view.blp:310
+msgid "Search Events"
+msgstr "Termine durchsuchen"
+
+#: src/calendar/calendar-view.blp:339
+msgid "_Month"
+msgstr "_Monat"
+
+#: src/calendar/calendar-view.blp:354
+msgid "MO"
+msgstr "MO"
+
+#: src/calendar/calendar-view.blp:365
+msgid "TU"
+msgstr "DI"
+
+#: src/calendar/calendar-view.blp:376
+msgid "WE"
+msgstr "MI"
+
+#: src/calendar/calendar-view.blp:387
+msgid "TH"
+msgstr "DO"
+
+#: src/calendar/calendar-view.blp:398
+msgid "FR"
+msgstr "FR"
+
+#: src/calendar/calendar-view.blp:409
+msgid "SA"
+msgstr "SA"
+
+#: src/calendar/calendar-view.blp:420
+msgid "SU"
+msgstr "SO"
+
+#: src/calendar/calendar-view.blp:448
+msgid "Month"
+msgstr "Monat"
+
+#: src/calendar/calendar-view.blp:457
+msgid "_Week"
+msgstr "_Woche"
+
+#: src/calendar/calendar-view.blp:475
+msgid "All-Day Events"
+msgstr "Ganztägige Termine"
+
+#: src/calendar/calendar-view.blp:504
+msgid "Week"
+msgstr "Woche"
+
+#: src/calendar/calendar-view.blp:521 src/calendar/calendar-view.blp:525
+msgid "Previous"
+msgstr "Zurück"
+
+#: src/calendar/calendar-view.blp:532 src/calendar/calendar-view.blp:536
+msgid "Next"
+msgstr "Vor"
+
+#: src/calendar/calendar-view.blp:543
+msgid "Go to Today"
+msgstr "Zu heute springen"
+
+#: src/calendar/calendar-view.blp:546
+msgid "_Today"
+msgstr "_Heute"
+
+#: src/calendar/calendar-view.blp:562 src/calendar/calendar-view.blp:566
+msgid "Add Event"
+msgstr "Termin hinzufügen"
+
+#: src/calendar/calendar-view.blp:588
+msgid "_New Event"
+msgstr "_Neuer Termin"

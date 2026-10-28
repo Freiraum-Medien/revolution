@@ -6,9 +6,9 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
   <name>Revolution</name>
-  <summary>E-Mail, Kontakte und Kalender für GNOME</summary>
+  <summary>Email, contacts and calendar for GNOME</summary>
   <description>
-    <p>Revolution ist ein Mail-Client für GNOME mit Kontakten und Kalender. Konten richtet man in den GNOME-Online-Konten ein.</p>
+    <p>Revolution is a mail client for GNOME with contacts and calendar. Accounts are set up in GNOME Online Accounts.</p>
   </description>
 
   <developer id="de.freiraum_medien">

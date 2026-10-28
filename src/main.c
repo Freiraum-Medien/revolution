@@ -1431,8 +1431,12 @@ main (int    argc,
 {
   g_autoptr (AdwApplication) app = NULL;
   g_autoptr (GSettings) settings = NULL;
+  g_autofree char *exe = g_file_read_link ("/proc/self/exe", NULL);
+  g_autofree char *exe_dir = exe != NULL ? g_path_get_dirname (exe) : NULL;
 
-  bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR);
+  /* #438: Aus dem Build-Ordner gestartet die dort gebauten Übersetzungen, sonst die installierten
+   * (gleiche Erkennung wie die Web-Erweiterung, mail-reader.c extensions_directory). */
+  bindtextdomain (GETTEXT_PACKAGE, g_strcmp0 (exe_dir, BUILD_SRC_DIR) == 0 ? BUILD_LOCALE_DIR : LOCALEDIR);
   bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
   textdomain (GETTEXT_PACKAGE);
 

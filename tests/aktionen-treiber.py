@@ -37,6 +37,7 @@ ZEILE_RE = re.compile(r'^\(revolution:\d+\): revolution-DEBUG: \d\d:\d\d:\d\d\.\
 
 fehler = 0
 d = display.Display()
+FENSTER = None
 app_pid = None
 
 
@@ -126,7 +127,10 @@ def ziehen(von, bis, schritte=40, dauer=1.6):
         xtest.fake_input(d, X.MotionNotify, x=int(von[0] + (bis[0] - von[0]) * i / schritte),
                          y=int(von[1] + (bis[1] - von[1]) * i / schritte))
         d.sync()
-    time.sleep(0.3)
+    for i in range(6):  # über dem Ziel: XDND-Status abwarten
+        time.sleep(0.1)
+        xtest.fake_input(d, X.MotionNotify, x=bis[0] + i % 2, y=bis[1])
+        d.sync()
     xtest.fake_input(d, X.ButtonRelease, 1)
     d.sync()
     time.sleep(0.8)
@@ -153,17 +157,6 @@ def fenster():
     return None
 
 
-def name_von(o):
-    """Name; GtkPopoverMenu-Einträge haben keinen eigenen, nur „labelled-by“ auf ihr Label."""
-    if o.get_name():
-        return o.get_name()
-    for r in o.get_relation_set() or []:
-        if r.get_relation_type() == Atspi.RelationType.LABELLED_BY:
-            return ' '.join(r.get_target(i).get_name() or '' for i in range(r.get_n_targets()))
-    kinder = [o.get_child_at_index(i) for i in range(o.get_child_count())]
-    return ' '.join(k.get_name() or '' for k in kinder if k is not None)
-
-
 def a11y_finden(rolle, name, o=None):
     """Erster Knoten der App mit Rolle und Name (Ende des Namens) im Barrierefreiheitsbaum (#431)."""
     if o is None:
@@ -172,7 +165,7 @@ def a11y_finden(rolle, name, o=None):
         o = next((a for a in apps if a is not None and a.get_process_id() == app_pid), None)
         if o is None:
             return None
-    if o.get_role_name() == rolle and name_von(o).endswith(name) and \
+    if o.get_role_name() == rolle and (o.get_name() or '').split(', ')[0].endswith(name) and \
             o.get_state_set().contains(Atspi.StateType.SHOWING):
         return o
     for i in range(o.get_child_count()):
@@ -182,44 +175,67 @@ def a11y_finden(rolle, name, o=None):
     return None
 
 
-def a11y_namen(o=None, tiefe=0):
-    if o is None:
-        desktop = Atspi.get_desktop(0)
-        o = next(a for a in (desktop.get_child_at_index(i) for i in range(desktop.get_child_count()))
-                 if a is not None and a.get_process_id() == app_pid)
-    out = ['%s:%s' % (o.get_role_name(), name_von(o))] if 'menu' in o.get_role_name() else []
-    for i in range(o.get_child_count()):
-        out += a11y_namen(o.get_child_at_index(i), tiefe + 1)
-    return out
-
-
 def mitte(o):
-    e = o.get_extents(Atspi.CoordType.SCREEN)
-    return e.x + e.width // 2, e.y + e.height // 2
+    """Bildschirmpunkt: GTK 4.22 unter X11 meldet SCREEN-Koordinaten als 0,0, nur WINDOW stimmt (gemessen);
+    dazu der Ursprung des X-Fensters der App."""
+    e = o.get_extents(Atspi.CoordType.WINDOW)
+    g = FENSTER.translate_coords(d.screen().root, 0, 0)
+    return -g.x + e.x + e.width // 2, -g.y + e.y + e.height // 2
 
 
 # ------------------------------------------------------------------ Schritte
 
+def alle(rolle, o=None):
+    """Sichtbare Knoten einer Rolle in Baumreihenfolge."""
+    if o is None:
+        desktop = Atspi.get_desktop(0)
+        o = next(a for a in (desktop.get_child_at_index(i) for i in range(desktop.get_child_count()))
+                 if a is not None and a.get_process_id() == app_pid)
+    out = [o] if o.get_role_name() == rolle and o.get_state_set().contains(Atspi.StateType.SHOWING) else []
+    for i in range(o.get_child_count()):
+        out += alle(rolle, o.get_child_at_index(i))
+    return out
+
+
 def menue():
+    """Einträge des Menüs „Verschieben“ haben bei GTK 4.22 keinen Namen am Barrierefreiheitsbus und liegen in
+    einem eigenen Fenster (gemessen); ihre Reihenfolge steht im Log (mail-view.c, append_move_items: „Aktion:
+    Ziel <Ordner>“). Gewählt per Pfeiltaste, bis der Eintrag den Fokus hat, dann Eingabe."""
+    ab = len(log_zeilen())
     taste('Control_L+Shift_L+m', 1.0)
+    ziele = [t.split('Aktion: Ziel ', 1)[1] for t in log_zeilen()[ab:] if t.startswith('Aktion: Ziel ')]
+    treffer = [i for i, z in enumerate(ziele) if z.endswith(HEIM.rsplit('/', 1)[-1] + '/Ziel')]
+    if len(treffer) != 1:
+        raise RuntimeError('Menü: Ziele im Log %s' % ziele)
+    for _ in range(len(ziele) + 1):
+        eintraege = sorted(alle('menu item'), key=lambda o: o.get_extents(Atspi.CoordType.SCREEN).y)
+        fokus = [i for i, e in enumerate(eintraege) if e.get_state_set().contains(Atspi.StateType.FOCUSED)]
+        if fokus == treffer:
+            break
+        taste('Down', 0.3)
+    else:
+        raise RuntimeError('Menü: Eintrag %d nicht erreicht (%d Einträge)' % (treffer[0], len(eintraege)))
     bild('menue')
-    eintrag = a11y_finden('menu item', 'Revolution-Test/Archiv-Test')
-    if eintrag is None:
-        raise RuntimeError('Menüeintrag „…/Archiv-Test“ nicht gefunden: %s' % a11y_namen())
-    klick(mitte(eintrag))
+    taste('Return')
 
 
 def ziehen_auf_ordner():
-    zeile = a11y_finden('list item', 'Archiv-Test') or a11y_finden('table row', 'Archiv-Test')
-    if zeile is None:
-        raise RuntimeError('Seitenleiste: „Archiv-Test“ nicht gefunden')
-    ziehen(ZEILE, mitte(zeile))
+    zeile = a11y_finden('list item', 'Ziel')
+    erste = a11y_finden('list item', 'Alle Eingänge')
+    if zeile is None or erste is None:
+        raise RuntimeError('Seitenleiste: „Ziel“ nicht gefunden')
+    # Die Zeilen der Seitenleiste meldet GTK 4.22 um einen festen Betrag zu hoch (gemessen: „Ziel“ eine Zeile
+    # über der wirklichen); Abgleich an „Alle Eingänge“, das im Fenster 1200×900 bei y = 100 steht (Screenshots).
+    x, y = mitte(zeile)
+    ziehen(ZEILE, (x, y + 100 - mitte(erste)[1]))
 
 
 def rueckgaengig_knopf():
-    knopf = a11y_finden('push button', 'Rückgängig')
+    time.sleep(1)  # Hinweis fertig eingeblendet
+    knopf = a11y_finden('button', 'Rückgängig')
     if knopf is None:
         raise RuntimeError('Knopf „Rückgängig“ nicht gefunden')
+    bild('knopf')
     klick(mitte(knopf))
 
 
@@ -228,11 +244,12 @@ def rueckgaengig_knopf():
 ZURUECK = lambda: taste('Control_L+z')  # noqa: E731
 SCHRITTE = [
     ('Löschen (Entf)', lambda: taste('Delete'), 'gelöscht', ZURUECK, True),
-    ('Archivieren (Strg+Alt+A)', lambda: taste('Control_L+Alt_L+a'), 'archiviert', ZURUECK, True),
     ('Spam (Umschalt+Strg+J)', lambda: taste('Control_L+Shift_L+j'), 'Spam', ZURUECK, True),
     ('Verschieben (Menü)', menue, 'verschoben', ZURUECK, True),
     ('Verschieben (Ziehen)', ziehen_auf_ordner, 'verschoben', ZURUECK, True),
     ('Löschen, Knopf „Rückgängig“', lambda: taste('Delete'), 'gelöscht', rueckgaengig_knopf, False),
+    # Zuletzt: bei Gmail bleibt danach das Banner „Kein Zielordner“ über der Liste stehen.
+    ('Archivieren (Strg+Alt+A)', lambda: taste('Control_L+Alt_L+a'), 'archiviert', ZURUECK, True),
 ]
 KONVERSATION = [('Konversation löschen (⌫)', lambda: taste('BackSpace'), 'gelöscht', ZURUECK, True)]
 
@@ -240,6 +257,12 @@ KONVERSATION = [('Konversation löschen (⌫)', lambda: taste('BackSpace'), 'gel
 def schritt(name, bedienung, was, zurueck, am_server, n, vorher, erstes):
     ab = len(log_zeilen())
     bedienung()
+    if was == 'archiviert' and 'gmail' in KONTO:
+        # Grenze: Gmail hat keinen Archivordner (ESource leer, kein \\Archive; imapx verwirft \\All), wie Evolution.
+        t = warte(r'^Banner: Kein Zielordner', ab, 10)
+        (ok if t and warte(r'archiviert nicht möglich, Ziel fehlt', ab, 1) else falsch)('%s: ohne Archivordner %s' % (name, t))
+        (ok if ort() == vorher else falsch)('%s: Server unverändert' % name)
+        return
     t = warte(r'^Aktion: %s %s \S.* → (.*): (\d+) von (\d+) verschoben' % (re.escape(LOGKEY), re.escape(was)), ab, 90)
     m = t and re.search(r' → (.*): (\d+) von (\d+) verschoben', t)
     if not m or int(m.group(2)) != n or int(m.group(3)) != n:
@@ -248,7 +271,7 @@ def schritt(name, bedienung, was, zurueck, am_server, n, vorher, erstes):
     ziel = m.group(1)
     ok('%s: %s' % (name, t))
     auswahl = warte(r'^Aktion: Zeile \d+ weg, gewählt', ab, 5)
-    (ok if auswahl and ' gewählt 4294967295 ' not in auswahl else falsch)('%s: nächste Nachricht gewählt (%s)' % (name, auswahl))
+    (ok if auswahl and (' gewählt 4294967295 ' not in auswahl or auswahl.endswith(' von 0')) else falsch)('%s: nächste Nachricht gewählt (%s)' % (name, auswahl))
     if erstes:
         time.sleep(0.5)
         bild('hinweis')
@@ -275,7 +298,8 @@ def main():
     leser = threading.Thread(target=filtern, args=(app.stdout, log), daemon=True)
     leser.start()
     try:
-        w = fenster()
+        global FENSTER
+        w = FENSTER = fenster()
         if w is None:
             falsch('kein Fenster')
             return 1
@@ -284,11 +308,19 @@ def main():
         if warte(r'^Nachrichten: %s vollständig' % re.escape(LOGKEY), 0, 120) is None:
             falsch('Liste nicht geladen (%s)' % ORDNER)
             return 1
+        # Neue Mail im eben angelegten Ordner: microsoft365 liefert sie mitunter erst beim nächsten Abgleich.
+        if warte(r'^Nachrichten: %s Reihenfolge: .* gewählt [^-]' % re.escape(LOGKEY), 0, 30) is None:
+            taste('F5')
+            if warte(r'^Nachrichten: %s Reihenfolge: .* gewählt [^-]' % re.escape(LOGKEY), 0, 90) is None:
+                falsch('Testmail nicht gewählt (%s)' % ORDNER)
+                return 1
         ok('Liste geladen: %s' % ORDNER)
         time.sleep(2)
         vorher = ort()
         n = len({v[0] for v in vorher})
-        for i, (name, bedienung, was, zurueck, am_server) in enumerate(KONVERSATION if WAS == 'konversation' else SCHRITTE):
+        schritte = KONVERSATION if WAS == 'konversation' else SCHRITTE
+        schritte = [x for x in schritte if re.search(os.environ.get('NUR', ''), x[0])]
+        for i, (name, bedienung, was, zurueck, am_server) in enumerate(schritte):
             if i > 0:
                 klick(ZEILE)
             schritt(name, bedienung, was, zurueck, am_server, n, vorher, i == 0)
@@ -310,6 +342,7 @@ def main():
     zeilen = open(LOG, encoding='utf-8', errors='replace').read().splitlines()
     rest = [z for z in zeilen if not z.startswith(('(revolution:', 'libEGL warning:', '[graph] '))
             or (z.startswith('(revolution:') and 'revolution-DEBUG' not in z)]
+    rest = [z for z in rest if not re.match(r'^\(process:\d+\): revolution-DEBUG: ', z)]
     (falsch if rest else ok)('Log: %s' % ('%d unerwartete Zeilen: %s' % (len(rest), rest[:3]) if rest else 'nur DEBUG-Zeilen'))
     if M365:
         graph = [z for z in zeilen if z.startswith('[graph] ')]

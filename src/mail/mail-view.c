@@ -2717,7 +2717,8 @@ find_folder_type (GListModel *model,
       guint32 flags = revolution_mail_folder_get_flags (folder);
       RevolutionMailFolder *found;
 
-      if ((flags & CAMEL_FOLDER_TYPE_MASK) == type && (flags & CAMEL_FOLDER_NOSELECT) == 0)
+      /* #363: ohne die virtuellen Ordner von imapx (.#evolution/Trash, /Junk). */
+      if ((flags & CAMEL_FOLDER_TYPE_MASK) == type && (flags & (CAMEL_FOLDER_NOSELECT | CAMEL_FOLDER_VIRTUAL)) == 0)
         return g_steal_pointer (&folder);
 
       found = find_folder_type (revolution_mail_folder_get_children (folder), type);
@@ -2952,8 +2953,8 @@ revolution_mail_view_find_place (RevolutionMailView    *self,
  * des Kontos (#350; Papierkorb und Spam vom Server oder aus der Ersteinrichtung, mail-folder.c), denn
  * camel_store_get_trash_folder_sync bzw. _junk_folder_sync liefern bei imapx ohne use-real-*-path die
  * virtuellen Ordner (camel-imapx-store.c:2193-2290). Archiv wie Evolution der Archivordner des Kontos
- * (e-mail-reader.c:1331-1437), ohne ihn (Gmail, #350) „Alle Nachrichten“ (\All): Archivieren heißt bei Gmail
- * Label „Posteingang“ entfernen. microsoft365: Papierkorb nur über revolution_eds_store_get_trash_folder_sync,
+ * (e-mail-reader.c:1331-1437); ohne ihn (Gmail: ESource leer, kein \Archive, imapx verwirft die Typen des Servers
+ * wie \All, camel-imapx-store.c:327-331) wie Evolution ein Hinweis statt Archivieren (dort 1420-1428). microsoft365: Papierkorb nur über revolution_eds_store_get_trash_folder_sync,
  * einmal je Store (#416, sie synchronisiert alle offenen Ordner), Verschieben nur über
  * revolution_eds_folder_transfer_messages_to_sync. Spam setzt wie Evolution SEEN|JUNK|JUNK_LEARN
  * (e-mail-reader.c:1030-1042) und verschiebt in den Spam-Ordner, damit Filter am Server lernen; nicht bei
@@ -3324,8 +3325,6 @@ transfer_message (RevolutionMailView    *self,
       if (kind != ACTION_MOVE)
         {
           folder = find_folder_type (tree, transfer_kinds[kind].type);
-          if (folder == NULL && kind == ACTION_ARCHIVE)
-            folder = find_folder_type (tree, CAMEL_FOLDER_TYPE_ALL);
           name = folder != NULL ? revolution_mail_folder_get_full_name (folder) : NULL;
         }
       else if (g_strcmp0 (uid, target_account) != 0)
@@ -3409,6 +3408,7 @@ append_move_items (GMenu      *menu,
           g_autoptr (GMenuItem) item = g_menu_item_new (label, NULL);
 
           g_menu_item_set_action_and_target (item, "message.move-to", "s", name);
+          g_debug ("Aktion: Ziel %s", name);
           g_menu_append_item (menu, item);
         }
       append_move_items (menu, revolution_mail_folder_get_children (folder), label, exclude);
@@ -3462,16 +3462,24 @@ on_transfer_action (GSimpleAction *action,
   else if (g_str_equal (name, "undo"))
     on_undo (self);
   else if (g_str_equal (name, "move-to"))
-    transfer_message (self, selected_message (self), ACTION_MOVE, g_variant_get_string (parameter, NULL), self->move_account);
+    {
+      transfer_message (self, selected_message (self), ACTION_MOVE, g_variant_get_string (parameter, NULL), self->move_account);
+      /* Das Menü ist zu, der Fokus läge sonst außerhalb der Ansicht (Kürzel wie Strg+Z wirkungslos, gemessen). */
+      gtk_widget_grab_focus (GTK_WIDGET (self->message_list));
+    }
   else
     transfer_message (self, selected_message (self),
                       g_str_equal (name, "delete") ? ACTION_DELETE : g_str_equal (name, "archive") ? ACTION_ARCHIVE : ACTION_JUNK,
                       NULL, NULL);
 }
 
-/* Ziehen einer Zeile (GtkDragSource, mail-view.blp): wie Stamp (stamp-conversation-list.c:1619-1645) mit der
- * Nachricht als Inhalt. Schnelles waagerechtes Ziehen ist Wischen (#353, on_row_swipe): solange die
- * Geschwindigkeit dafür spricht oder noch unbekannt ist, kein Ziehen (GTK fragt bei jeder Bewegung neu). */
+/* Ziehen einer Zeile (GtkDragSource, mail-view.blp) wie Stamp (stamp-conversation-list.c:1619-1645), als Inhalt
+ * aber Text „revolution-message:<UID>“ statt des Objekts: unter X11 trägt XDND nur MIME-Typen, ein reiner
+ * GType kommt nie an (gemessen mit GDK_DEBUG=dnd: „DND formats:“ leer, kein Ablegen). Schnelles waagerechtes
+ * Ziehen ist Wischen (#353, on_row_swipe): solange die Geschwindigkeit dafür spricht oder noch unbekannt ist,
+ * kein Ziehen (GTK fragt bei jeder Bewegung neu). */
+#define DRAG_PREFIX "revolution-message:"
+
 static GdkContentProvider *
 on_row_drag_prepare (GtkListItem   *item,
                      double         x G_GNUC_UNUSED,
@@ -3480,6 +3488,7 @@ on_row_drag_prepare (GtkListItem   *item,
 {
   g_autoptr (GListModel) controllers = gtk_widget_observe_controllers (gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (source)));
   RevolutionMailMessage *message = gtk_list_item_get_item (item);
+  g_autofree char *text = NULL;
   double vx = 0, vy = 0;
 
   for (guint i = 0; i < g_list_model_get_n_items (controllers); i++)
@@ -3492,7 +3501,9 @@ on_row_drag_prepare (GtkListItem   *item,
   if (message == NULL || (ABS (vx) >= SWIPE_VELOCITY && ABS (vx) >= 2 * ABS (vy)))
     return NULL;
 
-  return gdk_content_provider_new_typed (REVOLUTION_TYPE_MAIL_MESSAGE, message);
+  text = g_strconcat (DRAG_PREFIX, revolution_mail_message_get_uid (message), NULL);
+
+  return gdk_content_provider_new_typed (G_TYPE_STRING, text);
 }
 
 /* Ablegen auf einem Ordner der Seitenleiste (GtkDropTarget, mail-view.blp), nur im selben Konto. */
@@ -3507,14 +3518,24 @@ on_folder_drop (GtkListItem   *item,
   GtkTreeListRow *row = gtk_list_item_get_item (item);
   g_autoptr (RevolutionMailFolder) folder = row != NULL ? gtk_tree_list_row_get_item (row) : NULL;
   g_autoptr (RevolutionMailAccount) account = NULL;
+  g_autoptr (RevolutionMailMessage) message = NULL;
+  const char *text = g_value_get_string (value);
 
-  if (folder == NULL || (revolution_mail_folder_get_flags (folder) & (CAMEL_FOLDER_NOSELECT | CAMEL_FOLDER_VIRTUAL)) != 0)
+  for (guint i = 0; text != NULL && g_str_has_prefix (text, DRAG_PREFIX) && message == NULL &&
+                    i < g_list_model_get_n_items (G_LIST_MODEL (self->messages)); i++)
+    {
+      message = g_list_model_get_item (G_LIST_MODEL (self->messages), i);
+      if (g_strcmp0 (revolution_mail_message_get_uid (message), text + strlen (DRAG_PREFIX)) != 0)
+        g_clear_object (&message);
+    }
+  if (message == NULL || folder == NULL ||
+      (revolution_mail_folder_get_flags (folder) & (CAMEL_FOLDER_NOSELECT | CAMEL_FOLDER_VIRTUAL)) != 0)
     return FALSE;
   g_object_get (folder, "account", &account, NULL);
   g_debug ("Aktion: Ziehen auf %s", revolution_mail_folder_get_full_name (folder));
 
   return account != NULL && account != self->favorites &&
-         transfer_message (self, g_value_get_object (value), ACTION_MOVE, revolution_mail_folder_get_full_name (folder),
+         transfer_message (self, message, ACTION_MOVE, revolution_mail_folder_get_full_name (folder),
                            revolution_mail_account_get_uid (account));
 }
 

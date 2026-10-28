@@ -255,7 +255,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
                       // #363: Nachricht hierher ziehen = verschieben (mail-view.c, on_folder_drop).
                       DropTarget {
                         actions: move;
-                        formats: "RevolutionMailMessage";
+                        formats: "gchararray";
                         drop => $on_folder_drop(template);
                       }
 

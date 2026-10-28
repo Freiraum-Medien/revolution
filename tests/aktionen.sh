@@ -8,9 +8,12 @@
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 900; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
 # Je Durchgang und Konto ein App-Start im eigenen Xvfb (echter Session-Bus, Einstellungen im Speicher,
-# mark-seen=false) im Ordner Revolution-Test mit der Aktions-Mail (tests/testdaten.py --ort KONTO aktion
-# anlegen, Auswahl über REVOLUTION_MESSAGE). Treiber tests/aktionen-treiber.py: Entf, Strg+Alt+A,
-# Umschalt+Strg+J, Umschalt+Strg+M mit Menüeintrag, Ziehen auf „Archiv-Test“ der Seitenleiste; nach jeder
+# mark-seen=false) im eigenen Ordner Revolution-Aktionen (mit Unterordner Ziel) und der Aktions-Mail darin:
+# tests/testdaten.py --ort KONTO aktion anlegen, am Ende des Durchgangs und bei jedem Abbruch (trap)
+# … aufraeumen (Mail endgültig, nur ihre eigene UID bzw. ID, und beide Ordner weg; PM 28.10.: nicht in
+# Revolution-Test, dort arbeiten andere Tests). Auswahl über REVOLUTION_MESSAGE. Treiber
+# tests/aktionen-treiber.py: Entf, Umschalt+Strg+J, Umschalt+Strg+M mit Menüeintrag, Ziehen auf „Ziel“
+# der Seitenleiste, Entf mit Knopf „Rückgängig“, Strg+Alt+A (Gmail ohne Archivordner: Banner); nach jeder
 # Aktion Ziel am Server (tests/testdaten.py --ort, IMAP bzw. Graph) und nächste Nachricht gewählt, dann
 # Rückgängig (Strg+Z bzw. Knopf im Hinweis) und Stand am Server wie vorher. geops@ und outlook.com
 # zusätzlich: Konversation im Posteingang mit ⌫ löschen und zurück (nur ihre eingehenden Mails).
@@ -70,7 +73,7 @@ lauf () {
   rundir="$(mktemp -d)"
   timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
     XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$SCHEMA" GSETTINGS_BACKEND=memory \
-    GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
+    GDK_BACKEND=x11 GDK_DEBUG="no-portals${GDK_DEBUG_ZUSATZ:-}" ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
     ADW_DEBUG_COLOR_SCHEME="$schema" G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals \
     REVOLUTION_FOLDER="$ordner" REVOLUTION_MESSAGE="$([ "$was" = aktion ] && echo 'Aktionen 363' || echo 'Konversation Marktstand')" \
     REVOLUTION_TEST_HOOKS=1 REVOLUTION_SKIP_ACCOUNTS="$skip" $([ "${konto#*outlook}" != "$konto" ] && echo M365_DEBUG=1) \
@@ -81,17 +84,25 @@ lauf () {
   return "$rc"
 }
 
+aufraeumen () {
+  for konto in $KONTEN; do td --ort "$konto" aktion aufraeumen >>"$OUT/aufraeumen.txt" 2>&1; done
+}
+trap aufraeumen EXIT
+trap 'exit 1' INT TERM
+
 for n in $(seq 1 "$LAEUFE"); do
+  export AKTION_ORDNER="Revolution-Aktionen-$(date +%H%M%S)" AKTION_IDS="$OUT/$n-ordner-ids.txt"
   for konto in $KONTEN; do
     read -r uid skip < <(konten "$konto") || { echo "FEHLER  $konto: UID nicht aus GOA/Registry"; FEHLER=$((FEHLER + 1)); continue; }
     schema=prefer-light
     [ "${konto#*gmail}" != "$konto" ] && schema=prefer-dark
     case "$konto" in
-      KONTO_M365@example.invalid) heim=Revolution-Test; eingang=Posteingang ;;
-      KONTO_GOOGLE@example.invalid) heim=Revolution-Test; eingang= ;;
-      *) heim=INBOX/Revolution-Test; eingang=INBOX ;;
+      KONTO_M365@example.invalid) eingang=Posteingang ;;
+      KONTO_GOOGLE@example.invalid) eingang= ;;
+      *) eingang=INBOX ;;
     esac
     td --ort "$konto" aktion anlegen >"$OUT/$n-${konto%%@*}-anlegen.txt" 2>&1
+    heim="$(sed -n 's/^HEIM //p' "$OUT/$n-${konto%%@*}-anlegen.txt")"
     for was in aktion konversation; do
       [ "$was" = konversation ] && [ -z "$eingang" ] && continue
       name="$n-${konto%%@*}-$was"
@@ -102,7 +113,9 @@ for n in $(seq 1 "$LAEUFE"); do
       FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/$name.txt")))
     done
   done
+  aufraeumen
 done
+trap - EXIT
 
 abbruch_bilanz
 echo "Ergebnis: $FEHLER Fehler, Ausgaben in $OUT"

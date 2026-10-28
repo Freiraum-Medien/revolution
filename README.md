@@ -1,30 +1,32 @@
 # Revolution
 
-Moderner Mail-Client für GNOME mit Mail, Kontakten und Kalender; die Konten kommen aus GNOME Online Accounts.
+[Deutsch](README.de.md)
 
-![Revolution, hell](data/screenshots/mail-hell.png)
+Modern mail client for GNOME with mail, contacts and calendar; the accounts come from GNOME Online Accounts.
 
-![Revolution, dunkel](data/screenshots/mail-dunkel.png)
+![Revolution, light](data/screenshots/mail-hell.png)
 
-## Stand
+![Revolution, dark](data/screenshots/mail-dunkel.png)
 
-| Meilenstein | Inhalt | Stand |
+## Status
+
+| Milestone | Content | Status |
 |---|---|---|
-| M2 | Design | fertig |
-| M3 | Gerüst | fertig |
-| M4 | Mail lesen | fertig |
-| M5 | Mail bearbeiten | fertig |
-| M6 | Kontakte | offen |
-| M7 | Kalender | offen |
-| M8 | Release | offen |
+| M2 | Design | done |
+| M3 | Scaffold | done |
+| M4 | Reading mail | done |
+| M5 | Handling mail | done |
+| M6 | Contacts | open |
+| M7 | Calendar | open |
+| M8 | Release | open |
 
-## Unterbau
+## Foundation
 
 - Evolution-Data-Server 3.56 (Camel, libebook, libecal)
 - GTK4 + libadwaita + Blueprint
 - C
 
-## Bauen (Ubuntu 26.04)
+## Building (Ubuntu 26.04)
 
 ```sh
 sudo apt install meson ninja-build blueprint-compiler gettext libgtk-4-dev libadwaita-1-dev \
@@ -35,12 +37,16 @@ meson compile -C build
 GSETTINGS_SCHEMA_DIR=build/data ./build/src/revolution
 ```
 
-`GSETTINGS_SCHEMA_DIR` zeigt auf das im Build-Ordner kompilierte Schema; nach `meson install` entfällt es.
+`GSETTINGS_SCHEMA_DIR` points to the schema compiled in the build directory; after `meson install` it is no longer needed.
 
-## Mitwirken
+## Translations
 
-Build, Tests, Architektur und Arbeitsweise: [docs/ENTWICKLUNG.md](docs/ENTWICKLUNG.md).
+Source strings are English; translations live in `po/` (German: `po/de.po`). Started from the build directory, the app uses the translations built there.
 
-## Lizenz
+## Contributing
 
-GPL-3.0-or-later, siehe [COPYING](COPYING). Copyright 2026 Arnd Messer.
+Build, tests, architecture and workflow: [docs/ENTWICKLUNG.md](docs/ENTWICKLUNG.md) (German).
+
+## License
+
+GPL-3.0-or-later, see [COPYING](COPYING). Copyright 2026 Arnd Messer.

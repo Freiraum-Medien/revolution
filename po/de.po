@@ -5,7 +5,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: revolution\n"
 "Report-Msgid-Bugs-To: \n"
-"PO-Revision-Date: 2026-10-28 23:00+0100\n"
+"POT-Creation-Date: 2026-10-28 22:20+0100\n"
+"PO-Revision-Date: 2026-10-28 22:20+0100\n"
 "Last-Translator: Arnd Messer\n"
 "Language-Team: German\n"
 "Language: de\n"
@@ -15,7 +16,7 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 #: data/de.freiraum_medien.Revolution.desktop.in.in:2
-#: data/de.freiraum_medien.Revolution.metainfo.xml.in.in:8 src/main.c:1439
+#: data/de.freiraum_medien.Revolution.metainfo.xml.in.in:8 src/main.c:1443
 #: src/window.blp:5
 msgid "Revolution"
 msgstr "Revolution"
@@ -33,8 +34,12 @@ msgid "Email, contacts and calendar for GNOME"
 msgstr "E-Mail, Kontakte und Kalender für GNOME"
 
 #: data/de.freiraum_medien.Revolution.metainfo.xml.in.in:11
-msgid "Revolution is a mail client for GNOME with contacts and calendar. Accounts are set up in GNOME Online Accounts."
-msgstr "Revolution ist ein Mail-Client für GNOME mit Kontakten und Kalender. Konten richtet man in den GNOME-Online-Konten ein."
+msgid ""
+"Revolution is a mail client for GNOME with contacts and calendar. Accounts "
+"are set up in GNOME Online Accounts."
+msgstr ""
+"Revolution ist ein Mail-Client für GNOME mit Kontakten und Kalender. Konten "
+"richtet man in den GNOME-Online-Konten ein."
 
 #: data/de.freiraum_medien.Revolution.metainfo.xml.in.in:15
 msgid "Arnd Messer"
@@ -47,8 +52,12 @@ msgid "Appearance"
 msgstr "Darstellung"
 
 #: data/de.freiraum_medien.Revolution.gschema.xml:15
-msgid "system follows the system; light, dark-light (dark with light content) or dark as chosen in the main menu."
-msgstr "system folgt dem System; hell, dunkel-hell (dunkel mit hellem Inhalt) oder dunkel wie im Hauptmenü gewählt."
+msgid ""
+"system follows the system; light, dark-light (dark with light content) or "
+"dark as chosen in the main menu."
+msgstr ""
+"system folgt dem System; hell, dunkel-hell (dunkel mit hellem Inhalt) oder "
+"dunkel wie im Hauptmenü gewählt."
 
 #: data/de.freiraum_medien.Revolution.gschema.xml:19
 msgid "Window width"
@@ -80,7 +89,8 @@ msgstr "Nach Verzögerung als gelesen markieren"
 
 #: data/de.freiraum_medien.Revolution.gschema.xml:36
 msgid "Mark a selected unread message as read after mark-seen-timeout."
-msgstr "Eine gewählte ungelesene E-Mail nach mark-seen-timeout als gelesen markieren."
+msgstr ""
+"Eine gewählte ungelesene E-Mail nach mark-seen-timeout als gelesen markieren."
 
 #: data/de.freiraum_medien.Revolution.gschema.xml:40
 msgid "Delay until “read”"
@@ -95,24 +105,36 @@ msgid "Last selected folder"
 msgstr "Zuletzt gewählter Ordner"
 
 #: data/de.freiraum_medien.Revolution.gschema.xml:47
-msgid "Account UID and full name of the last selected mail folder as “UID/folder”; empty selects the inbox of the first account."
-msgstr "UID des Kontos und voller Name des zuletzt gewählten Mail-Ordners als „UID/Ordner“; leer wählt den Posteingang des ersten Kontos."
+msgid ""
+"Account UID and full name of the last selected mail folder as “UID/folder”; "
+"empty selects the inbox of the first account."
+msgstr ""
+"UID des Kontos und voller Name des zuletzt gewählten Mail-Ordners als „UID/"
+"Ordner“; leer wählt den Posteingang des ersten Kontos."
 
 #: data/de.freiraum_medien.Revolution.gschema.xml:52
 msgid "Group by conversation"
 msgstr "Nach Konversationen"
 
 #: data/de.freiraum_medien.Revolution.gschema.xml:53
-msgid "The message list shows one row per conversation (thread from the folder and Sent) instead of one row per message."
-msgstr "Die Nachrichtenliste zeigt je Konversation (Thread aus Ordner und Gesendet) eine Zeile statt jeder Nachricht einzeln."
+msgid ""
+"The message list shows one row per conversation (thread from the folder and "
+"Sent) instead of one row per message."
+msgstr ""
+"Die Nachrichtenliste zeigt je Konversation (Thread aus Ordner und Gesendet) "
+"eine Zeile statt jeder Nachricht einzeln."
 
 #: data/de.freiraum_medien.Revolution.gschema.xml:59
 msgid "Run in background"
 msgstr "Im Hintergrund weiterlaufen"
 
 #: data/de.freiraum_medien.Revolution.gschema.xml:60
-msgid "Closing only hides the window; Revolution keeps running and reports new mail until “Quit” is chosen."
-msgstr "Schließen verbirgt das Fenster nur; Revolution läuft weiter und meldet neue E-Mails, bis „Beenden“ gewählt wird."
+msgid ""
+"Closing only hides the window; Revolution keeps running and reports new mail "
+"until “Quit” is chosen."
+msgstr ""
+"Schließen verbirgt das Fenster nur; Revolution läuft weiter und meldet neue "
+"E-Mails, bis „Beenden“ gewählt wird."
 
 #: src/main.c:156
 #, c-format
@@ -391,7 +413,8 @@ msgid "Rename Folder"
 msgstr "Ordner umbenennen"
 
 #: src/mail/mail-view.c:3958
-msgid "The contents of the folder and its subfolders will be permanently deleted."
+msgid ""
+"The contents of the folder and its subfolders will be permanently deleted."
 msgstr "Der Inhalt des Ordners und seiner Unterordner wird endgültig gelöscht."
 
 #: src/mail/mail-view.c:3959
@@ -633,8 +656,14 @@ msgstr "Versand unterbrochen"
 
 #: src/mail/mail-outbox.c:962
 #, c-format
-msgid "%s: The program quit while sending, the message may already have been delivered. It stays in the Outbox; F5 sends it again, in which case it may arrive twice."
-msgstr "%s: Das Programm wurde während des Sendens beendet, die Nachricht ist vielleicht schon zugestellt. Sie bleibt im Postausgang; F5 sendet sie erneut, dann kommt sie unter Umständen doppelt an."
+msgid ""
+"%s: The program quit while sending, the message may already have been "
+"delivered. It stays in the Outbox; F5 sends it again, in which case it may "
+"arrive twice."
+msgstr ""
+"%s: Das Programm wurde während des Sendens beendet, die Nachricht ist "
+"vielleicht schon zugestellt. Sie bleibt im Postausgang; F5 sendet sie "
+"erneut, dann kommt sie unter Umständen doppelt an."
 
 #: src/mail/mail-outbox.c:971
 msgid "Not Sent"
@@ -663,19 +692,33 @@ msgstr "Neue E-Mail"
 #. Translators: Betreff, darunter die Zahl der übrigen neuen Nachrichten (Evolution „(and %d more)“).
 #: src/mail/mail-notification.c:148
 #, c-format
-msgid "%s\n(and %u more)"
-msgid_plural "%s\n(and %u more)"
-msgstr[0] "%s\n(und %u weitere)"
-msgstr[1] "%s\n(und %u weitere)"
+msgid ""
+"%s\n"
+"(and %u more)"
+msgid_plural ""
+"%s\n"
+"(and %u more)"
+msgstr[0] ""
+"%s\n"
+"(und %u weitere)"
+msgstr[1] ""
+"%s\n"
+"(und %u weitere)"
 
 #: src/mail/mail-account.c:185
 #, c-format
-msgid "Microsoft 365 does not report new mail immediately (no push): checked every %u minutes and with F5"
-msgstr "Microsoft 365 meldet neue E-Mails nicht sofort (kein Push): Abruf alle %u Minuten und mit F5"
+msgid ""
+"Microsoft 365 does not report new mail immediately (no push): checked every "
+"%u minutes and with F5"
+msgstr ""
+"Microsoft 365 meldet neue E-Mails nicht sofort (kein Push): Abruf alle %u "
+"Minuten und mit F5"
 
 #: src/mail/mail-account.c:188
-msgid "Microsoft 365 does not report new mail immediately (no push): check with F5"
-msgstr "Microsoft 365 meldet neue E-Mails nicht sofort (kein Push): Abruf mit F5"
+msgid ""
+"Microsoft 365 does not report new mail immediately (no push): check with F5"
+msgstr ""
+"Microsoft 365 meldet neue E-Mails nicht sofort (kein Push): Abruf mit F5"
 
 #: src/mail/mail-search.c:132
 #, c-format
@@ -975,7 +1018,8 @@ msgstr "Keine Konten"
 
 #: src/mail/mail-view.blp:343
 msgid "Email accounts from Online Accounts or from Evolution appear here."
-msgstr "E-Mail-Konten aus den Online-Konten oder aus Evolution erscheinen hier."
+msgstr ""
+"E-Mail-Konten aus den Online-Konten oder aus Evolution erscheinen hier."
 
 #: src/mail/mail-view.blp:367 src/mail/mail-view.blp:371
 #: src/contacts/contacts-view.blp:183 src/contacts/contacts-view.blp:187
@@ -988,8 +1032,12 @@ msgid "Filter"
 msgstr "Filter"
 
 #: src/mail/mail-view.blp:454
-msgid "No network connection. Showing what is stored on this device; going online happens automatically once the network is back."
-msgstr "Keine Netzwerkverbindung. Angezeigt wird der Stand auf diesem Gerät; online geht es von selbst, sobald das Netz zurück ist."
+msgid ""
+"No network connection. Showing what is stored on this device; going online "
+"happens automatically once the network is back."
+msgstr ""
+"Keine Netzwerkverbindung. Angezeigt wird der Stand auf diesem Gerät; online "
+"geht es von selbst, sobald das Netz zurück ist."
 
 #: src/mail/mail-view.blp:457 src/mail/mail-view.blp:472
 msgid "Offline"

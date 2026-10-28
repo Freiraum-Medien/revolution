@@ -1,4 +1,4 @@
-// Kontakte-Ansicht (Prototyp #338). Daten folgen in M6.
+// Kontakte-Ansicht (Prototyp #338), echte Daten ab #368 (contacts-view.c).
 // Aufbau nach quelltext/stamp/src/views/contact/stamp-contact-view.blp:4-185 und
 // mail-view.blp (Briefing 1.4); Design-Referenz GNOME Contacts 49.0.
 // #402: Designsprache der Mail-Ansicht (#399–#401) übernommen, Muster jeweils
@@ -121,12 +121,25 @@ template $RevolutionContactsView: Adw.BreakpointBin {
               label: _("Address Books");
             }
 
-            model: SingleSelection book_selection {};
+            // #368: Abschnitt je Konto (contacts-book.c „section“: lokal zuerst), darin nach Name.
+            model: SingleSelection book_selection {
+              notify::selected-item => $on_book_selected() swapped;
+
+              model: SortListModel book_sorted {
+                section-sorter: StringSorter {
+                  expression: expr item as <$RevolutionContactsBook>.section;
+                };
+
+                sorter: StringSorter {
+                  expression: expr item as <$RevolutionContactsBook>.title;
+                };
+              };
+            };
 
             header-factory: BuilderListItemFactory {
               template ListHeader {
                 child: Label {
-                  label: bind template.item as <$RevolutionContactsSampleEntry>.group;
+                  label: bind template.item as <$RevolutionContactsBook>.group;
                   xalign: 0;
                   margin-start: 14;
                   margin-end: 14;
@@ -144,19 +157,39 @@ template $RevolutionContactsView: Adw.BreakpointBin {
 
             factory: BuilderListItemFactory {
               template ListItem {
+                accessible-label: bind template.item as <$RevolutionContactsBook>.title;
+
                 child: Box {
                   spacing: 12;
 
+                  // Symbol wie im Prototyp (kontakte-hell.png), Adwaita x-office-address-book.
                   Image {
-                    icon-name: bind template.item as <$RevolutionContactsSampleEntry>.icon-name;
+                    icon-name: "x-office-address-book-symbolic";
                     accessible-role: presentation;
                   }
 
                   Label {
-                    label: bind template.item as <$RevolutionContactsSampleEntry>.title;
+                    label: bind template.item as <$RevolutionContactsBook>.title;
                     hexpand: true;
                     xalign: 0;
                     ellipsize: end;
+                  }
+
+                  // #368: Nur-lesend-Bücher (e_client_is_readonly) mit kleinem grauen Schloss
+                  // (Dokument #5: Zusatz-Icons klein und grau), Tooltip erklärt es.
+                  Image {
+                    icon-name: "changes-prevent-symbolic";
+                    pixel-size: 12;
+                    visible: bind template.item as <$RevolutionContactsBook>.readonly;
+                    tooltip-text: _("Read-Only");
+
+                    styles [
+                      "dimmed",
+                    ]
+
+                    accessibility {
+                      label: _("Read-Only");
+                    }
                   }
                 };
               }
@@ -208,8 +241,7 @@ template $RevolutionContactsView: Adw.BreakpointBin {
           valign: center;
           hexpand: true;
 
-          Label {
-            // Name des gewählten Adressbuchs folgt mit M6.
+          Label title_label {
             label: _("Contacts");
             xalign: 0;
             ellipsize: end;
@@ -219,8 +251,8 @@ template $RevolutionContactsView: Adw.BreakpointBin {
             ]
           }
 
-          // Anzahl folgt mit M6.
-          Label {
+          // Anzahl der Kontakte (contacts-view.c update_state).
+          Label subtitle_label {
             visible: false;
             xalign: 0;
             ellipsize: end;
@@ -231,6 +263,13 @@ template $RevolutionContactsView: Adw.BreakpointBin {
             ]
           }
         };
+      }
+
+      // #368: Fehler des gewählten Buchs als AdwBanner wie mail-view.blp (Architektur 3),
+      // kurzer Titel, Einzelheiten im Tooltip (contacts-view.c show_error).
+      [top]
+      Adw.Banner banner {
+        use-markup: false;
       }
 
       // Ohne Adressbuch: Leerzustand wie Stamp (stamp-contact-list.blp:126-133).
@@ -245,6 +284,41 @@ template $RevolutionContactsView: Adw.BreakpointBin {
           };
         }
 
+        // #368: Laden, Suche ohne Treffer, Buch ohne Gesamtliste (Kontakte erst nach Suche).
+        StackPage {
+          name: "loading";
+
+          child: Adw.Spinner {
+            width-request: 32;
+            height-request: 32;
+            halign: center;
+            valign: center;
+
+            accessibility {
+              label: _("Loading Contacts");
+            }
+          };
+        }
+
+        StackPage {
+          name: "no-results";
+
+          child: Adw.StatusPage {
+            icon-name: "edit-find-symbolic";
+            title: _("No Results");
+          };
+        }
+
+        StackPage {
+          name: "search-hint";
+
+          child: Adw.StatusPage {
+            icon-name: "edit-find-symbolic";
+            title: _("Search to Show Contacts");
+            description: _("This address book only shows contacts that match a search.");
+          };
+        }
+
         StackPage {
           name: "list";
 
@@ -254,12 +328,11 @@ template $RevolutionContactsView: Adw.BreakpointBin {
               hexpand: true;
               hscrollbar-policy: never;
 
-              // Viewport: ohne ihn fehlt beim Start der Abschnittskopf „A“ (headless
-              // geprüft). Ursache klären in #350, Virtualisierung geht verloren.
+              // #368: ohne Viewport (Prototyp hatte einen), damit die Liste virtualisiert
+              // bleibt (info@: 578 Kontakte); erster Abschnittskopf headless geprüft.
               // #402: Auswahl als abgerundete Akzentfläche wie die Nachrichtenliste
               // (style.css .contact-list), ohne Trennlinien.
-              child: Viewport {
-                child: ListView contact_list {
+              child: ListView contact_list {
                   tab-behavior: item;
 
                   styles [
@@ -270,12 +343,26 @@ template $RevolutionContactsView: Adw.BreakpointBin {
                     label: _("Contacts");
                   }
 
-                  model: SingleSelection contact_selection {};
+                  // #368: Abschnitte je Anfangsbuchstabe (section-sorter), darin nach Name.
+                  model: SingleSelection contact_selection {
+                    autoselect: false;
+                    notify::selected-item => $on_contact_selected() swapped;
+
+                    model: SortListModel contact_sorted {
+                      section-sorter: StringSorter {
+                        expression: expr item as <$RevolutionContactsContact>.initial;
+                      };
+
+                      sorter: StringSorter {
+                        expression: expr item as <$RevolutionContactsContact>.name;
+                      };
+                    };
+                  };
 
                   header-factory: BuilderListItemFactory {
                     template ListHeader {
                       child: Label {
-                        label: bind template.item as <$RevolutionContactsSampleEntry>.group;
+                        label: bind template.item as <$RevolutionContactsContact>.initial;
                         xalign: 0;
                         margin-start: 12;
                         margin-end: 12;
@@ -292,29 +379,37 @@ template $RevolutionContactsView: Adw.BreakpointBin {
 
                   factory: BuilderListItemFactory {
                     template ListItem {
+                      accessible-label: bind template.item as <$RevolutionContactsContact>.name;
+
                       child: Box {
                         spacing: 12;
 
                         // 32 px statt 48 (stamp-contact-row.blp:15-18): Platz bei 1280×800.
                         // presentation: der Name steht im Label daneben, sonst doppelt vorgelesen.
+                        // #368: Foto aus E_CONTACT_PHOTO, sonst Initialen wie GNOME Contacts.
                         Adw.Avatar {
                           size: 32;
                           show-initials: true;
                           accessible-role: presentation;
-                          text: bind template.item as <$RevolutionContactsSampleEntry>.title;
+                          text: bind template.item as <$RevolutionContactsContact>.name;
+                          custom-image: bind template.item as <$RevolutionContactsContact>.photo;
                         }
 
+                        // Name halbfett (Dokument #19 #368, Dokument #5: nur Namen halbfett).
                         Label {
-                          label: bind template.item as <$RevolutionContactsSampleEntry>.title;
+                          label: bind template.item as <$RevolutionContactsContact>.name;
                           hexpand: true;
                           xalign: 0;
                           ellipsize: end;
+
+                          styles [
+                            "mail-sender",
+                          ]
                         }
                       };
                     }
                   };
                 };
-              };
             }
 
             Box letter_bar {
@@ -406,6 +501,7 @@ template $RevolutionContactsView: Adw.BreakpointBin {
                 placeholder-text: _("Search Contacts");
                 key-capture-widget: list_pane;
                 search-started => $on_search_started() swapped;
+                search-changed => $on_search_changed() swapped;
                 stop-search => $on_search_stop() swapped;
 
                 accessibility {
@@ -433,7 +529,8 @@ template $RevolutionContactsView: Adw.BreakpointBin {
 
       // Ohne Auswahl: Leerzustand wie Stamp (stamp-contact-details.blp:10-23).
       // Detail (Kopf, Reiter Details | Verlauf | Firma) folgt in M6, Muster im Tag m2-prototyp.
-      content: Adw.StatusPage {
+      // #368: zeigt bis #369 nur den Namen der Auswahl (on_contact_selected).
+      content: Adw.StatusPage contact_status {
         icon-name: "avatar-default-symbolic";
         title: _("No Contact Selected");
       };

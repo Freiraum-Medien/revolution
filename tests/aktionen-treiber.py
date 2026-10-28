@@ -230,6 +230,22 @@ def ziehen_auf_ordner():
     ziehen(ZEILE, (x, y + 100 - mitte(erste)[1]))
 
 
+def ziehen_auf_eigenen_ordner():
+    """Ziel = Quelle: Hinweis statt stiller Wirkungslosigkeit (#363 R2), Server unverändert."""
+    zeile = a11y_finden('list item', HEIM.rsplit('/', 1)[-1])
+    erste = a11y_finden('list item', 'Alle Eingänge')
+    if zeile is None or erste is None:
+        raise RuntimeError('Seitenleiste: eigener Ordner nicht gefunden')
+    x, y = mitte(zeile)
+    ab = len(log_zeilen())
+    vorher = ort()
+    ziehen(ZEILE, (x, y + 100 - mitte(erste)[1]))
+    t = warte(r'^Hinweis: Die Nachricht ist schon in diesem Ordner', ab, 10)
+    (ok if t else falsch)('Ziehen auf den eigenen Ordner: %s' % (t or 'Hinweis fehlt'))
+    bild('hinweis-ziel-quelle')
+    (ok if ort() == vorher else falsch)('Ziehen auf den eigenen Ordner: Server unverändert')
+
+
 def rueckgaengig_knopf():
     time.sleep(1)  # Hinweis fertig eingeblendet
     knopf = a11y_finden('button', 'Rückgängig')
@@ -318,6 +334,9 @@ def main():
         time.sleep(2)
         vorher = ort()
         n = len({v[0] for v in vorher})
+        if WAS == 'aktion' and re.search(os.environ.get('NUR', ''), 'Ziel = Quelle'):
+            ziehen_auf_eigenen_ordner()
+            klick(ZEILE)
         schritte = KONVERSATION if WAS == 'konversation' else SCHRITTE
         schritte = [x for x in schritte if re.search(os.environ.get('NUR', ''), x[0])]
         for i, (name, bedienung, was, zurueck, am_server) in enumerate(schritte):
@@ -349,7 +368,9 @@ def main():
     # gewählte meldet „Empty cache file“. Ausdrücklich als BEKANNT ausgewiesen, nur bei imapx, nur diese Meldung.
     bekannt = [z for z in rest if not M365 and 'Nachricht nicht geladen' in z and 'Empty cache file' in z]
     rest = [z for z in rest if z not in bekannt]
-    geister = [t for t in log_zeilen() if re.search(r'^Nachrichten: %s Änderung .*Liste [2-9]' % re.escape(LOGKEY), t)]
+    # Geisterzeilen nur im eigenen Ordner (genau eine Mail) und nur bei imapx.
+    geister = [t for t in log_zeilen() if WAS == 'aktion' and not M365 and
+               re.search(r'^Nachrichten: %s Änderung .*Liste [2-9]' % re.escape(LOGKEY), t)]
     for z in bekannt + geister:
         wert('BEKANNT Grenze EDS imapx, Geisterzeile (camel-imapx-server.c:789-829, 1336-1481): %s' % z.strip()[:200])
     (falsch if rest else ok)('Log: %s' % ('%d unerwartete Zeilen: %s' % (len(rest), rest[:3]) if rest else 'nur DEBUG-Zeilen'))

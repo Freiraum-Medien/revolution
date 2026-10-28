@@ -10,10 +10,10 @@
 # Einstellungen im Speicher, flach, mark-seen=false, AT-SPI wie tests/netz.sh), Treiber tests/suche-treiber.py:
 #   geops     geops@ Posteingang, hell: Suche im Ordner, Alt+A „Alle Ordner“ (Summe der Testkonten), Alt+O,
 #             Escape stellt Liste und Auswahl wieder her, Filter Ungelesen/Markiert/Mit Anhang, Filter „Alle“.
-#   markiert  geops@ Revolution-Test, dunkel; vorher Einladung am Server markiert (testdaten.py --server,
-#             danach wieder unmarkiert): Filter Markiert mit Treffer.
 #             Danach Abbruch-Test (Prüf-Lauf R2): „Alle Ordner“ nach 2 s mit Escape beenden; während der Suche
 #             Hinweis „Suche läuft …“ und Ordnerbaum gesperrt, danach Liste sofort zurück, Quellen frei.
+#   markiert  geops@ Revolution-Test, dunkel; vorher Einladung am Server markiert (testdaten.py --server,
+#             danach wieder unmarkiert): Filter Markiert mit Treffer.
 #   konversationen  geops@ Posteingang im Konversationsmodus: Suche im Ordner, Escape.
 #   outlook   outlook.com Posteingang (microsoft365), hell: Suche im Ordner und Filter.
 # Treffer je Schritt gegen tests/testdaten.py --suche-zahlen (IMAP UID SEARCH/BODYSTRUCTURE bzw. Graph, nur

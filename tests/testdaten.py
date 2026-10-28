@@ -143,7 +143,7 @@
 #   tests/testdaten.py --kontakt-live detail|lesen|feld BUCH DATEI
 #                                 #369, Schreibregeln wie oben: detail legt „Erika Revolution-Test Detail <Zeit>“ mit allen
 #                                 Feldern der Detailansicht an (Vor-/Nachname, kleines eingebettetes Foto, 2 E-Mails
-#                                 TYPE=WORK/HOME, 3 Telefone WORK/HOME/CELL, 2 Adressen, Firma/Abteilung/Position, mehrzeilige
+#                                 TYPE=WORK/HOME, 4 Telefone WORK/HOME/CELL/WORK+FAX, 3 Adressen (eine mit LABEL), Firma/Abteilung/Position, mehrzeilige
 #                                 Notiz mit Umlauten), UID nach DATEI wie anlegen, dazu „SOLL <JSON>“ (geschrieben);
 #                                 lesen (nur lesend) „FELDER <JSON>“: was EDS jetzt hält (Name, E-Mails/Telefone mit TYPE,
 #                                 Adressen mit Label, Firma, Abteilung, Position, Notiz, Foto); feld ändert Notiz und Mobil
@@ -1985,7 +1985,10 @@ def kontakt_live(registry, aktion, buch, datei):
     return 0
 
 
-DETAIL_TELEFONE = (('WORK', '+49 30 0000369'), ('HOME', '+49 221 0000369'), ('CELL', '+49 171 0000369'))
+DETAIL_TELEFONE = (('WORK,VOICE', '+49 30 0000369'), ('HOME,VOICE', '+49 221 0000369'), ('CELL', '+49 171 0000369'),
+                   ('WORK,FAX', '+49 30 0000370'))  # Runde 2: Typkombination wie Evolution („Fax (Arbeit)“)
+# Runde 2: Adresse mit fertigem Label (LABEL hat Vorrang vor den ADR-Teilen, Evolution accum_address).
+DETAIL_LABEL = 'Postfach 3690\nPostweg 1\n20095 Hamburg\nDeutschland'
 DETAIL_NOTIZ = 'Erste Zeile mit Umlauten: Grüße aus Köln, Straße, Maß\nZweite Zeile: ÄÖÜ äöü ß'
 
 
@@ -2001,9 +2004,11 @@ def detail_vcard(zeit):
     zeilen = ['BEGIN:VCARD', 'VERSION:3.0', 'N:%s;Erika;;;' % familie, 'FN:Erika %s' % familie,
               'X-EVOLUTION-FILE-AS:%s\\, Erika' % familie,
               'EMAIL;TYPE=WORK:%s' % KONTO_IMAP_2, 'EMAIL;TYPE=HOME:%s' % KONTO_IMAP_1]
-    zeilen += ['TEL;TYPE=%s%s:%s' % (typ, ',VOICE' if typ != 'CELL' else '', nummer) for typ, nummer in DETAIL_TELEFONE]
+    zeilen += ['TEL;TYPE=%s:%s' % (typ, nummer) for typ, nummer in DETAIL_TELEFONE]
     zeilen += ['ADR;TYPE=WORK:;;Friedrichstraße 12;Berlin;;10117;Deutschland',
                'ADR;TYPE=HOME:;;Mühlenweg 3;Köln;;50667;Deutschland',
+               'ADR;TYPE=OTHER:;;Postweg 1;Hamburg;;20095;Deutschland',
+               'LABEL;TYPE=OTHER:%s' % DETAIL_LABEL.replace('\n', '\\n'),
                'ORG:Freiraum Medien Test;Entwicklung', 'TITLE:Testerin',
                'NOTE:%s' % DETAIL_NOTIZ.replace('\n', '\\n'),
                'PHOTO;ENCODING=b;TYPE=PNG:%s' % foto, 'END:VCARD']

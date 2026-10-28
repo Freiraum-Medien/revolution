@@ -37,7 +37,6 @@ struct _RevolutionContactsDetail
   GtkStack                  *stack;
   AdwAvatar                 *avatar;
   GtkLabel                  *name_label;
-  GtkLabel                  *org_label;
   GtkWidget                 *mail_button;
   GtkListBox                *email_list;
   GtkListBox                *phone_list;
@@ -139,21 +138,52 @@ show_emails (RevolutionContactsDetail *self,
   g_list_free_full (attrs, (GDestroyNotify) e_vcard_attribute_free);
 }
 
-/* Typ einer Telefonnummer aus TYPE (vCard 3.0: CELL, FAX, PAGER, WORK, HOME, VOICE …). */
-static const char *
+/* Typ einer Telefonnummer wie Evolution get_phone_location (eab-contact-formatter.c:696-789): Sondertypen der
+ * Tabelle dort (Namen wie EDS e_contact_pretty_name, Mobil/Fax kurz nach dem Prototyp), mehr als einer → nur der
+ * Ort; Fax ohne genau einen Ort Arbeit/Privat → „Weiteres Fax“. Den Ort, den Evolution als Spalte zeigt
+ * (accum_tel, 806-811), hängt Revolution in Klammern an, z. B. „Fax (Arbeit)“. Abweichung: PREF zählt nur
+ * allein („Telefon, primär“), neben einem anderen Sondertyp nicht (sonst wäre ein bevorzugtes Mobiltelefon
+ * nur „Telefon“). */
+static const struct
+{
+  const char *type;
+  const char *label;
+} phone_types[] = {
+  { EVC_X_ASSISTANT, N_("Assistant Phone") },
+  { EVC_X_CALLBACK, N_("Callback Phone") },
+  { "CAR", N_("Car Phone") },
+  { EVC_X_COMPANY, N_("Company Phone") },
+  { "ISDN", N_("ISDN") },
+  { "CELL", N_("Mobile") },
+  { "FAX", N_("Fax") },
+  { "PAGER", N_("Pager") },
+  { EVC_X_RADIO, N_("Radio") },
+  { EVC_X_TELEX, N_("Telex") },
+  { EVC_X_TTYTDD, N_("TTY/TDD") },
+};
+
+static char *
 phone_label (EVCardAttribute *attr)
 {
-  if (e_vcard_attribute_has_type (attr, "CELL"))
-    return _("Mobile");
-  if (e_vcard_attribute_has_type (attr, "FAX"))
-    return _("Fax");
-  if (e_vcard_attribute_has_type (attr, "PAGER"))
-    return _("Pager");
-  if (e_vcard_attribute_has_type (attr, "WORK"))
-    return _("Work");
-  if (e_vcard_attribute_has_type (attr, "HOME"))
-    return _("Home");
-  return _("Phone");
+  gboolean work = e_vcard_attribute_has_type (attr, "WORK");
+  gboolean home = e_vcard_attribute_has_type (attr, "HOME");
+  gssize found = -1;
+  guint n = 0;
+
+  for (gsize i = 0; i < G_N_ELEMENTS (phone_types); i++)
+    if (e_vcard_attribute_has_type (attr, phone_types[i].type))
+      {
+        found = (gssize) i;
+        n++;
+      }
+  if (n == 0 && e_vcard_attribute_has_type (attr, "PREF"))
+    return g_strdup (_("Primary Phone"));
+  if (n != 1)
+    return g_strdup (work && !home ? _("Work") : home && !work ? _("Home") : _("Phone"));
+  if (work == home)
+    return g_strdup (g_str_equal (phone_types[found].type, "FAX") ? _("Other Fax") : _(phone_types[found].label));
+  /* TRANSLATORS: phone type and place, e.g. “Fax (Work)” */
+  return g_strdup_printf (C_("phone", "%s (%s)"), _(phone_types[found].label), work ? _("Work") : _("Home"));
 }
 
 /* Nur Anzeige (auswählbar); keine Anruf-Aktion in M6 (Dokument #19 „Nicht in M6“). */
@@ -166,9 +196,12 @@ show_phones (RevolutionContactsDetail *self,
   for (GList *l = attrs; l != NULL; l = l->next)
     {
       g_autofree char *number = e_vcard_attribute_get_value (l->data);
+      g_autofree char *label = NULL;
 
-      if (number != NULL && *g_strstrip (number) != '\0')
-        add_row (self->phone_list, "phone-symbolic", phone_label (l->data), number);
+      if (number == NULL || *g_strstrip (number) == '\0')
+        continue;
+      label = phone_label (l->data);
+      add_row (self->phone_list, "phone-symbolic", label, number);
     }
   g_list_free_full (attrs, (GDestroyNotify) e_vcard_attribute_free);
 }
@@ -253,9 +286,6 @@ static void
 show_contact (RevolutionContactsDetail *self)
 {
   EContact *contact = revolution_contacts_contact_get_contact (self->item);
-  const char *title = e_contact_get_const (contact, E_CONTACT_TITLE);
-  const char *org = e_contact_get_const (contact, E_CONTACT_ORG);
-  g_autofree char *subtitle = NULL;
   GtkListBox *lists[] = { self->email_list, self->phone_list, self->address_list, self->org_list, self->note_list };
 
   for (gsize i = 0; i < G_N_ELEMENTS (lists); i++)
@@ -263,13 +293,6 @@ show_contact (RevolutionContactsDetail *self)
 
   adw_avatar_set_text (self->avatar, revolution_contacts_contact_get_name (self->item));
   gtk_label_set_label (self->name_label, revolution_contacts_contact_get_name (self->item));
-  /* Unter dem Namen Position · Firma (Dokument #19 #369). */
-  if (title != NULL && *title != '\0' && org != NULL && *org != '\0')
-    subtitle = g_strdup_printf ("%s · %s", title, org);
-  else
-    subtitle = g_strdup (title != NULL && *title != '\0' ? title : org);
-  gtk_label_set_label (self->org_label, subtitle);
-  gtk_widget_set_visible (GTK_WIDGET (self->org_label), subtitle != NULL && *subtitle != '\0');
 
   show_emails (self, contact);
   show_phones (self, contact);
@@ -357,7 +380,6 @@ revolution_contacts_detail_class_init (RevolutionContactsDetailClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsDetail, stack);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsDetail, avatar);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsDetail, name_label);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsDetail, org_label);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsDetail, mail_button);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsDetail, email_list);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsDetail, phone_list);

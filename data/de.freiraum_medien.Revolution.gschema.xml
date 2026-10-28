@@ -12,7 +12,7 @@
       </choices>
       <default>'system'</default>
       <summary>Appearance</summary>
-      <description>system follows the system; light, dark-light (dark with light content) or dark as chosen in the main menu.</description>
+      <description>system follows the system; hell (light), dunkel-hell (dark with light content) or dunkel (dark) as chosen in the main menu.</description>
     </key>
     <key name="window-width" type="i">
       <default>1200</default>

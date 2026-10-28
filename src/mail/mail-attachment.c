@@ -115,7 +115,7 @@ revolution_mail_attachment_get_property (GObject    *object,
         g_autofree char *type = g_content_type_get_description (self->content_type);
         g_autofree char *size = size_text (self);
 
-        /* Translators: zugänglicher Name eines Anhangs: Dateiname, Typ, Größe. */
+        /* Translators: accessible name of an attachment: file name, type, size. */
         g_value_take_string (value, g_strdup_printf (_("%s, %s, %s"), self->name, type, size));
       }
       break;
@@ -308,7 +308,7 @@ display_name (CamelMimePart    *part,
       g_str_equal (base, G_DIR_SEPARATOR_S))
     {
       g_free (base);
-      /* Translators: Dateiname eines Anhangs ohne eigenen Namen (Evolution „attachment.dat“). */
+      /* Translators: file name of an attachment without a name of its own (Evolution “attachment.dat”). */
       base = g_strdup (_("attachment.dat"));
     }
 
@@ -724,7 +724,7 @@ save_thread (GTask        *task,
   if (failures != NULL)
     {
       g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                               /* Translators: Alle speichern mit Fehlern, z. B. „2 von 5 nicht gespeichert: …“. */
+                               /* Translators: Save All with errors, e.g. “2 of 5 not saved: …”. */
                                _("%u of %u not saved: %s"), save->attachments->len - save->saved,
                                save->attachments->len, failures->str);
       g_string_free (failures, TRUE);

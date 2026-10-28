@@ -144,7 +144,7 @@ on_checked (GObject      *source_object,
 
   notification = g_notification_new (batch->sender != NULL ? batch->sender : _("New Message"));
   if (pending > 1)
-    /* Translators: Betreff, darunter die Zahl der übrigen neuen Nachrichten (Evolution „(and %d more)“). */
+    /* Translators: subject, below it the number of the other new messages (Evolution “(and %d more)”). */
     body = g_strdup_printf (ngettext ("%s\n(and %u more)", "%s\n(and %u more)", pending - 1),
                             batch->subject != NULL ? batch->subject : "", pending - 1);
   else

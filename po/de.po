@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: revolution\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-28 22:20+0100\n"
+"POT-Creation-Date: 2026-10-28 22:58+0100\n"
 "PO-Revision-Date: 2026-10-28 22:20+0100\n"
 "Last-Translator: Arnd Messer\n"
 "Language-Team: German\n"
@@ -53,8 +53,8 @@ msgstr "Darstellung"
 
 #: data/de.freiraum_medien.Revolution.gschema.xml:15
 msgid ""
-"system follows the system; light, dark-light (dark with light content) or "
-"dark as chosen in the main menu."
+"system follows the system; hell (light), dunkel-hell (dark with light "
+"content) or dunkel (dark) as chosen in the main menu."
 msgstr ""
 "system folgt dem System; hell, dunkel-hell (dunkel mit hellem Inhalt) oder "
 "dunkel wie im Hauptmenü gewählt."
@@ -208,7 +208,7 @@ msgstr "Entwürfe"
 msgid "Archive"
 msgstr "Archiv"
 
-#. Translators: zugänglicher Name einer Ordnerzeile, z. B. „Eingang, 4 ungelesen“.
+#. Translators: accessible name of a folder row, e.g. “Inbox, 4 unread”.
 #: src/mail/mail-folder.c:254
 #, c-format
 msgid "%s, %d unread"
@@ -220,7 +220,7 @@ msgstr[1] "%s, %d ungelesen"
 msgid "Unknown Sender"
 msgstr "Unbekannter Absender"
 
-#. Translators: Uhrzeit heutiger Nachrichten in der Liste (g_date_time_format).
+#. Translators: time of today’s messages in the list (g_date_time_format).
 #: src/mail/mail-message.c:214
 msgid "%H:%M"
 msgstr "%H:%M"
@@ -229,13 +229,13 @@ msgstr "%H:%M"
 msgid "Yesterday"
 msgstr "Gestern"
 
-#. Translators: Wochentag (abgekürzt) für Nachrichten der letzten Woche, z. B. „Mo.“.
+#. Translators: abbreviated weekday for messages of the last week, e.g. “Mon”.
 #: src/mail/mail-message.c:219
 #, c-format
 msgid "%a"
 msgstr "%a."
 
-#. Translators: Datum älterer Nachrichten in der Liste, z. B. „17.10.26“.
+#. Translators: date of older messages in the list, e.g. “10/17/26”.
 #: src/mail/mail-message.c:222
 msgid "%m/%d/%y"
 msgstr "%d.%m.%y"
@@ -245,7 +245,7 @@ msgstr "%d.%m.%y"
 msgid ", account %s"
 msgstr ", Konto %s"
 
-#. #357: Translators: Anfang des zugänglichen Namens einer Konversationszeile.
+#. #357: Translators: start of the accessible name of a conversation row.
 #: src/mail/mail-message.c:280
 #, c-format
 msgid "Conversation with %u message: "
@@ -295,7 +295,7 @@ msgid_plural "%'u messages"
 msgstr[0] "%'u E-Mail"
 msgstr[1] "%'u E-Mails"
 
-#. Translators: „10 E-Mails, 4 ungelesen“; %s ist die Anzahl der E-Mails.
+#. Translators: “10 messages, 4 unread”; %s is the number of messages.
 #: src/mail/mail-view.c:581
 #, c-format
 msgid "%s, %'u unread"
@@ -306,7 +306,7 @@ msgid "Search Failed"
 msgstr "Suche fehlgeschlagen"
 
 #: src/mail/mail-view.c:1263 src/mail/mail-reader.c:730
-#: src/composer/composer.c:883 src/composer/composer.c:1620
+#: src/composer/composer.c:884 src/composer/composer.c:1621
 #, c-format
 msgid "Account %s unavailable"
 msgstr "Konto %s nicht verfügbar"
@@ -468,8 +468,8 @@ msgstr "Auf diesem Rechner"
 msgid "Outbox"
 msgstr "Postausgang"
 
-#. Translators: Titel des Fehlerbanners, z. B. „Keine Verbindung (7 Konten)“:
-#. * Fehlerart und Zahl der Konten mit dieser Fehlerart.
+#. Translators: title of the error banner, e.g. “No Connection (7 accounts)”:
+#. * kind of error and number of accounts with this kind of error.
 #: src/mail/mail-view.c:4409
 #, c-format
 msgid "%s (%u account)"
@@ -499,13 +499,13 @@ msgstr "Nachricht nicht angezeigt"
 msgid "Permission Not Saved"
 msgstr "Freigabe nicht gespeichert"
 
-#. Translators: Menü des Hinweises „Entfernte Inhalte gesperrt“, %s ist die Absenderadresse.
+#. Translators: menu of the “Remote Content Blocked” notice, %s is the sender address.
 #: src/mail/mail-reader.c:1245
 #, c-format
 msgid "Always Load for %s"
 msgstr "Immer für %s laden"
 
-#. Translators: Menü des Hinweises, %s ist die Domain mit „@“, z. B. „@example.org“.
+#. Translators: menu of the notice, %s is the domain with “@”, e.g. “@example.org”.
 #: src/mail/mail-reader.c:1255
 #, c-format
 msgid "Always Load for Everyone at %s"
@@ -515,24 +515,24 @@ msgstr "Immer für alle von %s laden"
 msgid "Message Content"
 msgstr "Nachrichteninhalt"
 
-#. Translators: Datum im Nachrichtenkopf, %s ist die Uhrzeit.
+#. Translators: date in the message header, %s is the time.
 #: src/mail/mail-reader.c:1541
 #, c-format
 msgid "Today, %s"
 msgstr "Heute, %s"
 
-#. Translators: Datum im Nachrichtenkopf, %s ist die Uhrzeit.
+#. Translators: date in the message header, %s is the time.
 #: src/mail/mail-reader.c:1544
 #, c-format
 msgid "Yesterday, %s"
 msgstr "Gestern, %s"
 
-#. Translators: Datum im Nachrichtenkopf (g_date_time_format), z. B. „17.10.2026, 14:05“.
+#. Translators: date in the message header (g_date_time_format), e.g. “10/17/2026, 14:05”.
 #: src/mail/mail-reader.c:1547
 msgid "%m/%d/%Y, %H:%M"
 msgstr "%d.%m.%Y, %H:%M"
 
-#. Translators: vollständiges Datum in den Details (g_date_time_format).
+#. Translators: full date in the details (g_date_time_format).
 #: src/mail/mail-reader.c:1557
 msgid "%A, %B %-d, %Y, %H:%M:%S"
 msgstr "%A, %-d. %B %Y, %H:%M:%S"
@@ -541,25 +541,25 @@ msgstr "%A, %-d. %B %Y, %H:%M:%S"
 msgid "Message Not Loaded"
 msgstr "Nachricht nicht geladen"
 
-#. Translators: Tooltip des Knopfs „Laden“ im Hinweis, %s ist das Tastenkürzel, z. B. „Strg+I“.
+#. Translators: tooltip of the “Load” button in the notice, %s is the shortcut, e.g. “Ctrl+I”.
 #: src/mail/mail-reader.c:1763
 #, c-format
 msgid "Load Remote Content of This Message (%s)"
 msgstr "Entfernte Inhalte dieser E-Mail laden (%s)"
 
-#. Translators: Ordner und Konto im Nachrichtenkopf, z. B. „Eingang — Privat“.
+#. Translators: folder and account in the message header, e.g. “Inbox — Private”.
 #: src/mail/mail-reader.c:1827 src/mail/mail-conversation.c:263
 #, c-format
 msgid "%s — %s"
 msgstr "%s — %s"
 
-#. Translators: zugänglicher Name eines Anhangs: Dateiname, Typ, Größe.
+#. Translators: accessible name of an attachment: file name, type, size.
 #: src/mail/mail-attachment.c:119
 #, c-format
 msgid "%s, %s, %s"
 msgstr "%s, %s, %s"
 
-#. Translators: Dateiname eines Anhangs ohne eigenen Namen (Evolution „attachment.dat“).
+#. Translators: file name of an attachment without a name of its own (Evolution “attachment.dat”).
 #: src/mail/mail-attachment.c:312
 msgid "attachment.dat"
 msgstr "anhang.dat"
@@ -577,7 +577,7 @@ msgstr "Anhang nicht geöffnet"
 msgid "No free file name"
 msgstr "Kein freier Dateiname"
 
-#. Translators: Alle speichern mit Fehlern, z. B. „2 von 5 nicht gespeichert: …“.
+#. Translators: Save All with errors, e.g. “2 of 5 not saved: …”.
 #: src/mail/mail-attachment.c:728
 #, c-format
 msgid "%u of %u not saved: %s"
@@ -683,13 +683,13 @@ msgid "No identity %s"
 msgstr "Keine Identität %s"
 
 #: src/mail/mail-notification.c:145 src/composer/composer.blp:12
-#: src/composer/composer.blp:82 src/composer/composer.c:1939
+#: src/composer/composer.blp:82 src/composer/composer.c:1940
 #: src/mail/mail-view.blp:380 src/mail/mail-view.blp:384
 #: src/mail/mail-view.blp:757 src/mail/mail-view.blp:761
 msgid "New Message"
 msgstr "Neue E-Mail"
 
-#. Translators: Betreff, darunter die Zahl der übrigen neuen Nachrichten (Evolution „(and %d more)“).
+#. Translators: subject, below it the number of the other new messages (Evolution “(and %d more)”).
 #: src/mail/mail-notification.c:148
 #, c-format
 msgid ""
@@ -749,7 +749,7 @@ msgstr "Als gelesen markieren"
 msgid "Mark as Unread"
 msgstr "Als ungelesen markieren"
 
-#. Translators: zugänglicher Name des Kopfs einer Nachricht in der Konversation: Absender, Datum.
+#. Translators: accessible name of a message header in the conversation: sender, date.
 #: src/mail/mail-conversation.c:115
 #, c-format
 msgid "Message from %s, %s%s%s"
@@ -792,7 +792,7 @@ msgstr "Hauptmenü"
 msgid "Add Attachment (Ctrl+M)"
 msgstr "Anhang hinzufügen (Strg+M)"
 
-#: src/composer/composer.blp:111 src/composer/composer.c:1396
+#: src/composer/composer.blp:111 src/composer/composer.c:1397
 msgid "Add Attachment"
 msgstr "Anhang hinzufügen"
 
@@ -932,7 +932,7 @@ msgstr "_Anhang hinzufügen …"
 msgid "Insert _Emoji…"
 msgstr "_Emoji einfügen…"
 
-#. Translators: lokalisiertes „Re“ im Betreff einer Antwort (Evolution: „AW“).
+#. Translators: localized “Re” in the subject of a reply (Evolution: “AW” in German).
 #: src/composer/composer.c:242
 msgctxt "reply-attribution"
 msgid "Re"
@@ -942,60 +942,61 @@ msgstr "AW"
 msgid "an unknown sender"
 msgstr "einem unbekannten Absender"
 
-#. Translators: Zuschreibung über dem Zitat wie Evolution (po/de.po:20394-20395).
-#: src/composer/composer.c:434
+#. Translators: attribution above the quote like Evolution (po/de.po:20390-20395); arguments: weekday,
+#. * day, month, year, hour, minute, time zone, sender.
+#: src/composer/composer.c:435
 #, c-format
-msgid "On %s, %02d/%02d/%04d at %02d:%02d %+05d, %s wrote:"
+msgid "On %1$s, %4$04d-%3$02d-%2$02d at %5$02d:%6$02d %7$+05d, %8$s wrote:"
 msgstr "Am %s, dem %02d.%02d.%04d um %02d:%02d %+05d schrieb %s:"
 
-#: src/composer/composer.c:716
+#: src/composer/composer.c:717
 msgid "No Subject"
 msgstr "Kein Betreff"
 
-#: src/composer/composer.c:728
+#: src/composer/composer.c:729
 #, c-format
 msgid "Forwarded Message — %s"
 msgstr "Weitergeleitete Nachricht — %s"
 
-#: src/composer/composer.c:729
+#: src/composer/composer.c:730
 msgid "Forwarded Message"
 msgstr "Weitergeleitete Nachricht"
 
-#: src/composer/composer.c:947
+#: src/composer/composer.c:948
 msgid "Message Text"
 msgstr "Nachrichtentext"
 
-#: src/composer/composer.c:1209
+#: src/composer/composer.c:1210
 msgid "Could not load signature"
 msgstr "Signatur konnte nicht geladen werden"
 
-#: src/composer/composer.c:1337
+#: src/composer/composer.c:1338
 msgid "Could not add attachment"
 msgstr "Anhang konnte nicht hinzugefügt werden"
 
-#: src/composer/composer.c:1634
+#: src/composer/composer.c:1635
 #, c-format
 msgid "No Drafts folder in %s"
 msgstr "Kein Entwürfe-Ordner in %s"
 
-#: src/composer/composer.c:1715
+#: src/composer/composer.c:1716
 msgid "Could not send message"
 msgstr "Nachricht konnte nicht gesendet werden"
 
-#: src/composer/composer.c:1739
+#: src/composer/composer.c:1740
 msgid "Could not save draft"
 msgstr "Entwurf konnte nicht gespeichert werden"
 
-#: src/composer/composer.c:1740 src/composer/composer.c:1795
+#: src/composer/composer.c:1741 src/composer/composer.c:1796
 msgid "Could not create message"
 msgstr "Nachricht konnte nicht erstellt werden"
 
-#: src/composer/composer.c:1961
+#: src/composer/composer.c:1962
 msgid "Could not load original message"
 msgstr "Ursprüngliche Nachricht konnte nicht geladen werden"
 
-#. Translators: Absender im Composer wie der Prototyp „Name – Adresse“.
-#: src/composer/composer.c:1975
+#. Translators: sender in the composer like the prototype, “Name – address”.
+#: src/composer/composer.c:1976
 #, c-format
 msgid "%s – %s"
 msgstr "%s – %s"

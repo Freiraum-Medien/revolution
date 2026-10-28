@@ -250,7 +250,7 @@ set_unread (RevolutionMailFolder *self,
   if (unread > 0)
     {
       label = g_strdup_printf ("%d", unread);
-      /* Translators: zugänglicher Name einer Ordnerzeile, z. B. „Eingang, 4 ungelesen“. */
+      /* Translators: accessible name of a folder row, e.g. “Inbox, 4 unread”. */
       accessible = g_strdup_printf (ngettext ("%s, %d unread", "%s, %d unread", unread),
                                     self->display_name, unread);
     }

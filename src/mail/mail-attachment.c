@@ -362,6 +362,13 @@ revolution_mail_attachment_new (CamelMimePart *part,
   return self;
 }
 
+/* #360: der Teil für den Composer (Anhänge der neuen Nachricht). */
+CamelMimePart *
+revolution_mail_attachment_get_part (RevolutionMailAttachment *self)
+{
+  return self->part;
+}
+
 /* Derselbe Teil kann gleichzeitig geöffnet und gespeichert werden (zwei Worker). Für gewöhnliche Teile
  * sperrt Camel 3.56 selbst (stream_lock um das Schreiben, camel-data-wrapper.c:261-276; Filter je
  * Aufruf, 282-351). Eine angehängte Nachricht (message/rfc822) ergänzt beim Schreiben aber ohne

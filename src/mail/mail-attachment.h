@@ -17,6 +17,7 @@ G_DECLARE_FINAL_TYPE (RevolutionMailAttachment, revolution_mail_attachment, REVO
 
 RevolutionMailAttachment *revolution_mail_attachment_new (CamelMimePart *part,
                                                           GCancellable  *cancellable);
+CamelMimePart            *revolution_mail_attachment_get_part (RevolutionMailAttachment *self);
 
 #define REVOLUTION_TYPE_MAIL_ATTACHMENT_BAR (revolution_mail_attachment_bar_get_type ())
 G_DECLARE_FINAL_TYPE (RevolutionMailAttachmentBar, revolution_mail_attachment_bar, REVOLUTION, MAIL_ATTACHMENT_BAR, AdwBin)

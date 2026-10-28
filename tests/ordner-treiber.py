@@ -32,6 +32,7 @@ BIN, OUT, NAME, UID, KONTO = (os.environ[k] for k in ('BIN', 'OUT', 'NAME', 'UID
 TIMEOUT = int(os.environ.get('TIMEOUT', '180'))
 LOG = os.path.join(OUT, NAME + '.log')
 N, R, S = 'Revolution-Ordnertest', 'Revolution-Ordnertest-umbenannt', 'Revolution-Ordnertest-Unterordner'
+R2 = 'Revolution-Ordnertest-Umbenannt'
 TEST = re.compile(r'(^|/)Revolution-Ordnertest')
 
 fehler = 0
@@ -236,16 +237,12 @@ def dialog(text, unterordner=None, leeren=False):
         taste('Control_L', 'a')
         taste('BackSpace')
     tippe(text)
-    if unterordner is not None:
-        box = alle(wurzel(), 'check box', [])
-        an = bool(box) and box[0].get_state_set().contains(Atspi.StateType.CHECKED)
-        if box and an != unterordner:
-            # Kästchen hat keine AT-SPI-Aktion: Tab, Leertaste, zurück ins Eingabefeld.
-            taste('Tab')
-            taste('space')
-            taste('Shift_L', 'Tab')
-            an = box[0].get_state_set().contains(Atspi.StateType.CHECKED)
-        (ok if an == unterordner else falsch)('Dialog: „Unterordner von …“ %s' % ('an' if an else 'aus'))
+    if unterordner is False:
+        # „Unterordner von …“ ist vorgewählt (mail-view.c); aus: Tab, Leertaste, zurück ins Eingabefeld (das Kästchen
+        # hat keine AT-SPI-Aktion, AT-SPI meldet zudem Kästchen geschlossener Dialoge weiter). Ort prüft schritt().
+        taste('Tab')
+        taste('space')
+        taste('Shift_L', 'Tab')
     if unterordner is False:
         bild('dialog')
     taste('Return')
@@ -288,6 +285,7 @@ def loeschen(name, was):
 
 
 def pruefen():
+    global R
     if not warte(r'Ordner: %s \d+ geladen' % UID, 0):
         falsch('Ordner nicht geladen in %d s' % TIMEOUT)
         return
@@ -302,13 +300,27 @@ def pruefen():
     eingang = 'Eingang' if zeile('Eingang') else 'Posteingang'
     n = menue(eingang, foto='menue')
     (ok if n == 1 else falsch)('Kontextmenü %s: %d Eintrag (nur „Neuer Ordner…“, Bild)' % (eingang, n))
+    # Prüf-Lauf R1: Nachricht gewählt, Fokus am Spezialordner im Ordnerbaum: F2, Entf, ⌫ ändern nichts (Entf/⌫
+    # gingen sonst an message.delete, #363).
+    if not warte(r'Nachrichten: %s .* vollständig' % UID, 0):
+        falsch('Nachrichtenliste nicht geladen')
+    liste = [o for o in alle(wurzel(), 'list', []) if o.get_name() == 'Nachrichten']
+    if liste:
+        liste[0].select_child(0)
+        time.sleep(2)
     klick(zeile(eingang))
-    for t in ('F2', 'Delete'):
+    gewaehlt = bool(liste) and any(z.get_state_set().contains(Atspi.StateType.SELECTED)
+                                   for z in alle(liste[0], 'list item', []))
+    ab = len(log_text())
+    for t in ('F2', 'Delete', 'BackSpace'):
         taste(t)
-        time.sleep(1)
+        time.sleep(1.5)
         (falsch if dialog_offen() else ok)('%s: %s öffnet keinen Dialog' % (eingang, t))
         if dialog_offen():
             taste('Escape')
+    aktion = re.findall(r'Aktion: .*', log_text()[ab:])
+    (ok if gewaehlt and not aktion else falsch)('%s: Nachricht gewählt (%s), Entf/⌫ im Ordnerbaum löschen nichts %s'
+                                               % (eingang, gewaehlt, aktion[:2]))
 
     ab = len(log_text())
     menue(eingang, neu=True)
@@ -321,20 +333,30 @@ def pruefen():
     taste('F2')
     dialog(R, leeren=True)
     schritt('Umbenennen in „%s“' % R, ab, r'umbenannt (\S*)', [R])
+    if KONTO == 'KONTO_M365@example.invalid':
+        # Prüf-Lauf R1: nur Groß-/Kleinschreibung (eds-compat.c lässt die Summary dann stehen).
+        klick(zeile(R))
+        ab = len(log_text())
+        taste('F2')
+        dialog(R2, leeren=True)
+        schritt('Umbenennen in „%s“ (nur Großschreibung)' % R2, ab, r'umbenannt (\S*)', [R2])
+        R = R2
 
     n = menue(R, foto='menue-ordner')
     (ok if n == 3 else falsch)('Kontextmenü %s: %d Einträge (Neuer Ordner…, Umbenennen…, Löschen…, Bild)' % (R, n))
     ab = len(log_text())
-    menue(R, neu=True)
-    dialog(S, unterordner=True)
-    schritt('Unterordner „%s“' % S, ab, r'angelegt (\S*/%s)' % S, [R, S])
+    klick(zeile(R))
+    taste('Control_L', 'Shift_L', 'n')   # Kontextmenü: der Eintrag unter dem Zeiger hätte den Fokus
+    dialog(S)
+    schritt('Unterordner „%s“' % S, ab, r'angelegt (\S*%s/%s)' % (R, S), [R, S])
 
     # #363 (PM 28.10.): Unterordner allein löschen, dann neu anlegen und den Ordner mit Unterordner löschen.
     loeschen(S, 'Unterordner')
     ab = len(log_text())
-    menue(R, neu=True)
-    dialog(S, unterordner=True)
-    schritt('Unterordner „%s“ neu' % S, ab, r'angelegt (\S*/%s)' % S, [R, S])
+    klick(zeile(R))
+    taste('Control_L', 'Shift_L', 'n')   # Kontextmenü: der Eintrag unter dem Zeiger hätte den Fokus
+    dialog(S)
+    schritt('Unterordner „%s“ neu' % S, ab, r'angelegt (\S*%s/%s)' % (R, S), [R, S])
     loeschen(R, 'mit Unterordner')
     rest = server()
     (ok if not rest else falsch)('Ende: kein Testordner am Server (%s)' % rest)

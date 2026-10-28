@@ -242,26 +242,6 @@ note_store_result_free (NoteStoreResult *result)
   g_free (result);
 }
 
-/* #350: Zahlen der Ordnerliste von imapx sind nicht verlässlich: imapx nimmt die der Store-Summary
- * (camel-imapx-store.c:1362), also den Stand der lokalen Summary beim letzten Öffnen
- * (camel-store-summary.c:1011-1050); beim Verbinden öffnet imapx jeden Ordner
- * (camel-offline-store.c:317, camel-imapx-store.c:2904-2925), nie abgeglichene Ordner stehen
- * danach auf 0 (gemessen: Revolution-Zaehler2 100 ungelesen, ab dem zweiten Start 0). Den
- * frischen Wert aus LIST-STATUS (dort 1391-1399) gibt es nur ohne diesen Stand. Daher bei imapx
- * keine Zahl aus der Liste („unbekannt“), sondern erst nach dem Abgleich in dieser Sitzung
- * (Posteingang beim Start, geöffnete Ordner; revolution_mail_folder_watch). Abweichung von
- * Evolution (em-folder-tree-model.c:1494 zeigt fi->unread). microsoft365 liefert die Zahl aus
- * Graph (unreadItemCount, camel-m365-store.c:741, 1125) und behält sie. */
-static void
-forget_unread (CamelFolderInfo *fi)
-{
-  for (; fi != NULL; fi = fi->next)
-    {
-      fi->unread = -1;
-      forget_unread (fi->child);
-    }
-}
-
 /* #347: Store online schalten im Worker (README „Worker“) wie Evolution nach dem Start
  * (e-mail-backend.c:323-339, e_mail_store_go_online_sync e-mail-store-utils.c:214-240).
  * Die Stores entstehen vor camel_session_set_online und damit offline (EDS
@@ -362,7 +342,7 @@ note_store_thread (GTask        *task,
       g_object_get (session, "registry", &registry, NULL);
       revolution_mail_folder_mark_special (store, registry, result->info, cancellable);
       if (provider != NULL && g_strcmp0 (provider->protocol, "imapx") == 0)
-        forget_unread (result->info);
+        revolution_mail_folder_forget_unread (result->info);
     }
 
   g_task_return_pointer (task, result, (GDestroyNotify) note_store_result_free);

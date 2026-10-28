@@ -407,13 +407,12 @@ revolution_eds_thread_node_get_item (CamelFolderThreadNode *node)
 #endif
 }
 
-/* #364: microsoft365 nimmt einen gelöschten bzw. umbenannten Ordner nur aus seinem Ordner-Cache
- * (folder-tree, camel-m365-store.c:849-927, 929-1050), nicht seine Summary aus folders.db (in
- * Microsoft365/camel kein camel_db_delete_folder; imapx: camel-imapx-store.c:1196-1222, 2446;
- * camel_store_delete_cached_folder leert nur die Nachrichten, camel-folder.c:1089-1093). Ein später
- * gleichnamiger Ordner übernimmt dann den Delta-Link des alten (folders.db, Spalte bdata, gemessen
- * build/m5-364) und scheitert beim Abgleich mit „ErrorSyncFolderNotFound“. Daher die Summaries des
- * alten Teilbaums nach Erfolg selbst löschen. */
+/* #364: Ordner löschen (new_name NULL) bzw. umbenennen. Die Summary in folders.db löscht bzw. verschiebt Camel
+ * nur für geöffnete Ordner (camel-folder.c:2762, 2818), microsoft365 ruft camel_db_delete_folder nie auf (imapx:
+ * camel-imapx-store.c:1196-1222). Für nicht geöffnete Ordner und Unterordner bliebe der Delta-Link (bdata) stehen,
+ * ein später gleichnamiger Ordner scheiterte mit „ErrorSyncFolderNotFound“ (gemessen, build/m5-364). Daher bei
+ * microsoft365 danach den alten Teilbaum löschen, außer bei Änderung nur der Groß-/Kleinschreibung (SQLite
+ * unterscheidet Tabellennamen nicht danach, das träfe die verschobene Summary). */
 static void
 forget_summaries (CamelStore      *store,
                   CamelFolderInfo *fi)
@@ -426,44 +425,21 @@ forget_summaries (CamelStore      *store,
     }
 }
 
-static CamelFolderInfo *
-m365_subtree (CamelStore   *store,
-              const char   *full_name,
-              GCancellable *cancellable)
-{
-  return is_microsoft365 (store) ? camel_store_get_folder_info_sync (store, full_name,
-                                                                     CAMEL_STORE_FOLDER_INFO_RECURSIVE |
-                                                                     CAMEL_STORE_FOLDER_INFO_FAST,
-                                                                     cancellable, NULL)
-                                 : NULL;
-}
-
 gboolean
-revolution_eds_store_delete_folder_sync (CamelStore    *store,
-                                         const char    *full_name,
-                                         GCancellable  *cancellable,
-                                         GError       **error)
+revolution_eds_store_edit_folder_sync (CamelStore    *store,
+                                       const char    *full_name,
+                                       const char    *new_name,
+                                       GCancellable  *cancellable,
+                                       GError       **error)
 {
-  CamelFolderInfo *info = m365_subtree (store, full_name, cancellable);
-  gboolean done = camel_store_delete_folder_sync (store, full_name, cancellable, error);
+  CamelFolderInfo *info = NULL;
+  gboolean done;
 
-  if (done)
-    forget_summaries (store, info);
-  g_clear_pointer (&info, camel_folder_info_free);
-
-  return done;
-}
-
-gboolean
-revolution_eds_store_rename_folder_sync (CamelStore    *store,
-                                         const char    *old_name,
-                                         const char    *new_name,
-                                         GCancellable  *cancellable,
-                                         GError       **error)
-{
-  CamelFolderInfo *info = m365_subtree (store, old_name, cancellable);
-  gboolean done = camel_store_rename_folder_sync (store, old_name, new_name, cancellable, error);
-
+  if (is_microsoft365 (store) && (new_name == NULL || g_ascii_strcasecmp (full_name, new_name) != 0))
+    info = camel_store_get_folder_info_sync (store, full_name, CAMEL_STORE_FOLDER_INFO_RECURSIVE |
+                                             CAMEL_STORE_FOLDER_INFO_FAST, cancellable, NULL);
+  done = new_name != NULL ? camel_store_rename_folder_sync (store, full_name, new_name, cancellable, error)
+                          : camel_store_delete_folder_sync (store, full_name, cancellable, error);
   if (done)
     forget_summaries (store, info);
   g_clear_pointer (&info, camel_folder_info_free);

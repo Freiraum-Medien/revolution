@@ -27,13 +27,9 @@ CamelFolder *revolution_eds_store_get_trash_folder_sync      (CamelStore    *sto
                                                               GCancellable  *cancellable,
                                                               GError       **error);
 
-/* #364: Ordner löschen/umbenennen, bei microsoft365 ohne verwaiste Summary (eds-compat.c). */
-gboolean     revolution_eds_store_delete_folder_sync         (CamelStore    *store,
+/* #364: Ordner löschen (new_name NULL) bzw. umbenennen, bei microsoft365 ohne verwaiste Summary. */
+gboolean     revolution_eds_store_edit_folder_sync           (CamelStore    *store,
                                                               const char    *full_name,
-                                                              GCancellable  *cancellable,
-                                                              GError       **error);
-gboolean     revolution_eds_store_rename_folder_sync         (CamelStore    *store,
-                                                              const char    *old_name,
                                                               const char    *new_name,
                                                               GCancellable  *cancellable,
                                                               GError       **error);

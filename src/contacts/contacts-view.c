@@ -27,6 +27,7 @@
 
 #include "contacts-book.h"
 #include "contacts-contact.h"
+#include "contacts-detail.h"
 #include "contacts-view.h"
 
 struct _RevolutionContactsView
@@ -43,7 +44,7 @@ struct _RevolutionContactsView
   GtkLabel               *title_label;
   GtkLabel               *subtitle_label;
   AdwBanner              *banner;
-  AdwStatusPage          *contact_status;
+  RevolutionContactsDetail *detail;
   GtkStack               *header_stack;
   GtkSearchEntry         *search_entry;
   GtkToggleButton        *search_button;
@@ -215,6 +216,7 @@ on_objects_modified (EBookClientView        *view,
                      const GSList           *contacts,
                      RevolutionContactsView *self)
 {
+  RevolutionContactsContact *selected;
   guint added = 0, modified = 0;
 
   if (view != self->view)
@@ -223,6 +225,11 @@ on_objects_modified (EBookClientView        *view,
   for (const GSList *l = contacts; l != NULL; l = l->next)
     g_debug ("Kontakte: %s geändert %s „%s“", book_uid (self), (const char *) e_contact_get_const (l->data, E_CONTACT_UID),
              (const char *) e_contact_get_const (l->data, E_CONTACT_FULL_NAME));
+  /* #369: neue Daten des gewählten Kontakts ins Detail (derselbe Eintrag, revolution_contacts_contact_set_contact). */
+  selected = gtk_single_selection_get_selected_item (self->contact_selection);
+  for (const GSList *l = contacts; selected != NULL && l != NULL; l = l->next)
+    if (g_strcmp0 (e_contact_get_const (l->data, E_CONTACT_UID), revolution_contacts_contact_get_uid (selected)) == 0)
+      revolution_contacts_detail_set_contact (self->detail, selected);
   g_debug ("Kontakte: %s neu %u, geändert %u, Liste %u (UI-Thread %s)", book_uid (self), added, modified,
            g_list_model_get_n_items (G_LIST_MODEL (self->contacts)), ui_thread ());
   update_state (self);
@@ -696,9 +703,8 @@ on_contact_selected (RevolutionContactsView *self)
 {
   RevolutionContactsContact *item = gtk_single_selection_get_selected_item (self->contact_selection);
 
-  /* Detailansicht folgt in #369; bis dahin Name im Leerzustand. */
-  adw_status_page_set_title (self->contact_status, item != NULL ? revolution_contacts_contact_get_name (item)
-                                                                 : _("No Contact Selected"));
+  /* #369: Detail der Auswahl, ohne Auswahl (auch nach Entfernen des Eintrags) leer. */
+  revolution_contacts_detail_set_contact (self->detail, item);
 }
 
 static void
@@ -899,6 +905,7 @@ revolution_contacts_view_class_init (RevolutionContactsViewClass *klass)
 
   g_type_ensure (REVOLUTION_TYPE_CONTACTS_BOOK);
   g_type_ensure (REVOLUTION_TYPE_CONTACTS_CONTACT);
+  g_type_ensure (REVOLUTION_TYPE_CONTACTS_DETAIL);
 
   gtk_widget_class_set_template_from_resource (widget_class, "/de/freiraum_medien/Revolution/contacts-view.ui");
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, book_selection);
@@ -911,7 +918,7 @@ revolution_contacts_view_class_init (RevolutionContactsViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, title_label);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, subtitle_label);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, banner);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, contact_status);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, detail);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, header_stack);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, search_entry);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, search_button);

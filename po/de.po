@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: revolution\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-28 23:12+0100\n"
+"POT-Creation-Date: 2026-10-28 23:36+0100\n"
 "PO-Revision-Date: 2026-10-28 22:20+0100\n"
 "Last-Translator: Arnd Messer\n"
 "Language-Team: German\n"
@@ -46,7 +46,7 @@ msgid "Arnd Messer"
 msgstr "Arnd Messer"
 
 #: data/de.freiraum_medien.Revolution.gschema.xml:14
-#: src/mail/mail-view.blp:1248 src/contacts/contacts-view.blp:657
+#: src/mail/mail-view.blp:1248 src/contacts/contacts-view.blp:653
 #: src/calendar/calendar-view.blp:611
 msgid "Appearance"
 msgstr "Darstellung"
@@ -776,8 +776,8 @@ msgid "Calendar"
 msgstr "Kalender"
 
 #: src/window.blp:64 src/contacts/contacts-view.blp:245
-#: src/contacts/contacts-view.blp:343 src/contacts/contacts-view.blp:595
-#: src/contacts/contacts-view.c:98
+#: src/contacts/contacts-view.blp:343 src/contacts/contacts-view.blp:591
+#: src/contacts/contacts-view.c:101
 msgid "Contacts"
 msgstr "Kontakte"
 
@@ -1188,7 +1188,7 @@ msgstr "_Löschen…"
 msgid "_New Message"
 msgstr "_Neue E-Mail"
 
-#: src/mail/mail-view.blp:1223 src/contacts/contacts-view.blp:640
+#: src/mail/mail-view.blp:1223 src/contacts/contacts-view.blp:636
 #: src/calendar/calendar-view.blp:594
 msgid "_Search"
 msgstr "_Suchen"
@@ -1197,37 +1197,37 @@ msgstr "_Suchen"
 msgid "_Refresh"
 msgstr "_Aktualisieren"
 
-#: src/mail/mail-view.blp:1240 src/contacts/contacts-view.blp:649
+#: src/mail/mail-view.blp:1240 src/contacts/contacts-view.blp:645
 #: src/calendar/calendar-view.blp:603
 msgid "Toggle S_idebar"
 msgstr "Seiten_leiste ein-/ausblenden"
 
-#: src/mail/mail-view.blp:1251 src/contacts/contacts-view.blp:660
+#: src/mail/mail-view.blp:1251 src/contacts/contacts-view.blp:656
 #: src/calendar/calendar-view.blp:614
 msgid "_Light"
 msgstr "_Hell"
 
-#: src/mail/mail-view.blp:1257 src/contacts/contacts-view.blp:666
+#: src/mail/mail-view.blp:1257 src/contacts/contacts-view.blp:662
 #: src/calendar/calendar-view.blp:620
 msgid "Dark with Light _Content"
 msgstr "Dunkel _mit hellem Inhalt"
 
-#: src/mail/mail-view.blp:1263 src/contacts/contacts-view.blp:672
+#: src/mail/mail-view.blp:1263 src/contacts/contacts-view.blp:668
 #: src/calendar/calendar-view.blp:626
 msgid "_Dark"
 msgstr "_Dunkel"
 
-#: src/mail/mail-view.blp:1271 src/contacts/contacts-view.blp:680
+#: src/mail/mail-view.blp:1271 src/contacts/contacts-view.blp:676
 #: src/calendar/calendar-view.blp:634
 msgid "_Preferences"
 msgstr "_Einstellungen"
 
-#: src/mail/mail-view.blp:1277 src/contacts/contacts-view.blp:686
+#: src/mail/mail-view.blp:1277 src/contacts/contacts-view.blp:682
 #: src/calendar/calendar-view.blp:640
 msgid "_Keyboard Shortcuts"
 msgstr "_Tastenkürzel"
 
-#: src/mail/mail-view.blp:1283 src/contacts/contacts-view.blp:692
+#: src/mail/mail-view.blp:1283 src/contacts/contacts-view.blp:688
 #: src/calendar/calendar-view.blp:646
 msgid "_About Revolution"
 msgstr "_Info zu Revolution"
@@ -1304,6 +1304,86 @@ msgstr "Nachrichten der Konversation"
 msgid "Unnamed Contact"
 msgstr "Unbenannter Kontakt"
 
+#: src/contacts/contacts-detail.blp:18
+msgid "No Contact Selected"
+msgstr "Kein Kontakt ausgewählt"
+
+#: src/contacts/contacts-detail.blp:83 src/contacts/contacts-detail.blp:87
+msgid "Send Email"
+msgstr "Mail schreiben"
+
+#: src/contacts/contacts-detail.blp:108
+msgid "Email Addresses"
+msgstr "E-Mail-Adressen"
+
+#: src/contacts/contacts-detail.blp:121
+msgid "Phone Numbers"
+msgstr "Telefonnummern"
+
+#: src/contacts/contacts-detail.blp:134
+msgid "Addresses"
+msgstr "Adressen"
+
+#: src/contacts/contacts-detail.blp:147
+msgid "Organization"
+msgstr "Organisation"
+
+#: src/contacts/contacts-detail.blp:160 src/contacts/contacts-detail.c:279
+msgid "Notes"
+msgstr "Notizen"
+
+#: src/contacts/contacts-detail.c:94 src/contacts/contacts-detail.c:150
+#: src/contacts/contacts-detail.c:273
+msgid "Work"
+msgstr "Arbeit"
+
+#: src/contacts/contacts-detail.c:96 src/contacts/contacts-detail.c:152
+#: src/contacts/contacts-detail.c:274
+msgid "Home"
+msgstr "Privat"
+
+#: src/contacts/contacts-detail.c:98 src/contacts/contacts-detail.c:275
+msgid "Other"
+msgstr "Weitere"
+
+#: src/contacts/contacts-detail.c:99
+msgid "Email"
+msgstr "E-Mail"
+
+#. Aktion je Zeile: Papierflieger (Dokument #5, Prototyp sent-symbolic).
+#: src/contacts/contacts-detail.c:121
+#, c-format
+msgid "Send Email to %s"
+msgstr "Mail an %s schreiben"
+
+#: src/contacts/contacts-detail.c:144
+msgid "Mobile"
+msgstr "Mobil"
+
+#: src/contacts/contacts-detail.c:146
+msgid "Fax"
+msgstr "Fax"
+
+#: src/contacts/contacts-detail.c:148
+msgid "Pager"
+msgstr "Pager"
+
+#: src/contacts/contacts-detail.c:153
+msgid "Phone"
+msgstr "Telefon"
+
+#: src/contacts/contacts-detail.c:276
+msgid "Company"
+msgstr "Firma"
+
+#: src/contacts/contacts-detail.c:277
+msgid "Department"
+msgstr "Abteilung"
+
+#: src/contacts/contacts-detail.c:278
+msgid "Position"
+msgstr "Position"
+
 #: src/contacts/contacts-view.blp:121
 msgid "Address Books"
 msgstr "Adressbücher"
@@ -1349,35 +1429,31 @@ msgstr "Kontakt bearbeiten"
 msgid "Search Contacts"
 msgstr "Kontakte durchsuchen"
 
-#: src/contacts/contacts-view.blp:535 src/contacts/contacts-view.c:612
-msgid "No Contact Selected"
-msgstr "Kein Kontakt ausgewählt"
-
-#: src/contacts/contacts-view.blp:616
+#: src/contacts/contacts-view.blp:612
 msgid "Contact"
 msgstr "Kontakt"
 
-#: src/contacts/contacts-view.blp:634
+#: src/contacts/contacts-view.blp:630
 msgid "_New Contact"
 msgstr "_Neuer Kontakt"
 
-#: src/contacts/contacts-view.c:94
+#: src/contacts/contacts-view.c:97
 #, c-format
 msgid "%u contact"
 msgid_plural "%u contacts"
 msgstr[0] "%u Kontakt"
 msgstr[1] "%u Kontakte"
 
-#: src/contacts/contacts-view.c:284
+#: src/contacts/contacts-view.c:296
 msgid "Address Book Incomplete"
 msgstr "Adressbuch unvollständig"
 
-#: src/contacts/contacts-view.c:334 src/contacts/contacts-view.c:373
-#: src/contacts/contacts-view.c:470
+#: src/contacts/contacts-view.c:346 src/contacts/contacts-view.c:385
+#: src/contacts/contacts-view.c:487
 msgid "Address Book Unavailable"
 msgstr "Adressbuch nicht verfügbar"
 
-#: src/contacts/contacts-view.c:848
+#: src/contacts/contacts-view.c:886
 #, c-format
 msgid "Jump to “%s”"
 msgstr "Zu „%s“ springen"

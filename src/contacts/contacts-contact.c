@@ -226,3 +226,10 @@ revolution_contacts_contact_get_initial (RevolutionContactsContact *self)
 {
   return self->initial;
 }
+
+/* #369: Detailansicht (contacts-detail.c). */
+EContact *
+revolution_contacts_contact_get_contact (RevolutionContactsContact *self)
+{
+  return self->contact;
+}

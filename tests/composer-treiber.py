@@ -237,7 +237,27 @@ def a11y_klick(titel, rollen, name, index=-1, klicken=True):
     return len(treffer)
 
 
+def pruefe_a11y(titel):
+    elemente = composer_a11y(titel)
+    wert('a11y: %s' % [(e[0], e[1]) for e in elemente])
+    namen = {e[1] for e in elemente}
+    for soll in ('An', 'Kopie', 'Blindkopie', 'Betreff', 'Von', 'Nachrichtentext', 'Hauptmenü', 'Anhang hinzufügen',
+                 'Formatierung anzeigen', 'Senden', 'Absatzformat', 'Fett', 'Kursiv', 'Unterstrichen',
+                 'Durchgestrichen', 'Aufzählung', 'Nummerierung', 'Link einfügen'):
+        pruefe(soll in namen, 'a11y: „%s“ vorhanden' % soll)
+    bedienbar = [e for e in elemente if e[0] in ('push button', 'toggle button', 'text', 'entry', 'combo box')]
+    # Ohne Fläche (0×0) ist nichts bedienbar: WebKit legt in der WebView ein internes Textfeld an (Kind 2 der
+    # WebView neben dem Inhalt, gemessen über AT-SPI); es zählt nicht.
+    for e in bedienbar:
+        if e[4].width == 0 or e[4].height == 0:
+            wert('a11y: ohne Fläche, nicht gezählt: %s %s' % (e[0], e[2]))
+    bedienbar = [e for e in bedienbar if e[4].width > 0 and e[4].height > 0]
+    ohne = [(e[0], e[2]) for e in bedienbar if not e[1]]
+    pruefe(bedienbar and not ohne, 'a11y: %d bedienbare Elemente, ohne Namen: %s' % (len(bedienbar), ohne))
+
+
 # ------------------------------------------------------------------ Erwartung
+
 
 def eigene_adressen():
     """Adressen und Aliase der eingeschalteten Mail-Identitäten (wie Evolution generate_recipient_hash)."""

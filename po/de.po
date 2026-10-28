@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: revolution\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-29 00:12+0100\n"
+"POT-Creation-Date: 2026-10-29 00:23+0100\n"
 "PO-Revision-Date: 2026-10-28 22:20+0100\n"
 "Last-Translator: Arnd Messer\n"
 "Language-Team: German\n"
@@ -46,7 +46,7 @@ msgid "Arnd Messer"
 msgstr "Arnd Messer"
 
 #: data/de.freiraum_medien.Revolution.gschema.xml:14
-#: src/mail/mail-view.blp:1248 src/contacts/contacts-view.blp:653
+#: src/mail/mail-view.blp:1256 src/contacts/contacts-view.blp:721
 #: src/calendar/calendar-view.blp:611
 msgid "Appearance"
 msgstr "Darstellung"
@@ -157,7 +157,7 @@ msgstr "Zertifikat nicht vertrauenswürdig"
 msgid "Authentication Failed"
 msgstr "Anmeldung fehlgeschlagen"
 
-#: src/main.c:539 src/mail/mail-view.c:4532 src/mail/mail-view.c:4536
+#: src/main.c:539 src/mail/mail-view.c:4570 src/mail/mail-view.c:4574
 msgid "No Connection"
 msgstr "Keine Verbindung"
 
@@ -216,79 +216,79 @@ msgid_plural "%s, %d unread"
 msgstr[0] "%s, %d ungelesen"
 msgstr[1] "%s, %d ungelesen"
 
-#: src/mail/mail-message.c:168 src/mail/mail-message.c:184
+#: src/mail/mail-message.c:170 src/mail/mail-message.c:186
 msgid "Unknown Sender"
 msgstr "Unbekannter Absender"
 
 #. Translators: time of today’s messages in the list (g_date_time_format).
-#: src/mail/mail-message.c:214
+#: src/mail/mail-message.c:216
 msgid "%H:%M"
 msgstr "%H:%M"
 
-#: src/mail/mail-message.c:216
+#: src/mail/mail-message.c:218
 msgid "Yesterday"
 msgstr "Gestern"
 
 #. Translators: abbreviated weekday for messages of the last week, e.g. “Mon”.
-#: src/mail/mail-message.c:219
+#: src/mail/mail-message.c:221
 #, c-format
 msgid "%a"
 msgstr "%a."
 
 #. Translators: date of older messages in the list, e.g. “10/17/26”.
-#: src/mail/mail-message.c:222
+#: src/mail/mail-message.c:224
 msgid "%m/%d/%y"
 msgstr "%d.%m.%y"
 
-#: src/mail/mail-message.c:277
+#: src/mail/mail-message.c:279
 #, c-format
 msgid ", account %s"
 msgstr ", Konto %s"
 
 #. #357: Translators: start of the accessible name of a conversation row.
-#: src/mail/mail-message.c:280
+#: src/mail/mail-message.c:282
 #, c-format
 msgid "Conversation with %u message: "
 msgid_plural "Conversation with %u messages: "
 msgstr[0] "Konversation mit %u E-Mail: "
 msgstr[1] "Konversation mit %u E-Mails: "
 
-#: src/mail/mail-message.c:287 src/mail/mail-conversation.c:115
+#: src/mail/mail-message.c:289 src/mail/mail-conversation.c:115
 msgid ", unread"
 msgstr ", ungelesen"
 
-#: src/mail/mail-message.c:288 src/mail/mail-conversation.c:116
+#: src/mail/mail-message.c:290 src/mail/mail-conversation.c:116
 msgid ", flagged"
 msgstr ", markiert"
 
-#: src/mail/mail-message.c:289
+#: src/mail/mail-message.c:291
 msgid ", with attachment"
 msgstr ", mit Anhang"
 
-#: src/mail/mail-message.c:307
+#: src/mail/mail-message.c:310
 msgid "(No Subject)"
 msgstr "(Kein Betreff)"
 
-#: src/mail/mail-view.c:189
+#: src/mail/mail-view.c:190
 msgid "Searching…"
 msgstr "Suche läuft …"
 
-#: src/mail/mail-view.c:190
+#: src/mail/mail-view.c:191
 msgid "No Messages Match the Search Criteria"
 msgstr "Keine Nachricht entspricht den Suchkriterien"
 
-#: src/mail/mail-view.c:191 src/mail/mail-view.blp:489
+#: src/mail/mail-view.c:192 src/mail/mail-view.blp:489
 msgid "No Messages"
 msgstr "Keine Nachrichten"
 
-#: src/mail/mail-view.c:576
+#: src/mail/mail-view.c:577
 #, c-format
 msgid "%'u conversation"
 msgid_plural "%'u conversations"
 msgstr[0] "%'u Konversation"
 msgstr[1] "%'u Konversationen"
 
-#: src/mail/mail-view.c:578
+#: src/mail/mail-view.c:579
 #, c-format
 msgid "%'u message"
 msgid_plural "%'u messages"
@@ -296,181 +296,181 @@ msgstr[0] "%'u E-Mail"
 msgstr[1] "%'u E-Mails"
 
 #. Translators: “10 messages, 4 unread”; %s is the number of messages.
-#: src/mail/mail-view.c:581
+#: src/mail/mail-view.c:582
 #, c-format
 msgid "%s, %'u unread"
 msgstr "%s, %'u ungelesen"
 
-#: src/mail/mail-view.c:1094
+#: src/mail/mail-view.c:1095
 msgid "Search Failed"
 msgstr "Suche fehlgeschlagen"
 
-#: src/mail/mail-view.c:1263 src/mail/mail-reader.c:730
+#: src/mail/mail-view.c:1264 src/mail/mail-reader.c:730
 #: src/composer/composer.c:884 src/composer/composer.c:1621
 #, c-format
 msgid "Account %s unavailable"
 msgstr "Konto %s nicht verfügbar"
 
-#: src/mail/mail-view.c:1907 src/mail/mail-view.c:3215
+#: src/mail/mail-view.c:1908 src/mail/mail-view.c:3251
 #, c-format
 msgid "Message %s not found"
 msgstr "Nachricht %s nicht gefunden"
 
-#: src/mail/mail-view.c:2084
+#: src/mail/mail-view.c:2085
 msgid "Flags Not Saved"
 msgstr "Markierung nicht gespeichert"
 
-#: src/mail/mail-view.c:2598
+#: src/mail/mail-view.c:2634
 msgid "Refresh Failed"
 msgstr "Aktualisieren fehlgeschlagen"
 
-#: src/mail/mail-view.c:2807
+#: src/mail/mail-view.c:2843
 msgid "Messages Not Loaded"
 msgstr "Nachrichten nicht geladen"
 
-#: src/mail/mail-view.c:2909 src/window.blp:42 src/mail/mail-view.blp:397
+#: src/mail/mail-view.c:2945 src/window.blp:42 src/mail/mail-view.blp:397
 #: src/mail/mail-view.blp:1026
 msgid "Mail"
 msgstr "Mail"
 
-#: src/mail/mail-view.c:2955 src/mail/mail-view.c:2957
+#: src/mail/mail-view.c:2991 src/mail/mail-view.c:2993
 msgid "All Folders"
 msgstr "Alle Ordner"
 
-#: src/mail/mail-view.c:3073
+#: src/mail/mail-view.c:3109
 msgid "Deleted"
 msgstr "Gelöscht"
 
-#: src/mail/mail-view.c:3074
+#: src/mail/mail-view.c:3110
 msgid "Archived"
 msgstr "Archiviert"
 
-#: src/mail/mail-view.c:3075
+#: src/mail/mail-view.c:3111
 msgid "Marked as Junk"
 msgstr "Als Spam markiert"
 
-#: src/mail/mail-view.c:3076
+#: src/mail/mail-view.c:3112
 msgid "Moved"
 msgstr "Verschoben"
 
-#: src/mail/mail-view.c:3318
+#: src/mail/mail-view.c:3354
 msgid "Not Moved"
 msgstr "Nicht verschoben"
 
-#: src/mail/mail-view.c:3451
+#: src/mail/mail-view.c:3487
 msgid "Messages cannot be moved between accounts"
 msgstr "Verschieben zwischen Konten ist nicht möglich"
 
-#: src/mail/mail-view.c:3456
+#: src/mail/mail-view.c:3492
 msgid "The message is already in this folder"
 msgstr "Die Nachricht ist schon in diesem Ordner"
 
-#: src/mail/mail-view.c:3462
+#: src/mail/mail-view.c:3498
 msgid "No Target Folder"
 msgstr "Kein Zielordner"
 
-#: src/mail/mail-view.c:3504
+#: src/mail/mail-view.c:3540
 #, c-format
 msgid "Moved to “%s”"
 msgstr "Verschoben nach „%s“"
 
-#: src/mail/mail-view.c:3507
+#: src/mail/mail-view.c:3543 src/contacts/contacts-view.c:1371
 msgid "_Undo"
 msgstr "_Rückgängig"
 
-#: src/mail/mail-view.c:3665
+#: src/mail/mail-view.c:3701
 msgid "Cannot move here"
 msgstr "Hierhin lässt sich nicht verschieben"
 
-#: src/mail/mail-view.c:3766
+#: src/mail/mail-view.c:3802
 msgid "Folder Not Created"
 msgstr "Ordner nicht angelegt"
 
-#: src/mail/mail-view.c:3767
+#: src/mail/mail-view.c:3803
 msgid "Folder Not Renamed"
 msgstr "Ordner nicht umbenannt"
 
-#: src/mail/mail-view.c:3768
+#: src/mail/mail-view.c:3804
 msgid "Folder Not Deleted"
 msgstr "Ordner nicht gelöscht"
 
-#: src/mail/mail-view.c:3954
+#: src/mail/mail-view.c:3990
 #, c-format
 msgid "Delete Folder “%s” and All Subfolders?"
 msgstr "Ordner „%s“ und alle Unterordner löschen?"
 
-#: src/mail/mail-view.c:3954
+#: src/mail/mail-view.c:3990
 #, c-format
 msgid "Delete Folder “%s”?"
 msgstr "Ordner „%s“ löschen?"
 
-#: src/mail/mail-view.c:3956
+#: src/mail/mail-view.c:3992
 msgid "New Folder"
 msgstr "Neuer Ordner"
 
-#: src/mail/mail-view.c:3956
+#: src/mail/mail-view.c:3992
 msgid "Rename Folder"
 msgstr "Ordner umbenennen"
 
-#: src/mail/mail-view.c:3958
+#: src/mail/mail-view.c:3994
 msgid ""
 "The contents of the folder and its subfolders will be permanently deleted."
 msgstr "Der Inhalt des Ordners und seiner Unterordner wird endgültig gelöscht."
 
-#: src/mail/mail-view.c:3959
+#: src/mail/mail-view.c:3995
 msgid "The contents of the folder will be permanently deleted."
 msgstr "Der Inhalt des Ordners wird endgültig gelöscht."
 
-#: src/mail/mail-view.c:3960
+#: src/mail/mail-view.c:3996
 msgid "Do _Not Delete"
 msgstr "_Nicht löschen"
 
-#: src/mail/mail-view.c:3960
+#: src/mail/mail-view.c:3996 src/contacts/contacts-view.blp:528
 msgid "_Cancel"
 msgstr "_Abbrechen"
 
-#: src/mail/mail-view.c:3961
+#: src/mail/mail-view.c:3997
 msgid "C_reate"
 msgstr "_Anlegen"
 
-#: src/mail/mail-view.c:3961
+#: src/mail/mail-view.c:3997
 msgid "_Rename"
 msgstr "_Umbenennen"
 
-#: src/mail/mail-view.c:3961 src/mail/mail-view.blp:1171
+#: src/mail/mail-view.c:3997 src/mail/mail-view.blp:1179
 msgid "_Delete"
 msgstr "_Löschen"
 
-#: src/mail/mail-view.c:3975
+#: src/mail/mail-view.c:4011
 msgid "Folder Name"
 msgstr "Ordnername"
 
-#: src/mail/mail-view.c:3979
+#: src/mail/mail-view.c:4015
 #, c-format
 msgid "_Subfolder of “%s”"
 msgstr "_Unterordner von „%s“"
 
 #. #351: Favoriten als erster Abschnitt vor den Konten (Prototyp), außerhalb von self->accounts
 #. * (sync_accounts gleicht nur die Konten der Registry ab); Ordner sind gleich da.
-#: src/mail/mail-view.c:4214
+#: src/mail/mail-view.c:4252
 msgid "Favorites"
 msgstr "Favoriten"
 
 #. #362: Postausgang wie Evolution im lokalen Store „Auf diesem Rechner“ (e-mail-session.c:824-894,
 #. * em-folder-tree-model.c:1534-1538), Name wie dort „Outbox“ mit eigenem Typ; erst sichtbar, wenn er
 #. * Nachrichten hat (revolution_mail_view_set_outbox).
-#: src/mail/mail-view.c:4223
+#: src/mail/mail-view.c:4261
 msgid "On This Computer"
 msgstr "Auf diesem Rechner"
 
-#: src/mail/mail-view.c:4228 src/mail/mail-outbox.c:656
+#: src/mail/mail-view.c:4266 src/mail/mail-outbox.c:656
 #: src/mail/mail-outbox.c:681
 msgid "Outbox"
 msgstr "Postausgang"
 
 #. Translators: title of the error banner, e.g. “No Connection (7 accounts)”:
 #. * kind of error and number of accounts with this kind of error.
-#: src/mail/mail-view.c:4409
+#: src/mail/mail-view.c:4447
 #, c-format
 msgid "%s (%u account)"
 msgid_plural "%s (%u accounts)"
@@ -775,15 +775,15 @@ msgstr[1] "%u E-Mails"
 msgid "Calendar"
 msgstr "Kalender"
 
-#: src/window.blp:64 src/contacts/contacts-view.blp:245
-#: src/contacts/contacts-view.blp:343 src/contacts/contacts-view.blp:591
-#: src/contacts/contacts-view.c:101
+#: src/window.blp:64 src/contacts/contacts-view.blp:252
+#: src/contacts/contacts-view.blp:358 src/contacts/contacts-view.blp:659
+#: src/contacts/contacts-view.c:134
 msgid "Contacts"
 msgstr "Kontakte"
 
 #: src/composer/composer.blp:90 src/composer/composer.blp:95
 #: src/mail/mail-view.blp:193 src/mail/mail-view.blp:197
-#: src/contacts/contacts-view.blp:99 src/contacts/contacts-view.blp:103
+#: src/contacts/contacts-view.blp:106 src/contacts/contacts-view.blp:110
 #: src/calendar/calendar-view.blp:147 src/calendar/calendar-view.blp:151
 msgid "Main Menu"
 msgstr "Hauptmenü"
@@ -1023,7 +1023,7 @@ msgstr ""
 "E-Mail-Konten aus den Online-Konten oder aus Evolution erscheinen hier."
 
 #: src/mail/mail-view.blp:367 src/mail/mail-view.blp:371
-#: src/contacts/contacts-view.blp:216 src/contacts/contacts-view.blp:220
+#: src/contacts/contacts-view.blp:223 src/contacts/contacts-view.blp:227
 #: src/calendar/calendar-view.blp:276 src/calendar/calendar-view.blp:280
 msgid "Toggle Sidebar"
 msgstr "Seitenleiste ein-/ausblenden"
@@ -1119,7 +1119,7 @@ msgid "Search Scope"
 msgstr "Suchbereich"
 
 #: src/mail/mail-view.blp:926 src/mail/mail-view.blp:930
-#: src/contacts/contacts-view.blp:516 src/contacts/contacts-view.blp:520
+#: src/contacts/contacts-view.blp:573 src/contacts/contacts-view.blp:577
 #: src/calendar/calendar-view.blp:318 src/calendar/calendar-view.blp:322
 msgid "Search"
 msgstr "Suchen"
@@ -1144,99 +1144,103 @@ msgstr "Nach _Konversationen"
 msgid "Print…"
 msgstr "Drucken…"
 
-#: src/mail/mail-view.blp:1132
+#: src/mail/mail-view.blp:1129
+msgid "A_dd Sender to Contacts"
+msgstr "A_bsender zu Kontakten hinzufügen"
+
+#: src/mail/mail-view.blp:1140
 msgid "Mark as _Read"
 msgstr "Als _gelesen markieren"
 
-#: src/mail/mail-view.blp:1139
+#: src/mail/mail-view.blp:1147
 msgid "Mark as _Unread"
 msgstr "Als _ungelesen markieren"
 
-#: src/mail/mail-view.blp:1148
+#: src/mail/mail-view.blp:1156
 msgid "_Flag"
 msgstr "_Markieren"
 
-#: src/mail/mail-view.blp:1155
+#: src/mail/mail-view.blp:1163
 msgid "Remove F_lag"
 msgstr "Markierung _entfernen"
 
-#: src/mail/mail-view.blp:1165
+#: src/mail/mail-view.blp:1173
 msgid "_Archive"
 msgstr "_Archivieren"
 
-#: src/mail/mail-view.blp:1177
+#: src/mail/mail-view.blp:1185
 msgid "Mark as _Junk"
 msgstr "Als _Spam markieren"
 
-#: src/mail/mail-view.blp:1183
+#: src/mail/mail-view.blp:1191
 msgid "_Move To"
 msgstr "_Verschieben nach"
 
-#: src/mail/mail-view.blp:1192
+#: src/mail/mail-view.blp:1200
 msgid "_New Folder…"
 msgstr "_Neuer Ordner…"
 
-#: src/mail/mail-view.blp:1198
+#: src/mail/mail-view.blp:1206
 msgid "_Rename…"
 msgstr "_Umbenennen…"
 
-#: src/mail/mail-view.blp:1205
+#: src/mail/mail-view.blp:1213
 msgid "_Delete…"
 msgstr "_Löschen…"
 
-#: src/mail/mail-view.blp:1217
+#: src/mail/mail-view.blp:1225
 msgid "_New Message"
 msgstr "_Neue E-Mail"
 
-#: src/mail/mail-view.blp:1223 src/contacts/contacts-view.blp:636
+#: src/mail/mail-view.blp:1231 src/contacts/contacts-view.blp:704
 #: src/calendar/calendar-view.blp:594
 msgid "_Search"
 msgstr "_Suchen"
 
-#: src/mail/mail-view.blp:1230
+#: src/mail/mail-view.blp:1238
 msgid "_Refresh"
 msgstr "_Aktualisieren"
 
-#: src/mail/mail-view.blp:1240 src/contacts/contacts-view.blp:645
+#: src/mail/mail-view.blp:1248 src/contacts/contacts-view.blp:713
 #: src/calendar/calendar-view.blp:603
 msgid "Toggle S_idebar"
 msgstr "Seiten_leiste ein-/ausblenden"
 
-#: src/mail/mail-view.blp:1251 src/contacts/contacts-view.blp:656
+#: src/mail/mail-view.blp:1259 src/contacts/contacts-view.blp:724
 #: src/calendar/calendar-view.blp:614
 msgid "_Light"
 msgstr "_Hell"
 
-#: src/mail/mail-view.blp:1257 src/contacts/contacts-view.blp:662
+#: src/mail/mail-view.blp:1265 src/contacts/contacts-view.blp:730
 #: src/calendar/calendar-view.blp:620
 msgid "Dark with Light _Content"
 msgstr "Dunkel _mit hellem Inhalt"
 
-#: src/mail/mail-view.blp:1263 src/contacts/contacts-view.blp:668
+#: src/mail/mail-view.blp:1271 src/contacts/contacts-view.blp:736
 #: src/calendar/calendar-view.blp:626
 msgid "_Dark"
 msgstr "_Dunkel"
 
-#: src/mail/mail-view.blp:1271 src/contacts/contacts-view.blp:676
+#: src/mail/mail-view.blp:1279 src/contacts/contacts-view.blp:744
 #: src/calendar/calendar-view.blp:634
 msgid "_Preferences"
 msgstr "_Einstellungen"
 
-#: src/mail/mail-view.blp:1277 src/contacts/contacts-view.blp:682
+#: src/mail/mail-view.blp:1285 src/contacts/contacts-view.blp:750
 #: src/calendar/calendar-view.blp:640
 msgid "_Keyboard Shortcuts"
 msgstr "_Tastenkürzel"
 
-#: src/mail/mail-view.blp:1283 src/contacts/contacts-view.blp:688
+#: src/mail/mail-view.blp:1291 src/contacts/contacts-view.blp:756
 #: src/calendar/calendar-view.blp:646
 msgid "_About Revolution"
 msgstr "_Info zu Revolution"
 
-#: src/mail/mail-view.blp:1291
+#: src/mail/mail-view.blp:1299
 msgid "Run in _Background"
 msgstr "Im _Hintergrund weiterlaufen"
 
-#: src/mail/mail-view.blp:1296
+#: src/mail/mail-view.blp:1304
 msgid "_Quit"
 msgstr "_Beenden"
 
@@ -1320,29 +1324,35 @@ msgstr "E-Mail-Adressen"
 msgid "Phone Numbers"
 msgstr "Telefonnummern"
 
-#: src/contacts/contacts-detail.blp:126
+#: src/contacts/contacts-detail.blp:126 src/contacts/contacts-editor.blp:84
 msgid "Addresses"
 msgstr "Adressen"
 
-#: src/contacts/contacts-detail.blp:139
+#: src/contacts/contacts-detail.blp:139 src/contacts/contacts-editor.blp:102
 msgid "Organization"
 msgstr "Organisation"
 
 #: src/contacts/contacts-detail.blp:152 src/contacts/contacts-detail.c:305
+#: src/contacts/contacts-editor.blp:118 src/contacts/contacts-editor.blp:132
 msgid "Notes"
 msgstr "Notizen"
 
 #: src/contacts/contacts-detail.c:94 src/contacts/contacts-detail.c:182
 #: src/contacts/contacts-detail.c:186 src/contacts/contacts-detail.c:299
+#: src/contacts/contacts-editor.c:40 src/contacts/contacts-editor.c:47
+#: src/contacts/contacts-editor.c:57
 msgid "Work"
 msgstr "Arbeit"
 
 #: src/contacts/contacts-detail.c:96 src/contacts/contacts-detail.c:182
 #: src/contacts/contacts-detail.c:186 src/contacts/contacts-detail.c:300
+#: src/contacts/contacts-editor.c:41 src/contacts/contacts-editor.c:48
+#: src/contacts/contacts-editor.c:58
 msgid "Home"
 msgstr "Privat"
 
-#: src/contacts/contacts-detail.c:97
+#: src/contacts/contacts-detail.c:97 src/contacts/contacts-editor.blp:48
+#: src/contacts/contacts-editor.c:258
 msgid "Email"
 msgstr "E-Mail"
 
@@ -1372,7 +1382,7 @@ msgstr "Firmentelefon"
 msgid "ISDN"
 msgstr "ISDN"
 
-#: src/contacts/contacts-detail.c:157
+#: src/contacts/contacts-detail.c:157 src/contacts/contacts-editor.c:46
 msgid "Mobile"
 msgstr "Mobil"
 
@@ -1380,7 +1390,7 @@ msgstr "Mobil"
 msgid "Fax"
 msgstr "Fax"
 
-#: src/contacts/contacts-detail.c:159
+#: src/contacts/contacts-detail.c:159 src/contacts/contacts-editor.c:51
 msgid "Pager"
 msgstr "Pager"
 
@@ -1400,7 +1410,8 @@ msgstr "TTY/TDD"
 msgid "Primary Phone"
 msgstr "Telefon, primär"
 
-#: src/contacts/contacts-detail.c:182
+#: src/contacts/contacts-detail.c:182 src/contacts/contacts-editor.blp:66
+#: src/contacts/contacts-editor.c:258
 msgid "Phone"
 msgstr "Telefon"
 
@@ -1415,92 +1426,215 @@ msgctxt "phone"
 msgid "%s (%s)"
 msgstr "%s (%s)"
 
-#: src/contacts/contacts-detail.c:301
+#: src/contacts/contacts-detail.c:301 src/contacts/contacts-editor.c:42
+#: src/contacts/contacts-editor.c:52 src/contacts/contacts-editor.c:59
 msgid "Other"
 msgstr "Weitere"
 
-#: src/contacts/contacts-detail.c:302
+#: src/contacts/contacts-detail.c:302 src/contacts/contacts-editor.blp:105
 msgid "Company"
 msgstr "Firma"
 
-#: src/contacts/contacts-detail.c:303
+#: src/contacts/contacts-detail.c:303 src/contacts/contacts-editor.blp:109
 msgid "Department"
 msgstr "Abteilung"
 
-#: src/contacts/contacts-detail.c:304
+#: src/contacts/contacts-detail.c:304 src/contacts/contacts-editor.blp:113
 msgid "Position"
 msgstr "Position"
 
-#: src/contacts/contacts-view.blp:121
+#: src/contacts/contacts-editor.blp:29
+msgid "Address Book"
+msgstr "Adressbuch"
+
+#: src/contacts/contacts-editor.blp:34
+msgid "Name"
+msgstr "Name"
+
+#: src/contacts/contacts-editor.blp:37
+msgid "First Name"
+msgstr "Vorname"
+
+#: src/contacts/contacts-editor.blp:42
+msgid "Last Name"
+msgstr "Nachname"
+
+#: src/contacts/contacts-editor.blp:52 src/contacts/contacts-editor.blp:56
+msgid "Add Email"
+msgstr "E-Mail hinzufügen"
+
+#: src/contacts/contacts-editor.blp:70 src/contacts/contacts-editor.blp:74
+msgid "Add Phone Number"
+msgstr "Telefonnummer hinzufügen"
+
+#: src/contacts/contacts-editor.blp:88 src/contacts/contacts-editor.blp:92
+msgid "Add Address"
+msgstr "Adresse hinzufügen"
+
+#: src/contacts/contacts-editor.c:49
+msgid "Work Fax"
+msgstr "Fax, geschäftlich"
+
+#: src/contacts/contacts-editor.c:50
+msgid "Home Fax"
+msgstr "Fax, privat"
+
+#: src/contacts/contacts-editor.c:256
+msgid "Email Type"
+msgstr "E-Mail-Typ"
+
+#: src/contacts/contacts-editor.c:256
+msgid "Phone Type"
+msgstr "Telefontyp"
+
+#: src/contacts/contacts-editor.c:266
+msgid "Remove Email"
+msgstr "E-Mail entfernen"
+
+#: src/contacts/contacts-editor.c:266
+msgid "Remove Phone Number"
+msgstr "Telefonnummer entfernen"
+
+#: src/contacts/contacts-editor.c:325
+msgid "Address Type"
+msgstr "Adresstyp"
+
+#: src/contacts/contacts-editor.c:328
+msgid "Address"
+msgstr "Adresse"
+
+#: src/contacts/contacts-editor.c:330
+msgid "Remove Address"
+msgstr "Adresse entfernen"
+
+#: src/contacts/contacts-editor.c:331
+msgid "Street"
+msgstr "Straße"
+
+#: src/contacts/contacts-editor.c:332
+msgid "Postal Code"
+msgstr "Postleitzahl"
+
+#: src/contacts/contacts-editor.c:333
+msgid "City"
+msgstr "Stadt"
+
+#: src/contacts/contacts-editor.c:334
+msgid "State/Province"
+msgstr "Bundesstaat/Provinz"
+
+#: src/contacts/contacts-editor.c:335
+msgid "Country"
+msgstr "Land"
+
+#: src/contacts/contacts-view.blp:128
 msgid "Address Books"
 msgstr "Adressbücher"
 
-#: src/contacts/contacts-view.blp:184 src/contacts/contacts-view.blp:191
+#: src/contacts/contacts-view.blp:191 src/contacts/contacts-view.blp:198
 msgid "Read-Only"
 msgstr "Schreibgeschützt"
 
-#: src/contacts/contacts-view.blp:230 src/contacts/contacts-view.blp:234
-#: src/contacts/contacts-view.blp:465 src/contacts/contacts-view.blp:469
+#: src/contacts/contacts-view.blp:237 src/contacts/contacts-view.blp:241
+#: src/contacts/contacts-view.blp:480 src/contacts/contacts-view.blp:484
+#: src/contacts/contacts-view.c:1036
 msgid "New Contact"
 msgstr "Neuer Kontakt"
 
-#: src/contacts/contacts-view.blp:283
+#: src/contacts/contacts-view.blp:290
 msgid "No Contacts"
 msgstr "Keine Kontakte"
 
-#: src/contacts/contacts-view.blp:298
+#: src/contacts/contacts-view.blp:305
 msgid "Loading Contacts"
 msgstr "Kontakte werden geladen"
 
-#: src/contacts/contacts-view.blp:308
+#: src/contacts/contacts-view.blp:315
 msgid "No Results"
 msgstr "Keine Ergebnisse"
 
-#: src/contacts/contacts-view.blp:317
+#: src/contacts/contacts-view.blp:324
 msgid "Search to Show Contacts"
 msgstr "Suchen, um Kontakte anzuzeigen"
 
-#: src/contacts/contacts-view.blp:318
+#: src/contacts/contacts-view.blp:325
 msgid "This address book only shows contacts that match a search."
 msgstr "Dieses Adressbuch zeigt nur Kontakte, die zu einer Suche passen."
 
-#: src/contacts/contacts-view.blp:425
+#: src/contacts/contacts-view.blp:440
 msgid "Jump to Initial Letter"
 msgstr "Zu Anfangsbuchstabe springen"
 
-#: src/contacts/contacts-view.blp:485 src/contacts/contacts-view.blp:489
+#: src/contacts/contacts-view.blp:501 src/contacts/contacts-view.blp:505
+msgid "Delete Contact"
+msgstr "Kontakt löschen"
+
+#: src/contacts/contacts-view.blp:511 src/contacts/contacts-view.blp:515
+#: src/contacts/contacts-view.c:1036
 msgid "Edit Contact"
 msgstr "Kontakt bearbeiten"
 
-#: src/contacts/contacts-view.blp:501 src/contacts/contacts-view.blp:508
+#: src/contacts/contacts-view.blp:558 src/contacts/contacts-view.blp:565
 msgid "Search Contacts"
 msgstr "Kontakte durchsuchen"
 
-#: src/contacts/contacts-view.blp:612
+#: src/contacts/contacts-view.blp:680
 msgid "Contact"
 msgstr "Kontakt"
 
-#: src/contacts/contacts-view.blp:630
+#: src/contacts/contacts-view.blp:698
 msgid "_New Contact"
 msgstr "_Neuer Kontakt"
 
-#: src/contacts/contacts-view.c:97
+#: src/contacts/contacts-view.c:130
 #, c-format
 msgid "%u contact"
 msgid_plural "%u contacts"
 msgstr[0] "%u Kontakt"
 msgstr[1] "%u Kontakte"
 
-#: src/contacts/contacts-view.c:296
+#: src/contacts/contacts-view.c:333
 msgid "Address Book Incomplete"
 msgstr "Adressbuch unvollständig"
 
-#: src/contacts/contacts-view.c:350 src/contacts/contacts-view.c:392
-#: src/contacts/contacts-view.c:517
+#: src/contacts/contacts-view.c:388 src/contacts/contacts-view.c:430
+#: src/contacts/contacts-view.c:556
 msgid "Address Book Unavailable"
 msgstr "Adressbuch nicht verfügbar"
 
-#: src/contacts/contacts-view.c:959
+#: src/contacts/contacts-view.c:1037
+msgid "_Add"
+msgstr "_Hinzufügen"
+
+#: src/contacts/contacts-view.c:1037
+msgid "_Done"
+msgstr "_Fertig"
+
+#: src/contacts/contacts-view.c:1085
+msgid "No Writable Address Book"
+msgstr "Kein schreibbares Adressbuch"
+
+#: src/contacts/contacts-view.c:1085
+msgid "All address books are read-only."
+msgstr "Alle Adressbücher sind schreibgeschützt."
+
+#: src/contacts/contacts-view.c:1190
+msgid "Could Not Save Contact"
+msgstr "Kontakt konnte nicht gespeichert werden"
+
+#: src/contacts/contacts-view.c:1284
+msgid "Could Not Delete Contact"
+msgstr "Kontakt konnte nicht gelöscht werden"
+
+#: src/contacts/contacts-view.c:1370
+msgid "Contact deleted"
+msgstr "Kontakt gelöscht"
+
+#: src/contacts/contacts-view.c:1415
+msgid "Contact already exists"
+msgstr "Kontakt ist schon vorhanden"
+
+#: src/contacts/contacts-view.c:1643
 #, c-format
 msgid "Jump to “%s”"
 msgstr "Zu „%s“ springen"

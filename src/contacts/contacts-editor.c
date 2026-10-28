@@ -326,8 +326,9 @@ add_address_row (RevolutionContactsEditor *self,
   g_signal_connect_swapped (data->type, "notify::selected", G_CALLBACK (update_valid), self);
 
   adw_preferences_row_set_title (ADW_PREFERENCES_ROW (row), _("Address"));
-  adw_expander_row_add_suffix (ADW_EXPANDER_ROW (row), GTK_WIDGET (data->type));
+  /* AdwExpanderRow reiht Suffixe von rechts nach links: Löschen zuerst, damit Typ | Löschen wie bei E-Mail/Telefon. */
   adw_expander_row_add_suffix (ADW_EXPANDER_ROW (row), remove_button (_("Remove Address"), G_CALLBACK (on_remove_address), row));
+  adw_expander_row_add_suffix (ADW_EXPANDER_ROW (row), GTK_WIDGET (data->type));
   data->street = address_entry (row, _("Street"), address != NULL ? address->street : NULL);
   data->code = address_entry (row, _("Postal Code"), address != NULL ? address->code : NULL);
   data->locality = address_entry (row, _("City"), address != NULL ? address->locality : NULL);

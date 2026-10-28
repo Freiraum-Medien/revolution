@@ -148,6 +148,14 @@
 #                                 lesen (nur lesend) „FELDER <JSON>“: was EDS jetzt hält (Name, E-Mails/Telefone mit TYPE,
 #                                 Adressen mit Label, Firma, Abteilung, Position, Notiz, Foto); feld ändert Notiz und Mobil
 #                                 („GEAENDERT <UID> <JSON>“); löschen wie oben mit loeschen
+#   tests/testdaten.py --kontakt-live extra BUCH DATEI
+#                                 #370, Schreibregeln wie oben: setzt beim gespeicherten Testkontakt den Spitznamen (NICKNAME,
+#                                 kein Feld des Formulars), um zu belegen, dass Bearbeiten in der App ihn erhält
+#   tests/testdaten.py --kontakt-server BUCH DATEI
+#                                 #370, nur lesend, am Server ohne EDS: Google-CardDAV GET <Sammlung>/<UID> (wie EDS für
+#                                 Google, e-book-backend-carddav.c:1530) mit dem GOA-Token, microsoft365 Graph GET
+#                                 /me/contacts/<UID>; Zeilen „SERVER 200 <JSON>“ (Name, E-Mails, Telefone, Notiz, Firma …)
+#                                 oder „SERVER 404“; lokales Buch „SERVER lokal“
 #   tests/testdaten.py --kontakt-graph anlegen|loeschen DATEI
 #                                 #368, Gegenprobe am Server ohne EDS (Graph, nur KONTO_M365 /me/contacts): anlegen
 #                                 POST mit Nachname „Revolution-Test 368 Graph <Zeit>“, ID nach DATEI („GRAPH <ID> <Name>“);
@@ -1899,6 +1907,10 @@ def adressbuecher(registry):
             n = len(alle) - listen
         print('ADRESSBUCH %s %s / %s nurlesend %d initial %d kontakte %s listen %s'
               % (b.get_uid(), konto, b.get_display_name(), c.is_readonly(), initial, n, listen), flush=True)
+        if initial:
+            # #370: Prüfsumme der UIDs je Buch (fremde Kontakte vor/nach dem Test unverändert).
+            uids = sorted(x.get_property('id') for x in alle)
+            print('UIDHASH %s %s' % (b.get_uid(), hashlib.sha1('\n'.join(uids).encode()).hexdigest()[:16]), flush=True)
     return 0
 
 
@@ -1978,6 +1990,11 @@ def kontakt_live(registry, aktion, buch, datei):
         c.modify_contact_sync(x, EBookContacts.BookOperationFlags.NONE, cancellable())
         print('SCHREIBVORGANG %s' % buch)
         print('GEAENDERT %s %s' % (uid, json.dumps(detail_felder(x), ensure_ascii=False)), flush=True)
+    elif aktion == 'extra':
+        x.set_property('nickname', 'Revolution-370-Spitzname')
+        c.modify_contact_sync(x, EBookContacts.BookOperationFlags.NONE, cancellable())
+        print('SCHREIBVORGANG %s' % buch)
+        print('GEAENDERT %s nickname' % uid, flush=True)
     elif aktion == 'loeschen':
         c.remove_contact_by_uid_sync(uid, EBookContacts.BookOperationFlags.NONE, cancellable())
         print('SCHREIBVORGANG %s' % buch)
@@ -2037,9 +2054,54 @@ def detail_felder(x):
             'family': x.get_property('name') and x.get_property('name').family,
             'emails': attrs(F.EMAIL), 'telefone': attrs(F.TEL), 'adressen': adressen,
             'firma': x.get_property('org'), 'abteilung': x.get_property('org-unit'), 'position': x.get_property('title'),
-            'notiz': x.get_property('note'),
+            'notiz': x.get_property('note'), 'spitzname': x.get_property('nickname'),
             'foto': None if foto is None else ('inline' if foto.type == EBookContacts.ContactPhotoType.INLINED
                                                else 'uri')}
+
+
+def kontakt_server(registry, buch, datei):
+    """#370: siehe Kopf (--kontakt-server), nur lesend, ohne EDS-Cache."""
+    zeile = open(datei).read().split(None, 3)
+    if len(zeile) < 3 or zeile[0] != 'KONTAKT' or zeile[1] != buch:
+        sys.exit('ABBRUCH: %s enthält keinen Testkontakt aus %s' % (datei, buch))
+    uid = zeile[2]
+    if buch == 'system-address-book':
+        print('SERVER lokal', flush=True)
+        return 0
+    konten = konten_finden(registry)
+    if buch == KONTAKT_SCHREIBBAR[1]:
+        try:
+            x = graph(konten[KONTO_M365], 'GET', '/me/contacts/%s?$select=givenName,surname,displayName,emailAddresses,'
+                      'mobilePhone,businessPhones,homePhones,personalNotes,companyName,department,jobTitle,'
+                      'businessAddress,homeAddress,otherAddress,nickName' % urllib.parse.quote(uid, safe=''))
+        except urllib.error.HTTPError as e:
+            print('SERVER %d' % e.code, flush=True)
+            return 0
+        x.pop('@odata.context', None)
+        x.pop('@odata.etag', None)
+        print('SERVER 200 %s' % json.dumps(x, ensure_ascii=False), flush=True)
+        return 0
+    g = registry.ref_source(buch).get_extension(EDataServer.SOURCE_EXTENSION_WEBDAV_BACKEND).dup_uri()
+    basis = 'https://%s%s' % (g.get_host(), g.get_path().rstrip('/'))
+    token = konten[KONTO_GOOGLE].goa.get_oauth2_based().call_get_access_token_sync(None)[0]
+    for endung in ('', '.vcf'):
+        req = urllib.request.Request('%s/%s%s' % (basis, urllib.parse.quote(uid), endung),
+                                     headers={'Authorization': 'Bearer ' + token})
+        try:
+            with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+                vcard = r.read().decode()
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                continue
+            raise
+        _, EBookContacts = ebook()
+        x = EBookContacts.Contact.new_from_vcard(vcard)
+        f = detail_felder(x)
+        f['uid'] = uid
+        print('SERVER 200 %s' % json.dumps(f, ensure_ascii=False), flush=True)
+        return 0
+    print('SERVER 404', flush=True)
+    return 0
 
 
 def kontakt_graph(k, aktion, datei):
@@ -2787,6 +2849,8 @@ def main():
     ap.add_argument('--adressbuecher', action='store_true', help='#368: nur lesend Adressbücher und Kontaktzahl')
     ap.add_argument('--kontakt-live', nargs=3, metavar=('anlegen|aendern|loeschen|pruefen|refresh|detail|lesen|feld', 'BUCH', 'DATEI'),
                     help='#368: Testkontakt von außen über EDS')
+    ap.add_argument('--kontakt-server', nargs=2, metavar=('BUCH', 'DATEI'),
+                    help='#370: Testkontakt am Server ohne EDS (CardDAV bzw. Graph)')
     ap.add_argument('--kontakt-graph', nargs=2, metavar=('anlegen|loeschen', 'DATEI'),
                     help='#368: Testkontakt in %s direkt über Graph' % KONTO_M365)
     ap.add_argument('--live-flags', metavar='KONTO', help='#351: nur lesend Flags der Live-Mails im Posteingang')
@@ -2865,9 +2929,12 @@ def main():
     if args.adressbuecher:
         return adressbuecher(EDataServer.SourceRegistry.new_sync(None))
     if args.kontakt_live:
-        if args.kontakt_live[0] not in ('anlegen', 'aendern', 'loeschen', 'pruefen', 'refresh', 'detail', 'lesen', 'feld'):
-            ap.error('--kontakt-live anlegen|aendern|loeschen|pruefen|refresh|detail|lesen|feld BUCH DATEI')
+        if args.kontakt_live[0] not in ('anlegen', 'aendern', 'loeschen', 'pruefen', 'refresh', 'detail', 'lesen', 'feld',
+                                        'extra'):
+            ap.error('--kontakt-live anlegen|aendern|loeschen|pruefen|refresh|detail|lesen|feld|extra BUCH DATEI')
         return kontakt_live(EDataServer.SourceRegistry.new_sync(None), *args.kontakt_live)
+    if args.kontakt_server:
+        return kontakt_server(EDataServer.SourceRegistry.new_sync(None), *args.kontakt_server)
     if args.kontakt_graph:
         if args.kontakt_graph[0] not in ('anlegen', 'loeschen'):
             ap.error('--kontakt-graph anlegen|loeschen DATEI')

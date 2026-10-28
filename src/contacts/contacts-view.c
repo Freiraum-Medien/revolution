@@ -300,9 +300,13 @@ drop_view (RevolutionContactsView *self)
   if (self->view != NULL)
     g_signal_handlers_disconnect_by_data (self->view, self);
   g_clear_object (&self->view);
-  g_hash_table_remove_all (self->by_uid);
-  gtk_sort_list_model_set_model (self->contact_sorted, NULL);
-  g_list_store_remove_all (self->contacts);
+  /* Auch nach dispose aufrufbar (Felder dann NULL). */
+  if (self->by_uid != NULL)
+    g_hash_table_remove_all (self->by_uid);
+  if (self->contact_sorted != NULL)
+    gtk_sort_list_model_set_model (self->contact_sorted, NULL);
+  if (self->contacts != NULL)
+    g_list_store_remove_all (self->contacts);
   self->lists = 0;
   self->complete = FALSE;
   self->search_hint = FALSE;
@@ -337,6 +341,9 @@ on_view_started (GObject      *source_object,
     {
       g_debug ("Kontakte: %s Ansicht nicht gestartet: %s", book_uid (self), error->message);
       show_error (self, _("Address Book Unavailable"), error->message);
+      /* Kein Laden mehr: Leerzustand unter dem Banner statt Spinner. */
+      g_clear_object (&self->view_cancellable);
+      update_state (self);
       return;
     }
   g_debug ("Kontakte: %s Ansicht gestartet", book_uid (self));
@@ -376,6 +383,8 @@ on_view_created (GObject      *source_object,
         return;
       g_debug ("Kontakte: %s keine Ansicht: %s", book_uid (self), error->message);
       show_error (self, _("Address Book Unavailable"), error->message);
+      g_clear_object (&self->view_cancellable);
+      update_state (self);
       return;
     }
   self->view = g_steal_pointer (&view);
@@ -459,6 +468,27 @@ connect_thread (GTask        *task,
   g_task_return_pointer (task, client, g_object_unref);
 }
 
+/* „nur lesend“ kann sich ändern (Backend meldet es z. B. nach dem Verbinden mit dem Server neu). */
+static void
+on_readonly_changed (EClient                *client,
+                     GParamSpec             *pspec G_GNUC_UNUSED,
+                     RevolutionContactsView *self)
+{
+  GListModel *books = G_LIST_MODEL (self->books);
+
+  if (books == NULL)
+    return;
+  for (guint i = 0; i < g_list_model_get_n_items (books); i++)
+    {
+      g_autoptr (RevolutionContactsBook) book = g_list_model_get_item (books, i);
+
+      if (e_source_equal (revolution_contacts_book_get_source (book), e_client_get_source (client)))
+        revolution_contacts_book_set_readonly (book, e_client_is_readonly (client));
+    }
+  g_debug ("Kontakte: %s nur lesend %s", e_source_get_uid (e_client_get_source (client)),
+           e_client_is_readonly (client) ? "ja" : "nein");
+}
+
 static void
 on_book_connected (GObject      *source_object,
                    GAsyncResult *result,
@@ -482,6 +512,7 @@ on_book_connected (GObject      *source_object,
     }
   g_hash_table_insert (self->clients, g_strdup (uid), client);
   revolution_contacts_book_set_readonly (book, e_client_is_readonly (client));
+  g_signal_connect_object (client, "notify::readonly", G_CALLBACK (on_readonly_changed), self, G_CONNECT_DEFAULT);
   g_debug ("Kontakte: %s verbunden, nur lesend %s, do-initial-query %s", uid,
            e_client_is_readonly (client) ? "ja" : "nein",
            e_client_check_capability (client, "do-initial-query") ? "ja" : "nein");
@@ -524,6 +555,20 @@ on_book_selected (RevolutionContactsView *self)
     connect_book (self, book);
 }
 
+static gboolean
+client_gone (gpointer key,
+             gpointer value G_GNUC_UNUSED,
+             gpointer user_data)
+{
+  GPtrArray *items = user_data;
+
+  for (guint i = 0; i < items->len; i++)
+    if (g_strcmp0 (key, e_source_get_uid (revolution_contacts_book_get_source (g_ptr_array_index (items, i)))) == 0)
+      return FALSE;
+  g_debug ("Kontakte: %s nicht mehr in der Registry, Verbindung frei", (const char *) key);
+  return TRUE;
+}
+
 /* Bücher aus der Registry (Lesen im Speicher, im UI-Thread zulässig, docs/ENTWICKLUNG.md „Worker“), nur
  * aktivierte wie Evolution (e_source_registry_list_enabled prüft auch die Eltern-Sammlung). Auswahl bleibt
  * über die UID erhalten; beim ersten Mal REVOLUTION_BOOK (nur für Tests), sonst der erste Eintrag. */
@@ -555,14 +600,20 @@ sync_books (RevolutionContactsView *self)
       }
   self->syncing = TRUE;
   g_list_store_splice (self->books, 0, g_list_model_get_n_items (G_LIST_MODEL (self->books)), items->pdata, items->len);
+  /* Verbindungen entfernter oder abgeschalteter Bücher freigeben. */
+  g_hash_table_foreach_remove (self->clients, client_gone, items);
 
   for (guint i = 0; i < g_list_model_get_n_items (sorted); i++)
     {
       g_autoptr (RevolutionContactsBook) book = g_list_model_get_item (sorted, i);
       ESource *source = revolution_contacts_book_get_source (book);
 
+      EClient *client = g_hash_table_lookup (self->clients, e_source_get_uid (source));
+
       g_debug ("Adressbuch: %u %s %s / %s", i, e_source_get_uid (source), revolution_contacts_book_get_group (book),
                e_source_get_display_name (source));
+      if (client != NULL)
+        revolution_contacts_book_set_readonly (book, e_client_is_readonly (client));
       if (g_strcmp0 (keep, e_source_get_uid (source)) == 0)
         selected = i;
       if (self->connect_all)
@@ -598,6 +649,28 @@ on_map (RevolutionContactsView *self,
     }
 }
 
+/* Nur Adressbücher und deren Konten (Eltern-Source, z. B. umbenannte Sammlung) bauen die Liste neu, nicht
+ * jede Änderung an Mail-Quellen (Signale der Registry kommen auch für Mail, Kalender, Identitäten). */
+static void
+on_source_changed (ESourceRegistry        *registry G_GNUC_UNUSED,
+                   ESource                *source,
+                   RevolutionContactsView *self)
+{
+  GListModel *books = G_LIST_MODEL (self->books);
+  gboolean relevant = e_source_has_extension (source, E_SOURCE_EXTENSION_ADDRESS_BOOK);
+
+  if (self->registry == NULL)
+    return;
+  for (guint i = 0; !relevant && i < g_list_model_get_n_items (books); i++)
+    {
+      g_autoptr (RevolutionContactsBook) book = g_list_model_get_item (books, i);
+
+      relevant = g_strcmp0 (e_source_get_parent (revolution_contacts_book_get_source (book)), e_source_get_uid (source)) == 0;
+    }
+  if (relevant)
+    sync_books (self);
+}
+
 void
 revolution_contacts_view_set_registry (RevolutionContactsView *self,
                                        ESourceRegistry        *registry)
@@ -610,7 +683,7 @@ revolution_contacts_view_set_registry (RevolutionContactsView *self,
 
   self->registry = g_object_ref (registry);
   for (gsize i = 0; i < G_N_ELEMENTS (signals); i++)
-    g_signal_connect_object (registry, signals[i], G_CALLBACK (sync_books), self, G_CONNECT_SWAPPED);
+    g_signal_connect_object (registry, signals[i], G_CALLBACK (on_source_changed), self, G_CONNECT_DEFAULT);
   sync_books (self);
   if (gtk_widget_get_mapped (GTK_WIDGET (self)))
     on_map (self, NULL);

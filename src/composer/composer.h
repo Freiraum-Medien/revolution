@@ -1,4 +1,4 @@
-/* composer.h – Composer-Fenster (Prototyp #337)
+/* composer.h – Composer-Fenster: Neu, Antworten, Allen antworten (#337, #359)
  *
  * Copyright 2026 Arnd Messer
  *
@@ -8,12 +8,29 @@
 #pragma once
 
 #include <adwaita.h>
+#include <camel/camel.h>
+#include <libedataserver/libedataserver.h>
 
 G_BEGIN_DECLS
 
 #define REVOLUTION_TYPE_COMPOSER (revolution_composer_get_type ())
 G_DECLARE_FINAL_TYPE (RevolutionComposer, revolution_composer, REVOLUTION, COMPOSER, AdwApplicationWindow)
 
-GtkWindow *revolution_composer_new (GtkApplication *application);
+/* Typen wie Stamp (stamp-composer.h:33-39, ohne Weiterleiten und Entwurf: #360). */
+typedef enum
+{
+  REVOLUTION_COMPOSER_NEW,
+  REVOLUTION_COMPOSER_REPLY,
+  REVOLUTION_COMPOSER_REPLY_ALL,
+} RevolutionComposerType;
+
+GtkWindow *revolution_composer_new (GtkApplication         *application,
+                                    ESourceRegistry        *registry,
+                                    CamelSession           *session,
+                                    RevolutionComposerType  type,
+                                    const char             *account_uid,
+                                    const char             *store_uid,
+                                    const char             *folder_name,
+                                    const char             *message_uid);
 
 G_END_DECLS

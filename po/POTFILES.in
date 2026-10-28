@@ -2,6 +2,7 @@ data/de.freiraum_medien.Revolution.desktop.in.in
 data/de.freiraum_medien.Revolution.metainfo.xml.in.in
 data/de.freiraum_medien.Revolution.gschema.xml
 src/main.c
+src/eds-compat.c
 src/mail/mail-folder.c
 src/mail/mail-message.c
 src/mail/mail-view.c
@@ -10,6 +11,7 @@ src/mail/mail-attachment.c
 src/mail/mail-favorites.c
 src/mail/mail-session.c
 src/mail/mail-outbox.c
+src/mail/mail-search.c
 src/mail/mail-thread.c
 src/mail/mail-conversation.c
 src/window.blp

@@ -31,7 +31,8 @@
 # X-Evolution-Identity. m5-360-entwurf: Autosave (REVOLUTION_TEST_AUTOSAVE=10) in geops@, danach Identität
 # outlook.com und zweimal Strg+S; je genau ein Entwurf am Server (--entwurf). m5-360-entwurf-imap/-graph: im
 # Entwürfe-Ordner (aus dem Log von m5-360-entwurf) Strg+O, Strg+S ersetzt, Senden (Test) löscht den Entwurf.
-# Vor und nach den Läufen: --entwurf KONTO weg (UID EXPUNGE bzw. Graph DELETE genau der Test-Entwürfe).
+# Betreff der Entwürfe je Aufruf eindeutig (ENTWURF_LAUF); danach --entwurf KONTO BETREFF weg MESSAGE-IDs: nur die
+# Entwürfe, die die App laut Log gespeichert hat (UID EXPUNGE bzw. Graph permanentDelete genau dieser).
 # #361: m5-361-adressen-hell/-dunkel: Adressvervollständigung mit dem Testkontakt im Google-Adressbuch von
 # KONTO_GOOGLE@example.invalid (tests/testdaten.py --kontakt anlegen vorher, --kontakt weg nachher).
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler (tests/abbruch.sh).
@@ -84,7 +85,6 @@ case " ${LAEUFE:-weiterleiten} " in
   *" weiterleiten"*|*" entwurf"*)
     td --anhang >"$OUT/anhang.txt" 2>&1 || { cat "$OUT/anhang.txt"; abbruch_bilanz; exit 1; }
     td --anhang-teile KONTO_IMAP_2@example.invalid "$OUT/teile" >"$OUT/teile.txt" 2>&1 || { cat "$OUT/teile.txt"; abbruch_bilanz; exit 1; }
-    for konto in KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid; do td --entwurf "$konto" weg >>"$OUT/aufraeumen-vorher.txt" 2>&1; done
     head -c 4096 /dev/urandom >"$OUT/anhang-360.bin"
     cp "$APP_DIR/src/icons/scalable/actions/drafts-symbolic.svg" "$OUT/anhang-360.svg"
     # Konten ohne Schreibfreigabe (Briefing M5) und alle nicht benötigten ausschließen.
@@ -106,6 +106,8 @@ case " ${LAEUFE:-adressen} " in
 esac
 ANHANG_BETREFF="Anhänge PDF, Bild, ZIP"
 ENTWURF_ORDNER_IMAP=""
+# Betreff der Entwürfe je Aufruf eindeutig (Review R2: kein Aufräumen über fremde Betreffe, parallele Agenten).
+ENTWURF_LAUF="$(date +%Y%m%d%H%M%S)-$$"
 ENTWURF_ORDNER_GRAPH=""
 
 lauf () {
@@ -116,11 +118,11 @@ lauf () {
     m5-359-eigen-konversation) einstellungen="$SCHEMA_K"; betreff="Eigene Antwort Kisten" ;;
     m5-359-eigen) betreff="Eigene Mail im Eingang" ;;
     m5-360-weiterleiten-*) betreff="$ANHANG_BETREFF" ;;
-    m5-360-entwurf-imap) ordner="$ENTWURF_ORDNER_IMAP"; betreff="Entwurf 360 IMAP" ;;
-    m5-360-entwurf-graph) ordner="$ENTWURF_ORDNER_GRAPH"; betreff="Entwurf 360 Graph" ;;
+    m5-360-entwurf-imap) ordner="$ENTWURF_ORDNER_IMAP"; betreff="Entwurf 360 $ENTWURF_LAUF IMAP" ;;
+    m5-360-entwurf-graph) ordner="$ENTWURF_ORDNER_GRAPH"; betreff="Entwurf 360 $ENTWURF_LAUF Graph" ;;
   esac
   case "$name" in
-    m5-360-*) extra=(REVOLUTION_SKIP_ACCOUNTS="$OHNE" REVOLUTION_TEST_AUTOSAVE=10 TEILE="$OUT/teile.txt"
+    m5-360-*) extra=(REVOLUTION_SKIP_ACCOUNTS="$OHNE" REVOLUTION_TEST_AUTOSAVE=10 TEILE="$OUT/teile.txt" ENTWURF_LAUF="$ENTWURF_LAUF"
                      REVOLUTION_TEST_ATTACH="$OUT/anhang-360.bin:$OUT/anhang-360.svg") ;;
   esac
   # #360: Graph-Anfragen beim Speichern in outlook.com (Echo-Schutz #416); der Treiber filtert Kopfzeilen und Token.
@@ -164,13 +166,20 @@ for lauf in "m5-359-hell hell prefer-light aus" "m5-359-dunkel dunkel prefer-dar
   fi
 done
 
-case " ${LAEUFE:-entwurf} " in
-  *" weiterleiten"*|*" entwurf"*)
-    for konto in KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid; do td --entwurf "$konto" weg >>"$OUT/aufraeumen-nachher.txt" 2>&1; done
-    for konto in KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid; do td --entwurf "$konto"; done | tee "$OUT/aufraeumen-pruefung.txt"
-    grep -q '^ENTWUERFE [1-9]\|^ENTWUERFE [0-9]* [1-9]' "$OUT/aufraeumen-pruefung.txt" &&
-      { echo "FEHLER  Aufräumen: Test-Entwürfe am Server übrig"; FEHLER=$((FEHLER + 1)); } ;;
-esac
+# Aufräumen: nur die Entwürfe, die die App in diesem Aufruf gespeichert hat (Message-IDs aus „Entwurf: gespeichert
+# <Ordner> <UID> <Message-ID>“ aller Logs), danach Prüfung über den Betreff dieses Aufrufs.
+MIDS="$(cat "$OUT"/*.log 2>/dev/null | sed -n 's/.*Entwurf: gespeichert [^ ]* [^ ]* \(<[^>]*>\).*/\1/p' | sort -u)"
+if [ -n "$MIDS" ]; then
+  echo "WERT    eigene Entwürfe: $(wc -l <<<"$MIDS") Message-IDs"
+  : >"$OUT/aufraeumen-pruefung.txt"
+  for konto in KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid; do
+    art=IMAP; [ "$konto" = KONTO_M365@example.invalid ] && art=Graph
+    td --entwurf "$konto" "[Revolution-Test] Entwurf 360 $ENTWURF_LAUF $art" weg $MIDS >>"$OUT/aufraeumen.txt" 2>&1
+    td --entwurf "$konto" "[Revolution-Test] Entwurf 360 $ENTWURF_LAUF $art" | tee -a "$OUT/aufraeumen-pruefung.txt"
+  done
+  grep -q '^ENTWUERFE [1-9]\|^ENTWUERFE [0-9]* [1-9]' "$OUT/aufraeumen-pruefung.txt" &&
+    { echo "FEHLER  Aufräumen: Test-Entwürfe dieses Laufs am Server übrig"; FEHLER=$((FEHLER + 1)); }
+fi
 
 case " ${LAEUFE:-adressen} " in
   *" adressen"*)

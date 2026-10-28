@@ -510,7 +510,8 @@ def antwort_eigen(schritt, nr, an, kopie, betreff, regel):
 # ------------------------------------------------------------------ #360
 
 ANHANG_MID = '<revolution-test-anhang-356@example.invalid>'
-ENTWURF = '[Revolution-Test] Entwurf 360'
+# Betreff je Lauf von tests/composer.sh eindeutig (ENTWURF_LAUF), Aufräumen nur über eigene Message-IDs.
+ENTWURF = '[Revolution-Test] Entwurf 360 ' + os.environ.get('ENTWURF_LAUF', '')
 
 
 def identitaet(adresse):
@@ -541,8 +542,8 @@ def td(*argumente):
 
 
 def entwuerfe(konto, soll, schritt):
-    """Sichtbare Entwürfe des Tests am Server (tests/testdaten.py --entwurf)."""
-    aus = td('--entwurf', konto)
+    """Sichtbare Entwürfe dieses Laufs am Server (tests/testdaten.py --entwurf, Betreff des Kontos)."""
+    aus = td('--entwurf', konto, ENTWURF + (' IMAP' if konto == KONTO else ' Graph'))
     m = re.search(r'^ENTWUERFE (\d+) (\d+)$', aus, re.M)
     wert('%s: Server %s: %s' % (schritt, konto, ' | '.join(z for z in aus.splitlines() if z.startswith('ENTWURF'))))
     pruefe(m is not None and int(m.group(1)) == soll,
@@ -677,9 +678,15 @@ def entwurf_neu():
     time.sleep(2 * intervall + 5)
     pruefe(len(gespeichert(ab)) == n, 'entwurf: ohne Änderung kein weiteres Autosave (%d Speicherungen)' % n)
     bild('entwurf', w)
+    # Review R2: Schließen mit ungespeicherter Änderung sichert sie erst als Entwurf (ersetzt die vorige Fassung).
+    tippe(' dritte Fassung')
+    zu = marke()
     zeiger(COMPOSER)
     taste('Escape', 1)
-    pruefe(fenster(weg=True), 'entwurf: Escape schließt den Composer')
+    pruefe(warte(r'^Entwurf: vor dem Schließen speichern$', zu, 10) is not None and
+           warte(r'^Entwurf: folder://\S+ \d+ als gelöscht markiert \(abgeglichen\)$', zu, 60) is not None,
+           'entwurf: Escape mit ungespeicherter Änderung speichert erst den Entwurf')
+    pruefe(fenster(weg=True, zeit=60), 'entwurf: danach schließt der Composer')
     entwuerfe(KONTO, 1, 'entwurf')
 
     ab = marke()
@@ -731,7 +738,7 @@ def entwurf_neu():
     entwuerfe('KONTO_M365@example.invalid', 1, 'entwurf graph')
 
 
-def entwurf_oeffnen(konto, art):
+def entwurf_oeffnen(konto, art, vorher):
     """Strg+O im Entwürfe-Ordner bearbeitet den Entwurf weiter; Strg+S ersetzt ihn, Senden (Test) löscht ihn."""
     ab = marke()
     zeiger(HAUPT)
@@ -747,7 +754,7 @@ def entwurf_oeffnen(konto, art):
     g = w.get_geometry()
     klick((g.x + 300, g.y + 450))
     taste('End', 0.2)
-    tippe(' dritte Fassung')
+    tippe(' letzte Fassung')
     taste('Control_L+s', 0.5)
     pruefe(warte(r'^Entwurf: folder://\S+ \S+ als gelöscht markiert \(abgeglichen\)$', ab, 60) is not None,
            'öffnen: Strg+S ersetzt den geöffneten Entwurf')
@@ -765,7 +772,7 @@ def entwurf_oeffnen(konto, art):
     pruefe(str(m['X-Evolution-Identity']) == identitaet(konto), 'öffnen: X-Evolution-Identity %s' % m['X-Evolution-Identity'])
     pruefe(m['X-Evolution-Draft-Message'] is not None and str(m['X-Evolution-Draft-Folder']).startswith('folder://'),
            'öffnen: X-Evolution-Draft-Folder/-Message %s %s' % (m['X-Evolution-Draft-Folder'], m['X-Evolution-Draft-Message']))
-    pruefe('Erste Fassung zweite Fassung dritte Fassung' in text, 'öffnen: Text aller Fassungen (%s)' % text.strip()[:80])
+    pruefe(vorher + ' letzte Fassung' in text, 'öffnen: Text aller Fassungen (%s)' % text.strip()[:100])
     entwuerfe(konto, 0, 'öffnen')
 
 
@@ -949,9 +956,9 @@ def main():
         elif NAME.endswith('-entwurf'):
             entwurf_neu()
         elif NAME.endswith('-entwurf-imap'):
-            entwurf_oeffnen(KONTO, 'IMAP')
+            entwurf_oeffnen(KONTO, 'IMAP', 'Erste Fassung zweite Fassung dritte Fassung')
         elif NAME.endswith('-entwurf-graph'):
-            entwurf_oeffnen('KONTO_M365@example.invalid', 'Graph')
+            entwurf_oeffnen('KONTO_M365@example.invalid', 'Graph', 'Erste Fassung zweite Fassung')
         elif NAME.endswith('-eigen'):
             antwort_eigen('eigen', 3, ['HILFS_JANA@example.invalid'], ['HILFS_LENA@example.invalid'],
                   'Re: [Revolution-Test] Eigene Mail im Eingang', 'Absender KONTO_IMAP_2@example.invalid ist eigene Adresse')

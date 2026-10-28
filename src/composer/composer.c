@@ -79,7 +79,11 @@ struct _RevolutionComposer
   guint            changes;
   guint            saved_changes;
   gboolean         saving;
+  gboolean         sending;
+  gboolean         can_send;
+  gboolean         closing;
   gboolean         updating;
+  GMutex           build_lock;
   AdwBin          *editor_bin;
   GtkDropDown     *paragraph_dropdown;
   WebKitWebView   *editor;
@@ -1349,6 +1353,14 @@ on_remove_attachment (GtkListItem *item,
 
 /* ------------------------------------------------------------------ Nachricht bauen, Entwurf */
 
+/* #360: Senden nicht, solange ein Entwurf gespeichert wird (sonst bliebe er nach dem Senden übrig), und nur einmal. */
+static void
+update_send (RevolutionComposer *self)
+{
+  g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (G_ACTION_MAP (self->actions), "send")),
+                               self->can_send && !self->saving && !self->sending);
+}
+
 typedef struct
 {
   gboolean         draft;
@@ -1544,12 +1556,17 @@ delete_draft_sync (CamelSession  *session,
   info = camel_folder_get_message_info (folder, uid);
   if (info == NULL && revolution_eds_folder_refresh_info_sync (folder, cancellable, NULL))
     info = camel_folder_get_message_info (folder, uid);
+  if (info == NULL)
+    {
+      revolution_eds_folder_unlock (folder);
+      g_set_error (error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID_UID, _("Entwurf %s nicht in %s"), uid, folder_uri);
+      return FALSE;
+    }
   camel_folder_set_message_flags (folder, uid, CAMEL_MESSAGE_DELETED | CAMEL_MESSAGE_SEEN,
                                   CAMEL_MESSAGE_DELETED | CAMEL_MESSAGE_SEEN);
   success = camel_folder_synchronize_sync (folder, FALSE, cancellable, error);
   revolution_eds_folder_unlock (folder);
-  g_debug ("Entwurf: %s %s als gelöscht markiert (%s)", folder_uri, uid,
-           info == NULL ? "nicht in der Summary" : success ? "abgeglichen" : "Fehler");
+  g_debug ("Entwurf: %s %s als gelöscht markiert (%s)", folder_uri, uid, success ? "abgeglichen" : "Fehler");
 
   return success;
 }
@@ -1628,7 +1645,8 @@ save_draft_sync (Build             *build,
   if (!camel_folder_append_message_sync (folder, message, info, &build->saved_uid, cancellable, error))
     return FALSE;
   build->saved_folder_uri = folder_uri_build (build->account_uid, camel_folder_get_full_name (folder));
-  g_debug ("Entwurf: gespeichert %s %s", build->saved_folder_uri, build->saved_uid != NULL ? build->saved_uid : "(ohne UID)");
+  g_debug ("Entwurf: gespeichert %s %s <%s>", build->saved_folder_uri, build->saved_uid != NULL ? build->saved_uid : "(ohne UID)",
+           camel_mime_message_get_message_id (message));
 
   /* Vorige Fassung löschen; ein Fehler dabei ist wie bei Evolution kein Fehler des Speicherns (1307-1310). */
   if (build->draft_uid != NULL)
@@ -1643,22 +1661,23 @@ save_draft_sync (Build             *build,
 }
 
 /* Im Worker: Entwurf speichern oder (bis #362) im Test die Nachricht in die Datei schreiben und danach wie nach dem
- * Senden den Entwurf löschen (revolution_composer_handle_draft_headers_sync). Nacheinander: die Teile (angehängte
- * Nachricht) teilen sich Composer und Nachricht, Schreiben ist nicht reentrant (mail-attachment.c, decode_lock). */
+ * Senden den Entwurf löschen (revolution_composer_handle_draft_headers_sync; ein Fehler dabei nur als Warnung wie
+ * Evolution mail-ops.c:843-852). Je Composer nacheinander: die Teile (angehängte Nachricht) teilen sich Composer und
+ * Nachricht, Schreiben ist nicht reentrant (mail-attachment.c, decode_lock). */
 static void
 build_thread (GTask        *task,
-              gpointer      source_object G_GNUC_UNUSED,
+              gpointer      source_object,
               gpointer      task_data,
               GCancellable *cancellable)
 {
-  static GMutex lock;
+  GMutex *lock = &REVOLUTION_COMPOSER (source_object)->build_lock;
   Build *build = task_data;
   g_autoptr (CamelMimeMessage) message = NULL;
   g_autoptr (GFileOutputStream) stream = NULL;
   GError *error = NULL;
   gboolean success;
 
-  g_mutex_lock (&lock);
+  g_mutex_lock (lock);
   message = build_message (build);
   if (build->draft)
     success = save_draft_sync (build, message, cancellable, &error);
@@ -1670,11 +1689,16 @@ build_thread (GTask        *task,
       success = stream != NULL &&
                 camel_data_wrapper_write_to_output_stream_sync (CAMEL_DATA_WRAPPER (message), G_OUTPUT_STREAM (stream),
                                                                 cancellable, &error) >= 0 &&
-                g_output_stream_close (G_OUTPUT_STREAM (stream), cancellable, &error) &&
-                (build->draft_uid == NULL ||
-                 revolution_composer_handle_draft_headers_sync (build->session, message, cancellable, &error));
+                g_output_stream_close (G_OUTPUT_STREAM (stream), cancellable, &error);
+      if (success && build->draft_uid != NULL)
+        {
+          g_autoptr (GError) local_error = NULL;
+
+          if (!revolution_composer_handle_draft_headers_sync (build->session, message, cancellable, &local_error))
+            g_warning ("Entwurf: nach dem Senden nicht gelöscht: %s", local_error->message);
+        }
     }
-  g_mutex_unlock (&lock);
+  g_mutex_unlock (lock);
 
   if (!success)
     g_task_return_error (task, error);
@@ -1699,10 +1723,10 @@ on_built (GObject      *source_object,
       show_toast (self, build->draft ? _("Entwurf konnte nicht gespeichert werden")
                                      : _("Nachricht konnte nicht erstellt werden"));
       if (build->draft)
-        self->saving = FALSE;
+        self->saving = self->closing = FALSE;
       else
-        g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (G_ACTION_MAP (self->actions), "send")),
-                                     TRUE);
+        self->sending = FALSE;
+      update_send (self);
       return;
     }
 
@@ -1714,7 +1738,12 @@ on_built (GObject      *source_object,
       g_free (self->draft_uid);
       self->draft_folder_uri = g_steal_pointer (&build->saved_folder_uri);
       self->draft_uid = g_steal_pointer (&build->saved_uid);
-      if (self->changes != self->saved_changes)
+      update_send (self);
+      if (self->closing && self->changes == self->saved_changes)
+        gtk_window_destroy (GTK_WINDOW (self));
+      else if (self->closing)
+        save_draft (self);
+      else if (self->changes != self->saved_changes)
         start_autosave (self);
       return;
     }
@@ -1743,10 +1772,10 @@ on_content (RevolutionComposer *self,
           g_warning ("Composer: Inhalt nicht lesbar: %s", error != NULL ? error->message : "kein Feld");
           show_toast (self, _("Nachricht konnte nicht erstellt werden"));
           if (draft)
-            self->saving = FALSE;
+            self->saving = self->closing = FALSE;
           else
-            g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (G_ACTION_MAP (self->actions), "send")),
-                                         TRUE);
+            self->sending = FALSE;
+          update_send (self);
         }
       return;
     }
@@ -1814,17 +1843,19 @@ on_content_draft (GObject      *source G_GNUC_UNUSED,
 
 /* Senden folgt mit #362; bis dahin nur im Test (send_enabled): Nachricht in die Datei. */
 static void
-send_message (GSimpleAction *action,
+send_message (GSimpleAction *action G_GNUC_UNUSED,
               GVariant      *parameter G_GNUC_UNUSED,
               gpointer       user_data)
 {
   RevolutionComposer *self = user_data;
 
-  if (!self->editor_loaded)
+  if (!self->editor_loaded || self->saving || self->sending)
     return;
 
-  /* Nur einmal: aus bis on_built (bei Fehler wieder an, sonst schließt das Fenster). */
-  g_simple_action_set_enabled (action, FALSE);
+  /* Nur einmal: aus bis on_built (bei Fehler wieder an, sonst schließt das Fenster); kein Autosave mehr. */
+  self->sending = TRUE;
+  update_send (self);
+  g_clear_handle_id (&self->autosave_id, g_source_remove);
   webkit_web_view_evaluate_javascript (self->editor, GET_CONTENT_JS, -1, NULL, NULL, self->cancellable, on_content_send,
                                        g_object_ref (self));
 }
@@ -1834,7 +1865,7 @@ send_message (GSimpleAction *action,
 static void
 save_draft (RevolutionComposer *self)
 {
-  if (!self->editor_loaded || self->from_address == NULL || self->session == NULL)
+  if (!self->editor_loaded || self->from_address == NULL || self->session == NULL || self->sending)
     return;
   if (self->saving)
     {
@@ -1843,6 +1874,7 @@ save_draft (RevolutionComposer *self)
     }
 
   self->saving = TRUE;
+  update_send (self);
   g_clear_handle_id (&self->autosave_id, g_source_remove);
   webkit_web_view_evaluate_javascript (self->editor, GET_CONTENT_JS, -1, NULL, NULL, self->cancellable, on_content_draft,
                                        g_object_ref (self));
@@ -1958,12 +1990,34 @@ on_prepared (GObject      *source_object,
 
   /* Nur Test (#359 bis #362): Senden schreibt die Nachricht in REVOLUTION_TEST_MIME. */
   test_send = g_strcmp0 (g_getenv ("REVOLUTION_TEST_HOOKS"), "1") == 0 && g_getenv ("REVOLUTION_TEST_MIME") != NULL;
-  g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (G_ACTION_MAP (self->actions), "send")),
-                               test_send && self->from_address != NULL);
+  self->can_send = test_send && self->from_address != NULL;
+  update_send (self);
   g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (G_ACTION_MAP (self->actions), "save-draft")),
                                self->from_address != NULL && self->session != NULL);
   g_debug ("Composer: %s vorbereitet, Von %s", types[prepare->type],
            self->from_address != NULL ? self->from_address : "(keine Identität)");
+}
+
+/* #360: Schließen (Escape, Fensterknopf) verliert nichts: ungespeicherte Änderungen erst als Entwurf sichern, dann
+ * schließen (on_built). Evolution fragt dafür („exit-unsaved“, e-msg-composer.c:6735-6771); Revolution speichert
+ * ohne Rückfrage, der Entwurf lässt sich löschen. Ein laufendes Speichern oder Senden läuft zu Ende; scheitert das
+ * Speichern, bleibt das Fenster offen (Toast). */
+static gboolean
+on_close_request (RevolutionComposer *self)
+{
+  gboolean unsaved = self->changes != self->saved_changes && self->editor_loaded && self->from_address != NULL &&
+                     self->session != NULL;
+
+  if (self->sending)
+    return TRUE;
+  if (!self->saving && !unsaved)
+    return FALSE;
+
+  g_debug ("Entwurf: vor dem Schließen speichern");
+  self->closing = TRUE;
+  if (!self->saving)
+    save_draft (self);
+  return TRUE;
 }
 
 /* #402: Klasse .dark für Regeln nur im dunklen Design (style.css, Abschnitt
@@ -2080,6 +2134,7 @@ revolution_composer_finalize (GObject *object)
   g_free (self->account_uid);
   g_free (self->draft_folder_uri);
   g_free (self->draft_uid);
+  g_mutex_clear (&self->build_lock);
 
   G_OBJECT_CLASS (revolution_composer_parent_class)->finalize (object);
 }
@@ -2125,6 +2180,7 @@ revolution_composer_init (RevolutionComposer *self)
   entries[2] = self->bcc_entry;
   entries[3] = self->subject_entry;
   self->cancellable = g_cancellable_new ();
+  g_mutex_init (&self->build_lock);
 
   self->actions = g_simple_action_group_new ();
   g_action_map_add_action_entries (G_ACTION_MAP (self->actions), composer_actions, G_N_ELEMENTS (composer_actions), self);
@@ -2145,6 +2201,7 @@ revolution_composer_init (RevolutionComposer *self)
     g_signal_connect_object (entries[i], "changed", G_CALLBACK (note_change), self, G_CONNECT_SWAPPED);
 
   g_signal_connect_object (self->subject_entry, "changed", G_CALLBACK (on_subject_changed), self, G_CONNECT_SWAPPED);
+  g_signal_connect_object (self, "close-request", G_CALLBACK (on_close_request), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (self->paragraph_dropdown, "notify::selected", G_CALLBACK (on_paragraph_selected), self,
                            G_CONNECT_SWAPPED);
   /* Theme „Dunkel“ setzt .content-dark am Fenster (main.c apply_content_class): Schriftfarbe nachziehen. */

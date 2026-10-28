@@ -117,14 +117,14 @@
 #                                 über EDS) von KONTO_GOOGLE@example.invalid, nie in Persönlich/lokal; ohne Aktion nur
 #                                 lesend; anlegen, falls er fehlt; weg löscht genau die Kontakte mit diesem Namen
 #                                 (UID-weise); Zeilen „ADRESSBUCH <UID> <Name>“, „KONTAKT <UID> <Name> <Adresse>“
-#   tests/testdaten.py --entwurf KONTO [weg]
-#                                 #360, unabhängig von Camel: Entwürfe mit Präfix [Revolution-Test] (gezählt nur
-#                                 „[Revolution-Test] Entwurf 360…“, in deleteditems nur diese)
-#                                 im Entwürfe-Ordner (IMAP: LIST mit \\Drafts, EXAMINE + UID SEARCH + UID FETCH FLAGS;
-#                                 Graph GET drafts und deleteditems); Zeilen „ENTWURFORDNER <Name>“,
-#                                 „ENTWURF <UID|ID> <gelöscht 0|1> <Betreff>“ und „ENTWUERFE <sichtbar> <markiert-gelöscht>“.
-#                                 weg (schreibend nur in Testkonten): genau diese UIDs per UID STORE +FLAGS \\Deleted
-#                                 und UID EXPUNGE bzw. Graph DELETE genau dieser IDs (auch aus deleteditems)
+#   tests/testdaten.py --entwurf KONTO BETREFF [weg MESSAGE-ID …]
+#                                 #360, unabhängig von Camel: Entwürfe mit genau diesem Betreff (je Lauf eindeutig,
+#                                 Präfix „[Revolution-Test] Entwurf 360“) im Entwürfe-Ordner (IMAP: LIST mit \\Drafts,
+#                                 EXAMINE + UID SEARCH + UID FETCH FLAGS; Graph GET drafts und deleteditems); Zeilen
+#                                 „ENTWURFORDNER <Name>“, „ENTWURF <UID|ID> <gelöscht 0|1> <Betreff>“ und
+#                                 „ENTWUERFE <sichtbar> <gelöscht>“. weg (nur Testkonten): vorher genau die Entwürfe mit
+#                                 diesen Message-IDs (aus dem App-Log) löschen: IMAP UID STORE +FLAGS \\Deleted und
+#                                 UID EXPUNGE nur dieser UIDs, Graph permanentDelete nur dieser IDs (drafts, deleteditems)
 #   tests/testdaten.py --ort KONTO aktion|konversation [anlegen|zurueck|aufraeumen]
 #                                 #363: Ordner am Server mit der Aktions-Mail bzw. den eingehenden Mails der
 #                                 Konversation (#357), per Message-ID (IMAP LIST + EXAMINE + UID SEARCH bzw.
@@ -1772,45 +1772,48 @@ def kontakt(registry, aktion):
     return 0
 
 
-def entwurf(k, weg):
-    """#360: Entwürfe des Tests am Server; weg löscht genau diese (eigene Testdaten)."""
+def entwurf(k, betreff, weg):
+    """#360: Entwürfe mit genau diesem Betreff (je Lauf eindeutig) am Server zählen; weg = Message-IDs aus dem
+    App-Log („Entwurf: gespeichert …“), nur diese Entwürfe endgültig löschen (eigene Testdaten)."""
     nur_testkonten([k.adresse])
+    if not betreff.startswith(ENTWURF):
+        sys.exit('ABBRUCH: Betreff ohne %s' % ENTWURF)
+    ids = [m if m.startswith('<') else '<%s>' % m for m in weg]
     sichtbar = geloescht = 0
     if k.goa.get_mail().props.imap_supported:
         c = imap_verbinden(k)
         name = imap_entwuerfe(c)
         print('ENTWURFORDNER %s' % mutf7_decode(name))
-        c.select('"%s"' % name, readonly=not weg)
-        uids = c.uid('SEARCH', None, 'SUBJECT', '"Revolution-Test"')[1][0].split()
-        eigene = []
-        for uid in uids:
+        for mid in ids:
+            uids = imap_suche(c, name, mid, nur_test=True)
+            if uids:
+                menge = b','.join(uids).decode()
+                print('BEFEHL UID STORE %s +FLAGS (\\Deleted) → %s' % (menge, c.uid('STORE', menge, '+FLAGS', '(\\Deleted)')[0]))
+                print('BEFEHL UID EXPUNGE %s → %s (%s)' % (menge, c.uid('EXPUNGE', menge)[0], mid))
+        c.select('"%s"' % name, readonly=True)
+        for uid in c.uid('SEARCH', None, 'SUBJECT', '"%s"' % betreff[len(PREFIX) + 1:])[1][0].split():
             d = c.uid('FETCH', uid, '(FLAGS BODY.PEEK[HEADER.FIELDS (SUBJECT)])')[1]
-            betreff = str(email.header.make_header(email.header.decode_header(d[0][1].decode().partition(':')[2].strip())))
-            if not betreff.startswith(PREFIX):
+            if str(email.header.make_header(email.header.decode_header(d[0][1].decode().partition(':')[2].strip()))) != betreff:
                 continue
             weg_ = '\\Deleted' in d[0][0].decode()
             print('ENTWURF %s %d %s' % (uid.decode(), weg_, betreff))
-            eigene.append(uid.decode())
-            sichtbar += betreff.startswith(ENTWURF) and not weg_
-            geloescht += betreff.startswith(ENTWURF) and weg_
-        if weg and eigene:
-            if b'UIDPLUS' not in b' '.join(c.capability()[1]):
-                sys.exit('ABBRUCH: kein UIDPLUS, UID EXPUNGE nicht möglich')
-            menge = ','.join(eigene)
-            print('BEFEHL UID STORE %s +FLAGS (\\Deleted) → %s' % (menge, c.uid('STORE', menge, '+FLAGS', '(\\Deleted)')[0]))
-            print('BEFEHL UID EXPUNGE %s → %s' % (menge, c.uid('EXPUNGE', menge)[0]))
+            sichtbar += not weg_
+            geloescht += weg_
         c.logout()
     else:
-        for ordner in ('drafts', 'deleteditems'):
-            for m in graph(k, 'GET', '/me/mailFolders/%s/messages?$top=200&$select=id,subject' % ordner)['value']:
-                if not (m['subject'] or '').startswith(PREFIX if ordner == 'drafts' else ENTWURF):
-                    continue
-                print('ENTWURF %s %d %s' % (m['id'][-16:], ordner != 'drafts', m['subject']))
-                sichtbar += ordner == 'drafts' and m['subject'].startswith(ENTWURF)
-                geloescht += ordner != 'drafts'
-                if weg:
-                    graph(k, 'DELETE', '/me/messages/' + m['id'])
-                    print('BEFEHL DELETE /me/messages/…%s' % m['id'][-16:])
+        ordner = {graph(k, 'GET', '/me/mailFolders/' + w)['id']: w for w in ('drafts', 'deleteditems')}
+        for mid in ids:
+            filt = urllib.parse.quote("internetMessageId eq '%s'" % mid)
+            for m in graph(k, 'GET', '/me/messages?$filter=%s&$select=id,parentFolderId,subject' % filt)['value']:
+                if m['parentFolderId'] in ordner and PREFIX in (m['subject'] or ''):
+                    graph(k, 'POST', '/me/messages/%s/permanentDelete' % m['id'])
+                    print('BEFEHL permanentDelete …%s (%s, %s)' % (m['id'][-16:], ordner[m['parentFolderId']], mid))
+        for gid, w in ordner.items():
+            for m in graph(k, 'GET', '/me/mailFolders/%s/messages?$top=200&$select=id,subject' % w)['value']:
+                if m['subject'] == betreff:
+                    print('ENTWURF %s %d %s' % (m['id'][-16:], w != 'drafts', m['subject']))
+                    sichtbar += w == 'drafts'
+                    geloescht += w != 'drafts'
     print('ENTWUERFE %d %d' % (sichtbar, geloescht))
     return 0
 
@@ -2374,7 +2377,8 @@ def main():
                          '#416: Graph auch an der Einladung im Papierkorb')
     ap.add_argument('--kombiniert', nargs='?', const='', metavar='LOG',
                     help='#351: nur lesend Posteingänge aller Konten (EXAMINE, Graph), Vergleich mit LOG')
-    ap.add_argument('--entwurf', nargs='+', metavar='KONTO [weg]', help='#360: Entwürfe des Tests am Server')
+    ap.add_argument('--entwurf', nargs='+', metavar='KONTO BETREFF [weg MESSAGE-ID …]',
+                    help='#360: Entwürfe mit diesem Betreff am Server; weg: nur diese Message-IDs löschen')
     ap.add_argument('--ort', nargs='+', metavar='KONTO aktion|konversation [anlegen|zurueck|aufraeumen]',
                     help='#363: Ordner der Aktions-Mail bzw. Konversation am Server; anlegen bzw. zurück')
     ap.add_argument('--kontakt', nargs='?', const='', choices=('', 'anlegen', 'weg'),
@@ -2437,11 +2441,11 @@ def main():
         return kontakt(EDataServer.SourceRegistry.new_sync(None), args.kontakt)
 
     if args.entwurf:
+        if len(args.entwurf) < 2 or (len(args.entwurf) > 2 and args.entwurf[2] != 'weg'):
+            ap.error('--entwurf KONTO BETREFF [weg MESSAGE-ID …]')
         adresse = args.entwurf[0].lower()
         nur_testkonten([adresse])
-        if args.entwurf[1:] not in ([], ['weg']):
-            ap.error('--entwurf KONTO [weg]')
-        return entwurf(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse], args.entwurf[1:] == ['weg'])
+        return entwurf(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse], args.entwurf[1], args.entwurf[3:])
     if args.ort:
         if len(args.ort) not in (2, 3) or args.ort[1] not in ('aktion', 'konversation') or \
                 args.ort[2:] not in ([], ['anlegen'], ['zurueck'], ['aufraeumen']):

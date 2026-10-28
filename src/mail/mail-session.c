@@ -654,7 +654,7 @@ mail_session_get_oauth2_access_token_sync (CamelSession *session,
 	source = e_source_registry_ref_source (mail_session->registry, camel_service_get_uid (service));
 	if (!source) {
 		g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
-			_("Keine Datenquelle für den Dienst mit UID „%s“"),
+			_("No data source for the service with UID “%s”"),
 			camel_service_get_uid (service));
 
 		return FALSE;
@@ -861,7 +861,7 @@ mail_session_authenticate_sync (CamelSession *session,
 			g_set_error (
 				error, CAMEL_SERVICE_ERROR,
 				CAMEL_SERVICE_ERROR_CANT_AUTHENTICATE,
-				_("Keine Datenquelle für UID „%s“"), uid);
+				_("No data source for UID “%s”"), uid);
 			return FALSE;
 		}
 
@@ -891,12 +891,12 @@ mail_session_authenticate_sync (CamelSession *session,
 		g_set_error (
 			error, CAMEL_SERVICE_ERROR,
 			CAMEL_SERVICE_ERROR_CANT_AUTHENTICATE,
-			_("Anmeldung mit %s fehlgeschlagen"), mechanism);
+			_("Authentication with %s failed"), mechanism);
 	else if (result != CAMEL_AUTHENTICATION_ACCEPTED)
 		g_set_error_literal (
 			error, CAMEL_SERVICE_ERROR,
 			CAMEL_SERVICE_ERROR_CANT_AUTHENTICATE,
-			_("Anmeldung mit Passwort fehlgeschlagen"));
+			_("Password authentication failed"));
 
 	return (result == CAMEL_AUTHENTICATION_ACCEPTED);
 }

@@ -239,7 +239,7 @@ re_prefix_length (const char *subject)
   gsize len = check_prefix (subject, "Re");
 
   /* Translators: lokalisiertes „Re“ im Betreff einer Antwort (Evolution: „AW“). */
-  return len > 0 ? len : check_prefix (subject, C_("reply-attribution", "AW"));
+  return len > 0 ? len : check_prefix (subject, C_("reply-attribution", "Re"));
 }
 
 /* Übernommen aus Evolution em-composer-utils.c:3210-3250 (emcu_construct_reply_subject): vorhandenes
@@ -428,10 +428,10 @@ reply_credits (CamelMimeMessage *message)
         name = unquoted = g_strndup (name + 1, len - 2);
     }
   if (name == NULL || *name == '\0' || g_strcmp0 (name, "\"") == 0)
-    name = addr != NULL ? addr : _("einem unbekannten Absender");
+    name = addr != NULL ? addr : _("an unknown sender");
 
   /* Translators: Zuschreibung über dem Zitat wie Evolution (po/de.po:20394-20395). */
-  return g_strdup_printf (_("Am %s, dem %02d.%02d.%04d um %02d:%02d %+05d schrieb %s:"), weekday,
+  return g_strdup_printf (_("On %s, %02d/%02d/%04d at %02d:%02d %+05d, %s wrote:"), weekday,
                           g_date_time_get_day_of_month (when), g_date_time_get_month (when),
                           g_date_time_get_year (when), g_date_time_get_hour (when),
                           g_date_time_get_minute (when), tzone, name);
@@ -713,7 +713,7 @@ forward_subject (CamelMimeMessage *message)
       subject = camel_address_format (CAMEL_ADDRESS (camel_mime_message_get_from (message)));
     }
 
-  return g_strdup_printf ("Fwd: %s", subject != NULL && *subject != '\0' ? subject : _("Kein Betreff"));
+  return g_strdup_printf ("Fwd: %s", subject != NULL && *subject != '\0' ? subject : _("No Subject"));
 }
 
 /* Übernommen aus Evolution libemail-engine/mail-tools.c:216-245 (mail_tool_remove_xevolution_headers) und 275-310
@@ -725,8 +725,8 @@ static CamelMimePart *
 forward_attachment (CamelMimeMessage *message)
 {
   const char *subject = camel_mime_message_get_subject (message);
-  g_autofree char *description = subject != NULL ? g_strdup_printf (_("Weitergeleitete Nachricht — %s"), subject)
-                                                 : g_strdup (_("Weitergeleitete Nachricht"));
+  g_autofree char *description = subject != NULL ? g_strdup_printf (_("Forwarded Message — %s"), subject)
+                                                 : g_strdup (_("Forwarded Message"));
   g_autofree char *file_name = g_strconcat (description, ".eml", NULL);
   CamelNameValueArray *headers = camel_medium_dup_headers (CAMEL_MEDIUM (message));
   CamelMimePart *part = camel_mime_part_new ();
@@ -880,7 +880,7 @@ prepare_thread (GTask        *task,
       service = camel_session_ref_service (prepare->session, prepare->store_uid);
       if (!CAMEL_IS_STORE (service))
         g_set_error (&prepare->error, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_UNAVAILABLE,
-                     _("Konto %s nicht verfügbar"), prepare->store_uid);
+                     _("Account %s unavailable"), prepare->store_uid);
       else
         folder = camel_store_get_folder_sync (CAMEL_STORE (service), prepare->folder_name, 0, cancellable,
                                               &prepare->error);
@@ -944,7 +944,7 @@ static void
 load_editor (RevolutionComposer *self,
              const char         *body)
 {
-  g_autofree char *label = g_markup_escape_text (_("Nachrichtentext"), -1);
+  g_autofree char *label = g_markup_escape_text (_("Message Text"), -1);
   g_autofree char *head = g_strdup_printf (EDITOR_HEAD, label, label);
   g_autofree char *html = g_strconcat (head, body != NULL ? body : "<div><br></div>", "</body></html>", NULL);
 
@@ -1206,7 +1206,7 @@ on_signature_loaded (GObject      *source,
       if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
         {
           g_warning ("Composer: Signatur nicht geladen: %s", error->message);
-          show_toast (self, _("Signatur konnte nicht geladen werden"));
+          show_toast (self, _("Could not load signature"));
         }
       return;
     }
@@ -1334,7 +1334,7 @@ on_attached (GObject      *source_object,
       if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
         {
           g_warning ("Composer: Anhang nicht gelesen: %s", error->message);
-          show_toast (self, _("Anhang konnte nicht hinzugefügt werden"));
+          show_toast (self, _("Could not add attachment"));
         }
       return;
     }
@@ -1393,7 +1393,7 @@ attach (GSimpleAction *action G_GNUC_UNUSED,
     }
 
   dialog = gtk_file_dialog_new ();
-  gtk_file_dialog_set_title (dialog, _("Anhang hinzufügen"));
+  gtk_file_dialog_set_title (dialog, _("Add Attachment"));
   gtk_file_dialog_open_multiple (dialog, GTK_WINDOW (self), self->cancellable, on_files_chosen, g_object_ref (self));
 }
 
@@ -1617,7 +1617,7 @@ save_draft_sync (Build             *build,
 
   if (!CAMEL_IS_STORE (service))
     {
-      g_set_error (error, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_UNAVAILABLE, _("Konto %s nicht verfügbar"),
+      g_set_error (error, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_UNAVAILABLE, _("Account %s unavailable"),
                    build->account_uid);
       return FALSE;
     }
@@ -1631,7 +1631,7 @@ save_draft_sync (Build             *build,
   if (drafts != NULL)
     folder = camel_store_get_folder_sync (CAMEL_STORE (service), drafts, 0, cancellable, error);
   else
-    g_set_error (error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID, _("Kein Entwürfe-Ordner in %s"), build->account_uid);
+    g_set_error (error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID, _("No Drafts folder in %s"), build->account_uid);
   camel_folder_info_free (folders);
   if (folder == NULL)
     return FALSE;
@@ -1712,7 +1712,7 @@ on_sent (GObject      *source G_GNUC_UNUSED,
       if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
         return;
       g_warning ("Composer: nicht im Postausgang abgelegt: %s", error->message);
-      show_toast (self, _("Nachricht konnte nicht gesendet werden"));
+      show_toast (self, _("Could not send message"));
       self->sending = FALSE;
       update_send (self);
       return;
@@ -1736,8 +1736,8 @@ on_built (GObject      *source_object,
       if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
         return;
       g_warning ("Composer: %s: %s", build->draft ? "Entwurf nicht gespeichert" : "Nachricht nicht erstellt", error->message);
-      show_toast (self, build->draft ? _("Entwurf konnte nicht gespeichert werden")
-                                     : _("Nachricht konnte nicht erstellt werden"));
+      show_toast (self, build->draft ? _("Could not save draft")
+                                     : _("Could not create message"));
       if (build->draft)
         self->saving = self->closing = FALSE;
       else
@@ -1792,7 +1792,7 @@ on_content (RevolutionComposer *self,
       if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
         {
           g_warning ("Composer: Inhalt nicht lesbar: %s", error != NULL ? error->message : "kein Feld");
-          show_toast (self, _("Nachricht konnte nicht erstellt werden"));
+          show_toast (self, _("Could not create message"));
           if (draft)
             self->saving = self->closing = FALSE;
           else
@@ -1936,7 +1936,7 @@ static void
 on_subject_changed (RevolutionComposer *self)
 {
   const char *subject = gtk_editable_get_text (GTK_EDITABLE (self->subject_entry));
-  const char *title = *subject != '\0' ? subject : _("Neue E-Mail");
+  const char *title = *subject != '\0' ? subject : _("New Message");
 
   adw_window_title_set_title (self->window_title, title);
   gtk_window_set_title (GTK_WINDOW (self), title);
@@ -1958,7 +1958,7 @@ on_prepared (GObject      *source_object,
   if (prepare->error != NULL)
     {
       g_warning ("Composer: Original nicht geladen: %s", prepare->error->message);
-      show_toast (self, _("Ursprüngliche Nachricht konnte nicht geladen werden"));
+      show_toast (self, _("Could not load original message"));
     }
 
   /* Füllen zählt nicht als Änderung (note_change). */

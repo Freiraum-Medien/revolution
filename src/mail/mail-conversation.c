@@ -98,22 +98,22 @@ entry_update (Entry *entry)
     gtk_widget_remove_css_class (entry->sender, "heading");
 
   gtk_button_set_icon_name (GTK_BUTTON (entry->star), starred ? "starred-symbolic" : "non-starred-symbolic");
-  gtk_widget_set_tooltip_text (entry->star, starred ? _("Markierung entfernen") : _("Markieren"));
+  gtk_widget_set_tooltip_text (entry->star, starred ? _("Remove Flag") : _("Flag"));
   gtk_accessible_update_property (GTK_ACCESSIBLE (entry->star), GTK_ACCESSIBLE_PROPERTY_LABEL,
-                                  starred ? _("Markierung entfernen") : _("Markieren"), -1);
+                                  starred ? _("Remove Flag") : _("Flag"), -1);
   if (starred)
     gtk_widget_add_css_class (entry->star, "accent");
   else
     gtk_widget_remove_css_class (entry->star, "accent");
 
   gtk_button_set_icon_name (GTK_BUTTON (entry->read), unread ? "mail-unread-symbolic" : "mail-read-symbolic");
-  gtk_widget_set_tooltip_text (entry->read, unread ? _("Als gelesen markieren") : _("Als ungelesen markieren"));
+  gtk_widget_set_tooltip_text (entry->read, unread ? _("Mark as Read") : _("Mark as Unread"));
   gtk_accessible_update_property (GTK_ACCESSIBLE (entry->read), GTK_ACCESSIBLE_PROPERTY_LABEL,
-                                  unread ? _("Als gelesen markieren") : _("Als ungelesen markieren"), -1);
+                                  unread ? _("Mark as Read") : _("Mark as Unread"), -1);
 
   /* Translators: zugänglicher Name des Kopfs einer Nachricht in der Konversation: Absender, Datum. */
-  label = g_strdup_printf (_("Nachricht von %s, %s%s%s"), sender, date, unread ? _(", ungelesen") : "",
-                           starred ? _(", markiert") : "");
+  label = g_strdup_printf (_("Message from %s, %s%s%s"), sender, date, unread ? _(", unread") : "",
+                           starred ? _(", flagged") : "");
   gtk_accessible_update_property (GTK_ACCESSIBLE (entry->header), GTK_ACCESSIBLE_PROPERTY_LABEL, label, -1);
 }
 
@@ -214,7 +214,7 @@ entry_new (RevolutionMailConversation *self,
   gtk_widget_set_hexpand (entry->header, TRUE);
   gtk_widget_add_css_class (entry->header, "flat");
   gtk_widget_add_css_class (entry->header, "conversation-header");
-  gtk_widget_set_tooltip_text (entry->header, _("Nachricht auf- oder zuklappen"));
+  gtk_widget_set_tooltip_text (entry->header, _("Expand or Collapse Message"));
   g_signal_connect (entry->header, "clicked", G_CALLBACK (on_header_clicked), entry);
   gtk_box_append (GTK_BOX (row), entry->header);
 
@@ -228,7 +228,7 @@ entry_new (RevolutionMailConversation *self,
   entry->dot = gtk_image_new_from_icon_name ("media-record-symbolic");
   gtk_image_set_pixel_size (GTK_IMAGE (entry->dot), 10);
   gtk_widget_add_css_class (entry->dot, "accent");
-  gtk_accessible_update_property (GTK_ACCESSIBLE (entry->dot), GTK_ACCESSIBLE_PROPERTY_LABEL, _("Ungelesen"), -1);
+  gtk_accessible_update_property (GTK_ACCESSIBLE (entry->dot), GTK_ACCESSIBLE_PROPERTY_LABEL, _("Unread"), -1);
   gtk_box_append (GTK_BOX (dot_box), entry->dot);
   gtk_box_append (GTK_BOX (content), dot_box);
 
@@ -312,7 +312,7 @@ show_count (RevolutionMailConversation *self)
 {
   GListModel *members = revolution_mail_message_get_members (self->conversation);
   guint n = members != NULL ? g_list_model_get_n_items (members) : 1;
-  g_autofree char *count = g_strdup_printf (ngettext ("%u E-Mail", "%u E-Mails", n), n);
+  g_autofree char *count = g_strdup_printf (ngettext ("%u message", "%u messages", n), n);
   g_autofree char *subject = NULL;
 
   g_object_get (self->conversation, "subject", &subject, NULL);

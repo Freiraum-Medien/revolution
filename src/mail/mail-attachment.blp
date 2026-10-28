@@ -36,7 +36,7 @@ template $RevolutionMailAttachmentBar: Adw.Bin {
         ]
 
         accessibility {
-          label: _("Anhänge");
+          label: _("Attachments");
         }
 
         model: SingleSelection selection {
@@ -89,12 +89,12 @@ template $RevolutionMailAttachmentBar: Adw.Bin {
 
     Button {
       icon-name: "document-save-symbolic";
-      tooltip-text: _("Alle Anhänge speichern …");
+      tooltip-text: _("Save All Attachments…");
       action-name: "attachment.save-all";
       valign: center;
 
       accessibility {
-        label: _("Alle Anhänge speichern …");
+        label: _("Save All Attachments…");
       }
 
       styles [
@@ -110,19 +110,19 @@ template $RevolutionMailAttachmentBar: Adw.Bin {
 menu menu {
   section {
     item {
-      label: _("_Öffnen");
+      label: _("_Open");
       action: "attachment.open";
     }
 
     item {
-      label: _("_Speichern unter …");
+      label: _("Save _As…");
       action: "attachment.save-as";
     }
   }
 
   section {
     item {
-      label: _("_Alle speichern …");
+      label: _("Save A_ll…");
       action: "attachment.save-all";
     }
   }

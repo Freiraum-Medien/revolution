@@ -9,7 +9,7 @@ template $RevolutionComposer: Adw.ApplicationWindow {
     "composer",
   ]
 
-  title: _("Neue E-Mail");
+  title: _("New Message");
   default-width: 960;
   default-height: 720;
   width-request: 360;
@@ -79,7 +79,7 @@ template $RevolutionComposer: Adw.ApplicationWindow {
       Adw.HeaderBar {
         // Briefing 1.3: Titel = Betreff bzw. „Neue E-Mail“ (stamp-composer.blp:17-19).
         title-widget: Adw.WindowTitle window_title {
-          title: _("Neue E-Mail");
+          title: _("New Message");
         };
 
         // #402 (Arnd 22.10.): Hauptmenü oben links, ausdrücklich abweichend von HIG
@@ -87,12 +87,12 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         [start]
         MenuButton {
           icon-name: "open-menu-symbolic";
-          tooltip-text: _("Hauptmenü");
+          tooltip-text: _("Main Menu");
           menu-model: composer_menu;
           primary: true;
 
           accessibility {
-            label: _("Hauptmenü");
+            label: _("Main Menu");
           }
 
           styles [
@@ -104,22 +104,22 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         [start]
         Button {
           icon-name: "mail-attachment-symbolic";
-          tooltip-text: _("Anhang hinzufügen (Strg+M)");
+          tooltip-text: _("Add Attachment (Ctrl+M)");
           action-name: "composer.attach";
 
           accessibility {
-            label: _("Anhang hinzufügen");
+            label: _("Add Attachment");
           }
         }
 
         [start]
         ToggleButton format_button {
           icon-name: "format-text-rich-symbolic";
-          tooltip-text: _("Formatierung anzeigen");
+          tooltip-text: _("Show Formatting");
           active: true;
 
           accessibility {
-            label: _("Formatierung anzeigen");
+            label: _("Show Formatting");
           }
         }
 
@@ -128,11 +128,11 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         // #402: Symbolknopf auf Akzentfläche statt Textknopf (Arnd 22.10.).
         Button {
           icon-name: "sent-symbolic";
-          tooltip-text: _("Senden (Strg+Enter)");
+          tooltip-text: _("Send (Ctrl+Enter)");
           action-name: "composer.send";
 
           accessibility {
-            label: _("Senden");
+            label: _("Send");
           }
 
           styles [
@@ -159,7 +159,7 @@ template $RevolutionComposer: Adw.ApplicationWindow {
           ]
 
           Label to_label {
-            label: _("An");
+            label: _("To");
             halign: start;
             xalign: 0;
             margin-start: 12;
@@ -205,7 +205,7 @@ template $RevolutionComposer: Adw.ApplicationWindow {
           }
 
           Label cc_label {
-            label: _("Kopie");
+            label: _("Cc");
             halign: start;
             xalign: 0;
             margin-start: 12;
@@ -249,7 +249,7 @@ template $RevolutionComposer: Adw.ApplicationWindow {
           }
 
           Label bcc_label {
-            label: _("Blindkopie");
+            label: _("Bcc");
             halign: start;
             xalign: 0;
             margin-start: 12;
@@ -290,7 +290,7 @@ template $RevolutionComposer: Adw.ApplicationWindow {
           }
 
           Label subject_label {
-            label: _("Betreff");
+            label: _("Subject");
             halign: start;
             xalign: 0;
             margin-start: 12;
@@ -331,7 +331,7 @@ template $RevolutionComposer: Adw.ApplicationWindow {
           }
 
           Label from_label {
-            label: _("Von");
+            label: _("From");
             halign: start;
             xalign: 0;
             margin-start: 12;
@@ -376,7 +376,7 @@ template $RevolutionComposer: Adw.ApplicationWindow {
             margin-end: 6;
 
             Label signature_label {
-              label: _("Signatur");
+              label: _("Signature");
 
               styles [
                 "dimmed",
@@ -391,7 +391,7 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
               model: StringList signature_list {
                 strings [
-                  _("Ohne"),
+                  _("None"),
                 ]
               };
 
@@ -435,7 +435,7 @@ template $RevolutionComposer: Adw.ApplicationWindow {
             ]
 
             accessibility {
-              label: _("Anhänge");
+              label: _("Attachments");
             }
 
             factory: BuilderListItemFactory {
@@ -472,12 +472,12 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
                   Button {
                     icon-name: "window-close-symbolic";
-                    tooltip-text: _("Anhang entfernen");
+                    tooltip-text: _("Remove Attachment");
                     valign: center;
                     clicked => $on_remove_attachment(template);
 
                     accessibility {
-                      label: _("Anhang entfernen");
+                      label: _("Remove Attachment");
                     }
 
                     styles [
@@ -523,12 +523,12 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         // a11y: GtkDropDown nennt sich sonst nach dem gewählten Eintrag („Text“, gemessen über AT-SPI,
         // build/m5-359); labelled-by geht vor wie bei Signatur.
         Label paragraph_label {
-          label: _("Absatzformat");
+          label: _("Paragraph Style");
           visible: false;
         }
 
         DropDown paragraph_dropdown {
-          tooltip-text: _("Absatzformat");
+          tooltip-text: _("Paragraph Style");
           valign: center;
 
           styles [
@@ -537,10 +537,10 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
           model: StringList {
             strings [
-              _("Text"),
-              _("Überschrift 1"),
-              _("Überschrift 2"),
-              _("Überschrift 3"),
+              _("Normal"),
+              _("Heading 1"),
+              _("Heading 2"),
+              _("Heading 3"),
             ]
           };
 
@@ -557,11 +557,11 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
         ToggleButton {
           icon-name: "format-text-bold-symbolic";
-          tooltip-text: _("Fett (Strg+B)");
+          tooltip-text: _("Bold (Ctrl+B)");
           action-name: "composer.bold";
 
           accessibility {
-            label: _("Fett");
+            label: _("Bold");
           }
 
           styles [
@@ -571,11 +571,11 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
         ToggleButton {
           icon-name: "format-text-italic-symbolic";
-          tooltip-text: _("Kursiv (Strg+I)");
+          tooltip-text: _("Italic (Ctrl+I)");
           action-name: "composer.italic";
 
           accessibility {
-            label: _("Kursiv");
+            label: _("Italic");
           }
 
           styles [
@@ -585,11 +585,11 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
         ToggleButton {
           icon-name: "format-text-underline-symbolic";
-          tooltip-text: _("Unterstrichen (Strg+U)");
+          tooltip-text: _("Underline (Ctrl+U)");
           action-name: "composer.underline";
 
           accessibility {
-            label: _("Unterstrichen");
+            label: _("Underline");
           }
 
           styles [
@@ -599,11 +599,11 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
         ToggleButton {
           icon-name: "format-text-strikethrough-symbolic";
-          tooltip-text: _("Durchgestrichen");
+          tooltip-text: _("Strikethrough");
           action-name: "composer.strikethrough";
 
           accessibility {
-            label: _("Durchgestrichen");
+            label: _("Strikethrough");
           }
 
           styles [
@@ -619,11 +619,11 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
         ToggleButton {
           icon-name: "view-list-bullet-symbolic";
-          tooltip-text: _("Aufzählung");
+          tooltip-text: _("Bulleted List");
           action-name: "composer.bullet-list";
 
           accessibility {
-            label: _("Aufzählung");
+            label: _("Bulleted List");
           }
 
           styles [
@@ -633,11 +633,11 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
         ToggleButton {
           icon-name: "view-list-ordered-symbolic";
-          tooltip-text: _("Nummerierung");
+          tooltip-text: _("Numbered List");
           action-name: "composer.numbered-list";
 
           accessibility {
-            label: _("Nummerierung");
+            label: _("Numbered List");
           }
 
           styles [
@@ -653,11 +653,11 @@ template $RevolutionComposer: Adw.ApplicationWindow {
 
         Button {
           icon-name: "insert-link-symbolic";
-          tooltip-text: _("Link einfügen");
+          tooltip-text: _("Insert Link");
           action-name: "composer.insert-link";
 
           accessibility {
-            label: _("Link einfügen");
+            label: _("Insert Link");
           }
 
           styles [
@@ -686,25 +686,25 @@ SizeGroup {
 menu composer_menu {
   section {
     item {
-      label: _("_Kopie anzeigen");
+      label: _("Show _Cc");
       action: "composer.show-cc";
     }
 
     item {
-      label: _("_Blindkopie anzeigen");
+      label: _("Show _Bcc");
       action: "composer.show-bcc";
     }
   }
 
   section {
     item {
-      label: _("_Text-Mail");
+      label: _("Plain _Text");
       action: "composer.mail-format";
       target: "text";
     }
 
     item {
-      label: _("_HTML-Mail");
+      label: _("_HTML");
       action: "composer.mail-format";
       target: "html";
     }
@@ -712,13 +712,13 @@ menu composer_menu {
 
   section {
     item {
-      label: _("Als _Entwurf speichern");
+      label: _("Save as _Draft");
       action: "composer.save-draft";
       accel: "<primary>s";
     }
 
     item {
-      label: _("_Anhang hinzufügen …");
+      label: _("_Add Attachment…");
       action: "composer.attach";
       accel: "<primary>m";
     }
@@ -726,7 +726,7 @@ menu composer_menu {
 
   section {
     item {
-      label: _("_Emoji einfügen…");
+      label: _("Insert _Emoji…");
       action: "composer.insert-emoji";
       accel: "<primary>period";
     }

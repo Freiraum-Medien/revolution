@@ -190,11 +190,11 @@ template $RevolutionMailView: Adw.BreakpointBin {
             "primary-menu",
           ]
 
-          tooltip-text: _("Hauptmenü");
+          tooltip-text: _("Main Menu");
           menu-model: primary_menu;
 
           accessibility {
-            label: _("Hauptmenü");
+            label: _("Main Menu");
           }
         }
       }
@@ -239,7 +239,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
                 ]
 
                 accessibility {
-                  label: _("Ordner");
+                  label: _("Folders");
                 }
 
                 // Modell (mail-view.c): je Konto ein GtkTreeListModel über seinen Ordnern,
@@ -317,7 +317,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
                         // mail-view.blp:176-189), leer bei 0.
                         Label {
                           label: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.unread-label;
-                          tooltip-text: _("Ungelesene Nachrichten");
+                          tooltip-text: _("Unread Messages");
                           accessible-role: presentation;
 
                           styles [
@@ -339,8 +339,8 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
           child: Adw.StatusPage {
             icon-name: "mail-unread-symbolic";
-            title: _("Keine Konten");
-            description: _("E-Mail-Konten aus den Online-Konten oder aus Evolution erscheinen hier.");
+            title: _("No Accounts");
+            description: _("Email accounts from Online Accounts or from Evolution appear here.");
 
             styles [
               "compact",
@@ -364,11 +364,11 @@ template $RevolutionMailView: Adw.BreakpointBin {
         [start]
         ToggleButton sidebar_button {
           icon-name: "sidebar-show-symbolic";
-          tooltip-text: _("Seitenleiste ein-/ausblenden");
+          tooltip-text: _("Toggle Sidebar");
           active: bind split.show-sidebar bidirectional;
 
           accessibility {
-            label: _("Seitenleiste ein-/ausblenden");
+            label: _("Toggle Sidebar");
           }
         }
 
@@ -377,11 +377,11 @@ template $RevolutionMailView: Adw.BreakpointBin {
         Button list_compose_button {
           visible: false;
           icon-name: "mail-message-new-symbolic";
-          tooltip-text: _("Neue E-Mail");
+          tooltip-text: _("New Message");
           action-name: "list.compose";
 
           accessibility {
-            label: _("Neue E-Mail");
+            label: _("New Message");
           }
         }
 
@@ -451,11 +451,11 @@ template $RevolutionMailView: Adw.BreakpointBin {
         margin-top: 6;
         margin-bottom: 6;
         accessible-role: status;
-        tooltip-text: _("Keine Netzwerkverbindung. Angezeigt wird der Stand auf diesem Gerät; online geht es von selbst, sobald das Netz zurück ist.");
+        tooltip-text: _("No network connection. Showing what is stored on this device; going online happens automatically once the network is back.");
 
         accessibility {
           label: _("Offline");
-          description: _("Keine Netzwerkverbindung. Angezeigt wird der Stand auf diesem Gerät.");
+          description: _("No network connection. Showing what is stored on this device.");
         }
 
         styles [
@@ -486,7 +486,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
           // #365: Titel je nach Suche (mail-view.c, set_empty_page).
           child: Adw.StatusPage empty_page {
             icon-name: "inbox-symbolic";
-            title: _("Keine Nachrichten");
+            title: _("No Messages");
           };
         }
 
@@ -515,7 +515,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
               ]
 
               accessibility {
-                label: _("Nachrichten");
+                label: _("Messages");
               }
 
               // Keine Vorauswahl: die Auswahl öffnet die Nachricht (#354), Erstauswahl #350.
@@ -559,10 +559,10 @@ template $RevolutionMailView: Adw.BreakpointBin {
                         icon-name: "media-record-symbolic";
                         pixel-size: 10;
                         visible: bind template.item as <$RevolutionMailMessage>.unread;
-                        tooltip-text: _("Ungelesen");
+                        tooltip-text: _("Unread");
 
                         accessibility {
-                          label: _("Ungelesen");
+                          label: _("Unread");
                         }
 
                         styles [
@@ -612,7 +612,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
                         Label {
                           label: bind template.item as <$RevolutionMailMessage>.count-label;
                           visible: bind template.item as <$RevolutionMailMessage>.show-count;
-                          tooltip-text: _("Nachrichten in der Konversation");
+                          tooltip-text: _("Messages in the Conversation");
 
                           styles [
                             "caption",
@@ -663,10 +663,10 @@ template $RevolutionMailView: Adw.BreakpointBin {
                           icon-name: "mail-attachment-symbolic";
                           pixel-size: 12;
                           visible: bind template.item as <$RevolutionMailMessage>.attachment;
-                          tooltip-text: _("Mit Anhang");
+                          tooltip-text: _("Has Attachment");
 
                           accessibility {
-                            label: _("Mit Anhang");
+                            label: _("Has Attachment");
                           }
 
                           styles [
@@ -679,10 +679,10 @@ template $RevolutionMailView: Adw.BreakpointBin {
                           icon-name: "starred-symbolic";
                           pixel-size: 12;
                           visible: bind template.item as <$RevolutionMailMessage>.starred;
-                          tooltip-text: _("Markiert");
+                          tooltip-text: _("Flagged");
 
                           accessibility {
-                            label: _("Markiert");
+                            label: _("Flagged");
                           }
 
                           styles [
@@ -754,11 +754,11 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                 Button compose_button {
                   icon-name: "mail-message-new-symbolic";
-                  tooltip-text: _("Neue E-Mail");
+                  tooltip-text: _("New Message");
                   action-name: "list.compose";
 
                   accessibility {
-                    label: _("Neue E-Mail");
+                    label: _("New Message");
                   }
                 }
 
@@ -771,30 +771,30 @@ template $RevolutionMailView: Adw.BreakpointBin {
                 Button {
                   icon-name: "mail-reply-sender-symbolic";
                   action-name: "message.reply";
-                  tooltip-text: _("Antworten");
+                  tooltip-text: _("Reply");
 
                   accessibility {
-                    label: _("Antworten");
+                    label: _("Reply");
                   }
                 }
 
                 Button {
                   icon-name: "mail-reply-all-symbolic";
                   action-name: "message.reply-all";
-                  tooltip-text: _("Allen antworten");
+                  tooltip-text: _("Reply to All");
 
                   accessibility {
-                    label: _("Allen antworten");
+                    label: _("Reply to All");
                   }
                 }
 
                 Button {
                   icon-name: "mail-forward-symbolic";
                   action-name: "message.forward";
-                  tooltip-text: _("Weiterleiten");
+                  tooltip-text: _("Forward");
 
                   accessibility {
-                    label: _("Weiterleiten");
+                    label: _("Forward");
                   }
                 }
 
@@ -805,30 +805,30 @@ template $RevolutionMailView: Adw.BreakpointBin {
                 Button {
                   icon-name: "archive-symbolic";
                   action-name: "message.archive";
-                  tooltip-text: _("Archivieren");
+                  tooltip-text: C_("action", "Archive");
 
                   accessibility {
-                    label: _("Archivieren");
+                    label: C_("action", "Archive");
                   }
                 }
 
                 Button {
                   icon-name: "user-trash-symbolic";
                   action-name: "message.delete";
-                  tooltip-text: _("Löschen");
+                  tooltip-text: _("Delete");
 
                   accessibility {
-                    label: _("Löschen");
+                    label: _("Delete");
                   }
                 }
 
                 Button {
                   icon-name: "mail-mark-junk-symbolic";
                   action-name: "message.junk";
-                  tooltip-text: _("Als Spam markieren");
+                  tooltip-text: _("Mark as Junk");
 
                   accessibility {
-                    label: _("Als Spam markieren");
+                    label: _("Mark as Junk");
                   }
                 }
 
@@ -837,20 +837,20 @@ template $RevolutionMailView: Adw.BreakpointBin {
                   icon-name: "folder-symbolic";
                   always-show-arrow: true;
                   menu-model: move_menu;
-                  tooltip-text: _("Verschieben");
+                  tooltip-text: _("Move");
 
                   accessibility {
-                    label: _("Verschieben");
+                    label: _("Move");
                   }
                 }
 
                 ToggleButton {
                   icon-name: "starred-symbolic";
                   action-name: "message.star";
-                  tooltip-text: _("Markieren");
+                  tooltip-text: _("Flag");
 
                   accessibility {
-                    label: _("Markieren");
+                    label: _("Flag");
                   }
                 }
 
@@ -859,11 +859,11 @@ template $RevolutionMailView: Adw.BreakpointBin {
                 MenuButton {
                   icon-name: "mail-unread-symbolic";
                   always-show-arrow: true;
-                  tooltip-text: _("Weitere Aktionen");
+                  tooltip-text: _("More Actions");
                   menu-model: message_menu;
 
                   accessibility {
-                    label: _("Weitere Aktionen");
+                    label: _("More Actions");
                   }
                 }
               };
@@ -878,7 +878,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
                 // Escape (GtkSearchEntry::stop-search) schließt die Suche.
                 SearchEntry search_entry {
                   hexpand: true;
-                  placeholder-text: _("E-Mails durchsuchen");
+                  placeholder-text: _("Search Mail");
                   // Tippen in der Liste startet die Suche (HIG-SE „type to search“, wie main).
                   key-capture-widget: list_pane;
                   // #365: Suche nach Tipp-Pause wie Stamp (stamp-conversation-list.blp:146-147), nicht je Taste
@@ -889,7 +889,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
                   search-changed => $on_search_changed() swapped;
 
                   accessibility {
-                    label: _("E-Mails durchsuchen");
+                    label: _("Search Mail");
                   }
                 }
 
@@ -901,20 +901,20 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                   Adw.Toggle {
                     name: "folder";
-                    label: _("Dieser _Ordner");
+                    label: _("This _Folder");
                     use-underline: true;
-                    tooltip: _("Im gewählten Ordner suchen");
+                    tooltip: _("Search in the selected folder");
                   }
 
                   Adw.Toggle {
                     name: "all";
-                    label: _("_Alle Ordner");
+                    label: _("_All Folders");
                     use-underline: true;
-                    tooltip: _("In allen Ordnern aller Konten suchen");
+                    tooltip: _("Search in all folders of all accounts");
                   }
 
                   accessibility {
-                    label: _("Suchbereich");
+                    label: _("Search Scope");
                   }
                 }
               };
@@ -923,11 +923,11 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
           ToggleButton search_button {
             icon-name: "edit-find-symbolic";
-            tooltip-text: _("Suchen");
+            tooltip-text: _("Search");
             notify::active => $on_search_toggled() swapped;
 
             accessibility {
-              label: _("Suchen");
+              label: _("Search");
             }
           }
 
@@ -947,7 +947,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
           child: Adw.StatusPage {
             icon-name: "mail-unread-symbolic";
-            title: _("Keine Nachricht ausgewählt");
+            title: _("No Message Selected");
           };
         }
 
@@ -1044,7 +1044,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
         }
 
         Adw.NavigationPage {
-          title: _("Nachricht");
+          title: _("Message");
           tag: "message";
 
           child: Adw.LayoutSlot {
@@ -1062,7 +1062,7 @@ template $RevolutionMailView: Adw.BreakpointBin {
 menu filter_menu {
   section {
     item {
-      label: _("Alle");
+      label: _("All");
       action: "list.filter";
       target: "all";
     }
@@ -1070,19 +1070,19 @@ menu filter_menu {
 
   section {
     item {
-      label: _("Ungelesen");
+      label: _("Unread");
       action: "list.filter";
       target: "unread";
     }
 
     item {
-      label: _("Markiert");
+      label: _("Flagged");
       action: "list.filter";
       target: "starred";
     }
 
     item {
-      label: _("Mit Anhang");
+      label: _("Has Attachment");
       action: "list.filter";
       target: "attachment";
     }
@@ -1091,7 +1091,7 @@ menu filter_menu {
   // #357: Umschalter Konversation/flach (Haken aus GSettings „conversations“).
   section {
     item {
-      label: _("Nach _Konversationen");
+      label: _("Group by _Conversation");
       action: "list.conversations";
       accel: "<primary>t";
     }
@@ -1101,14 +1101,14 @@ menu filter_menu {
 menu message_menu {
   section {
     item {
-      label: _("Als gelesen markieren");
+      label: _("Mark as Read");
       action: "message.mark-read";
       accel: "<primary>k";
       hidden-when: "action-disabled";
     }
 
     item {
-      label: _("Als ungelesen markieren");
+      label: _("Mark as Unread");
       action: "message.mark-unread";
       accel: "<primary><shift>k";
       hidden-when: "action-disabled";
@@ -1117,7 +1117,7 @@ menu message_menu {
 
   section {
     item {
-      label: _("Drucken…");
+      label: _("Print…");
       action: "message.print";
       accel: "<primary>p";
     }
@@ -1129,14 +1129,14 @@ menu message_menu {
 menu row_menu {
   section {
     item {
-      label: _("Als _gelesen markieren");
+      label: _("Mark as _Read");
       action: "message.mark-read";
       accel: "<primary>k";
       hidden-when: "action-disabled";
     }
 
     item {
-      label: _("Als _ungelesen markieren");
+      label: _("Mark as _Unread");
       action: "message.mark-unread";
       accel: "<primary><shift>k";
       hidden-when: "action-disabled";
@@ -1145,14 +1145,14 @@ menu row_menu {
 
   section {
     item {
-      label: _("_Markieren");
+      label: _("_Flag");
       action: "message.star-on";
       accel: "<primary><shift>l";
       hidden-when: "action-disabled";
     }
 
     item {
-      label: _("Markierung _entfernen");
+      label: _("Remove F_lag");
       action: "message.star-off";
       accel: "<primary><shift>l";
       hidden-when: "action-disabled";
@@ -1162,25 +1162,25 @@ menu row_menu {
   // #363
   section {
     item {
-      label: _("_Archivieren");
+      label: _("_Archive");
       action: "message.archive";
       accel: "<primary><alt>a";
     }
 
     item {
-      label: _("_Löschen");
+      label: _("_Delete");
       action: "message.delete";
       accel: "Delete";
     }
 
     item {
-      label: _("Als _Spam markieren");
+      label: _("Mark as _Junk");
       action: "message.junk";
       accel: "<primary><shift>j";
     }
 
     submenu move_menu {
-      label: _("_Verschieben nach");
+      label: _("_Move To");
     }
   }
 }
@@ -1189,20 +1189,20 @@ menu row_menu {
 menu folder_menu {
   section {
     item {
-      label: _("_Neuer Ordner…");
+      label: _("_New Folder…");
       action: "folder.new";
       accel: "<primary><shift>n";
     }
 
     item {
-      label: _("_Umbenennen…");
+      label: _("_Rename…");
       action: "folder.rename";
       accel: "F2";
       hidden-when: "action-disabled";
     }
 
     item {
-      label: _("_Löschen…");
+      label: _("_Delete…");
       action: "folder.delete";
       accel: "Delete";
       hidden-when: "action-disabled";
@@ -1214,20 +1214,20 @@ menu folder_menu {
 menu primary_menu {
   section {
     item {
-      label: _("_Neue E-Mail");
+      label: _("_New Message");
       action: "list.compose";
       accel: "<primary>n";
     }
 
     item {
-      label: _("_Suchen");
+      label: _("_Search");
       action: "mail.search";
       accel: "<primary>f";
     }
 
     // #353
     item {
-      label: _("_Aktualisieren");
+      label: _("_Refresh");
       action: "list.refresh";
       accel: "F5";
     }
@@ -1237,7 +1237,7 @@ menu primary_menu {
   // daher die zustandslose Aktion mail.toggle-sidebar statt mail.sidebar.
   section {
     item {
-      label: _("Seiten_leiste ein-/ausblenden");
+      label: _("Toggle S_idebar");
       action: "mail.toggle-sidebar";
       accel: "F9";
     }
@@ -1245,22 +1245,22 @@ menu primary_menu {
 
   // Drei Themes (Arnd 22.10.2026, #340): Radio-Einträge der Aktion app.theme (main.c).
   section {
-    label: _("Darstellung");
+    label: _("Appearance");
 
     item {
-      label: _("_Hell");
+      label: _("_Light");
       action: "app.theme";
       target: "hell";
     }
 
     item {
-      label: _("Dunkel _mit hellem Inhalt");
+      label: _("Dark with Light _Content");
       action: "app.theme";
       target: "dunkel-hell";
     }
 
     item {
-      label: _("_Dunkel");
+      label: _("_Dark");
       action: "app.theme";
       target: "dunkel";
     }
@@ -1268,19 +1268,19 @@ menu primary_menu {
 
   section {
     item {
-      label: _("_Einstellungen");
+      label: _("_Preferences");
       action: "mail.preferences";
       accel: "<primary>comma";
     }
 
     item {
-      label: _("_Tastenkürzel");
+      label: _("_Keyboard Shortcuts");
       action: "mail.shortcuts";
       accel: "<primary>question";
     }
 
     item {
-      label: _("_Info zu Revolution");
+      label: _("_About Revolution");
       action: "mail.about";
     }
   }
@@ -1288,12 +1288,12 @@ menu primary_menu {
   // #366: Hintergrundbetrieb (GSettings run-in-background, Haken) und Beenden (Strg+Q), main.c.
   section {
     item {
-      label: _("Im _Hintergrund weiterlaufen");
+      label: _("Run in _Background");
       action: "app.run-in-background";
     }
 
     item {
-      label: _("_Beenden");
+      label: _("_Quit");
       action: "app.quit";
       accel: "<primary>q";
     }

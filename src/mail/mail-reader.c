@@ -689,7 +689,7 @@ remote_list_add_thread (GTask        *task,
   /* Ein Eintrag ist eine Zeile: Zeilenumbrüche würden weitere Einträge anlegen. */
   if (*entry == '\0' || strpbrk (entry, "\r\n") != NULL)
     {
-      g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, _("Ungültiger Eintrag „%s“"), entry);
+      g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, _("Invalid entry “%s”"), entry);
       return;
     }
 
@@ -727,7 +727,7 @@ load_message_thread (GTask        *task,
   if (!CAMEL_IS_STORE (service))
     {
       g_task_return_new_error (task, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_UNAVAILABLE,
-                               _("Konto %s nicht verfügbar"), load->account_uid);
+                               _("Account %s unavailable"), load->account_uid);
       return;
     }
 
@@ -890,7 +890,7 @@ on_remote_allow_reply (GObject      *source,
       if (self->showing && self->html != NULL)
         {
           self->showing = FALSE;
-          show_error (self, _("Entfernte Inhalte nicht geladen"), error->message);
+          show_error (self, _("Remote Content Not Loaded"), error->message);
         }
       return;
     }
@@ -959,10 +959,10 @@ on_guard_reply (GObject      *source,
 
   if (reply == NULL)
     {
-      g_autofree char *detail = g_strdup_printf (_("Schutz vor Netzzugriffen nicht aktiv: %s"), error->message);
+      g_autofree char *detail = g_strdup_printf (_("Protection against network access not active: %s"), error->message);
 
       self->guard = GUARD_FAILED;
-      show_error (self, _("Nachricht nicht angezeigt"), detail);
+      show_error (self, _("Message Not Shown"), detail);
       return;
     }
 
@@ -1103,7 +1103,7 @@ on_load_failed (RevolutionMailReader *self,
     return TRUE;
 
   self->showing = FALSE;
-  show_error (self, _("Nachricht nicht angezeigt"), error->message);
+  show_error (self, _("Message Not Shown"), error->message);
   return TRUE;
 }
 
@@ -1189,7 +1189,7 @@ on_remote_list_saved (GObject      *source_object,
 
   if (!g_task_propagate_boolean (G_TASK (result), &error))
     {
-      show_error (self, _("Freigabe nicht gespeichert"), error->message);
+      show_error (self, _("Permission Not Saved"), error->message);
       return;
     }
 
@@ -1242,7 +1242,7 @@ fill_notice_menu (RevolutionMailReader *self)
 
   {
     /* Translators: Menü des Hinweises „Entfernte Inhalte gesperrt“, %s ist die Absenderadresse. */
-    g_autofree char *label = g_strdup_printf (_("Immer für %s laden"), self->sender);
+    g_autofree char *label = g_strdup_printf (_("Always Load for %s"), self->sender);
     g_autoptr (GMenuItem) item = g_menu_item_new (label, NULL);
 
     g_menu_item_set_action_and_target_value (item, "reader.allow-remote", g_variant_new_string (self->sender));
@@ -1252,7 +1252,7 @@ fill_notice_menu (RevolutionMailReader *self)
   if (at != NULL && at != self->sender && at[1] != '\0')
     {
       /* Translators: Menü des Hinweises, %s ist die Domain mit „@“, z. B. „@example.org“. */
-      g_autofree char *label = g_strdup_printf (_("Immer für alle von %s laden"), at);
+      g_autofree char *label = g_strdup_printf (_("Always Load for Everyone at %s"), at);
       g_autoptr (GMenuItem) item = g_menu_item_new (label, NULL);
 
       g_menu_item_set_action_and_target_value (item, "reader.allow-remote", g_variant_new_string (at));
@@ -1509,7 +1509,7 @@ create_web_view (RevolutionMailReader *self)
   /* Durchsichtig: die Karte (.html-mail) gibt den Hintergrund je Theme. */
   webkit_web_view_set_background_color (web_view, &transparent);
   g_object_set_data (G_OBJECT (web_view), "revolution-reader", self);
-  gtk_accessible_update_property (GTK_ACCESSIBLE (web_view), GTK_ACCESSIBLE_PROPERTY_LABEL, _("Nachrichteninhalt"), -1);
+  gtk_accessible_update_property (GTK_ACCESSIBLE (web_view), GTK_ACCESSIBLE_PROPERTY_LABEL, _("Message Content"), -1);
 
   g_signal_connect_object (web_view, "decide-policy", G_CALLBACK (on_decide_policy), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (web_view, "context-menu", G_CALLBACK (on_context_menu), self, G_CONNECT_SWAPPED);
@@ -1538,13 +1538,13 @@ header_date (GDateTime *local)
 
   if (days == 0)
     /* Translators: Datum im Nachrichtenkopf, %s ist die Uhrzeit. */
-    return g_strdup_printf (_("Heute, %s"), time);
+    return g_strdup_printf (_("Today, %s"), time);
   if (days == 1)
     /* Translators: Datum im Nachrichtenkopf, %s ist die Uhrzeit. */
-    return g_strdup_printf (_("Gestern, %s"), time);
+    return g_strdup_printf (_("Yesterday, %s"), time);
 
   /* Translators: Datum im Nachrichtenkopf (g_date_time_format), z. B. „17.10.2026, 14:05“. */
-  return g_date_time_format (local, _("%d.%m.%Y, %H:%M"));
+  return g_date_time_format (local, _("%m/%d/%Y, %H:%M"));
 }
 
 static void
@@ -1554,7 +1554,7 @@ set_header (RevolutionMailReader *self,
   g_autoptr (GDateTime) local = load->date > 0 ? g_date_time_new_from_unix_local (load->date) : NULL;
   g_autofree char *date = local != NULL ? header_date (local) : g_strdup ("");
   /* Translators: vollständiges Datum in den Details (g_date_time_format). */
-  g_autofree char *full = local != NULL ? g_date_time_format (local, _("%A, %-d. %B %Y, %H:%M:%S")) : g_strdup ("");
+  g_autofree char *full = local != NULL ? g_date_time_format (local, _("%A, %B %-d, %Y, %H:%M:%S")) : g_strdup ("");
 
   gtk_label_set_label (self->date_label, date);
   gtk_label_set_label (self->to_label, load->to_short);
@@ -1588,7 +1588,7 @@ on_message_loaded (GObject      *source_object,
     {
       g_autofree char *detail = g_strdup_printf ("%s: %s", gtk_label_get_label (self->subject_label), error->message);
 
-      show_error (self, _("Nachricht nicht geladen"), detail);
+      show_error (self, _("Message Not Loaded"), detail);
       return;
     }
 
@@ -1760,7 +1760,7 @@ revolution_mail_reader_init (RevolutionMailReader *self)
     /* Kürzel aus dem Accelerator (mail-reader.blp, Strg+I), nicht als fester Text in der Übersetzung. */
     g_autofree char *accel = gtk_accelerator_get_label (GDK_KEY_i, GDK_CONTROL_MASK);
     /* Translators: Tooltip des Knopfs „Laden“ im Hinweis, %s ist das Tastenkürzel, z. B. „Strg+I“. */
-    g_autofree char *tooltip = g_strdup_printf (_("Entfernte Inhalte dieser E-Mail laden (%s)"), accel);
+    g_autofree char *tooltip = g_strdup_printf (_("Load Remote Content of This Message (%s)"), accel);
 
     gtk_widget_set_tooltip_text (self->notice_button, tooltip);
   }

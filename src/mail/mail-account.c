@@ -182,10 +182,10 @@ revolution_mail_account_update_note (RevolutionMailAccount *self,
     {
       refresh = e_source_get_extension (source, E_SOURCE_EXTENSION_REFRESH);
       if (e_source_refresh_get_enabled (refresh) && e_source_refresh_get_interval_minutes (refresh) > 0)
-        note = g_strdup_printf (_("Microsoft 365 meldet neue E-Mails nicht sofort (kein Push): Abruf alle %u Minuten "
-                                  "und mit F5"), e_source_refresh_get_interval_minutes (refresh));
+        note = g_strdup_printf (_("Microsoft 365 does not report new mail immediately (no push): checked every %u "
+                                  "minutes and with F5"), e_source_refresh_get_interval_minutes (refresh));
       else
-        note = g_strdup (_("Microsoft 365 meldet neue E-Mails nicht sofort (kein Push): Abruf mit F5"));
+        note = g_strdup (_("Microsoft 365 does not report new mail immediately (no push): check with F5"));
     }
 
   if (g_set_str (&self->note, note))

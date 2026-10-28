@@ -96,11 +96,11 @@ template $RevolutionContactsView: Adw.BreakpointBin {
             "primary-menu",
           ]
 
-          tooltip-text: _("Hauptmenü");
+          tooltip-text: _("Main Menu");
           menu-model: primary_menu;
 
           accessibility {
-            label: _("Hauptmenü");
+            label: _("Main Menu");
           }
         }
       }
@@ -118,7 +118,7 @@ template $RevolutionContactsView: Adw.BreakpointBin {
             ]
 
             accessibility {
-              label: _("Adressbücher");
+              label: _("Address Books");
             }
 
             model: SingleSelection book_selection {};
@@ -180,11 +180,11 @@ template $RevolutionContactsView: Adw.BreakpointBin {
         [start]
         ToggleButton sidebar_button {
           icon-name: "sidebar-show-symbolic";
-          tooltip-text: _("Seitenleiste ein-/ausblenden");
+          tooltip-text: _("Toggle Sidebar");
           active: bind split.show-sidebar bidirectional;
 
           accessibility {
-            label: _("Seitenleiste ein-/ausblenden");
+            label: _("Toggle Sidebar");
           }
         }
 
@@ -194,11 +194,11 @@ template $RevolutionContactsView: Adw.BreakpointBin {
         Button list_new_button {
           visible: false;
           icon-name: "list-add-symbolic";
-          tooltip-text: _("Neuer Kontakt");
+          tooltip-text: _("New Contact");
           action-name: "contact.new";
 
           accessibility {
-            label: _("Neuer Kontakt");
+            label: _("New Contact");
           }
         }
 
@@ -210,7 +210,7 @@ template $RevolutionContactsView: Adw.BreakpointBin {
 
           Label {
             // Name des gewählten Adressbuchs folgt mit M6.
-            label: _("Kontakte");
+            label: _("Contacts");
             xalign: 0;
             ellipsize: end;
 
@@ -241,7 +241,7 @@ template $RevolutionContactsView: Adw.BreakpointBin {
 
           child: Adw.StatusPage {
             icon-name: "system-users-symbolic";
-            title: _("Keine Kontakte");
+            title: _("No Contacts");
           };
         }
 
@@ -267,7 +267,7 @@ template $RevolutionContactsView: Adw.BreakpointBin {
                   ]
 
                   accessibility {
-                    label: _("Kontakte");
+                    label: _("Contacts");
                   }
 
                   model: SingleSelection contact_selection {};
@@ -327,7 +327,7 @@ template $RevolutionContactsView: Adw.BreakpointBin {
               ]
 
               accessibility {
-                label: _("Zu Anfangsbuchstabe springen");
+                label: _("Jump to Initial Letter");
               }
             }
           };
@@ -367,11 +367,11 @@ template $RevolutionContactsView: Adw.BreakpointBin {
 
                 Button new_button {
                   icon-name: "list-add-symbolic";
-                  tooltip-text: _("Neuer Kontakt");
+                  tooltip-text: _("New Contact");
                   action-name: "contact.new";
 
                   accessibility {
-                    label: _("Neuer Kontakt");
+                    label: _("New Contact");
                   }
                 }
 
@@ -387,11 +387,11 @@ template $RevolutionContactsView: Adw.BreakpointBin {
 
                 Button {
                   icon-name: "document-edit-symbolic";
-                  tooltip-text: _("Kontakt bearbeiten");
+                  tooltip-text: _("Edit Contact");
                   action-name: "contact.edit";
 
                   accessibility {
-                    label: _("Kontakt bearbeiten");
+                    label: _("Edit Contact");
                   }
                 }
               };
@@ -403,13 +403,13 @@ template $RevolutionContactsView: Adw.BreakpointBin {
               // Escape (GtkSearchEntry::stop-search) schließt die Suche.
               child: SearchEntry search_entry {
                 hexpand: true;
-                placeholder-text: _("Kontakte durchsuchen");
+                placeholder-text: _("Search Contacts");
                 key-capture-widget: list_pane;
                 search-started => $on_search_started() swapped;
                 stop-search => $on_search_stop() swapped;
 
                 accessibility {
-                  label: _("Kontakte durchsuchen");
+                  label: _("Search Contacts");
                 }
               };
             }
@@ -417,11 +417,11 @@ template $RevolutionContactsView: Adw.BreakpointBin {
 
           ToggleButton search_button {
             icon-name: "edit-find-symbolic";
-            tooltip-text: _("Suchen");
+            tooltip-text: _("Search");
             notify::active => $on_search_toggled() swapped;
 
             accessibility {
-              label: _("Suchen");
+              label: _("Search");
             }
           }
 
@@ -435,7 +435,7 @@ template $RevolutionContactsView: Adw.BreakpointBin {
       // Detail (Kopf, Reiter Details | Verlauf | Firma) folgt in M6, Muster im Tag m2-prototyp.
       content: Adw.StatusPage {
         icon-name: "avatar-default-symbolic";
-        title: _("Kein Kontakt ausgewählt");
+        title: _("No Contact Selected");
       };
     }
 
@@ -495,7 +495,7 @@ template $RevolutionContactsView: Adw.BreakpointBin {
 
       content: Adw.NavigationView {
         Adw.NavigationPage {
-          title: _("Kontakte");
+          title: _("Contacts");
           tag: "list";
 
           child: Adw.OverlaySplitView {
@@ -516,7 +516,7 @@ template $RevolutionContactsView: Adw.BreakpointBin {
         }
 
         Adw.NavigationPage {
-          title: _("Kontakt");
+          title: _("Contact");
           tag: "contact";
 
           child: Adw.LayoutSlot {
@@ -534,13 +534,13 @@ template $RevolutionContactsView: Adw.BreakpointBin {
 menu primary_menu {
   section {
     item {
-      label: _("_Neuer Kontakt");
+      label: _("_New Contact");
       action: "contact.new";
       accel: "<primary>n";
     }
 
     item {
-      label: _("_Suchen");
+      label: _("_Search");
       action: "contacts.search";
       accel: "<primary>f";
     }
@@ -549,7 +549,7 @@ menu primary_menu {
   // Ohne Haken wie mail-view.blp: zustandslose Aktion contacts.toggle-sidebar.
   section {
     item {
-      label: _("Seiten_leiste ein-/ausblenden");
+      label: _("Toggle S_idebar");
       action: "contacts.toggle-sidebar";
       accel: "F9";
     }
@@ -557,22 +557,22 @@ menu primary_menu {
 
   // Drei Themes (Arnd 22.10.2026, #340): Radio-Einträge der Aktion app.theme (main.c).
   section {
-    label: _("Darstellung");
+    label: _("Appearance");
 
     item {
-      label: _("_Hell");
+      label: _("_Light");
       action: "app.theme";
       target: "hell";
     }
 
     item {
-      label: _("Dunkel _mit hellem Inhalt");
+      label: _("Dark with Light _Content");
       action: "app.theme";
       target: "dunkel-hell";
     }
 
     item {
-      label: _("_Dunkel");
+      label: _("_Dark");
       action: "app.theme";
       target: "dunkel";
     }
@@ -580,19 +580,19 @@ menu primary_menu {
 
   section {
     item {
-      label: _("_Einstellungen");
+      label: _("_Preferences");
       action: "contacts.preferences";
       accel: "<primary>comma";
     }
 
     item {
-      label: _("_Tastenkürzel");
+      label: _("_Keyboard Shortcuts");
       action: "contacts.shortcuts";
       accel: "<primary>question";
     }
 
     item {
-      label: _("_Info zu Revolution");
+      label: _("_About Revolution");
       action: "contacts.about";
     }
   }

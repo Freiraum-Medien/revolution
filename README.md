@@ -2,6 +2,10 @@
 
 Moderner Mail-Client für GNOME mit Mail, Kontakten und Kalender; die Konten kommen aus GNOME Online Accounts.
 
+![Revolution, hell](data/screenshots/mail-hell.png)
+
+![Revolution, dunkel](data/screenshots/mail-dunkel.png)
+
 ## Stand
 
 | Meilenstein | Inhalt | Stand |

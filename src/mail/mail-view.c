@@ -3772,6 +3772,7 @@ typedef struct
 {
   RevolutionMailView *self;
   CamelStore         *store;
+  ESourceRegistry    *registry;
   guint               op;
   char               *uid, *full_name, *name, *result;   /* Neu: full_name = übergeordneter Ordner oder NULL */
   CamelFolderInfo    *info;
@@ -3785,6 +3786,7 @@ folder_edit_free (FolderEdit *edit)
 {
   g_object_unref (edit->self);
   g_object_unref (edit->store);
+  g_object_unref (edit->registry);
   g_free (edit->uid);
   g_free (edit->full_name);
   g_free (edit->name);
@@ -3833,9 +3835,12 @@ folder_edit_thread (GTask        *task,
   else
     done = revolution_mail_folder_delete_sync (source_object, edit->full_name, cancellable, &error);
 
-  /* Danach (auch nach Fehler) Baum = Server: kein verwaister Eintrag; Zähler bleiben. */
+  /* Danach (auch nach Fehler) Baum = Server: kein verwaister Eintrag; Zähler bleiben. Spezialordner wie beim
+   * Start (main.c), sonst erscheinen die virtuellen Papierkorb/Spam wieder (#435). */
   edit->info = camel_store_get_folder_info_sync (source_object, NULL, CAMEL_STORE_FOLDER_INFO_RECURSIVE |
                                                  CAMEL_STORE_FOLDER_INFO_SUBSCRIBED, cancellable, NULL);
+  if (edit->info != NULL)
+    revolution_mail_folder_mark_special (source_object, edit->registry, edit->info, cancellable);
   revolution_mail_folder_forget_unread (edit->info);
   if (done)
     g_task_return_boolean (task, TRUE);
@@ -3939,6 +3944,7 @@ on_folder_edit (GSimpleAction *action,
   edit = g_new0 (FolderEdit, 1);
   edit->self = g_object_ref (self);
   edit->store = CAMEL_STORE (g_steal_pointer (&store));
+  edit->registry = g_object_ref (self->registry);
   edit->op = op;
   edit->uid = g_strdup (revolution_mail_account_get_uid (account));
   edit->full_name = g_strdup (full_name);

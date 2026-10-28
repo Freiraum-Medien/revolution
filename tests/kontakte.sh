@@ -9,7 +9,7 @@
 # Vergleich unabhängig von der App: tests/testdaten.py --adressbuecher (eigener Prozess, Python-GI EBook.BookClient,
 # dieselbe Schicht wie GNOME Contacts; GNOME Contacts selbst öffnete ein Fenster). Zwei App-Starts im eigenen Xvfb
 # (echter Session-Bus, Einstellungen im Speicher, AT-SPI wie tests/suche.sh), Treiber tests/kontakte-treiber.py:
-#   google   hell, Google-CardDAV Gmail test account (518e9322…): Seitenleiste = Registry (UID, Konto, Name, Kopfzeilen,
+#   google   hell, Google-CardDAV des Gmail test account (518e9322…): Seitenleiste = Registry (UID, Konto, Name, Kopfzeilen,
 #            nur lesend), je Buch Kontaktzahl = Python-GI, Alt+M; Testkontakt von außen anlegen, suchen (Treffer,
 #            Nicht-Treffer, Escape), ändern, löschen – jede Änderung live ohne Neuladen.
 #   outlook  dunkel, microsoft365 „Kontakte“ outlook.com (3be9d2a4…): dasselbe live über EDS; dazu Gegenprobe am Server

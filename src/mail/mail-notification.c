@@ -24,11 +24,22 @@
 /* Neue Nachrichten seit dem letzten Öffnen der Benachrichtigung (Evolution status_count). */
 static guint pending;
 
+/* Je beobachtetem Posteingang (Daten „revolution-notify“), nur im UI-Thread: Empfangsdatum der zuletzt
+ * gemeldeten Nachricht (Evolution last_newmail_per_folder) und Zahl der ungelesenen nach dem letzten
+ * „changed“ (Evolution unread_messages_by_folder, plugins/mail-notification/mail-notification.c:633-661). */
+typedef struct
+{
+  time_t   latest;
+  guint    unread;
+  gboolean counted;
+} Watched;
+
 typedef struct
 {
   CamelFolder *folder;
   GPtrArray *uids;
   time_t     latest;
+  guint      unread;
   guint      count;
   char      *uid;
   char      *sender;
@@ -84,6 +95,7 @@ check_thread (GTask        *task,
       g_set_str (&batch->uid, camel_message_info_get_uid (info));
     }
   batch->latest = newest;
+  batch->unread = camel_folder_summary_get_unread_count (camel_folder_get_folder_summary (source_object));
 
   g_task_return_boolean (task, TRUE);
 }
@@ -95,20 +107,34 @@ on_checked (GObject      *source_object,
 {
   CamelFolder *folder = CAMEL_FOLDER (source_object);
   Batch *batch = g_task_get_task_data (G_TASK (result));
+  Watched *watched = g_object_get_data (G_OBJECT (folder), "revolution-notify");
   CamelStore *store = camel_folder_get_parent_store (folder);
   g_autoptr (GNotification) notification = NULL;
   g_autofree char *encoded_uid = NULL, *encoded_name = NULL, *uri = NULL, *body = NULL;
   GApplication *app = g_application_get_default ();
 
-  if (!g_task_propagate_boolean (G_TASK (result), NULL) || store == NULL || app == NULL)
+  if (!g_task_propagate_boolean (G_TASK (result), NULL) || store == NULL || app == NULL || watched == NULL)
     return;
+
+  /* Weniger ungelesene als zuvor: eine Nachricht wurde gelesen (hier oder anderswo), Benachrichtigung weg
+   * wie Evolution unread_notify_status (mail-notification.c:644-647) und read_notify_status (664-668). */
+  if (watched->counted && batch->unread < watched->unread && pending > 0)
+    {
+      g_debug ("Benachrichtigung: %s ungelesen %u statt %u, zurückgezogen", camel_folder_get_full_name (folder),
+               batch->unread, watched->unread);
+      revolution_mail_notification_reset ();
+    }
+  watched->unread = batch->unread;
+  watched->counted = TRUE;
+
   if (batch->count == 0)
     {
-      g_debug ("Benachrichtigung: %u neu in %s, keine ungelesen", batch->uids->len, camel_folder_get_full_name (folder));
+      if (batch->uids->len > 0)
+        g_debug ("Benachrichtigung: %u neu in %s, keine ungelesen", batch->uids->len, camel_folder_get_full_name (folder));
       return;
     }
 
-  g_object_set_data (G_OBJECT (folder), "revolution-notified", GINT_TO_POINTER (batch->latest));
+  watched->latest = batch->latest;
   pending += batch->count;
 
   /* Ordner-URI wie Evolution e_mail_folder_uri_build (libemail-engine/e-mail-folder-utils.c:1808-1835). */
@@ -135,7 +161,10 @@ static gboolean
 start_check (gpointer data)
 {
   Batch *batch = data;
+  Watched *watched = g_object_get_data (G_OBJECT (batch->folder), "revolution-notify");
   g_autoptr (GTask) task = g_task_new (batch->folder, NULL, on_checked, NULL);
+
+  batch->latest = watched != NULL ? watched->latest : 0;
 
   g_task_set_source_tag (task, start_check);
   g_task_set_task_data (task, batch, (GDestroyNotify) batch_free);
@@ -146,7 +175,8 @@ start_check (gpointer data)
 
 /* „changed“ kommt im Hauptkontext, bei eingefrorenem Ordner im aufrufenden Thread (mail-folder.c,
  * on_camel_folder_changed); der Auftrag beginnt daher im UI-Thread wie mail-view.c on_folder_changed,
- * sonst käme das Ergebnis im Kontext dieses Threads an. */
+ * sonst käme das Ergebnis im Kontext dieses Threads an. Jede Änderung zählt die ungelesenen neu
+ * (gelesen → Benachrichtigung weg), neue UIDs prüft der Worker auf Meldung. */
 static void
 on_changed (CamelFolder           *folder,
             CamelFolderChangeInfo *changes,
@@ -154,15 +184,14 @@ on_changed (CamelFolder           *folder,
 {
   Batch *batch;
 
-  if (changes == NULL || changes->uid_added == NULL || changes->uid_added->len == 0)
+  if (changes == NULL)
     return;
 
   batch = g_new0 (Batch, 1);
   batch->folder = g_object_ref (folder);
-  batch->uids = g_ptr_array_new_full (changes->uid_added->len, g_free);
-  for (guint i = 0; i < changes->uid_added->len; i++)
+  batch->uids = g_ptr_array_new_with_free_func (g_free);
+  for (guint i = 0; changes->uid_added != NULL && i < changes->uid_added->len; i++)
     g_ptr_array_add (batch->uids, g_strdup (changes->uid_added->pdata[i]));
-  batch->latest = GPOINTER_TO_INT (g_object_get_data (G_OBJECT (folder), "revolution-notified"));
 
   g_main_context_invoke (NULL, start_check, batch);
 }
@@ -178,7 +207,7 @@ revolution_mail_notification_watch (CamelFolder *inbox)
   if (g_object_get_data (G_OBJECT (inbox), "revolution-notify") != NULL)
     return;
 
-  g_object_set_data (G_OBJECT (inbox), "revolution-notify", GINT_TO_POINTER (TRUE));
+  g_object_set_data_full (G_OBJECT (inbox), "revolution-notify", g_new0 (Watched, 1), g_free);
   g_signal_connect (inbox, "changed", G_CALLBACK (on_changed), NULL);
 }
 

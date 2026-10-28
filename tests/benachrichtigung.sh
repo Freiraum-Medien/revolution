@@ -15,7 +15,8 @@
 # Treiber tests/benachrichtigung-treiber.py, Lauf „haupt“:
 #   - Testmails per IMAP APPEND in den Posteingang von geops@ (tests/testdaten.py --benachrichtigung): eine
 #     ungelesene + eine gelesene → genau eine Benachrichtigung (Titel Absender, Text Betreff), keine für die
-#     gelesene; zwei weitere ungelesene → dieselbe Benachrichtigung „(und 2 weitere)“ (dbus-monitor AddNotification bzw. Notify).
+#     gelesene; „eins“ am Server gelesen (--benachrichtigung … gelesen) → zurückgezogen; zwei weitere ungelesene →
+#     dieselbe Benachrichtigung „(und 1 weitere)“ (dbus-monitor AddNotification bzw. Notify).
 #   - Aktion der Benachrichtigung (org.gtk.Actions.Activate „show-message“ mit dem Ziel aus dem Log) wählt
 #     den Posteingang von geops@ und die Nachricht; Benachrichtigung zurückgezogen (RemoveNotification bzw. CloseNotification).
 #   - Hinweis microsoft365 ohne Push am Abschnittskopf von KONTO_M365@example.invalid (AT-SPI); Abruf-Zeitgeber
@@ -103,6 +104,35 @@ lauf () {
   return "$rc"
 }
 
+# Nimmt die GNOME-Shell Benachrichtigungen von APP_ID an? Sie sucht die Anwendung über ihre Desktop-Datei
+# (XDG_DATA_DIRS der Shell und ~/.local/share/applications); ohne installierte Datei antwortet sie
+# „org.gtk.Notifications.Error.InvalidApp“ (Prüf-Lauf #366, build/pruef-366-invalidapp.txt). Die App selbst
+# bekommt darauf keine Antwort, daher hier ein eigener, synchroner Aufruf (Titel [Revolution-Test], sofort
+# wieder entfernt). Abgelehnt → Zeile BLOCKER, Exit ≠ 0.
+#   DESKTOP_INSTALL=1   nur auf ausdrückliche Freigabe (Arnd): legt für die Dauer des Laufs die gebaute
+#                       Desktop-Datei mit NoDisplay=true und ohne MimeType als ~/.local/share/applications/
+#                       APP_ID.desktop ab (nie über eine vorhandene) und entfernt sie am Ende (trap).
+BLOCKER=0
+if [ "${DESKTOP_INSTALL:-0}" = 1 ]; then
+  ZIEL_DESKTOP="${XDG_DATA_HOME:-$HOME/.local/share}/applications/$APP_ID.desktop"
+  [ -e "$ZIEL_DESKTOP" ] && { echo "FEHLER  DESKTOP_INSTALL: $ZIEL_DESKTOP gibt es schon, nichts geändert"; exit 1; }
+  mkdir -p "$(dirname "$ZIEL_DESKTOP")"
+  trap 'rm -f "$ZIEL_DESKTOP"; echo "WERT    DESKTOP_INSTALL: $ZIEL_DESKTOP entfernt"' EXIT
+  sed -e '/^MimeType=/d' -e "s|^Exec=.*|Exec=$BIN %U|" -e '$a NoDisplay=true' "$BUILD/data/$APP_ID.desktop" >"$ZIEL_DESKTOP"
+  echo "WERT    DESKTOP_INSTALL: $ZIEL_DESKTOP abgelegt (NoDisplay, ohne MimeType)"
+  sleep 3   # die Shell liest Anwendungsordner nach Änderung neu ein
+fi
+PROBE="$(gdbus call --session -d org.gtk.Notifications -o /org/gtk/Notifications -m org.gtk.Notifications.AddNotification \
+  "$APP_ID" revolution-test-probe "{'title': <'[Revolution-Test] Probe #366'>, 'body': <'Nimmt die Shell Benachrichtigungen an?'>}" 2>&1)"
+if [ "$PROBE" = "()" ]; then
+  gdbus call --session -d org.gtk.Notifications -o /org/gtk/Notifications -m org.gtk.Notifications.RemoveNotification \
+    "$APP_ID" revolution-test-probe >/dev/null 2>&1
+  echo "OK      gnome-shell nimmt Benachrichtigungen von $APP_ID an (AddNotification synchron: $PROBE)"
+else
+  echo "BLOCKER Benachrichtigung von gnome-shell abgelehnt: .desktop nicht installiert ($PROBE)"
+  BLOCKER=1
+fi
+
 # Arnds Zuordnungen bleiben unberührt (nur gelesen): Prüfsumme vorher/nachher.
 mimeapps_summe () { sha256sum "${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list" 2>/dev/null || echo fehlt; }
 MIMEAPPS_VORHER="$(mimeapps_summe)"
@@ -129,5 +159,5 @@ done
 if [ "$(mimeapps_summe)" = "$MIMEAPPS_VORHER" ]; then echo "OK      mimeapps.list der Sitzung unverändert: $MIMEAPPS_VORHER"
 else echo "FEHLER  mimeapps.list der Sitzung verändert"; FEHLER=$((FEHLER + 1)); fi
 abbruch_bilanz
-echo "Ergebnis: $FEHLER Fehler, Ausgaben in $OUT"
-[ "$FEHLER" -eq 0 ]
+echo "Ergebnis: $FEHLER Fehler, $BLOCKER Blocker, Ausgaben in $OUT"
+[ "$FEHLER" -eq 0 ] && [ "$BLOCKER" -eq 0 ]

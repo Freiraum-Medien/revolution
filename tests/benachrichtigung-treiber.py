@@ -121,14 +121,15 @@ def notify_aufrufe():
 
 
 def zurueckgezogen():
-    """CloseNotification (freedesktop) bzw. RemoveNotification „new-mail“ der App (gtk)."""
+    """Aufrufe CloseNotification (freedesktop) bzw. RemoveNotification „new-mail“ der App (gtk)."""
+    out = []
     for b in dbus_bloecke():
         kopf = b.split('\n')[0]
         if ('member=CloseNotification' in kopf and 'destination=org.freedesktop.Notifications ' in kopf) or \
                 ('member=RemoveNotification' in kopf and 'destination=org.gtk.Notifications ' in kopf and
                  STRING_RE.findall(b)[:2] == [APP_ID, 'new-mail']):
-            return kopf
-    return None
+            out.append(kopf)
+    return out
 
 
 def aktion(name, *parameter):
@@ -299,19 +300,31 @@ def haupt():
     pruefe(warte(r'zusammen 1, Ziel %s %s$' % (re.escape(folder_uri), mails['eins'][0]), ab, 1) is not None,
            'Ziel der Aktion: %s UID %s' % (folder_uri, mails['eins'][0]))
 
-    # 2) zwei weitere: dieselbe Benachrichtigung, „(und 2 weitere)“
+    # 1b) „eins“ am Server gelesen: ungelesene weniger → Benachrichtigung zurückgezogen, Zähler zurück
+    # (Evolution unread_notify_status, mail-notification.c:644-647).
+    ab, z0 = marke(), len(zurueckgezogen())
+    r = subprocess.run(['timeout', '-k', '10', '120', 'python3', os.path.join(APP_DIR, 'tests', 'testdaten.py'),
+                        '--benachrichtigung', KONTO, 'gelesen', mails['eins'][0]], capture_output=True, text=True)
+    wert('gelesen: %s' % r.stdout.strip())
+    if r.returncode != 0:
+        raise RuntimeError('tests/testdaten.py --benachrichtigung gelesen: Exit %d %s' % (r.returncode, r.stderr.strip()[-300:]))
+    z = warte(r'^Benachrichtigung: INBOX ungelesen \d+ statt \d+, zurückgezogen', ab, 90)
+    time.sleep(2)
+    pruefe(z is not None and len(zurueckgezogen()) > z0, 'am Server gelesen → zurückgezogen: %s' % z)
+
+    # 2) zwei weitere: dieselbe Benachrichtigung, „(und 1 weitere)“ (Zähler nach dem Zurückziehen neu)
     ab, n1 = marke(), len(notify_aufrufe())
     mails.update(testmails('zwei,drei'))
     ende = time.monotonic() + 90
-    while warte(r'zusammen 3, Ziel ', ab, 1) is None and time.monotonic() < ende:
+    while warte(r'zusammen 2, Ziel ', ab, 1) is None and time.monotonic() < ende:
         pass
     time.sleep(3)
     aufrufe = notify_aufrufe()
     wert('Notify: %s' % aufrufe[n1:])
     letzte = aufrufe[-1] if len(aufrufe) > n1 else (False, '', '', None)
-    pruefe(letzte[2] == '%s\n(und 2 weitere)' % mails['drei'][1], 'zusammengefasst: „%s“' % (letzte[2] or '').replace('\n', '⏎'))
+    pruefe(letzte[2] == '%s\n(und 1 weitere)' % mails['drei'][1], 'zusammengefasst: „%s“' % (letzte[2] or '').replace('\n', '⏎'))
     pruefe(all(a[0] for a in aufrufe[n1:]) and len(aufrufe) > n1, 'ersetzt die vorige Benachrichtigung (gleiche ID bzw. replaces_id)')
-    ziel = warte(r'zusammen 3, Ziel ', ab, 1) or ''
+    ziel = warte(r'zusammen 2, Ziel ', ab, 1) or ''
     m = re.search(r'Ziel (\S+) (\S+)$', ziel)
     pruefe(m is not None and m.group(1) == folder_uri and m.group(2) == mails['drei'][0],
            'Ziel = neueste Mail „drei“: %s' % (m and m.groups(),))
@@ -328,7 +341,7 @@ def haupt():
     pruefe(z is not None, 'Lesebereich: %s' % z)
     pruefe(warte(r'^Nachrichten: %s INBOX ' % GEOPS, ab, 1) is not None, 'Posteingang von geops@ gewählt')
     time.sleep(2)
-    pruefe(zurueckgezogen() is not None, 'Benachrichtigung zurückgezogen: %s' % zurueckgezogen())
+    pruefe(len(zurueckgezogen()) > z0 + 1, 'Klick: Benachrichtigung zurückgezogen (%d Aufrufe)' % len(zurueckgezogen()))
     w = fenster('Revolution')
     if w is not None:
         bild('geoeffnet', w)
@@ -519,7 +532,12 @@ def main():
                        if b.startswith('error ') and
                        (re.search(r'destination=(\S+)', b).group(1), re.search(r'reply_serial=(\d+)', b).group(1)) in eigene]
     wert('Benachrichtigungsaufrufe: %d, Backend %s' % (len(notify_aufrufe()), os.environ.get('GNOTIFICATION_BACKEND', 'Standard (GLib)')))
-    pruefe(not fehlerantworten, 'keine Fehlerantwort des Dienstes auf Benachrichtigungen: %s' % fehlerantworten)
+    if os.environ.get('GNOTIFICATION_BACKEND') == 'freedesktop':
+        pruefe(not fehlerantworten, 'keine Fehlerantwort des Dienstes auf Notify: %s' % fehlerantworten)
+    else:
+        # Auf AddNotification bekommt die App keine Antwort (auch keinen Fehler); ob die Shell annimmt, prüft
+        # benachrichtigung.sh vorab mit einem eigenen, synchronen AddNotification (Zeile OK bzw. BLOCKER).
+        wert('Antworten an die App auf AddNotification/RemoveNotification: %s' % (fehlerantworten or 'keine'))
     rest = [z.strip() for z in open(LOG, encoding='utf-8', errors='replace')
             if z.strip() and not (z.startswith('(revolution:') and 'revolution-DEBUG' in z)
             and not z.startswith('libEGL warning:')]

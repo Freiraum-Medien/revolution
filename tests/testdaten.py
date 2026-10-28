@@ -32,7 +32,7 @@
 #                                 #353, schreibend nur in Testkonten: serverseitig an der Einladung
 #                                 in Revolution-Test gelesen|ungelesen|markiert|unmarkiert (IMAP UID
 #                                 STORE bzw. Graph PATCH), neu (IMAP APPEND einer Live-Mail, Zeile „BETREFF …“) oder
-#                                 weg (Live-Mails löschen: UID STORE \Deleted + EXPUNGE); #414: mit
+#                                 weg (Live-Mails löschen: UID STORE \Deleted + UID EXPUNGE je UID); #414: mit
 #                                 --warte DATEI erst anmelden, „BEREIT“ ausgeben, dann ablegen,
 #                                 sobald DATEI existiert, und „ABGELEGT <Uhrzeit>“ ausgeben; #416: mit
 #                                 Papierkorb (nur Graph) an der Einladung im Papierkorb (tests/verschieben.sh)
@@ -116,6 +116,8 @@
 #                                 #366, schreibend nur in Testkonten (IMAP): je NAME eine Testmail per APPEND
 #                                 in den Posteingang, Absender „Revolution Test“, NAME „gelesen…“ mit \Seen;
 #                                 Zeile „NEU <UIDVALIDITY> <UID> <Betreff>“ (APPENDUID)
+#   tests/testdaten.py --benachrichtigung KONTO gelesen UID
+#                                 #366: eine eigene Testmail (Betreff geprüft) per UID STORE +FLAGS (\Seen) gelesen
 #   tests/testdaten.py --benachrichtigung KONTO weg DATEI
 #                                 #366: genau die UIDs aus den NEU-Zeilen in DATEI löschen (gleiche UIDVALIDITY,
 #                                 Betreff geprüft): UID STORE +FLAGS (\Deleted) und UID EXPUNGE je UID, Zeilen
@@ -1669,10 +1671,12 @@ def server(k, aktion, ziel=ORDNER, warte=None):
             if warte:
                 print('ABGELEGT ' + datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3], flush=True)
         elif aktion == 'weg':
+            # #366: nur die eigenen UIDs endgültig (UID EXPUNGE), nie einfaches EXPUNGE: das löschte auch
+            # \Deleted-Mails paralleler Läufe (Regel PM 27.10.2026).
             for uid, _, _, betreff in imap_mails(c):
                 if betreff.startswith(LIVE):
-                    print(c.uid('STORE', uid, '+FLAGS', '(\\Deleted)'))
-            print(c.expunge())
+                    print('BEFEHL UID STORE %s +FLAGS (\\Deleted) → %s' % (uid, c.uid('STORE', uid, '+FLAGS', '(\\Deleted)')[0]))
+                    print('BEFEHL UID EXPUNGE %s → %s' % (uid, c.uid('EXPUNGE', uid)[0]))
         else:
             uid = next(u for u, _, _, b in imap_mails(c) if b == EINLADUNG)
             flag = '\\Seen' if aktion in ('gelesen', 'ungelesen') else '\\Flagged'
@@ -1716,6 +1720,15 @@ def benachrichtigung(k, aktion, arg):
             if typ != 'OK' or not treffer:
                 sys.exit('ABBRUCH: APPEND ohne APPENDUID: %r' % daten)
             print('NEU %s %s %s' % (treffer.group(1).decode(), treffer.group(2).decode(), m['Subject']), flush=True)
+    elif aktion == 'gelesen':
+        # Eine eigene Testmail (UID) am Server als gelesen markieren, Betreff geprüft.
+        c.select('INBOX')
+        typ, d = c.uid('FETCH', arg, '(BODY.PEEK[HEADER.FIELDS (SUBJECT)])')
+        ist = str(email.header.make_header(email.header.decode_header(d[0][1].decode().partition(':')[2].strip()))) \
+            if typ == 'OK' and d and d[0] is not None else ''
+        if not ist.startswith(PREFIX + ' Benachrichtigung'):
+            sys.exit('ABBRUCH: UID %s ist keine Testmail (%r), nichts geändert' % (arg, ist))
+        print('BEFEHL UID STORE %s +FLAGS (\\Seen) → %s' % (arg, c.uid('STORE', arg, '+FLAGS', '(\\Seen)')[0]))
     else:
         c.select('INBOX')
         gueltig = c.response('UIDVALIDITY')[1][0].decode()
@@ -2171,7 +2184,7 @@ def main():
                          '#416: Graph auch an der Einladung im Papierkorb')
     ap.add_argument('--kombiniert', nargs='?', const='', metavar='LOG',
                     help='#351: nur lesend Posteingänge aller Konten (EXAMINE, Graph), Vergleich mit LOG')
-    ap.add_argument('--benachrichtigung', nargs=3, metavar=('KONTO', 'neu|weg', 'NAMEN|DATEI'),
+    ap.add_argument('--benachrichtigung', nargs=3, metavar=('KONTO', 'neu|gelesen|weg', 'NAMEN|UID|DATEI'),
                     help='#366: Testmails im Posteingang anlegen bzw. genau diese UIDs löschen')
     ap.add_argument('--live-flags', metavar='KONTO', help='#351: nur lesend Flags der Live-Mails im Posteingang')
     ap.add_argument('--antwort', action='store_true',
@@ -2264,8 +2277,8 @@ def main():
         return anhang_teile(k, args.anhang_teile[1])
     if args.benachrichtigung:
         adresse = args.benachrichtigung[0].lower()
-        if args.benachrichtigung[1] not in ('neu', 'weg'):
-            ap.error('--benachrichtigung KONTO neu|weg NAMEN|DATEI')
+        if args.benachrichtigung[1] not in ('neu', 'gelesen', 'weg'):
+            ap.error('--benachrichtigung KONTO neu|gelesen|weg NAMEN|UID|DATEI')
         nur_testkonten([adresse])
         return benachrichtigung(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse],
                                 *args.benachrichtigung[1:])

@@ -73,7 +73,7 @@ template $RevolutionContactsDetail: Adw.Bin {
               }
 
               // Schnellaktion: nur „Mail schreiben“ in M6 (Dokument #19 „Nicht in M6“: Anrufen,
-              // Termin, Teilen); Symbol wie der Prototyp. Ziel (erste Adresse) setzt contacts-detail.c.
+              // Termin, Teilen); Symbol wie der Prototyp. Aktion und Ziel (erste Adresse) setzt contacts-detail.c.
               Box {
                 halign: center;
                 margin-top: 6;
@@ -81,7 +81,6 @@ template $RevolutionContactsDetail: Adw.Bin {
                 Button mail_button {
                   icon-name: "mail-message-new-symbolic";
                   tooltip-text: _("Send Email");
-                  action-name: "detail.write-mail";
 
                   accessibility {
                     label: _("Send Email");

@@ -518,13 +518,22 @@ def detail_suchen(name):
     return ab
 
 
-def klick(o):
-    r = o.get_component_iface().get_extents(Atspi.CoordType.SCREEN)
-    xtest.fake_input(d, X.MotionNotify, x=r.x + r.width // 2, y=r.y + r.height // 2)
-    xtest.fake_input(d, X.ButtonPress, 1)
-    xtest.fake_input(d, X.ButtonRelease, 1)
-    d.sync()
-    time.sleep(0.5)
+def composer_fenster(weg=False, zeit=20):
+    """Composer: sichtbares Fenster mit anderem Titel als das Hauptfenster (wie composer-treiber.py)."""
+    ende = time.monotonic() + zeit
+    while time.monotonic() < ende:
+        treffer = None
+        for w in d.screen().root.query_tree().children:
+            try:
+                name = w.get_wm_name()
+                if name and name != 'Revolution' and w.get_attributes().map_state == X.IsViewable:
+                    treffer = w
+            except Exception:
+                pass
+        if (treffer is None) == weg:
+            return True if weg else treffer
+        time.sleep(0.2)
+    return False if weg else None
 
 
 def fokussiert():
@@ -536,25 +545,30 @@ def fokussiert():
 
 def composer_pruefen(an, weg, ab):
     """Composer offen mit An = an (AT-SPI), Escape schließt ohne Entwurf."""
-    m = warte(r'^Composer: mailto An (\d+), ', ab, 30)
-    w = fenster('Neue Nachricht', zeit=20)
+    m = warte(r'Composer: mailto An (\d+), ', ab, 30)
+    w = composer_fenster()
     if not w:
         falsch('Mail schreiben %s: kein Composer (%s)' % (weg, m and m.group(0)))
         return
+    warte(r'Composer: Neu vorbereitet', ab, 30)
     time.sleep(2)
-    frame = finde(wurzel(), 'frame', 'Neue Nachricht')
+    titel = w.get_wm_name()
+    frame = finde(wurzel(), 'frame', titel)
     feld = [k for k in knoten(frame) if k.get_name() == 'An' and k.get_role_name() in ('entry', 'text')]
     text = Atspi.Text.get_text(feld[0], 0, Atspi.Text.get_character_count(feld[0])) if feld else None
     (ok if m and m.group(1) == '1' and text == an else falsch)(
-        'Mail schreiben %s: Composer mit An „%s“ (erwartet „%s“)' % (weg, text, an))
-    bild('composer-' + weg.split()[0])
+        'Mail schreiben %s: Composer „%s“ mit An „%s“ (erwartet „%s“)' % (weg, titel, text, an))
+    bild('composer-' + re.sub(r'[^a-z0-9]+', '-', weg.lower()).strip('-')[:40])
     g = w.get_geometry()
     xtest.fake_input(d, X.MotionNotify, x=g.x + g.width // 2, y=g.y + g.height // 2)
     d.sync()
     time.sleep(0.3)
     taste('Escape')
-    (ok if fenster('Neue Nachricht', weg=True) else falsch)('Mail schreiben %s: Escape schließt den Composer' % weg)
-    (ok if warte(r'^Entwurf: ', ab, 2) is None else falsch)('Mail schreiben %s: ungeändert geschlossen, kein Entwurf' % weg)
+    (ok if composer_fenster(weg=True) else falsch)('Mail schreiben %s: Escape schließt den Composer' % weg)
+    (ok if warte(r'Entwurf: ', ab, 3) is None else falsch)('Mail schreiben %s: ungeändert geschlossen, kein Entwurf' % weg)
+    # Ohne Fenstermanager bleibt der X-Fokus nach dem Schließen beim Composer-Fenster stehen: wieder dem Zeiger
+    # folgen lassen (wie beim Start), Zeiger über das Hauptfenster.
+    d.set_input_focus(X.PointerRoot, X.RevertToPointerRoot, X.CurrentTime)
     xtest.fake_input(d, X.MotionNotify, x=900, y=500)
     d.sync()
     time.sleep(0.5)
@@ -587,30 +601,33 @@ def detail():
     bild('detail', os.path.join(OUT, DETAIL_BILD + '.png'))
     if DETAIL in ('voll', 'anzeige') and f['emails']:
         an = [('%s <%s>' % (f['name'], e['wert'].strip())) for e in f['emails']]
-        # Maus: Schnellaktion oben (erste Adresse).
-        knopf = finde(wurzel(), 'button', 'Mail schreiben')
-        if knopf is None:
-            falsch('Mail schreiben: Knopf nicht im Barrierefreiheitsbaum')
+        # Tastatur: Tab bis „Mail schreiben“ oben (erste Adresse), Enter; dann weiter bis zum Papierflieger der
+        # letzten Adresse, Enter. Mausklick per Koordinaten geht hier nicht: AT-SPI meldet für Knöpfe im
+        # ScrolledWindow falsche Lagen (gemessen 20,20 40x40); die erste Zeile daher über die AT-SPI-Aktion.
+        for ziel, adresse in (('Mail schreiben', an[0]), ('Mail an %s schreiben' % f['emails'][-1]['wert'].strip(), an[-1])):
+            gefunden = []
+            for _ in range(16):
+                taste('Tab')
+                k = fokussiert()
+                gefunden.append(k.get_name() if k else None)
+                if k is not None and k.get_name() == ziel:
+                    break
+            if gefunden and gefunden[-1] == ziel:
+                ok('Tastatur: Tab erreicht „%s“ (%s)' % (ziel, ' → '.join(str(x) for x in gefunden)))
+                ab = marke()
+                taste('Return')
+                composer_pruefen(adresse, '„%s“ (Tab/Enter)' % ziel, ab)
+            else:
+                falsch('Tastatur: Tab erreicht „%s“ nicht (%s)' % (ziel, ' → '.join(str(x) for x in gefunden)))
+        ziel = 'Mail an %s schreiben' % f['emails'][0]['wert'].strip()
+        knopf = finde(wurzel(), 'button', ziel)
+        aktion = knopf.get_action_iface() if knopf is not None else None
+        if aktion is None or aktion.get_n_actions() < 1:
+            falsch('„%s“: keine AT-SPI-Aktion' % ziel)
         else:
             ab = marke()
-            klick(knopf)
-            composer_pruefen(an[0], 'oben (Maus)', ab)
-        # Tastatur: Tab bis zum Papierflieger der letzten Adresse, Enter.
-        ziel = 'Mail an %s schreiben' % f['emails'][-1]['wert'].strip()
-        gefunden = []
-        for _ in range(16):
-            taste('Tab')
-            k = fokussiert()
-            gefunden.append(k.get_name() if k else None)
-            if k is not None and k.get_name() == ziel:
-                break
-        if gefunden and gefunden[-1] == ziel:
-            ok('Tastatur: Tab erreicht „%s“ (%s)' % (ziel, ' → '.join(str(x) for x in gefunden)))
-            ab = marke()
-            taste('Return')
-            composer_pruefen(an[-1], 'Zeile (Tab/Enter)', ab)
-        else:
-            falsch('Tastatur: Tab erreicht „%s“ nicht (%s)' % (ziel, ' → '.join(str(x) for x in gefunden)))
+            aktion.do_action(0)
+            composer_pruefen(an[0], '„%s“ (AT-SPI-Aktion %s)' % (ziel, aktion.get_action_name(0)), ab)
     if DETAIL == 'voll':
         t = time.monotonic()
         ab = marke()

@@ -127,8 +127,12 @@ show_emails (RevolutionContactsDetail *self,
       gtk_actionable_set_action_target (GTK_ACTIONABLE (button), "s", to);
       gtk_actionable_set_action_name (GTK_ACTIONABLE (button), "detail.write-mail");
       adw_action_row_add_suffix (ADW_ACTION_ROW (row), button);
+      /* Ziel vor dem Namen, sonst meldet GtkActionHelper ein fehlendes Ziel. */
       if (first)
-        gtk_actionable_set_action_target (GTK_ACTIONABLE (self->mail_button), "s", to);
+        {
+          gtk_actionable_set_action_target (GTK_ACTIONABLE (self->mail_button), "s", to);
+          gtk_actionable_set_action_name (GTK_ACTIONABLE (self->mail_button), "detail.write-mail");
+        }
       first = FALSE;
     }
   gtk_widget_set_visible (self->mail_button, !first);

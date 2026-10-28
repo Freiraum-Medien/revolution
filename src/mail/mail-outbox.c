@@ -224,7 +224,8 @@ mail_tool_restore_xevolution_headers (CamelMimeMessage *message,
  * an der Nachricht setzen (e-mail-session-utils.c:290-298, 431-439). Abweichungen wie zuvor composer.c (#360):
  * camel_folder_synchronize_sync statt _message_sync, damit der Server die Änderung gleich erhält; fehlt die Nachricht
  * in der Summary, erst abgleichen (revolution_eds_folder_refresh_info_sync, Echo-Schutz #415); Setzen und Speichern
- * unter revolution_eds_folder_lock (#409) wie mail-view.c set_flags_thread. Im Worker. */
+ * unter revolution_eds_folder_lock (#409) wie mail-view.c set_flags_thread. Kein Expunge (Entwurf: IMAP \Deleted wie
+ * Evolution, microsoft365 löscht beim Abgleich, camel-m365-folder.c:1376-1407). Im Worker. */
 gboolean
 revolution_mail_folder_uri_set_flags_sync (CamelSession *session,
                                            const gchar *folder_uri,
@@ -321,6 +322,7 @@ outbox_handle_source_headers_sync (CamelSession *session,
 	const gchar *flag_string = camel_medium_get_header (medium, "X-Evolution-Source-Flags");
 	gchar **tokens;
 	gchar *string;
+	gboolean success;
 
 	/* Don't report errors about missing X-Evolution-Source
 	 * headers.  These headers are optional, so their absence
@@ -331,7 +333,6 @@ outbox_handle_source_headers_sync (CamelSession *session,
 	/* Convert the flag string to CamelMessageFlags. */
 	string = g_strstrip (g_strdup (flag_string));
 	tokens = g_strsplit (string, " ", 0);
-	g_free (string);
 
 	for (guint ii = 0; tokens != NULL && tokens[ii] != NULL; ii++) {
 		if (g_strcmp0 (tokens[ii], "ANSWERED") == 0)
@@ -347,11 +348,12 @@ outbox_handle_source_headers_sync (CamelSession *session,
 	}
 	g_strfreev (tokens);
 
-	if (!revolution_mail_folder_uri_set_flags_sync (session, folder_uri, message_uid, flags, cancellable, error))
-		return FALSE;
-	g_debug ("Senden: Original %s %s: %s gesetzt", folder_uri, message_uid, flag_string);
+	success = revolution_mail_folder_uri_set_flags_sync (session, folder_uri, message_uid, flags, cancellable, error);
+	if (success)
+		g_debug ("Senden: Original %s %s: %s gesetzt", folder_uri, message_uid, string);
+	g_free (string);
 
-	return TRUE;
+	return success;
 }
 
 static ESourceRegistry *

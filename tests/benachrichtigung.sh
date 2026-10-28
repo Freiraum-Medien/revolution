@@ -10,14 +10,14 @@
 # run-in-background=true und mark-seen=false (eigenes Schema mit .gschema.override). Die App lädt nur
 # geops@ und KONTO_M365@example.invalid (REVOLUTION_SKIP_ACCOUNTS: alle anderen, auch die nur lesend freigegebenen).
 # Benachrichtigungen gehen an den Benachrichtigungsdienst der Sitzung und dürfen auf dem Desktop erscheinen
-# (Arnd 27.10.2026); GNOTIFICATION_BACKEND=freedesktop, weil die GNOME-Shell org.gtk.Notifications nur für
-# Anwendungen mit installierter Desktop-Datei annimmt (Beleg im Lauf: Fehler InvalidApp, siehe Treiber).
+# (Arnd 27.10.2026). Weg wie im Betrieb (GLib wählt unter GNOME org.gtk.Notifications); mit
+# GNOTIFICATION_BACKEND=freedesktop org.freedesktop.Notifications. Beides im Mitschnitt von dbus-monitor geprüft.
 # Treiber tests/benachrichtigung-treiber.py, Lauf „haupt“:
 #   - Testmails per IMAP APPEND in den Posteingang von geops@ (tests/testdaten.py --benachrichtigung): eine
 #     ungelesene + eine gelesene → genau eine Benachrichtigung (Titel Absender, Text Betreff), keine für die
-#     gelesene; zwei weitere ungelesene → dieselbe Benachrichtigung „(und 2 weitere)“ (dbus-monitor Notify).
+#     gelesene; zwei weitere ungelesene → dieselbe Benachrichtigung „(und 2 weitere)“ (dbus-monitor AddNotification bzw. Notify).
 #   - Aktion der Benachrichtigung (org.gtk.Actions.Activate „show-message“ mit dem Ziel aus dem Log) wählt
-#     den Posteingang von geops@ und die Nachricht; Benachrichtigung zurückgezogen (CloseNotification).
+#     den Posteingang von geops@ und die Nachricht; Benachrichtigung zurückgezogen (RemoveNotification bzw. CloseNotification).
 #   - Hinweis microsoft365 ohne Push am Abschnittskopf von KONTO_M365@example.invalid (AT-SPI); Abruf-Zeitgeber
 #     je Konto (Log), ausgelöst über app.test-refresh (REVOLUTION_TEST_HOOKS=1).
 #   - mailto als Argument (zweiter Prozess → laufende Instanz) und per „gio open“ mit eigenem
@@ -92,7 +92,7 @@ lauf () {
   timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
     XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$SCHEMA" GSETTINGS_BACKEND=memory \
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
-    ADW_DEBUG_COLOR_SCHEME=prefer-light GNOTIFICATION_BACKEND="${GNOTIFICATION_BACKEND:-freedesktop}" \
+    ADW_DEBUG_COLOR_SCHEME=prefer-light ${GNOTIFICATION_BACKEND:+GNOTIFICATION_BACKEND="$GNOTIFICATION_BACKEND"} \
     G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_TEST_HOOKS=1 REVOLUTION_SKIP_ACCOUNTS="$SKIP" \
     BIN="$BIN" OUT="$OUT" NAME="$name" WAS="$was" APP_DIR="$APP_DIR" APP_ID="$APP_ID" KONTO="$KONTO" \
     GEOPS="$GEOPS" OUTLOOK="$OUTLOOK" XDG="$XDG" NEU="$OUT/$name-neu.txt" \
@@ -102,6 +102,10 @@ lauf () {
   [ "$(bus_hat_app)" = "(false,)" ] || echo "FEHLER  $name: App nach dem Lauf noch auf dem Bus"
   return "$rc"
 }
+
+# Arnds Zuordnungen bleiben unberührt (nur gelesen): Prüfsumme vorher/nachher.
+mimeapps_summe () { sha256sum "${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list" 2>/dev/null || echo fehlt; }
+MIMEAPPS_VORHER="$(mimeapps_summe)"
 
 for n in $(seq "${LAEUFE:-3}"); do
   for was in ${ARTEN:-haupt menue}; do
@@ -122,6 +126,8 @@ for n in $(seq "${LAEUFE:-3}"); do
   done
 done
 
+if [ "$(mimeapps_summe)" = "$MIMEAPPS_VORHER" ]; then echo "OK      mimeapps.list der Sitzung unverändert: $MIMEAPPS_VORHER"
+else echo "FEHLER  mimeapps.list der Sitzung verändert"; FEHLER=$((FEHLER + 1)); fi
 abbruch_bilanz
 echo "Ergebnis: $FEHLER Fehler, Ausgaben in $OUT"
 [ "$FEHLER" -eq 0 ]

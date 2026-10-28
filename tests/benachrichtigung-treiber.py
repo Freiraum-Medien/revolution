@@ -97,20 +97,38 @@ def dbus_bloecke():
 
 
 def notify_aufrufe():
-    """Notify-Aufrufe der App: (replaces_id, summary, body)."""
+    """Benachrichtigungen der App an den Dienst, je Aufruf (ersetzt, Titel, Text, Ziel):
+    org.gtk.Notifications.AddNotification (GLib-Standard unter GNOME): ersetzt = gleiche ID „new-mail“, Ziel =
+    default-action-target; org.freedesktop.Notifications.Notify (GNOTIFICATION_BACKEND=freedesktop): ersetzt =
+    replaces_id ≠ 0, Ziel nicht auf dem Bus. Nur der Aufruf der App (die Shell reicht Notify weiter: zweiter Aufruf,
+    anderer Absender und Ziel)."""
     out = []
     for b in dbus_bloecke():
-        # Nur der Aufruf der App an den Dienst; die Shell reicht ihn weiter (zweiter Aufruf, anderer Absender).
-        if 'member=Notify' not in b or 'destination=org.freedesktop.Notifications ' not in b.split('\n')[0] or not re.search(r'string "desktop-entry"\s+variant\s+string "%s"' % re.escape(APP_ID), b):
-            continue
-        s = STRING_RE.findall(b)
-        r = re.search(r'uint32 (\d+)', b)
-        out.append((int(r.group(1)), s[2], s[3]))
+        kopf = b.split('\n')[0]
+        if 'member=AddNotification' in kopf and 'destination=org.gtk.Notifications ' in kopf:
+            s_ = STRING_RE.findall(b)
+            if s_[0] != APP_ID:
+                continue
+            feld = {k: re.search(r'string "%s"\s+variant\s+string "((?:[^"\\]|\\.)*)"' % k, b, re.S) for k in ('title', 'body')}
+            ziel = re.search(r'string "default-action-target"\s+variant\s+struct \{\s+string "(.*?)"\s+string "(.*?)"', b, re.S)
+            out.append((s_[1] == 'new-mail', feld['title'] and feld['title'].group(1), feld['body'] and feld['body'].group(1),
+                        ziel and ziel.groups()))
+        elif 'member=Notify' in kopf and 'destination=org.freedesktop.Notifications ' in kopf and \
+                re.search(r'string "desktop-entry"\s+variant\s+string "%s"' % re.escape(APP_ID), b):
+            s_ = STRING_RE.findall(b)
+            out.append((int(re.search(r'uint32 (\d+)', b).group(1)) != 0, s_[2], s_[3], None))
     return out
 
 
-def gtk_aufrufe():
-    return [b for b in dbus_bloecke() if 'interface=org.gtk.Notifications' in b and 'string "%s"' % APP_ID in b]
+def zurueckgezogen():
+    """CloseNotification (freedesktop) bzw. RemoveNotification „new-mail“ der App (gtk)."""
+    for b in dbus_bloecke():
+        kopf = b.split('\n')[0]
+        if ('member=CloseNotification' in kopf and 'destination=org.freedesktop.Notifications ' in kopf) or \
+                ('member=RemoveNotification' in kopf and 'destination=org.gtk.Notifications ' in kopf and
+                 STRING_RE.findall(b)[:2] == [APP_ID, 'new-mail']):
+            return kopf
+    return None
 
 
 def aktion(name, *parameter):
@@ -272,9 +290,9 @@ def haupt():
     time.sleep(3)
     aufrufe = notify_aufrufe()
     wert('Notify: %s' % aufrufe[n0:])
-    pruefe(len(aufrufe) == n0 + 1, 'genau eine Benachrichtigung (Notify, desktop-entry %s): %d' % (APP_ID, len(aufrufe) - n0))
+    pruefe(len(aufrufe) == n0 + 1, 'genau eine Benachrichtigung der App %s am Bus: %d' % (APP_ID, len(aufrufe) - n0))
     if len(aufrufe) > n0:
-        _, titel, text = aufrufe[n0]
+        _, titel, text, _ = aufrufe[n0]
         pruefe(titel == 'Revolution Test' and text == mails['eins'][1],
                'Titel = Absender, Text = Betreff: „%s“ / „%s“' % (titel, text))
     pruefe(not any(mails['gelesen'][1] in a[2] for a in aufrufe), 'keine Benachrichtigung für die gelesene Mail')
@@ -290,14 +308,15 @@ def haupt():
     time.sleep(3)
     aufrufe = notify_aufrufe()
     wert('Notify: %s' % aufrufe[n1:])
-    letzte = aufrufe[-1] if len(aufrufe) > n1 else (0, '', '')
-    pruefe(letzte[2] == '%s\n(und 2 weitere)' % mails['drei'][1], 'zusammengefasst: „%s“' % letzte[2].replace('\n', '⏎'))
-    pruefe(all(a[0] != 0 for a in aufrufe[n1:]) and len(aufrufe) > n1,
-           'ersetzt die vorige Benachrichtigung (replaces_id %s)' % [a[0] for a in aufrufe[n1:]])
+    letzte = aufrufe[-1] if len(aufrufe) > n1 else (False, '', '', None)
+    pruefe(letzte[2] == '%s\n(und 2 weitere)' % mails['drei'][1], 'zusammengefasst: „%s“' % (letzte[2] or '').replace('\n', '⏎'))
+    pruefe(all(a[0] for a in aufrufe[n1:]) and len(aufrufe) > n1, 'ersetzt die vorige Benachrichtigung (gleiche ID bzw. replaces_id)')
     ziel = warte(r'zusammen 3, Ziel ', ab, 1) or ''
     m = re.search(r'Ziel (\S+) (\S+)$', ziel)
     pruefe(m is not None and m.group(1) == folder_uri and m.group(2) == mails['drei'][0],
            'Ziel = neueste Mail „drei“: %s' % (m and m.groups(),))
+    if letzte[3] is not None:
+        pruefe(letzte[3] == (folder_uri, mails['drei'][0]), 'Ziel der Aktion am Bus (default-action-target): %s' % (letzte[3],))
 
     # 3) Klick: Aktion app.show-message mit dem Ziel der Benachrichtigung
     hinweis_m365()
@@ -309,8 +328,7 @@ def haupt():
     pruefe(z is not None, 'Lesebereich: %s' % z)
     pruefe(warte(r'^Nachrichten: %s INBOX ' % GEOPS, ab, 1) is not None, 'Posteingang von geops@ gewählt')
     time.sleep(2)
-    pruefe(any('member=CloseNotification' in b and 'destination=org.freedesktop.Notifications ' in b for b in dbus_bloecke()),
-           'Benachrichtigung zurückgezogen (CloseNotification)')
+    pruefe(zurueckgezogen() is not None, 'Benachrichtigung zurückgezogen: %s' % zurueckgezogen())
     w = fenster('Revolution')
     if w is not None:
         bild('geoeffnet', w)
@@ -492,11 +510,16 @@ def main():
         time.sleep(1)
         monitor.terminate()
         monitor.wait()
+    # (Absender, Seriennummer) der Aufrufe der App an den Dienst; Fehlerantworten genau darauf.
+    eigene = {re.search(r'sender=(\S+) .*serial=(\d+)', b.split('\n')[0]).groups() for b in dbus_bloecke()
+              if b.startswith('method call') and re.search(r'member=(AddNotification|Notify|RemoveNotification|CloseNotification)$',
+                                                           b.split('\n')[0])
+              and re.search(r'destination=org\.(gtk|freedesktop)\.Notifications ', b.split('\n')[0])}
     fehlerantworten = [b.split('\n')[0] + ' ' + ' '.join(STRING_RE.findall(b))[:200] for b in dbus_bloecke()
-                       if b.startswith('error ') and ('Notifications' in b or APP_ID in b)]
-    wert('Fehlerantworten zu Benachrichtigungen: %s' % fehlerantworten)
-    pruefe(not any('Notification' in b for b in fehlerantworten) and not gtk_aufrufe() or
-           os.environ.get('GNOTIFICATION_BACKEND') != 'freedesktop', 'freedesktop: kein org.gtk.Notifications-Aufruf, kein Fehler')
+                       if b.startswith('error ') and
+                       (re.search(r'destination=(\S+)', b).group(1), re.search(r'reply_serial=(\d+)', b).group(1)) in eigene]
+    wert('Benachrichtigungsaufrufe: %d, Backend %s' % (len(notify_aufrufe()), os.environ.get('GNOTIFICATION_BACKEND', 'Standard (GLib)')))
+    pruefe(not fehlerantworten, 'keine Fehlerantwort des Dienstes auf Benachrichtigungen: %s' % fehlerantworten)
     rest = [z.strip() for z in open(LOG, encoding='utf-8', errors='replace')
             if z.strip() and not (z.startswith('(revolution:') and 'revolution-DEBUG' in z)
             and not z.startswith('libEGL warning:')]

@@ -61,7 +61,7 @@ main (int    argc,
       return 2;
     }
 
-  camel_dir = g_build_filename (g_get_user_data_dir (), "revolution", NULL);
+  camel_dir = g_build_filename (g_get_user_data_dir (), USER_DIR_NAME, NULL);
   camel_init (camel_dir, FALSE);
   session = revolution_mail_session_new (registry);
   camel_session_set_online (CAMEL_SESSION (session), TRUE);

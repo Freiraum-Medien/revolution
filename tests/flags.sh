@@ -2,7 +2,7 @@
 # Gelesen, Markieren, Aktualisieren (#353) gegen die echten Testkonten.
 #
 # Aufruf: tests/flags.sh [AUSGABEORDNER]   (Standard BUILD/m4-353)
-#   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
+#   BUILD    Build-Ordner, Standard build-devel/ im Repo (#439, Profil development) (vorher meson compile)
 #   KONTEN   Testkonten, Standard „KONTO_IMAP_1 KONTO_M365 KONTO_GOOGLE“
 #   LAST     1 (Standard): zusätzlich Lauf in Revolution-Last von privat@ (Auswahl/Scrollposition)
 #   IDLE     1 (Standard): zusätzlich Lauf im Posteingang von privat@ (neue/gelöschte Mail per IDLE)
@@ -33,7 +33,7 @@ set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$APP_DIR/tests/testkonten.sh"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m4-353}"
 KONTEN="${KONTEN:-${KONTO_IMAP_1} ${KONTO_M365} ${KONTO_GOOGLE}}"

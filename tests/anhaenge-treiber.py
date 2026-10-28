@@ -26,7 +26,7 @@ from Xlib.ext import xtest
 BIN, OUT, NAME = os.environ['BIN'], os.environ['OUT'], os.environ['NAME']
 ORDNER, TEILE, GEOEFFNET, ZIEL = os.environ['ORDNER'], os.environ['TEILE'], os.environ['GEOEFFNET'], os.environ['ZIEL']
 UID = ORDNER.split('/', 1)[0]
-CACHE = os.path.join(os.path.expanduser('~'), '.cache', 'revolution', 'attachments')
+CACHE = os.path.join(os.path.expanduser('~'), '.cache', os.environ['USER_DIR'], 'attachments')  # #439: revolution bzw. revolution-devel
 # Fenster 1200×760: Pillen der Anhangleiste (Screenshot build/m4-356/probe.png).
 PDF = (700, 171)
 PNG = (950, 171)

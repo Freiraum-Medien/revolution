@@ -15,10 +15,21 @@ sudo apt install meson ninja-build blueprint-compiler gettext libgtk-4-dev libad
 Einrichten und bauen:
 
 ```sh
-meson setup build                              # Profil default
-meson setup build-devel -Dprofile=development  # Entwicklungsvariante (eigene App-ID, Devel-Icon)
-meson compile -C build
+meson setup build                                             # Profil default (Release)
+meson setup build-devel -Dprofile=development -Dwerror=true   # Entwicklungsvariante, für alle Tests
+meson compile -C build-devel
 ```
+
+Profile (#439): Tests und Testläufe nutzen die Entwicklungsvariante in `build-devel/` (Standard `BUILD` aller Skripte in `tests/` und `scripts/screenshot.sh`, ebenso der Git-Hook), damit eine installierte Revolution (`de.freiraum_medien.Revolution`) daneben laufen darf. Die Skripte lesen App-ID (`BUILD/data/*.metainfo.xml`) und Datenordner (`USER_DIR_NAME` in `BUILD/config.h`) aus dem Build und prüfen `NameHasOwner` nur für diese App-ID.
+
+| | Release (`profile=default`) | Devel (`profile=development`) |
+|---|---|---|
+| App-ID, Bus-Name | `de.freiraum_medien.Revolution` | `de.freiraum_medien.Revolution.Devel` |
+| Daten, Cache | `~/.local/share/revolution`, `~/.cache/revolution` | `~/.local/share/revolution-devel`, `~/.cache/revolution-devel` |
+| Erkennbar | Symbol `de.freiraum_medien.Revolution` | Stilklasse `devel` (gestreifte Kopfleiste, wie Stamp stamp-window.c:224-225), Symbol `….Devel` |
+| GSettings | Schema `de.freiraum_medien.Revolution` | dasselbe Schema (wie GNOME Calendar); Tests laufen mit `GSETTINGS_BACKEND=memory` |
+
+Die Testkonten-Datei `~/.config/revolution/testkonten.ini` gilt für beide Profile. Bisherige Ordner `build/`, `build-hook/`, `build-check/` (Release) bleiben nutzbar, Testskripte dann mit `BUILD=build`.
 
 Installieren für den eigenen Benutzer (Freigabe Arnd 28.10.2026, #366; nötig für Benachrichtigungen, siehe unten): Programm `~/.local/bin/revolution`, Desktop-Datei `~/.local/share/applications/de.freiraum_medien.Revolution.desktop`, Schema in `~/.local/share/glib-2.0/schemas` (kompiliert `meson install`), Entfernen `ninja -C build-install uninstall`. Anleitung: `~/Dokumente/Privat/ubuntu/revolution.md`.
 
@@ -30,7 +41,7 @@ meson install -C build-install
 Tests (Desktop-Datei, Metainfo mit `appstreamcli validate --no-net`, GSettings-Schema):
 
 ```sh
-meson test -C build
+meson test -C build-devel
 ```
 
 ### Testkonten (#437)
@@ -42,10 +53,10 @@ Die Skripte in `tests/` arbeiten gegen echte Konten aus GNOME Online Accounts. W
 Gegen die echten Konten aus GNOME Online Accounts, daher eigene Suite `smoke`, die `meson test` ohne `--suite` auslässt (`add_test_setup` in `meson.build`):
 
 ```sh
-meson test -C build --suite smoke -v      # oder: tests/smoke.sh [AUSGABEORDNER]
+meson test -C build-devel --suite smoke -v      # oder: tests/smoke.sh [AUSGABEORDNER]
 ```
 
-Vorbedingungen: Netz, Konten in GOA, echter Session-Bus, Revolution läuft nicht (`NameHasOwner` = false), Pakete wie unter Screenshots. Ohne `meson test` baut das Skript vorher selbst unter `flock` (`BUILD_LOCK`, Standard `build/.build.lock`). Ausgaben (Logs, PNGs, Vergleichslisten) nach `build/smoke/` bzw. in den Ordner aus Argument oder `SMOKE_OUT`; Zeitlimit je Start `SMOKE_TIMEOUT` (Standard 120 s).
+Vorbedingungen: Netz, Konten in GOA, echter Session-Bus, die App-ID des Builds läuft nicht (`NameHasOwner` = false; die installierte `de.freiraum_medien.Revolution` darf laufen, #439), Pakete wie unter Screenshots. Ohne `meson test` baut das Skript vorher selbst unter `flock` (`BUILD_LOCK`, Standard `BUILD/.build.lock`; gemeinsame Sperre aller Agenten `App/build/.build.lock` ausdrücklich setzen). Ausgaben (Logs, PNGs, Vergleichslisten) nach `build-devel/smoke/` bzw. in den Ordner aus Argument oder `SMOKE_OUT`; Zeitlimit je Start `SMOKE_TIMEOUT` (Standard 120 s).
 
 Ablauf: vier App-Starts über `scripts/screenshot.sh` (Mail hell und dunkel in 1200×4800 mit allen Konten und Ordnern, Kalender mit Strg+2, Kontakte mit Strg+3) mit `G_MESSAGES_DEBUG=revolution` und `G_DEBUG=fatal-criticals`. Je Start wartet das Skript, bis jedes angezeigte Konto fertig ist (Log `Ordner: <UID> <N> geladen` bzw. Fehlerzeile), nimmt den Screenshot auf und schließt das Fenster per `WM_DELETE_WINDOW`. Geprüft wird je Start:
 
@@ -59,17 +70,17 @@ Am Ende (f): PIDs von `evolution-source-registry` und `goa-daemon` sowie sha256,
 
 Abbrüche (#411, alle Testskripte in `tests/` über `tests/abbruch.sh`): Jeder Abbruch eines Teilschritts zählt als `FEHLER  Abbruch: …` und ergibt Exit ≠ 0, auch wenn er in einer Pipe oder `$(…)` passiert: Exit ≠ 0 von `tests/testdaten.py` (Traceback, `ABBRUCH`), Exit ≠ 0 eines Treibers ohne eigene FEHLER-Zeile (die Treiber melden eine Ausnahme selbst als `FEHLER … Abbruch`), Zeitlimit. Zeitlimits: `TD_TIMEOUT` je Aufruf von `testdaten.py` (Standard 300 s), `LAUF_TIMEOUT` je Treiber-Lauf, App-Starts über `scripts/screenshot.sh` mit Wartezeit + 120 s. Einen transienten Netzabbruch (z. B. Gmail `imaplib.IMAP4.abort: socket error: EOF`) wiederholt `testdaten.py` einmal, außer beim Versand und bei `--server … neu`; jede Wiederholung steht als `WERT` am Ende des Skripts.
 
-Starten aus dem Build-Ordner: Das Schema liegt kompiliert in `build/data`.
+Starten aus dem Build-Ordner: Das Schema liegt kompiliert in `build-devel/data`.
 
 ```sh
-GSETTINGS_SCHEMA_DIR=build/data build/src/revolution
+GSETTINGS_SCHEMA_DIR=build-devel/data build-devel/src/revolution
 ```
 
 Headless-Start ohne Fenster auf dem Desktop (Anzeige nur Xvfb, X11 erzwungen):
 
 ```sh
-env -u WAYLAND_DISPLAY GDK_BACKEND=x11 GSETTINGS_SCHEMA_DIR=build/data GSETTINGS_BACKEND=memory \
-  xvfb-run -a build/src/revolution
+env -u WAYLAND_DISPLAY GDK_BACKEND=x11 GSETTINGS_SCHEMA_DIR=build-devel/data GSETTINGS_BACKEND=memory \
+  xvfb-run -a build-devel/src/revolution
 ```
 
 Der Start nutzt den echten Session-Bus, keine eigene `dbus-run-session`. Eine eigene Sitzung startete eine zweite `evolution-source-registry` und einen zweiten `goa-daemon` gegen das echte `~/.config`; die zweite Registry schrieb Dateien in `~/.config/evolution/sources` neu (#343). Vorher prüfen, dass Revolution nicht schon läuft, sonst öffnet der Start ein Fenster in der laufenden Instanz auf dem Desktop: `gdbus call --session -d org.freedesktop.DBus -o /org/freedesktop/DBus -m org.freedesktop.DBus.NameHasOwner de.freiraum_medien.Revolution` muss `(false,)` liefern.
@@ -106,7 +117,7 @@ Die `ESourceRegistry` wird beim Start so geladen und an der Anwendung gehalten (
 
 **eds-compat.c:** Die einzige Datei für Aufrufe, die von der EDS-/Camel-Version abhängen (3.56 heute, 3.62 später), jeweils mit `#if EDS_CHECK_VERSION (…)`; sie bricht den Build ab, wenn EDS älter als 3.56 ist. Seit #357 die Thread-API (`camel_folder_thread_messages_new` in 3.56, `camel_folder_thread_new` ab 3.62, der 3.62-Zweig ist hier mangels EDS 3.62 nicht übersetzt). #415: Jeder Abgleich eines Ordners läuft über `revolution_eds_folder_refresh_info_sync`. Bei microsoft365 setzt sie danach `folder_flagged` der Nachrichten zurück, die erst der Abgleich geändert hat (wie EWS und imapx); sonst schickte der nächste Sync (Camel nach `store-changes-interval`, oder eine eigene Bedienung im selben Ordner) die Server-Änderungen als Graph-PATCH zurück, aus Teilobjekten des Deltas mit leeren Kategorien und normaler Wichtigkeit (evolution-ews 3.56.2, camel-m365-folder.c:902-904, 1385-1388). Vorher-Stand, Abgleich, Zurücksetzen und Speichern der Summary laufen unter der Ordnersperre (`camel_folder_lock`); gespeichert wird danach erneut, sonst ginge das Echo nach Beenden oder Absturz kurz nach dem Abgleich beim nächsten Start raus. Restrisiko: eine eigene Flag-Änderung an einer vorher unveränderten Nachricht, die gesetzt wird, solange der Abgleich den Ordner gesperrt hält (inklusive Netz), bleibt nur lokal (das Setzen sperrt nicht, erst das Speichern wartet auf die Sperre). Log: `Abgleich: <UID> <Ordner>: <N> Server-Änderungen nicht zurückgeschrieben`. Filtertreiber gibt es keinen (`get_filter_driver` liefert NULL, keine Regeln), damit auch keinen Sofort-Sync nach neuer Mail. #416: Dasselbe für die beiden anderen Wege, auf denen microsoft365 abgleicht: `revolution_eds_folder_transfer_messages_to_sync` (Verschieben/Kopieren; der Zielordner wird abgeglichen, evolution-ews camel-m365-folder.c:1547-1553) und `revolution_eds_store_get_trash_folder_sync` (Papierkorb; schickt erst alle offenen Ordner und gleicht dann den Papierkorb ab, camel-m365-store.c:1446-1459). Der Papierkorb wird dafür vorher über den Typ in der Ordnerliste geöffnet (`CAMEL_STORE_FOLDER_INFO_FAST`), die anderen offenen Ordner bleiben für die Dauer gesperrt. Beide im Worker und ohne gehaltene Ordnersperre aufrufen; nie `camel_store_get_trash_folder_sync` oder `camel_folder_transfer_messages_to_sync` direkt. Restrisiken: ein Ordner, der zwischen den beiden Listen offener Ordner (`camel_store_dup_opened_folders` in Revolution und in `get_trash`, camel-m365-store.c:1445) geöffnet wird, ist nicht gesperrt und wird ungesperrt synchronisiert; `get_trash` synchronisiert alle offenen Ordner, Flag-Aufträge warten so lange, daher den Papierkorb in #363 nicht bei jedem Löschen neu holen. Test gegen KONTO_M365: `flock build/.run.lock tests/verschieben.sh` (Programm `tests/verschieben.c` ohne Oberfläche, Ausgaben in `build/m5-416/`): je Lauf Einladung in den Papierkorb, Änderung am Server (`tests/testdaten.py --server KONTO markiert Papierkorb`), Papierkorb holen, zurück; Änderung an der Einladung in Revolution-Test, „Anzeige Inline-Bild (cid)“ dorthin und zurück; Prüfung: schreibend nur `POST …/move`, kein PATCH. `ROH=1` ist die Gegenprobe direkt über Camel (Echo-PATCH erwartet), `LAEUFE` (Standard 3).
 
-**Verzeichnisse:** Beim Start werden `~/.local/share/revolution` und `~/.cache/revolution` angelegt (`g_get_user_data_dir ()`/`g_get_user_cache_dir ()` + `revolution`, Rechte 0700), getrennt von Evolution (`…/evolution`). Beide Profile nutzen dieselben Ordner, wie Stamp (stamp-helper.c:46-58) und wie das gemeinsame GSettings-Schema.
+**Verzeichnisse:** Beim Start werden `~/.local/share/revolution` und `~/.cache/revolution` angelegt (`g_get_user_data_dir ()`/`g_get_user_cache_dir ()` + `USER_DIR_NAME`, Rechte 0700), getrennt von Evolution (`…/evolution`). #439: Die Entwicklungsvariante nutzt `revolution-devel` (`USER_DIR_NAME` in `meson.build`), damit Testläufe die Daten der installierten App nicht berühren; Stamp nutzt für beide Profile „stamp“ (stamp-helper.c:46-58).
 
 **Ordner (#348):** Nach der Anmeldung lädt derselbe Worker-GTask je Store die Ordnerliste (`camel_store_get_folder_info_sync`, RECURSIVE|SUBSCRIBED ohne FAST, Begründung in `src/main.c` bei `note_store_thread`); Konten, die die Session zur Laufzeit hinzufügt, laufen über das Signal `services-changed` denselben Weg. Vergleichsliste nur lesend: `tests/testdaten.py --ordner`; App-Log mit `G_MESSAGES_DEBUG=revolution`: `Ordner: <UID> <Name>`. Screenshot aller Ordner: `WAIT=40 scripts/screenshot.sh ordner-hell prefer-light 1200x4800`.
 
@@ -174,7 +185,7 @@ Sortierung nach dem Server-Durchgang (#418): Live-Änderungen in Konversationen 
 
 ## Screenshots (headless)
 
-`scripts/screenshot.sh NAME SCHEMA [BREITExHÖHE]`. Das Skript läuft in eigenem Xvfb am echten Session-Bus (Grund oben unter Headless-Start) und bricht ab, wenn Revolution dort schon läuft. Einstellungen bleiben dabei im Speicher (`GSETTINGS_BACKEND=memory`). Wichtige Umgebungsvariablen: `BUILD` (Build-Ordner, Standard `build/`), `OUT_DIR` (Zielordner), `KEYS` (Tastendrücke vorab); für den Smoke-Test `LOG` (Ausgabe der App), `READY` (warten, bis die Datei existiert) und `QUIT` (Beenden per `WM_DELETE_WINDOW`, Exit-Code in die Datei), Einzelheiten im Kopf des Skripts.
+`scripts/screenshot.sh NAME SCHEMA [BREITExHÖHE]`. Das Skript läuft in eigenem Xvfb am echten Session-Bus (Grund oben unter Headless-Start) und bricht ab, wenn die App-ID des Builds dort schon läuft. Einstellungen bleiben dabei im Speicher (`GSETTINGS_BACKEND=memory`). Wichtige Umgebungsvariablen: `BUILD` (Build-Ordner, Standard `build-devel/`), `OUT_DIR` (Zielordner), `KEYS` (Tastendrücke vorab); für den Smoke-Test `LOG` (Ausgabe der App), `READY` (warten, bis die Datei existiert) und `QUIT` (Beenden per `WM_DELETE_WINDOW`, Exit-Code in die Datei), Einzelheiten im Kopf des Skripts.
 
 ```sh
 scripts/screenshot.sh mail-hell prefer-light
@@ -184,13 +195,13 @@ KEYS="Control_L+3" scripts/screenshot.sh kontakte-hell prefer-light
 
 ## Git-Hook
 
-`hooks/pre-merge-commit` baut und testet das Merge-Ergebnis in `build-hook/` mit `werror=true` (`meson compile` und `meson test --no-suite smoke`, also offline ohne den Smoke-Test); jede Compiler-Warnung zählt also als Fehler. Schlägt eins davon fehl, bricht `git merge` ohne Commit ab. Der Merge bleibt dann offen und wird mit `git merge --abort` zurückgenommen. Einmal je Klon aktivieren:
+`hooks/pre-merge-commit` baut und testet das Merge-Ergebnis in `build-hook-devel/` mit `profile=development` und `werror=true` (#439) (`meson compile` und `meson test --no-suite smoke`, also offline ohne den Smoke-Test); jede Compiler-Warnung zählt also als Fehler. Schlägt eins davon fehl, bricht `git merge` ohne Commit ab. Der Merge bleibt dann offen und wird mit `git merge --abort` zurückgenommen. Einmal je Klon aktivieren:
 
 ```sh
 git config core.hooksPath hooks
 git config merge.ff false
 ```
 
-Lücken: Der Hook läuft nicht bei `git merge --no-verify` und nicht, wenn der Merge mit Konflikt stoppt. Den Konflikt-Commit dann vor dem Abschluss selbst mit `meson configure -Dwerror=true build-hook && meson compile -C build-hook && meson test -C build-hook --no-suite smoke` prüfen.
+Lücken: Der Hook läuft nicht bei `git merge --no-verify` und nicht, wenn der Merge mit Konflikt stoppt. Den Konflikt-Commit dann vor dem Abschluss selbst mit `meson configure -Dprofile=development -Dwerror=true build-hook-devel && meson compile -C build-hook-devel && meson test -C build-hook-devel --no-suite smoke` prüfen.
 
 Arbeitsweise: ein Branch pro Task (`task/<Nr>-<kurz>`), Merge nach `main` erst nach dem Review.

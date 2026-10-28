@@ -2,7 +2,7 @@
 # Wechsel weg von einer großen Mail (#412) gegen ein echtes Testkonto.
 #
 # Aufruf: tests/wechsel.sh [AUSGABEORDNER]   (Standard BUILD/m4-412)
-#   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
+#   BUILD    Build-Ordner, Standard build-devel/ im Repo (#439, Profil development) (vorher meson compile)
 #   KONTO    Testkonto (IMAP, nicht privat@), Standard KONTO_IMAP_2
 #   PAUSEN   Sekunden zwischen Pfeil ab zu Schwer und Pfeil ab zu Ziel, Standard „0.12 0.15 0.2 0.24 0.3 1.0“
 #            (kurze: Schwer noch nicht fertig, FINISHED der vorigen Ladung; 1.0: Dauer bis zum ersten
@@ -25,7 +25,7 @@ set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$APP_DIR/tests/testkonten.sh"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m4-412}"
 KONTO="${KONTO:-${KONTO_IMAP_2}}"

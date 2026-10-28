@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Headless-Smoke-Test M3 (#349) gegen die echten Konten aus GNOME Online Accounts.
 #
-# Aufruf: tests/smoke.sh [AUSGABEORDNER]   bzw.   meson test -C build --suite smoke -v
+# Aufruf: tests/smoke.sh [AUSGABEORDNER]   bzw.   meson test -C build-devel --suite smoke -v
 #   AUSGABEORDNER  Logs und PNGs, Standard SMOKE_OUT bzw. BUILD/smoke
-#   BUILD          Build-Ordner, Standard build/ im Repo
+#   BUILD          Build-Ordner, Standard build-devel/ im Repo (#439, Profil development)
 #   BUILD_LOCK     Sperrdatei für meson compile (Standard BUILD/.build.lock); ohne meson test
 #                  baut das Skript vorher unter dieser Sperre (flock)
 #   SMOKE_TIMEOUT  Sekunden je App-Start, bis alle Konten angemeldet und Ordner geladen sind
@@ -38,7 +38,7 @@
 set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-${SMOKE_OUT:-$BUILD/smoke}}"
 TIMEOUT="${SMOKE_TIMEOUT:-120}"

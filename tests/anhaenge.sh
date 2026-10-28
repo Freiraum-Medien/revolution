@@ -2,7 +2,7 @@
 # Anhänge öffnen und speichern (#356) gegen die echten Testkonten.
 #
 # Aufruf: tests/anhaenge.sh [AUSGABEORDNER]   (Standard BUILD/m4-356)
-#   BUILD     Build-Ordner, Standard build/ im Repo (vorher meson compile)
+#   BUILD     Build-Ordner, Standard build-devel/ im Repo (#439, Profil development) (vorher meson compile)
 #   KONTEN    Testkonten, Standard „KONTO_IMAP_2 KONTO_GOOGLE KONTO_M365“
 #             (die Anhang-Mail aus tests/testdaten.py --anhang liegt nicht in privat@, Quota)
 #   SPEICHER  Zielordner für „Speichern unter“ und „Alle speichern“, Standard AUSGABEORDNER/speichern
@@ -14,7 +14,7 @@
 # text/plain, message/rfc822 über mimeapps.list), der nur Pfad und sha256 der Datei in eine
 # Datei schreibt. XDG_DATA_DIRS zeigt auf Verweise auf alle Einträge von /usr/share außer
 # „applications“ (MIME-Datenbank, Symbole, Schemas bleiben), XDG_DATA_HOME auf Verweise auf
-# revolution, camel_certs, fonts, icons, mime aus ~/.local/share (ohne „applications“ und
+# USER_DIR (revolution bzw. revolution-devel, #439), camel_certs, fonts, icons, mime aus ~/.local/share (ohne „applications“ und
 # recently-used.xbel). Vor dem Start prüft GIO mit derselben Umgebung, dass für jeden Typ der
 # Test-Handler gilt, sonst Abbruch ohne Start. Belege: strace (execve) der App mit allen Kindern
 # und dbus-monitor auf die Portale OpenURI und FileChooser während des Laufs.
@@ -40,8 +40,10 @@ set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$APP_DIR/tests/testkonten.sh"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
+# #439: Daten-/Cache-Ordner der App je Profil (revolution bzw. revolution-devel) aus dem Build.
+USER_DIR="$(sed -n 's/^#define USER_DIR_NAME "\(.*\)"$/\1/p' "$BUILD/config.h" 2>/dev/null)"
 # #411: absolut, der Treiber vergleicht Pfade aus dem Log der App mit ZIEL.
 OUT="$(realpath -m "${1:-$BUILD/m4-356}")"
 KONTEN="${KONTEN:-${KONTO_IMAP_2} ${KONTO_GOOGLE} ${KONTO_M365}}"
@@ -50,6 +52,7 @@ LAUF_TIMEOUT="${LAUF_TIMEOUT:-900}"
 FEHLER=0
 
 [ -x "$BIN" ] || { echo "FEHLER  Build: $BIN fehlt (meson compile)"; exit 1; }
+[ -n "$USER_DIR" ] || { echo "FEHLER  Build: USER_DIR_NAME fehlt in $BUILD/config.h"; exit 1; }
 for tool in xvfb-run gdbus python3 strace dbus-monitor sha256sum; do
   command -v "$tool" >/dev/null || { echo "FEHLER  $tool fehlt"; exit 1; }
 done
@@ -90,7 +93,7 @@ EOF
 for e in /usr/share/*; do
   [ "$(basename "$e")" = applications ] || ln -s "$e" "$XDG/share/$(basename "$e")"
 done
-for e in revolution camel_certs fonts icons mime; do
+for e in "$USER_DIR" camel_certs fonts icons mime; do
   [ -e "$HOME/.local/share/$e" ] && ln -s "$HOME/.local/share/$e" "$XDG/data/$e"
 done
 export XDG_CONFIG_HOME="$XDG/config" XDG_DATA_HOME="$XDG/data" XDG_DATA_DIRS="$XDG/share"
@@ -114,7 +117,7 @@ then
 fi
 
 # ---- Aufräumen der temporären Dateien beim Start (älter als 2 h): ein alter und ein neuer Ordner
-TMPBASE="$HOME/.cache/revolution/attachments"
+TMPBASE="$HOME/.cache/$USER_DIR/attachments"
 mkdir -p "$TMPBASE"
 alt="$(mktemp -d "$TMPBASE/test-alt-XXXXXX")"
 neu="$(mktemp -d "$TMPBASE/test-neu-XXXXXX")"
@@ -162,7 +165,7 @@ for konto in $KONTEN; do
     GTK_A11Y=none NO_AT_BRIDGE=1 ADW_DEBUG_COLOR_SCHEME=prefer-light \
     G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER="$ordner" \
     REVOLUTION_MESSAGE="Anhänge PDF, Bild, ZIP" \
-    BIN="$BIN" OUT="$OUT" NAME="$name" KONTO="$konto" ORDNER="$ordner" APP_DIR="$APP_DIR" \
+    BIN="$BIN" OUT="$OUT" NAME="$name" KONTO="$konto" ORDNER="$ordner" APP_DIR="$APP_DIR" USER_DIR="$USER_DIR" \
     TEILE="$OUT/$name-server.txt" GEOEFFNET="$GEOEFFNET" ZIEL="$ziel" \
     xvfb-run -a -s "-screen 0 1200x760x24" python3 -I "$APP_DIR/tests/anhaenge-treiber.py" | tee "$OUT/$name.txt"
   teilschritt "$name" "${PIPESTATUS[0]}" "$OUT/$name.txt"

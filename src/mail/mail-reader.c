@@ -619,7 +619,7 @@ static GMutex remote_list_lock;
 static char *
 remote_list_path (void)
 {
-  return g_build_filename (g_get_user_data_dir (), "revolution", "remote-content.txt", NULL);
+  return g_build_filename (g_get_user_data_dir (), USER_DIR_NAME, "remote-content.txt", NULL);
 }
 
 /* Im Worker: Liste lesen (fehlt die Datei, ist sie leer). */

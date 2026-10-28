@@ -2,7 +2,7 @@
 # Echo-Schutz bei Verschieben und Papierkorb (#416) gegen KONTO_M365 (microsoft365).
 #
 # Aufruf: flock build/.run.lock tests/verschieben.sh [AUSGABEORDNER]   (Standard BUILD/m5-416)
-#   BUILD   Build-Ordner, Standard build/ im Repo (vorher meson compile)
+#   BUILD   Build-Ordner, Standard build-devel/ im Repo (#439, Profil development) (vorher meson compile)
 #   LAEUFE  Anzahl Läufe, Standard 3
 #   ROH     1: Gegenprobe ohne Echo-Schutz (tests/verschieben --roh); dann sind Echos erwartet
 #
@@ -29,7 +29,7 @@ set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$APP_DIR/tests/testkonten.sh"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/tests/verschieben"
 OUT="${1:-$BUILD/m5-416}"
 LAEUFE="${LAEUFE:-3}"

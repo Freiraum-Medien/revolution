@@ -123,6 +123,9 @@ on_startup (GtkApplication *app,
   g_signal_connect_object (style_manager, "notify::dark", G_CALLBACK (on_system_dark_changed), action, G_CONNECT_DEFAULT);
   on_system_dark_changed (style_manager, NULL, G_SIMPLE_ACTION (action));
   g_signal_connect (app, "window-added", G_CALLBACK (on_window_added), NULL);
+  /* #439: Fenstersymbol je Profil (.Devel-Symbol der Entwicklungsvariante) wie GNOME Calendar
+   * (gcal-application.c:369). */
+  gtk_window_set_default_icon_name (APPLICATION_ID);
 
   if (theme == NULL && g_strcmp0 (saved, "system") != 0)
     theme = saved;
@@ -132,8 +135,8 @@ on_startup (GtkApplication *app,
 
 /* #343: eigene Verzeichnisse getrennt von Evolution (CLAUDE.md Architektur-Festlegung 4),
  * angelegt wie e_get_user_data_dir/e_get_user_cache_dir (EDS e-data-server-util.c:70-135,
- * g_mkdir_with_parents 0700) und Stamp (stamp-helper.c:46-58). Beide Profile nutzen
- * dieselben Ordner wie bei Stamp, das den Ordner „stamp“ fest verwendet. */
+ * g_mkdir_with_parents 0700) und Stamp (stamp-helper.c:46-58). #439: Name je Profil
+ * (USER_DIR_NAME, meson.build): „revolution“ bzw. „revolution-devel“ für die Entwicklungsvariante. */
 static void
 create_user_dirs (RevolutionMailView *mail_view)
 {
@@ -141,7 +144,7 @@ create_user_dirs (RevolutionMailView *mail_view)
 
   for (gsize i = 0; i < G_N_ELEMENTS (bases); i++)
     {
-      g_autofree char *dir = g_build_filename (bases[i], "revolution", NULL);
+      g_autofree char *dir = g_build_filename (bases[i], USER_DIR_NAME, NULL);
       g_autofree char *message = NULL;
 
       if (g_mkdir_with_parents (dir, 0700) == 0)
@@ -192,7 +195,7 @@ load_session_thread (GTask        *task,
                      gpointer      task_data,
                      GCancellable *cancellable G_GNUC_UNUSED)
 {
-  g_autofree char *camel_dir = g_build_filename (g_get_user_data_dir (), "revolution", NULL);
+  g_autofree char *camel_dir = g_build_filename (g_get_user_data_dir (), USER_DIR_NAME, NULL);
   RevolutionMailSession *session;
   g_autoptr (GError) error = NULL;
 

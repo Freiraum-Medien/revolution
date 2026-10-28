@@ -3,11 +3,12 @@
 # Aktivierung (je Klon): git config core.hooksPath hooks && git config merge.ff false
 # Lücken (man githooks): läuft nicht bei git merge --no-verify und nicht, wenn der Merge
 # mit Konflikt stoppt; den Konflikt-Commit danach vor dem Abschluss selbst mit
-# meson configure -Dwerror=true build-hook && meson compile -C build-hook && meson test -C build-hook --no-suite smoke prüfen.
+# meson configure -Dprofile=development -Dwerror=true build-hook-devel && meson compile -C build-hook-devel && meson test -C build-hook-devel --no-suite smoke prüfen.
 # werror=true: jede Compiler-Warnung bricht den Merge ab (DoD „ohne Warnung“, #342).
+# #439: Profil development (App-ID de.freiraum_medien.Revolution.Devel) wie alle Testläufe.
 set -e
-[ -f build-hook/build.ninja ] || meson setup -Dwerror=true build-hook
-meson configure -Dwerror=true build-hook
-meson compile -C build-hook
+[ -f build-hook-devel/build.ninja ] || meson setup -Dprofile=development -Dwerror=true build-hook-devel
+meson configure -Dprofile=development -Dwerror=true build-hook-devel
+meson compile -C build-hook-devel
 # --no-suite smoke: der Smoke-Test braucht Netz und GOA (#349), der Hook läuft offline.
-meson test -C build-hook --no-suite smoke
+meson test -C build-hook-devel --no-suite smoke

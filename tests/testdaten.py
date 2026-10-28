@@ -116,6 +116,18 @@
 #                                 #351, nur lesend: Flags der Live-Mails (--server KONTO neu INBOX) im
 #                                 Posteingang (IMAP EXAMINE + UID SEARCH SUBJECT + UID FETCH FLAGS);
 #                                 Zeilen „FLAGS <gelesen 0|1> <markiert 0|1> <UID>“
+#   tests/testdaten.py --zustellung KONTO MESSAGE-ID
+#                                 #362, nur lesend, unabhängig von Camel: wie oft die Nachricht mit dieser
+#                                 Message-ID in Posteingang, Spam und Gesendet von KONTO liegt (IMAP EXAMINE +
+#                                 UID SEARCH HEADER Message-ID; Ordner per SPECIAL-USE bzw. Name; Graph GET
+#                                 nach internetMessageId, Ordner inbox/junkemail/sentitems); Zeilen
+#                                 „ZUSTELLUNG <Adresse> eingang|spam|gesendet <N>“
+#   tests/testdaten.py --aufraeumen KONTO MESSAGE-ID …
+#                                 #362, schreibend nur in Testkonten: die vom Test gesendeten Mails (Betreff
+#                                 mit [Revolution-Test], Message-ID wie angegeben) endgültig löschen, in
+#                                 Posteingang, Spam und Gesendet (IMAP UID STORE \Deleted + UID EXPUNGE, Gmail
+#                                 erst UID MOVE in den Papierkorb; Graph POST …/permanentDelete); Zeilen
+#                                 „AUFGERAEUMT <Adresse> <Ordner> <N>“
 #
 # Copyright 2026 Arnd Messer
 #
@@ -1970,6 +1982,117 @@ def live_flags(k):
     return 0
 
 
+# ---------------------------------------------------------------- #362 Senden
+
+def imap_rollen(c):
+    """{rolle: IMAP-Name} für eingang, spam, gesendet, papierkorb (SPECIAL-USE, sonst Name)."""
+    rollen = {'eingang': 'INBOX'}
+    for zeile in c.list()[1]:
+        treffer = re.match(rb'\((.*?)\) "(.*?)" "?(.*?)"?$', zeile)
+        if not treffer:
+            continue
+        attr, name = treffer.group(1).decode(), treffer.group(3).decode()
+        kurz = name.split(treffer.group(2).decode())[-1]
+        if '\\Sent' in attr:
+            rollen['gesendet'] = name
+        elif '\\Junk' in attr or ('spam' not in rollen and kurz in ('Junk', 'Spam')):
+            rollen['spam'] = name
+        elif '\\Trash' in attr:
+            rollen['papierkorb'] = name
+    return rollen
+
+
+def imap_suche(c, name, message_id, nur_test=False):
+    c.select('"%s"' % name, readonly=not nur_test)
+    uids = c.uid('SEARCH', None, 'HEADER', 'Message-ID', '"%s"' % message_id)[1][0].split()
+    if nur_test:
+        uids = [u for u in uids if PREFIX.encode() in c.uid('FETCH', u, '(BODY.PEEK[HEADER.FIELDS (SUBJECT)])')[1][0][1]]
+    return uids
+
+
+GRAPH_ROLLEN = (('eingang', 'inbox'), ('spam', 'junkemail'), ('gesendet', 'sentitems'))
+
+
+def graph_suche(k, message_id):
+    """[(rolle, id, Betreff)] der Nachrichten mit dieser internetMessageId, nur GET."""
+    ordner = {graph(k, 'GET', '/me/mailFolders/' + w)['id']: r for r, w in GRAPH_ROLLEN}
+    filt = urllib.parse.quote("internetMessageId eq '%s'" % message_id)
+    mails = graph(k, 'GET', '/me/messages?$filter=%s&$select=parentFolderId,subject' % filt)['value']
+    return [(ordner.get(m['parentFolderId'], 'andere'), m['id'], m['subject']) for m in mails]
+
+
+def zustellung(k, message_id):
+    """#362: nur lesend."""
+    if not message_id.startswith('<'):
+        message_id = '<%s>' % message_id
+    zahl = {'eingang': 0, 'spam': 0, 'gesendet': 0}
+    if k.goa.get_mail().props.imap_supported:
+        c = imap_verbinden(k)
+        try:
+            for rolle, name in imap_rollen(c).items():
+                if rolle in zahl:
+                    zahl[rolle] = len(imap_suche(c, name, message_id))
+        finally:
+            c.logout()
+    else:
+        for rolle, _, _ in graph_suche(k, message_id):
+            if rolle in zahl:
+                zahl[rolle] += 1
+    for rolle, n in zahl.items():
+        print('ZUSTELLUNG %s %s %d' % (k.adresse, rolle, n))
+    return 0
+
+
+def aufraeumen(k, message_ids):
+    """#362: nur Testkonten, nur [Revolution-Test]-Mails mit diesen Message-IDs."""
+    nur_testkonten([k.adresse])
+    ids = [m if m.startswith('<') else '<%s>' % m for m in message_ids]
+    if k.goa.get_mail().props.imap_supported:
+        c = imap_verbinden(k)
+        try:
+            rollen = imap_rollen(c)
+            gmail = 'gmail' in k.adresse
+            for rolle in ('eingang', 'spam', 'gesendet'):
+                if rolle not in rollen:
+                    continue
+                n = 0
+                for mid in ids:
+                    uids = imap_suche(c, rollen[rolle], mid, nur_test=True)
+                    if not uids:
+                        continue
+                    n += len(uids)
+                    menge = b','.join(uids).decode()
+                    if gmail:
+                        c.uid('MOVE', menge, '"%s"' % rollen['papierkorb'])
+                    else:
+                        c.uid('STORE', menge, '+FLAGS', '(\\Deleted)')
+                        c.uid('EXPUNGE', menge)
+                print('AUFGERAEUMT %s %s %d' % (k.adresse, rolle, n))
+            if gmail:
+                n = 0
+                for mid in ids:
+                    uids = imap_suche(c, rollen['papierkorb'], mid, nur_test=True)
+                    if uids:
+                        n += len(uids)
+                        menge = b','.join(uids).decode()
+                        c.uid('STORE', menge, '+FLAGS', '(\\Deleted)')
+                        c.uid('EXPUNGE', menge)
+                print('AUFGERAEUMT %s papierkorb %d' % (k.adresse, n))
+        finally:
+            c.logout()
+    else:
+        zahl = {}
+        for mid in ids:
+            for rolle, gid, betreff in graph_suche(k, mid):
+                if not (betreff or '').startswith(PREFIX):
+                    continue
+                graph(k, 'POST', '/me/messages/%s/permanentDelete' % gid)
+                zahl[rolle] = zahl.get(rolle, 0) + 1
+        for rolle in ('eingang', 'spam', 'gesendet'):
+            print('AUFGERAEUMT %s %s %d' % (k.adresse, rolle, zahl.get(rolle, 0)))
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description='Testdaten für Revolution (#344)')
     ap.add_argument('--dry-run', action='store_true', help='nur anzeigen, nichts senden/schreiben')
@@ -2013,11 +2136,24 @@ def main():
                     help='#357: Konversation (5 Mails) per APPEND in Posteingang und Gesendet (geops@, outlook.com)')
     ap.add_argument('--schwer', nargs=2, metavar=('KONTO', 'neu|papierkorb'),
                     help='#412: große Mail mit Start- und Zielmail im Posteingang (IMAP, nicht privat@)')
+    ap.add_argument('--zustellung', nargs=2, metavar=('KONTO', 'MESSAGE-ID'),
+                    help='#362: nur lesend Anzahl der Nachricht in Posteingang, Spam, Gesendet')
+    ap.add_argument('--aufraeumen', nargs='+', metavar='KONTO MESSAGE-ID',
+                    help='#362: vom Test gesendete Mails endgültig löschen (Testkonten)')
     ap.add_argument('--suche', action='store_true',
                     help='#365: Such-Mail per APPEND in geops@ (Posteingang, Revolution-Test) und outlook.com')
     ap.add_argument('--suche-zahlen', nargs=2, metavar=('KONTO', 'ORDNER'),
                     help='#365: nur lesend Treffer der Suche und der Filter je Ordner (ORDNER * = alle per LIST, nur Text)')
     args = ap.parse_args()
+    if args.zustellung or args.aufraeumen:
+        adresse = (args.zustellung or args.aufraeumen)[0].lower()
+        nur_testkonten([adresse])
+        k = konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse]
+        if args.zustellung:
+            return zustellung(k, args.zustellung[1])
+        if len(args.aufraeumen) < 2:
+            ap.error('--aufraeumen KONTO MESSAGE-ID …')
+        return aufraeumen(k, args.aufraeumen[1:])
     if args.last is not None and args.last < 1:
         ap.error('--last N mit N ≥ 1 (#411)')
 
@@ -2173,7 +2309,7 @@ def main():
 TRANSIENT = (imaplib.IMAP4.abort, ConnectionError, TimeoutError, ssl.SSLError, urllib.error.URLError)
 MODI = ('--pruefen', '--ordner', '--anzeige', '--anhang', '--anhang-teile', '--last', '--flags', '--ungelesen',
         '--zaehler', '--anzahl', '--server', '--kombiniert', '--live-flags', '--schwer', '--suche-zahlen',
-        '--antwort', '--antwort-kopf')
+        '--antwort', '--antwort-kopf', '--zustellung')
 
 
 def main_mit_wiederholung():

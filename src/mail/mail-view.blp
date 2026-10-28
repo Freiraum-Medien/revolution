@@ -216,6 +216,24 @@ template $RevolutionMailView: Adw.BreakpointBin {
               child: ListView folder_list {
                 tab-behavior: item;
 
+                // #364: Kürzel wie GNOME Dateien, nur im Ordnerbaum; Entf/⌫: on_folder_delete_key (mail-view.c).
+                ShortcutController {
+                  Shortcut {
+                    trigger: "Menu|<shift>F10";
+                    action: "action(list.context-menu)";
+                  }
+
+                  Shortcut {
+                    trigger: "F2";
+                    action: "action(folder.rename)";
+                  }
+
+                  Shortcut {
+                    trigger: "<primary><shift>n";
+                    action: "action(folder.new)";
+                  }
+                }
+
                 styles [
                   "navigation-sidebar",
                 ]
@@ -266,6 +284,12 @@ template $RevolutionMailView: Adw.BreakpointBin {
 
                     child: TreeExpander {
                       list-row: bind template.item as <TreeListRow>;
+
+                      // #364: Rechtsklick auf die ganze Zeile öffnet folder_menu.
+                      GestureClick {
+                        button: 3;
+                        pressed => $on_folder_secondary_click(template);
+                      }
 
                       // #363: Nachricht hierher ziehen = verschieben (mail-view.c, on_folder_drop).
                       DropTarget {
@@ -1157,6 +1181,31 @@ menu row_menu {
 
     submenu move_menu {
       label: _("_Verschieben nach");
+    }
+  }
+}
+
+// #364: Kontextmenü des Ordnerbaums (mail-view.c, show_row_menu); Umbenennen und Löschen nur, wo erlaubt.
+menu folder_menu {
+  section {
+    item {
+      label: _("_Neuer Ordner…");
+      action: "folder.new";
+      accel: "<primary><shift>n";
+    }
+
+    item {
+      label: _("_Umbenennen…");
+      action: "folder.rename";
+      accel: "F2";
+      hidden-when: "action-disabled";
+    }
+
+    item {
+      label: _("_Löschen…");
+      action: "folder.delete";
+      accel: "Delete";
+      hidden-when: "action-disabled";
     }
   }
 }

@@ -599,6 +599,16 @@ def detail():
     time.sleep(2)
     detail_vergleichen(f, 'Detail')
     bild('detail', os.path.join(OUT, DETAIL_BILD + '.png'))
+    # Zweites Bild mit Organisation und Notiz: Detail ans Ende rollen (Mausrad über dem Detail), dann zurück.
+    for knopf in (5, 4):
+        xtest.fake_input(d, X.MotionNotify, x=1000, y=600)
+        for _ in range(15):
+            xtest.fake_input(d, X.ButtonPress, knopf)
+            xtest.fake_input(d, X.ButtonRelease, knopf)
+        d.sync()
+        time.sleep(1)
+        if knopf == 5:
+            bild('detail-unten', os.path.join(OUT, DETAIL_BILD + '-unten.png'))
     if DETAIL in ('voll', 'anzeige') and f['emails']:
         an = [('%s <%s>' % (f['name'], e['wert'].strip())) for e in f['emails']]
         # Tastatur: Tab bis „Mail schreiben“ oben (erste Adresse), Enter; dann weiter bis zum Papierflieger der

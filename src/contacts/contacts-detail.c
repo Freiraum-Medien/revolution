@@ -87,7 +87,7 @@ recipient (EContact   *contact,
 }
 
 /* Ort einer E-Mail-Adresse aus TYPE wie Evolution get_email_location (eab-contact-formatter.c:512-526): WORK,
- * HOME; OTHER (so liefert microsoft365 jede Adresse, e-book-backend-m365.c:866-867) und ohne Ort nur „E-Mail“. */
+ * HOME; OTHER (so liefert microsoft365 jede Adresse, e-book-backend-m365.c:867-868) und ohne Ort nur „E-Mail“. */
 static const char *
 email_label (EVCardAttribute *attr)
 {

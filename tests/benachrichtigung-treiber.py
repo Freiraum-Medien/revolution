@@ -308,7 +308,15 @@ def haupt():
     wert('gelesen: %s' % r.stdout.strip())
     if r.returncode != 0:
         raise RuntimeError('tests/testdaten.py --benachrichtigung gelesen: Exit %d %s' % (r.returncode, r.stderr.strip()[-300:]))
-    z = warte(r'^Benachrichtigung: INBOX ungelesen \d+ statt \d+, zurückgezogen', ab, 90)
+    # Gelesen-Flags von einem anderen Client meldet der Server in IDLE nicht verlässlich (Lauf R3: erst mit der
+    # nächsten neuen Mail); nach 20 s daher der Abruf des Posteingangs (Zeitgeber, über app.test-refresh).
+    z = warte(r'^Benachrichtigung: INBOX ungelesen \d+ statt \d+, zurückgezogen', ab, 20)
+    if z is None:
+        wert('gelesen: nicht über IDLE gemeldet, Abruf des Posteingangs')
+        aktion('test-refresh', gvariant_str(GEOPS))
+        z = warte(r'^Benachrichtigung: INBOX ungelesen \d+ statt \d+, zurückgezogen', ab, 60)
+    else:
+        wert('gelesen: über IDLE gemeldet')
     time.sleep(2)
     pruefe(z is not None and len(zurueckgezogen()) > z0, 'am Server gelesen → zurückgezogen: %s' % z)
 
@@ -498,7 +506,9 @@ def main():
                                 "type='method_call',interface='org.gtk.Notifications'",
                                 "type='method_call',interface='org.freedesktop.portal.OpenURI'",
                                 "type='method_call',interface='org.freedesktop.portal.Background'",
+                                "type='method_return',sender='org.gtk.Notifications'",
                                 "type='error'"], stdout=open(DBUS, 'w'), stderr=subprocess.STDOUT)
+    beginn = time.strftime('%Y-%m-%d %H:%M:%S')
     log = open(LOG, 'w')
     app = subprocess.Popen([BIN] + ([mailto_uri()] if WAS == 'menue' else []), stdout=log, stderr=subprocess.STDOUT)
     app_pid = app.pid
@@ -540,6 +550,19 @@ def main():
         # Auf AddNotification bekommt die App keine Antwort (auch keinen Fehler); ob die Shell annimmt, prüft
         # benachrichtigung.sh vorab mit einem eigenen, synchronen AddNotification (Zeile OK bzw. BLOCKER).
         wert('Antworten an die App auf AddNotification/RemoveNotification: %s' % (fehlerantworten or 'keine'))
+    # Antworten der Shell (org.gtk.Notifications) auf die Aufrufe der App und Journal der Shell im Lauf.
+    antworten = [b.split('\n')[0] for b in dbus_bloecke() if b.startswith('method return') and
+                 re.search(r'destination=(\S+) .*reply_serial=(\d+)', b.split('\n')[0]) and
+                 re.search(r'destination=(\S+) .*reply_serial=(\d+)', b.split('\n')[0]).groups() in eigene]
+    wert('Antworten der Shell auf AddNotification/RemoveNotification der App: %d' % len(antworten))
+    shell = subprocess.run(['pgrep', '-x', 'gnome-shell'], capture_output=True, text=True).stdout.split()
+    journal = subprocess.run(['journalctl', '--user', '-b', '--since', beginn, '-o', 'short-iso'] +
+                             ['_PID=%s' % p_ for p_ in shell], capture_output=True, text=True).stdout
+    with open(os.path.join(OUT, NAME + '-journal-shell.txt'), 'w') as f:
+        f.write(journal)
+    pruefe(not re.search(r'InvalidApp|%s' % re.escape(APP_ID), journal),
+           'Journal der Shell im Lauf: keine Meldung zu %s (%d Zeilen, %s)' % (APP_ID, len(journal.splitlines()),
+                                                                           os.path.join(OUT, NAME + '-journal-shell.txt')))
     rest = [z.strip() for z in open(LOG, encoding='utf-8', errors='replace')
             if z.strip() and not (z.startswith('(revolution:') and 'revolution-DEBUG' in z)
             and not z.startswith('libEGL warning:')]

@@ -14,6 +14,13 @@ meson setup build-devel -Dprofile=development  # Entwicklungsvariante (eigene Ap
 meson compile -C build
 ```
 
+Installieren für den eigenen Benutzer (Freigabe Arnd 28.10.2026, #366; nötig für Benachrichtigungen, siehe unten): Programm `~/.local/bin/revolution`, Desktop-Datei `~/.local/share/applications/de.freiraum_medien.Revolution.desktop`, Schema in `~/.local/share/glib-2.0/schemas` (kompiliert `meson install`), Entfernen `ninja -C build-install uninstall`. Anleitung: `~/Dokumente/Privat/ubuntu/revolution.md`.
+
+```sh
+meson setup build-install --prefix ~/.local
+meson install -C build-install
+```
+
 Tests (Desktop-Datei, Metainfo mit `appstreamcli validate --no-net`, GSettings-Schema):
 
 ```sh

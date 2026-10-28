@@ -5,7 +5,7 @@
 # Aufruf: tests/composer.sh [AUSGABEORDNER]   (Standard BUILD/m5-359)
 #   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
 #   LAEUFE   Auswahl der Läufe, Standard „hell dunkel a11y konversation eigen eigen-konversation
-#            weiterleiten-hell weiterleiten-dunkel entwurf entwurf-imap entwurf-graph“
+#            weiterleiten-hell weiterleiten-dunkel entwurf entwurf-imap entwurf-graph adressen-hell adressen-dunkel“
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 600; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
 # Testmail: tests/testdaten.py --antwort (APPEND in den Posteingang von geops@, idempotent; mehrere
@@ -33,6 +33,8 @@
 # Entwürfe-Ordner (aus dem Log von m5-360-entwurf) Strg+O, Strg+S ersetzt, Senden (Test) löscht den Entwurf.
 # Betreff der Entwürfe je Aufruf eindeutig (ENTWURF_LAUF); danach --entwurf KONTO BETREFF weg MESSAGE-IDs: nur die
 # Entwürfe, die die App laut Log gespeichert hat (UID EXPUNGE bzw. Graph permanentDelete genau dieser).
+# #361: m5-361-adressen-hell/-dunkel: Adressvervollständigung mit dem Testkontakt im Google-Adressbuch von
+# KONTO_GOOGLE@example.invalid (tests/testdaten.py --kontakt anlegen vorher, --kontakt weg nachher).
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler (tests/abbruch.sh).
 #
 # Copyright 2026 Arnd Messer
@@ -95,6 +97,13 @@ for s in r.list_sources(E.SOURCE_EXTENSION_MAIL_ACCOUNT):
     if a and a not in ("KONTO_IMAP_2@example.invalid", "KONTO_M365@example.invalid"): print(s.get_uid())' | paste -sd,)"
     echo "WERT    REVOLUTION_SKIP_ACCOUNTS=$OHNE" ;;
 esac
+# #361: Testkontakt (nur Google-Adressbuch des Testkontos, Name „Revolution-Test …“).
+ADRESSBUCH=""
+case " ${LAEUFE:-adressen} " in
+  *" adressen"*)
+    td --kontakt anlegen >"$OUT/kontakt.txt" 2>&1 || { cat "$OUT/kontakt.txt"; abbruch_bilanz; exit 1; }
+    ADRESSBUCH="$(sed -n 's/^ADRESSBUCH \([^ ]*\) .*/\1/p' "$OUT/kontakt.txt")" ;;
+esac
 ANHANG_BETREFF="Anhänge PDF, Bild, ZIP"
 ENTWURF_ORDNER_IMAP=""
 # Betreff der Entwürfe je Aufruf eindeutig (Review R2: kein Aufräumen über fremde Betreffe, parallele Agenten).
@@ -127,7 +136,7 @@ lauf () {
     G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER="$ordner" REVOLUTION_MESSAGE="$betreff" \
     "${extra[@]}" \
     REVOLUTION_TEST_HOOKS=1 REVOLUTION_TEST_MIME="$OUT/$name-senden.eml" \
-    BIN="$BIN" OUT="$OUT" NAME="$name" ORDNER="$ORDNER" KOPF="$OUT/original-kopf.txt" APP_DIR="$APP_DIR" \
+    ADRESSBUCH="$ADRESSBUCH" BIN="$BIN" OUT="$OUT" NAME="$name" ORDNER="$ORDNER" KOPF="$OUT/original-kopf.txt" APP_DIR="$APP_DIR" \
     xvfb-run -a -s "-screen 0 1200x760x24" python3 -I "$APP_DIR/tests/composer-treiber.py" || rc=$?
   rm -rf "$rundir"
   for _ in $(seq 10); do [ "$(bus_hat_app)" = "(false,)" ] && break; sleep 1; done
@@ -139,10 +148,11 @@ for lauf in "m5-359-hell hell prefer-light aus" "m5-359-dunkel dunkel prefer-dar
            "m5-359-konversation hell prefer-light aus" "m5-359-eigen hell prefer-light aus" \
            "m5-359-eigen-konversation hell prefer-light aus" "m5-360-weiterleiten-hell hell prefer-light" \
            "m5-360-weiterleiten-dunkel dunkel prefer-dark" "m5-360-entwurf hell prefer-light" \
-           "m5-360-entwurf-imap hell prefer-light aus" "m5-360-entwurf-graph hell prefer-light aus"; do
+           "m5-360-entwurf-imap hell prefer-light aus" "m5-360-entwurf-graph hell prefer-light aus" \
+           "m5-361-adressen-hell hell prefer-light" "m5-361-adressen-dunkel dunkel prefer-dark"; do
   set -- $lauf
-  case " ${LAEUFE:-hell dunkel a11y konversation eigen eigen-konversation weiterleiten-hell weiterleiten-dunkel entwurf entwurf-imap entwurf-graph} " in
-    *" ${1#m5-3[56][09]-} "*) ;; *) continue ;; esac
+  case " ${LAEUFE:-hell dunkel a11y konversation eigen eigen-konversation weiterleiten-hell weiterleiten-dunkel entwurf entwurf-imap entwurf-graph adressen-hell adressen-dunkel} " in
+    *" ${1#m5-3[56][0-9]-} "*) ;; *) continue ;; esac
   lauf "$1" "$2" "$3" "${4:-}" | tee "$OUT/$1.txt"
   teilschritt "$1" "${PIPESTATUS[0]}" "$OUT/$1.txt"
   FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/$1.txt")))
@@ -170,6 +180,14 @@ if [ -n "$MIDS" ]; then
   grep -q '^ENTWUERFE [1-9]\|^ENTWUERFE [0-9]* [1-9]' "$OUT/aufraeumen-pruefung.txt" &&
     { echo "FEHLER  Aufräumen: Test-Entwürfe dieses Laufs am Server übrig"; FEHLER=$((FEHLER + 1)); }
 fi
+
+case " ${LAEUFE:-adressen} " in
+  *" adressen"*)
+    td --kontakt weg >"$OUT/kontakt-weg.txt" 2>&1
+    td --kontakt | tee "$OUT/kontakt-pruefung.txt"
+    grep -q '^KONTAKT ' "$OUT/kontakt-pruefung.txt" &&
+      { echo "FEHLER  Aufräumen: Testkontakt übrig"; FEHLER=$((FEHLER + 1)); } ;;
+esac
 
 abbruch_bilanz
 echo "Ergebnis: $FEHLER Fehler, Ausgaben in $OUT"

@@ -39,6 +39,17 @@ template $RevolutionMailView: Adw.BreakpointBin {
       action: "action(message.reply-all)";
     }
 
+    // #360: Weiterleiten, Öffnen (Entwurf) wie Evolution (e-mail-reader.c:3044-3049, 3249-3254).
+    Shortcut {
+      trigger: "<primary><alt>f";
+      action: "action(message.forward)";
+    }
+
+    Shortcut {
+      trigger: "<primary>o";
+      action: "action(message.open)";
+    }
+
     Shortcut {
       trigger: "<primary>p";
       action: "action(message.print)";
@@ -462,6 +473,8 @@ template $RevolutionMailView: Adw.BreakpointBin {
             // ohne Trennlinien (Vorbild 04/05, style.css).
             child: ListView message_list {
               tab-behavior: item;
+              // #360: Doppelklick/Eingabe = message.open (Entwurf weiter bearbeiten).
+              activate => $on_message_activate() swapped;
 
               // #353: Kontextmenü der Zeile per Tastatur (HIG Keyboard: Menü, Umschalt+F10).
               ShortcutController {

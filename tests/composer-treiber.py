@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# composer-treiber.py – Treiber für tests/composer.sh (#359), läuft im Xvfb aus xvfb-run.
+# composer-treiber.py – Treiber für tests/composer.sh (#359, #360), läuft im Xvfb aus xvfb-run.
 #
 # Startet die App (BIN) mit Log, bedient sie per XTest (python3-xlib) und prüft die Nachrichten, die
 # Senden im Test in REVOLUTION_TEST_MIME schreibt (composer.c, kein Versand), gegen die Kopfzeilen des
@@ -12,12 +12,14 @@
 
 import email
 import email.policy
+import hashlib
 import email.utils
 import os
 import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import traceback
 
@@ -196,8 +198,7 @@ def pfad(o):
     return ' < '.join(out)
 
 
-def composer_a11y(titel):
-    """Namen aller bedienbaren Elemente im Composer-Fenster (AT-SPI)."""
+def composer_frame(titel):
     desktop = Atspi.get_desktop(0)
     for i in range(desktop.get_child_count()):
         a = desktop.get_child_at_index(i)
@@ -206,9 +207,34 @@ def composer_a11y(titel):
         for j in range(a.get_child_count()):
             f = a.get_child_at_index(j)
             if f is not None and f.get_name() == titel:
-                return [(o.get_role_name(), o.get_name(), pfad(o),
-                         o.get_attributes(), o.get_extents(Atspi.CoordType.WINDOW)) for o in knoten(f)]
-    return []
+                return f
+    return None
+
+
+def composer_a11y(titel):
+    """Namen aller bedienbaren Elemente im Composer-Fenster (AT-SPI)."""
+    f = composer_frame(titel)
+    return [(o.get_role_name(), o.get_name(), pfad(o),
+             o.get_attributes(), o.get_extents(Atspi.CoordType.WINDOW)) for o in knoten(f)] if f else []
+
+
+def a11y_klick(titel, rollen, name, index=-1, klicken=True):
+    """#360: Element im Composer per AT-SPI finden und auslösen (Knöpfe über die AT-SPI-Aktion, Textfelder per
+    Klick in die Mitte); Anzahl der Treffer."""
+    f = composer_frame(titel)
+    treffer = [o for o in knoten(f) if o.get_role_name() in rollen.split('|') and o.get_name() == name] if f else []
+    if treffer and klicken:
+        o = treffer[index]
+        e = o.get_extents(Atspi.CoordType.SCREEN)
+        aktion = o.get_action_iface() if o.get_role_name() not in ('text', 'entry') else None
+        wert('a11y %s „%s“: %d Treffer, Mitte %d,%d, Aktion %s' % (rollen, name, len(treffer), e.x + e.width // 2,
+             e.y + e.height // 2, aktion and aktion.get_n_actions() and aktion.get_action_name(0)))
+        if aktion is not None and aktion.get_n_actions() > 0:
+            aktion.do_action(0)
+            time.sleep(0.8)
+        else:
+            klick((e.x + e.width // 2, e.y + e.height // 2))
+    return len(treffer)
 
 
 def pruefe_a11y(titel):
@@ -231,6 +257,7 @@ def pruefe_a11y(titel):
 
 
 # ------------------------------------------------------------------ Erwartung
+
 
 def eigene_adressen():
     """Adressen und Aliase der eingeschalteten Mail-Identitäten (wie Evolution generate_recipient_hash)."""
@@ -480,6 +507,275 @@ def antwort_eigen(schritt, nr, an, kopie, betreff, regel):
     pruefe(str(m['Subject']) == betreff, '%s: Subject „%s“ (erwartet „%s“)' % (schritt, m['Subject'], betreff))
 
 
+# ------------------------------------------------------------------ #360
+
+ANHANG_MID = '<revolution-test-anhang-356@example.invalid>'
+# Betreff je Lauf von tests/composer.sh eindeutig (ENTWURF_LAUF), Aufräumen nur über eigene Message-IDs.
+ENTWURF = '[Revolution-Test] Entwurf 360 ' + os.environ.get('ENTWURF_LAUF', '')
+
+
+def identitaet(adresse):
+    """UID der Mail-Identität des Kontos mit dieser Adresse (für X-Evolution-Identity)."""
+    reg = EDataServer.SourceRegistry.new_sync(None)
+    for s in reg.list_sources(EDataServer.SOURCE_EXTENSION_MAIL_ACCOUNT):
+        uid = s.get_extension(EDataServer.SOURCE_EXTENSION_MAIL_ACCOUNT).get_identity_uid()
+        i = reg.ref_source(uid) if uid else None
+        if i and reg.check_enabled(i) and \
+                i.get_extension(EDataServer.SOURCE_EXTENSION_MAIL_IDENTITY).get_address() == adresse:
+            return i.get_uid()
+    return None
+
+
+def struktur(m):
+    if m.is_multipart() or m.get_content_type() == 'message/rfc822':
+        return '%s[%s]' % (m.get_content_type(), ','.join(struktur(t) for t in m.get_payload()))
+    return m.get_content_type()
+
+
+def td(*argumente):
+    """tests/testdaten.py (eigene Prüfung am Server, unabhängig von der App)."""
+    r = subprocess.run([sys.executable, os.path.join(os.environ['APP_DIR'], 'tests', 'testdaten.py')] + list(argumente),
+                       capture_output=True, text=True, timeout=300)
+    with open(os.path.join(OUT, NAME + '-testdaten.txt'), 'a', encoding='utf-8') as f:
+        f.write('$ testdaten.py %s\n%s%s' % (' '.join(argumente), r.stdout, r.stderr))
+    return r.stdout
+
+
+def entwuerfe(konto, soll, schritt):
+    """Sichtbare Entwürfe dieses Laufs am Server (tests/testdaten.py --entwurf, Betreff des Kontos)."""
+    aus = td('--entwurf', konto, ENTWURF + (' IMAP' if konto == KONTO else ' Graph'))
+    m = re.search(r'^ENTWUERFE (\d+) (\d+)$', aus, re.M)
+    wert('%s: Server %s: %s' % (schritt, konto, ' | '.join(z for z in aus.splitlines() if z.startswith('ENTWURF'))))
+    pruefe(m is not None and int(m.group(1)) == soll,
+           '%s: %s zeigt %s sichtbare Entwürfe (erwartet %d)' % (schritt, konto, m and m.group(1), soll))
+
+
+def weiterleiten():
+    """Strg+Alt+F auf die Anhang-Mail (#356): Fwd:, message/rfc822 mit den Originalanhängen, eigene Anhänge
+    hinzufügen/entfernen (REVOLUTION_TEST_ATTACH), Signatur GEOPS, multipart/mixed, X-Evolution-Identity."""
+    ab = marke()
+    zeiger(HAUPT)
+    taste('Control_L+Alt_L+f')
+    pruefe(warte(r'^Composer: Weiterleiten vorbereitet, Von %s$' % re.escape(KONTO), ab, 60) is not None,
+           'weiterleiten: Strg+Alt+F öffnet den Composer')
+    w = fenster()
+    if w is None:
+        falsch('weiterleiten: kein Composer-Fenster')
+        return
+    time.sleep(3)
+    titel = w.get_wm_name()
+    wert('weiterleiten: Fenstertitel „%s“' % titel)
+    tippe('KONTO_IMAP_1@example.invalid')
+    ab = marke()
+    taste('Control_L+m', 1)
+    pruefe(warte(r'^Composer: 2 Anhänge hinzugefügt$', ab, 30) is not None, 'weiterleiten: Strg+M fügt 2 Dateien an')
+    time.sleep(1)
+    n = a11y_klick(titel, 'push button|button', 'Anhang entfernen')
+    time.sleep(1)
+    rest = a11y_klick(titel, 'push button|button', 'Anhang entfernen', klicken=False)
+    if n == 0:
+        wert('weiterleiten: a11y %s' % [(e[0], e[1]) for e in composer_a11y(titel) if 'Anh' in (e[1] or '') or
+                                         e[0] in ('push button', 'list item', 'list')])
+    pruefe(n == 3 and rest == 2, 'weiterleiten: 3 Pillen, „Anhang entfernen“ an der letzten lässt %d (vorher %d)' % (rest, n))
+    ab = marke()
+    pruefe(a11y_klick(titel, 'toggle button', 'Signatur') == 1, 'weiterleiten: Auswahl Signatur geöffnet')
+    taste('Down', 0.3)
+    taste('Return', 1)
+    pruefe(warte(r'^Composer: Signatur GEOPS geladen$', ab, 30) is not None, 'weiterleiten: Signatur GEOPS gewählt')
+    time.sleep(1)
+    bild('weiterleiten', w)
+    if not senden('weiterleiten', w):
+        return
+    m = email.message_from_bytes(open(os.path.join(OUT, '%s-weiterleiten.eml' % NAME), 'rb').read(),
+                                 policy=email.policy.default)
+    pruefe(str(m['Subject']) == 'Fwd: [Revolution-Test] Anhänge PDF, Bild, ZIP', 'weiterleiten: Subject %s' % m['Subject'])
+    pruefe(str(m['References']) == ANHANG_MID and m['In-Reply-To'] is None,
+           'weiterleiten: References %s, ohne In-Reply-To' % m['References'])
+    pruefe(adressen(m['From']) == [KONTO] and str(m['X-Evolution-Identity']) == identitaet(KONTO),
+           'weiterleiten: From %s, X-Evolution-Identity %s' % (m['From'], m['X-Evolution-Identity']))
+    aufbau = struktur(m)
+    wert('weiterleiten: Aufbau %s' % aufbau)
+    teile_ = list(m.iter_parts())
+    pruefe(m.get_content_type() == 'multipart/mixed' and [t.get_content_type() for t in teile_] ==
+           ['multipart/alternative', 'message/rfc822', 'application/octet-stream'],
+           'weiterleiten: multipart/mixed aus multipart/alternative, message/rfc822 und dem verbliebenen Anhang')
+    datei = os.environ['REVOLUTION_TEST_ATTACH'].split(':')[0]
+    if len(teile_) == 3:
+        pruefe(teile_[2].get_filename() == os.path.basename(datei) and
+               teile_[2].get_payload(decode=True) == open(datei, 'rb').read(),
+               'weiterleiten: Anhang %s mit gleichen Bytes wie die Datei' % teile_[2].get_filename())
+    html = teile(teile_[0]).get('text/html', '')
+    plain = teile(teile_[0]).get('text/plain', '')
+    pruefe(re.search(r'<div id="revolution-signature" data-uid="[0-9a-f]+">-- <br>', html) is not None and
+           '\n-- \n' in plain.replace('\xa0', ' '), 'weiterleiten: Signatur mit Trenner in HTML und Text')
+    original = {}
+    for z in open(os.environ['TEILE'], encoding='utf-8'):
+        feld = z.rstrip('\n').split(' ', 3)
+        if feld[0] == 'STRUKTUR':
+            original['STRUKTUR'] = feld[1]
+        elif feld[0] in ('TEIL', 'TEIL-TEXT'):
+            original.setdefault(feld[3].replace(' (CRLF→LF)', ''), set()).add(feld[1])
+    if len(teile_) >= 2:
+        innen = teile_[1].get_payload()[0]
+        pruefe(struktur(innen) == original.get('STRUKTUR'),
+               'weiterleiten: Aufbau der Nachricht im Anhang gleich dem Original (%s)' % struktur(innen))
+        for a in innen.iter_attachments():
+            if a.get_content_type() == 'message/rfc822':
+                continue
+            h = hashlib.sha256(a.get_payload(decode=True)).hexdigest()
+            pruefe(h in original.get(a.get_filename(), ()), 'weiterleiten: Anhang %s sha256 %s gleich dem Server' %
+                   (a.get_filename(), h[:16]))
+        pruefe(str(teile_[1].get_filename()).startswith('Weitergeleitete Nachricht — '),
+               'weiterleiten: Dateiname %s' % teile_[1].get_filename())
+
+
+def graph_schreibend(ab_zeile):
+    """#360/#416: schreibende Graph-Anfragen im Log ab Zeile ab_zeile (Rohzeilen)."""
+    with open(LOG, encoding='utf-8', errors='replace') as f:
+        return [z.strip() for z in list(f)[ab_zeile:] if re.match(r'^\[graph\] (POST|PATCH|PUT|DELETE) ', z)]
+
+
+def roh_zeilen():
+    with open(LOG, encoding='utf-8', errors='replace') as f:
+        return len(f.readlines())
+
+
+def entwurf_tippen(w, an, betreff, text):
+    tippe(an)
+    taste('Tab', 0.2)
+    taste('Tab', 0.2)
+    taste('Tab', 0.2)
+    tippe(betreff)
+    g = w.get_geometry()
+    klick((g.x + 300, g.y + 450))
+    tippe(text)
+
+
+def gespeichert(ab):
+    return [z for z in log_zeilen()[ab:] if z.startswith('Entwurf: gespeichert ')]
+
+
+def entwurf_neu():
+    """Autosave (REVOLUTION_TEST_AUTOSAVE) in geops@ (IMAP), dann Identität outlook.com wählen und mit Strg+S
+    zweimal speichern (Graph): je genau ein Entwurf am Server."""
+    ab = marke()
+    zeiger(HAUPT)
+    taste('Control_L+n')
+    pruefe(warte(r'^Composer: Neu vorbereitet, Von %s$' % re.escape(KONTO), ab, 60) is not None, 'entwurf: Strg+N')
+    w = fenster()
+    if w is None:
+        falsch('entwurf: kein Composer-Fenster')
+        return
+    time.sleep(2)
+    intervall = int(os.environ['REVOLUTION_TEST_AUTOSAVE'])
+    entwurf_tippen(w, 'KONTO_IMAP_1@example.invalid', ENTWURF + ' IMAP', 'Erste Fassung')
+    pruefe(warte(r'^Entwurf: gespeichert folder://', ab, intervall + 60) is not None, 'entwurf: Autosave speichert')
+    tippe(' zweite Fassung')
+    pruefe(warte(r'^Entwurf: folder://\S+ \d+ als gelöscht markiert \(abgeglichen\)$', ab, intervall + 60) is not None,
+           'entwurf: zweites Autosave ersetzt die erste Fassung')
+    time.sleep(1)
+    n = len(gespeichert(ab))
+    time.sleep(2 * intervall + 5)
+    pruefe(len(gespeichert(ab)) == n, 'entwurf: ohne Änderung kein weiteres Autosave (%d Speicherungen)' % n)
+    bild('entwurf', w)
+    # Review R2: Schließen mit ungespeicherter Änderung sichert sie erst als Entwurf (ersetzt die vorige Fassung).
+    tippe(' dritte Fassung')
+    zu = marke()
+    zeiger(COMPOSER)
+    taste('Escape', 1)
+    pruefe(warte(r'^Entwurf: vor dem Schließen speichern$', zu, 10) is not None and
+           warte(r'^Entwurf: folder://\S+ \d+ als gelöscht markiert \(abgeglichen\)$', zu, 60) is not None,
+           'entwurf: Escape mit ungespeicherter Änderung speichert erst den Entwurf')
+    pruefe(fenster(weg=True, zeit=60), 'entwurf: danach schließt der Composer')
+    entwuerfe(KONTO, 1, 'entwurf')
+
+    ab = marke()
+    zeiger(HAUPT)
+    taste('Control_L+n')
+    zeile = warte(r'^Composer: Identitäten: ', ab, 60)
+    w = fenster()
+    if w is None or zeile is None:
+        falsch('entwurf graph: kein Composer-Fenster')
+        return
+    time.sleep(2)
+    liste = zeile.split(': ', 2)[2].split()
+    wert('entwurf graph: Identitäten %s' % liste)
+    titel = w.get_wm_name()
+    roh = roh_zeilen()
+    # Erst tippen (Fokus in An), dann Absender wählen und sofort speichern.
+    entwurf_tippen(w, KONTO, ENTWURF + ' Graph', 'Erste Fassung')
+    titel = w.get_wm_name()
+    pruefe(a11y_klick(titel, 'toggle button', 'Von') == 1, 'entwurf graph: Auswahl Von geöffnet (%d Popups)' % len(aufklapper()))
+    schritte = liste.index('KONTO_M365@example.invalid') - liste.index(KONTO)
+    for _ in range(abs(schritte)):
+        taste('Down' if schritte > 0 else 'Up', 0.2)
+    taste('Return', 1)
+    gewechselt = warte(r'^Composer: Von arndmesser@outlook\.com ', ab, 10) is not None
+    pruefe(gewechselt, 'entwurf graph: Von KONTO_M365@example.invalid')
+    if not gewechselt:
+        bild('entwurf-von', w)
+        taste('Escape', 0.5)
+        zeiger(COMPOSER)
+        taste('Escape', 1)
+        return
+    taste('Control_L+s', 0.5)
+    pruefe(warte(r'^Entwurf: gespeichert folder://aed9', ab, 60) is not None, 'entwurf graph: Strg+S speichert in outlook.com')
+    g = w.get_geometry()
+    klick((g.x + 300, g.y + 450))
+    tippe(' zweite Fassung')
+    taste('Control_L+s', 0.5)
+    pruefe(warte(r'^Entwurf: folder://aed9\S+ \S+ als gelöscht markiert \(abgeglichen\)$', ab, 60) is not None,
+           'entwurf graph: zweites Strg+S ersetzt die erste Fassung')
+    time.sleep(3)
+    wert('entwurf graph: %s' % gespeichert(ab))
+    schreib = graph_schreibend(roh)
+    wert('entwurf graph: schreibende Graph-Anfragen %s' % schreib)
+    pruefe(schreib and not [z for z in schreib if z.startswith('[graph] PATCH')],
+           'entwurf graph: kein Echo-PATCH beim Speichern/Ersetzen (#416), %d schreibende Anfragen' % len(schreib))
+    zeiger(COMPOSER)
+    taste('Escape', 1)
+    pruefe(fenster(weg=True), 'entwurf graph: Escape schließt den Composer')
+    entwuerfe('KONTO_M365@example.invalid', 1, 'entwurf graph')
+
+
+def entwurf_oeffnen(konto, art, vorher):
+    """Strg+O im Entwürfe-Ordner bearbeitet den Entwurf weiter; Strg+S ersetzt ihn, Senden (Test) löscht ihn."""
+    ab = marke()
+    zeiger(HAUPT)
+    taste('Control_L+o')
+    pruefe(warte(r'^Composer: Entwurf vorbereitet, Von %s$' % re.escape(konto), ab, 60) is not None,
+           'öffnen: Strg+O öffnet den Entwurf, Von %s (X-Evolution-Identity)' % konto)
+    w = fenster()
+    if w is None:
+        falsch('öffnen: kein Composer-Fenster')
+        return
+    time.sleep(3)
+    pruefe(w.get_wm_name() == ENTWURF + ' ' + art, 'öffnen: Betreff %s' % w.get_wm_name())
+    g = w.get_geometry()
+    klick((g.x + 300, g.y + 450))
+    taste('End', 0.2)
+    tippe(' letzte Fassung')
+    taste('Control_L+s', 0.5)
+    pruefe(warte(r'^Entwurf: folder://\S+ \S+ als gelöscht markiert \(abgeglichen\)$', ab, 60) is not None,
+           'öffnen: Strg+S ersetzt den geöffneten Entwurf')
+    time.sleep(1)
+    entwuerfe(konto, 1, 'öffnen')
+    ab = marke()
+    if not senden('öffnen', w):
+        return
+    pruefe(warte(r'^Entwurf: folder://\S+ \S+ als gelöscht markiert \(abgeglichen\)$', ab, 60) is not None,
+           'öffnen: nach dem Senden ist der Entwurf gelöscht (Haken für #362)')
+    m = email.message_from_bytes(open(os.path.join(OUT, '%s-öffnen.eml' % NAME), 'rb').read(), policy=email.policy.default)
+    text = teile(m).get('text/plain', '').replace('\xa0', ' ')
+    pruefe(str(m['Subject']) == ENTWURF + ' ' + art and adressen(m['From']) == [konto],
+           'öffnen: Subject %s, From %s' % (m['Subject'], m['From']))
+    pruefe(str(m['X-Evolution-Identity']) == identitaet(konto), 'öffnen: X-Evolution-Identity %s' % m['X-Evolution-Identity'])
+    pruefe(m['X-Evolution-Draft-Message'] is not None and str(m['X-Evolution-Draft-Folder']).startswith('folder://'),
+           'öffnen: X-Evolution-Draft-Folder/-Message %s %s' % (m['X-Evolution-Draft-Folder'], m['X-Evolution-Draft-Message']))
+    pruefe(vorher + ' letzte Fassung' in text, 'öffnen: Text aller Fassungen (%s)' % text.strip()[:100])
+    entwuerfe(konto, 0, 'öffnen')
+
+
 def escape():
     ab = marke()
     zeiger(HAUPT)
@@ -497,7 +793,22 @@ def main():
     eigen = eigene_adressen()
     wert('eigene Adressen (Identitäten): %s' % sorted(eigen))
     log = open(LOG, 'w')
-    app = subprocess.Popen([BIN], stdout=log, stderr=subprocess.STDOUT)
+    if os.environ.get('M365_DEBUG') == '1':
+        # #360: Graph-Anfragen nur als „[graph] METHODE Pfad“ (ohne Kopfzeilen, kein Token im Log), Muster
+        # tests/verschieben.sh FILTER (#416).
+        app = subprocess.Popen([BIN], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace')
+
+        def filtern():
+            for zeile in app.stdout:
+                g = re.match(r'^> (GET|POST|PATCH|PUT|DELETE|HEAD) (\S+)', zeile)
+                if g:
+                    log.write('[graph] %s %s\n' % (g.group(1), g.group(2).split('?')[0]))
+                elif zeile.strip() and not zeile.startswith(('>', '<', ' ')) and 'Bearer' not in zeile:
+                    log.write(zeile)
+                log.flush()
+        threading.Thread(target=filtern, daemon=True).start()
+    else:
+        app = subprocess.Popen([BIN], stdout=log, stderr=subprocess.STDOUT)
     app_pid = app.pid
     try:
         w = fenster('Revolution', zeit=60)
@@ -511,13 +822,21 @@ def main():
             return 1
         ok('Testmail angezeigt: %s' % ORDNER)
         time.sleep(1)
-        if NAME.endswith('-hell'):
+        if '-weiterleiten-' in NAME:
+            weiterleiten()
+        elif NAME.endswith('-hell'):
             antwort('antworten', 'Control_L+r', False, eigen)
             antwort('allen', 'Control_L+Shift_L+r', True, eigen)
             neu()
             escape()
         elif NAME.endswith('-a11y'):
             a11y()
+        elif NAME.endswith('-entwurf'):
+            entwurf_neu()
+        elif NAME.endswith('-entwurf-imap'):
+            entwurf_oeffnen(KONTO, 'IMAP', 'Erste Fassung zweite Fassung dritte Fassung')
+        elif NAME.endswith('-entwurf-graph'):
+            entwurf_oeffnen('KONTO_M365@example.invalid', 'Graph', 'Erste Fassung zweite Fassung')
         elif NAME.endswith('-eigen'):
             antwort_eigen('eigen', 3, ['HILFS_JANA@example.invalid'], ['HILFS_LENA@example.invalid'],
                   'Re: [Revolution-Test] Eigene Mail im Eingang', 'Absender KONTO_IMAP_2@example.invalid ist eigene Adresse')
@@ -545,7 +864,7 @@ def main():
         log.close()
     rest = [z.strip() for z in open(LOG, encoding='utf-8', errors='replace')
             if z.strip() and not (z.startswith('(revolution:') and 'revolution-DEBUG' in z)
-            and not z.startswith('libEGL warning:')]
+            and not z.startswith('libEGL warning:') and not z.startswith('[graph] ')]
     pruefe(not rest, 'Log: %s' % ('%d unerwartete Zeilen: %s' % (len(rest), rest[:3]) if rest else 'nur DEBUG-Zeilen'))
     return 1 if fehler else 0
 

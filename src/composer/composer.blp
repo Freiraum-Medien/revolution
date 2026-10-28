@@ -3,7 +3,7 @@ using Adw 1;
 
 // Composer (Prototyp #337, Briefing 1.3). Vorlage
 // quelltext/stamp/src/views/mail/composer/stamp-composer.blp, Apple V5.
-// #359: Logik in composer.c (Neu, Antworten, Allen antworten, Editor).
+// #359: Logik in composer.c (Neu, Antworten, Allen antworten, Editor). #360: Absender, Signatur, Anhänge, Entwurf.
 template $RevolutionComposer: Adw.ApplicationWindow {
   styles [
     "composer",
@@ -39,6 +39,17 @@ template $RevolutionComposer: Adw.ApplicationWindow {
     Shortcut {
       trigger: "<primary>u";
       action: "action(composer.underline)";
+    }
+
+    // #360: Entwurf speichern (Strg+S) und Anhang (Strg+M) wie Evolution (e-composer-actions.c:369-374, 448-454).
+    Shortcut {
+      trigger: "<primary>s";
+      action: "action(composer.save-draft)";
+    }
+
+    Shortcut {
+      trigger: "<primary>m";
+      action: "action(composer.attach)";
     }
 
     // #359: Emoji an der Schreibmarke im Editor wie Stamp (stamp-composer.c:2382-2383).
@@ -93,7 +104,7 @@ template $RevolutionComposer: Adw.ApplicationWindow {
         [start]
         Button {
           icon-name: "mail-attachment-symbolic";
-          tooltip-text: _("Anhang hinzufügen");
+          tooltip-text: _("Anhang hinzufügen (Strg+M)");
           action-name: "composer.attach";
 
           accessibility {
@@ -335,7 +346,8 @@ template $RevolutionComposer: Adw.ApplicationWindow {
             }
           }
 
-          // Identität wählbar (stamp-composer.blp:80, DropDown from).
+          // Identität wählbar (stamp-composer.blp:80, DropDown from); #360: Einträge aus composer.c
+          // (list_identities).
           DropDown from_dropdown {
             halign: start;
             valign: center;
@@ -344,28 +356,7 @@ template $RevolutionComposer: Adw.ApplicationWindow {
               "composer-dropdown",
             ]
 
-            // Identitäten folgen mit #360; bis dahin ausgeblendet (leere Liste zeigt „(None)“),
-            // an seiner Stelle from_value.
-            visible: false;
-            model: StringList {};
-
-            accessibility {
-              labelled-by: from_label;
-            }
-
-            layout {
-              column: 1;
-              row: 8;
-            }
-          }
-
-          // #359: Absender nur angezeigt (Identität des Kontos, composer.c), Auswahl folgt mit #360.
-          Label from_value {
-            halign: start;
-            valign: center;
-            xalign: 0;
-            ellipsize: end;
-            margin-start: 2;
+            model: StringList from_list {};
 
             accessibility {
               labelled-by: from_label;
@@ -392,12 +383,13 @@ template $RevolutionComposer: Adw.ApplicationWindow {
               ]
             }
 
-            DropDown {
+            // #360: weitere Einträge aus ESourceMailSignature (composer.c, list_signatures).
+            DropDown signature_dropdown {
               styles [
                 "composer-dropdown",
               ]
 
-              model: StringList {
+              model: StringList signature_list {
                 strings [
                   _("Ohne"),
                 ]
@@ -423,8 +415,81 @@ template $RevolutionComposer: Adw.ApplicationWindow {
           }
         }
 
-        // Anhangbereich (WrapBox, stamp-composer.blp:270-284) folgt mit #360,
-        // Muster im Tag m2-prototyp.
+        // #360: Anhänge als Pillen wie Prototyp composer-hell.png und der Lesebereich (mail-attachment.blp),
+        // waagrechte ListView (Architektur 2) statt Stamps WrapBox (stamp-composer.blp:270-284), mit Entfernen.
+        ScrolledWindow attachment_bar {
+          visible: false;
+          vscrollbar-policy: never;
+          propagate-natural-height: true;
+          margin-start: 12;
+          margin-end: 12;
+          margin-top: 6;
+          margin-bottom: 8;
+
+          child: ListView attachment_list {
+            orientation: horizontal;
+            tab-behavior: item;
+
+            styles [
+              "mail-attachments",
+            ]
+
+            accessibility {
+              label: _("Anhänge");
+            }
+
+            factory: BuilderListItemFactory {
+              template ListItem {
+                activatable: false;
+                accessible-label: bind template.item as <$RevolutionMailAttachment>.accessible-label;
+
+                child: Box {
+                  spacing: 8;
+                  tooltip-text: bind template.item as <$RevolutionMailAttachment>.name;
+
+                  styles [
+                    "mail-attachment",
+                    "composer-attachment",
+                  ]
+
+                  Image {
+                    gicon: bind template.item as <$RevolutionMailAttachment>.icon;
+                    accessible-role: presentation;
+                  }
+
+                  Label {
+                    label: bind template.item as <$RevolutionMailAttachment>.short-name;
+                  }
+
+                  Label {
+                    label: bind template.item as <$RevolutionMailAttachment>.size-text;
+
+                    styles [
+                      "numeric",
+                      "dimmed",
+                    ]
+                  }
+
+                  Button {
+                    icon-name: "window-close-symbolic";
+                    tooltip-text: _("Anhang entfernen");
+                    valign: center;
+                    clicked => $on_remove_attachment(template);
+
+                    accessibility {
+                      label: _("Anhang entfernen");
+                    }
+
+                    styles [
+                      "flat",
+                      "circular",
+                    ]
+                  }
+                };
+              }
+            };
+          };
+        }
 
         // Nachrichtentext: WebView als Editor (Stamp stamp-composer.blp:287-297), eingesetzt in
         // composer.c (create_editor, a11y-Label „Nachrichtentext“).
@@ -642,6 +707,20 @@ menu composer_menu {
       label: _("_HTML-Mail");
       action: "composer.mail-format";
       target: "html";
+    }
+  }
+
+  section {
+    item {
+      label: _("Als _Entwurf speichern");
+      action: "composer.save-draft";
+      accel: "<primary>s";
+    }
+
+    item {
+      label: _("_Anhang hinzufügen …");
+      action: "composer.attach";
+      accel: "<primary>m";
     }
   }
 

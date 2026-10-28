@@ -112,6 +112,14 @@
 #   tests/testdaten.py --antwort-kopf
 #                                 #359, nur lesend (IMAP EXAMINE + UID FETCH): Kopfzeilen der Testmail vom
 #                                 Server, je Zeile „KOPF <Name>: <Wert>“ (Vergleich mit der Antwort)
+#   tests/testdaten.py --entwurf KONTO BETREFF [weg MESSAGE-ID …]
+#                                 #360, unabhängig von Camel: Entwürfe mit genau diesem Betreff (je Lauf eindeutig,
+#                                 Präfix „[Revolution-Test] Entwurf 360“) im Entwürfe-Ordner (IMAP: LIST mit \\Drafts,
+#                                 EXAMINE + UID SEARCH + UID FETCH FLAGS; Graph GET drafts und deleteditems); Zeilen
+#                                 „ENTWURFORDNER <Name>“, „ENTWURF <UID|ID> <gelöscht 0|1> <Betreff>“ und
+#                                 „ENTWUERFE <sichtbar> <gelöscht>“. weg (nur Testkonten): vorher genau die Entwürfe mit
+#                                 diesen Message-IDs (aus dem App-Log) löschen: IMAP UID STORE +FLAGS \\Deleted und
+#                                 UID EXPUNGE nur dieser UIDs, Graph permanentDelete nur dieser IDs (drafts, deleteditems)
 #   tests/testdaten.py --ort KONTO aktion|konversation [anlegen|zurueck|aufraeumen]
 #                                 #363: Ordner am Server mit der Aktions-Mail bzw. den eingehenden Mails der
 #                                 Konversation (#357), per Message-ID (IMAP LIST + EXAMINE + UID SEARCH bzw.
@@ -514,6 +522,13 @@ def anhang(konten, dry):
         k.inbox.refresh_info_sync(cancellable())
 
 
+def struktur(m):
+    """#360: Aufbau einer Nachricht als Text, z. B. multipart/mixed[text/plain,message/rfc822[text/plain]]."""
+    if m.is_multipart() or m.get_content_type() == 'message/rfc822':
+        return '%s[%s]' % (m.get_content_type(), ','.join(struktur(t) for t in m.get_payload()))
+    return m.get_content_type()
+
+
 def anhang_teile(k, ziel):
     """#356: nur lesend, ohne Camel: Anhänge der Anhang-Mail vom Server nach ziel schreiben."""
     os.makedirs(ziel, exist_ok=True)
@@ -527,6 +542,7 @@ def anhang_teile(k, ziel):
         roh = c.uid('FETCH', uids[-1], '(BODY.PEEK[])')[1][0][1]
         c.logout()
         nachricht = email.message_from_bytes(roh, policy=email.policy.default)
+        print('STRUKTUR %s' % struktur(nachricht))
         for teil in nachricht.iter_attachments():
             if teil.get_content_type() == 'message/rfc822':
                 teile.append((teil.get_payload()[0]['Subject'] + '.eml', teil.get_payload()[0].as_bytes()))
@@ -1696,6 +1712,72 @@ def server(k, aktion, ziel=ORDNER, warte=None):
     return 0
 
 
+ENTWURF = PREFIX + ' Entwurf 360'
+
+
+def imap_entwuerfe(c):
+    """#360: Entwürfe-Ordner per LIST (Attribut \\Drafts, RFC 6154), sonst Name Drafts/Entwürfe."""
+    kandidaten = []
+    for zeile in c.list('""', '*')[1]:
+        treffer = re.match(rb'\((.*?)\) "(.*?)" "?(.*?)"?$', zeile)
+        if not treffer:
+            continue
+        name = treffer.group(3).decode()
+        if b'\\Drafts' in treffer.group(1):
+            return name
+        if mutf7_decode(name).split(treffer.group(2).decode())[-1] in ('Drafts', 'Entwürfe'):
+            kandidaten.append(name)
+    if not kandidaten:
+        sys.exit('ABBRUCH: kein Entwürfe-Ordner')
+    return kandidaten[0]
+
+
+def entwurf(k, betreff, weg):
+    """#360: Entwürfe mit genau diesem Betreff (je Lauf eindeutig) am Server zählen; weg = Message-IDs aus dem
+    App-Log („Entwurf: gespeichert …“), nur diese Entwürfe endgültig löschen (eigene Testdaten)."""
+    nur_testkonten([k.adresse])
+    if not betreff.startswith(ENTWURF):
+        sys.exit('ABBRUCH: Betreff ohne %s' % ENTWURF)
+    ids = [m if m.startswith('<') else '<%s>' % m for m in weg]
+    sichtbar = geloescht = 0
+    if k.goa.get_mail().props.imap_supported:
+        c = imap_verbinden(k)
+        name = imap_entwuerfe(c)
+        print('ENTWURFORDNER %s' % mutf7_decode(name))
+        for mid in ids:
+            uids = imap_suche(c, name, mid, nur_test=True)
+            if uids:
+                menge = b','.join(uids).decode()
+                print('BEFEHL UID STORE %s +FLAGS (\\Deleted) → %s' % (menge, c.uid('STORE', menge, '+FLAGS', '(\\Deleted)')[0]))
+                print('BEFEHL UID EXPUNGE %s → %s (%s)' % (menge, c.uid('EXPUNGE', menge)[0], mid))
+        c.select('"%s"' % name, readonly=True)
+        for uid in c.uid('SEARCH', None, 'SUBJECT', '"%s"' % betreff[len(PREFIX) + 1:])[1][0].split():
+            d = c.uid('FETCH', uid, '(FLAGS BODY.PEEK[HEADER.FIELDS (SUBJECT)])')[1]
+            if str(email.header.make_header(email.header.decode_header(d[0][1].decode().partition(':')[2].strip()))) != betreff:
+                continue
+            weg_ = '\\Deleted' in d[0][0].decode()
+            print('ENTWURF %s %d %s' % (uid.decode(), weg_, betreff))
+            sichtbar += not weg_
+            geloescht += weg_
+        c.logout()
+    else:
+        ordner = {graph(k, 'GET', '/me/mailFolders/' + w)['id']: w for w in ('drafts', 'deleteditems')}
+        for mid in ids:
+            filt = urllib.parse.quote("internetMessageId eq '%s'" % mid)
+            for m in graph(k, 'GET', '/me/messages?$filter=%s&$select=id,parentFolderId,subject' % filt)['value']:
+                if m['parentFolderId'] in ordner and PREFIX in (m['subject'] or ''):
+                    graph(k, 'POST', '/me/messages/%s/permanentDelete' % m['id'])
+                    print('BEFEHL permanentDelete …%s (%s, %s)' % (m['id'][-16:], ordner[m['parentFolderId']], mid))
+        for gid, w in ordner.items():
+            for m in graph(k, 'GET', '/me/mailFolders/%s/messages?$top=200&$select=id,subject' % w)['value']:
+                if m['subject'] == betreff:
+                    print('ENTWURF %s %d %s' % (m['id'][-16:], w != 'drafts', m['subject']))
+                    sichtbar += w == 'drafts'
+                    geloescht += w != 'drafts'
+    print('ENTWUERFE %d %d' % (sichtbar, geloescht))
+    return 0
+
+
 # tests/aktionen.sh setzt je Durchgang einen eigenen Namen: microsoft365 verwechselt einen neu angelegten Ordner
 # mit dem gelöschten gleichen Namens (ErrorSyncFolderNotFound, gemessen #363).
 AKTION_ORDNER = os.environ.get('AKTION_ORDNER', 'Revolution-Aktionen')
@@ -2255,6 +2337,8 @@ def main():
                          '#416: Graph auch an der Einladung im Papierkorb')
     ap.add_argument('--kombiniert', nargs='?', const='', metavar='LOG',
                     help='#351: nur lesend Posteingänge aller Konten (EXAMINE, Graph), Vergleich mit LOG')
+    ap.add_argument('--entwurf', nargs='+', metavar='KONTO BETREFF [weg MESSAGE-ID …]',
+                    help='#360: Entwürfe mit diesem Betreff am Server; weg: nur diese Message-IDs löschen')
     ap.add_argument('--ort', nargs='+', metavar='KONTO aktion|konversation [anlegen|zurueck|aufraeumen]',
                     help='#363: Ordner der Aktions-Mail bzw. Konversation am Server; anlegen bzw. zurück')
     ap.add_argument('--live-flags', metavar='KONTO', help='#351: nur lesend Flags der Live-Mails im Posteingang')
@@ -2311,6 +2395,12 @@ def main():
     if args.antwort or args.antwort_kopf:
         return antwort(konten_finden(EDataServer.SourceRegistry.new_sync(None))[ANTWORT_KONTO], args.antwort_kopf)
 
+    if args.entwurf:
+        if len(args.entwurf) < 2 or (len(args.entwurf) > 2 and args.entwurf[2] != 'weg'):
+            ap.error('--entwurf KONTO BETREFF [weg MESSAGE-ID …]')
+        adresse = args.entwurf[0].lower()
+        nur_testkonten([adresse])
+        return entwurf(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse], args.entwurf[1], args.entwurf[3:])
     if args.ort:
         if len(args.ort) not in (2, 3) or args.ort[1] not in ('aktion', 'konversation') or \
                 args.ort[2:] not in ([], ['anlegen'], ['zurueck'], ['aufraeumen']):

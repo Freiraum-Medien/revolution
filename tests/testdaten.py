@@ -94,6 +94,14 @@
 #                                 papierkorb verschiebt alle Pruef418-Mails per UID MOVE in den
 #                                 Papierkorb (nicht endgültig gelöscht). Zeilen „ORDNER <UID>/INBOX“
 #                                 und „SORTIERUNG <Rolle> <IMAP-UID> <Datum>“
+#   tests/testdaten.py --suche    #365: Such-Mail (Wort nur im Text) per APPEND in geops@ (Posteingang und
+#                                 Revolution-Test) und outlook.com (Posteingang), idempotent; Zeilen
+#                                 „SUCHE <Adresse> <UID>/<Ordner>“
+#   tests/testdaten.py --suche-zahlen KONTO ORDNER
+#                                 #365, nur lesend, unabhängig von Camel: Treffer des Suchworts (IMAP UID SEARCH
+#                                 OR SUBJECT/FROM/TO/CC/BODY bzw. Graph $search) und der Filter (UNSEEN, FLAGGED,
+#                                 Anhang aus BODYSTRUCTURE bzw. Graph isRead/importance/hasAttachments), ohne
+#                                 Gelöschte und Junk; ORDNER * = alle Ordner (IMAP LIST bzw. Graph /me/messages, nur Text)
 #   tests/testdaten.py --antwort  #359, schreibend nur in geops@ (IMAP): Testmail für Antworten/Allen
 #                                 antworten per APPEND in den Posteingang (kein Versand), idempotent über
 #                                 die Message-ID; mehrere Empfänger, „RE:“ im Betreff, References. Absender
@@ -112,10 +120,30 @@
 #                                 „ENTWURF <UID|ID> <gelöscht 0|1> <Betreff>“ und „ENTWUERFE <sichtbar> <markiert-gelöscht>“.
 #                                 weg (schreibend nur in Testkonten): genau diese UIDs per UID STORE +FLAGS \\Deleted
 #                                 und UID EXPUNGE bzw. Graph DELETE genau dieser IDs (auch aus deleteditems)
+#   tests/testdaten.py --ort KONTO aktion|konversation [anlegen|zurueck|aufraeumen]
+#                                 #363: Ordner am Server mit der Aktions-Mail bzw. den eingehenden Mails der
+#                                 Konversation (#357), per Message-ID (IMAP LIST + EXAMINE + UID SEARCH bzw.
+#                                 Graph GET); Zeilen „ORT <Nr> <Ordner> <gelesen 0|1>“, „HEIM <Ordner>“. anlegen:
+#                                 Ordner Revolution-Aktionen und …-Ziel daneben, die Aktions-Mail im ersten
+#                                 (APPEND bzw. Graph); zurueck: per UID MOVE bzw. Graph move zurück nach
+#                                 Revolution-Aktionen bzw. INBOX; aufraeumen: Aktions-Mail endgültig löschen
+#                                 (nur ihre UIDs bzw. IDs) und die beiden Ordner entfernen (nur Testkonten)
 #   tests/testdaten.py --live-flags KONTO
 #                                 #351, nur lesend: Flags der Live-Mails (--server KONTO neu INBOX) im
 #                                 Posteingang (IMAP EXAMINE + UID SEARCH SUBJECT + UID FETCH FLAGS);
 #                                 Zeilen „FLAGS <gelesen 0|1> <markiert 0|1> <UID>“
+#   tests/testdaten.py --zustellung KONTO MESSAGE-ID
+#                                 #362, nur lesend, unabhängig von Camel: wie oft die Nachricht mit dieser
+#                                 Message-ID in Posteingang, Spam und Gesendet von KONTO liegt (IMAP EXAMINE +
+#                                 UID SEARCH HEADER Message-ID; Ordner per SPECIAL-USE bzw. Name; Graph GET
+#                                 nach internetMessageId, Ordner inbox/junkemail/sentitems); Zeilen
+#                                 „ZUSTELLUNG <Adresse> eingang|spam|gesendet <N>“
+#   tests/testdaten.py --aufraeumen KONTO MESSAGE-ID …
+#                                 #362, schreibend nur in Testkonten: die vom Test gesendeten Mails (Betreff
+#                                 mit [Revolution-Test], Message-ID wie angegeben) endgültig löschen, in
+#                                 Posteingang, Spam und Gesendet (IMAP UID STORE \Deleted + UID EXPUNGE, Gmail
+#                                 erst UID MOVE in den Papierkorb; Graph POST …/permanentDelete); Zeilen
+#                                 „AUFGERAEUMT <Adresse> <Ordner> <N>“
 #
 # Copyright 2026 Arnd Messer
 #
@@ -838,6 +866,185 @@ def sortierung(k, aktion):
             rolle = betreff.split()[-1] if betreff != SORTIERUNG_BETREFF or 'Re:' not in kopf else 'Antwort'
             print('SORTIERUNG %s %s %s' % (rolle, uid.decode(), datum))
     c.logout()
+    return 0
+
+
+# #365: Suche. Ein Wort, das nur im Text dieser Mail steht (nicht in Betreff, Absender, Empfänger), in
+# geops@ (Posteingang und Revolution-Test: „Alle Ordner“ findet beide) und outlook.com (Posteingang).
+SUCHE_KONTEN = ('KONTO_IMAP_2@example.invalid', 'KONTO_M365@example.invalid')
+SUCHE_BETREFF = PREFIX + ' Suche Wochenmarkt'
+SUCHE_WORT = 'Quittenbrotkiste'
+
+
+def suche_nachricht():
+    m = EmailMessage(policy=email.policy.SMTP)
+    m.set_content('Testmail für die Suche in Revolution (#365). Am Samstag steht die %s neben der Waage.\n'
+                  % SUCHE_WORT)
+    m['Subject'] = SUCHE_BETREFF
+    m['From'] = email.utils.formataddr(('Revolution Testdaten', ANZEIGE_ABSENDER))
+    m['To'] = ANZEIGE_ABSENDER
+    m['Date'] = 'Mon, 26 Oct 2026 09:00:00 +0100'
+    m['Message-ID'] = msgid('suche-365')
+    msg = Camel.MimeMessage.new()
+    msg.construct_from_stream_sync(Camel.StreamMem.new_with_buffer(m.as_bytes()), None)
+    return msg
+
+
+def suche(konten, dry):
+    """#365: Such-Mail per APPEND (idempotent, als gelesen); Zeilen „SUCHE <Adresse> <UID>/<Ordner>“."""
+    for a in SUCHE_KONTEN:
+        k = konten[a]
+        nur_testkonten([a])
+        ziele = [k.inbox]
+        if k.goa.get_mail().props.imap_supported:
+            ziele.append(ordner_holen(k.store, ORDNER, False))
+        for f in ziele:
+            f.refresh_info_sync(cancellable())
+            if (SUCHE_BETREFF, ANZEIGE_ABSENDER) not in testmails(f):
+                print('  %s: %s per APPEND in %s' % (a, SUCHE_BETREFF, f.get_full_name()))
+                if dry:
+                    continue
+                info = Camel.MessageInfo.new(None)
+                info.set_flags(Camel.MessageFlags.SEEN, Camel.MessageFlags.SEEN)
+                f.append_message_sync(suche_nachricht(), info, cancellable())
+                f.synchronize_sync(False, cancellable())
+                f.refresh_info_sync(cancellable())
+            print('SUCHE %s %s/%s' % (a, k.account.get_uid(), f.get_full_name()))
+
+
+def bodystructure_anhang(teil, eltern=None):
+    """#365: Anhang nach Camel (camel_content_disposition_is_attachment_ex, camel-mime-utils.c:3987-4048) für
+    einen Teil aus IMAP BODYSTRUCTURE und seine Unterteile, wie imapx das Flag „Attachments“ setzt
+    (camel-imapx-server.c:1078-1089, 1393-1400). teil: geparste Liste."""
+    def s(x):
+        return x.decode().lower() if isinstance(x, bytes) else ''
+
+    def params(liste):
+        return {s(liste[i]): liste[i + 1] for i in range(0, len(liste) - 1, 2)} if isinstance(liste, list) else {}
+
+    if isinstance(teil[0], list):
+        n = [i for i, x in enumerate(teil) if not isinstance(x, list)][0]
+        typ, kinder, rest, name = ('multipart', s(teil[n])), teil[:n], teil[n + 1:], {}
+        disp = rest[1] if len(rest) > 1 else None
+    else:
+        typ = (s(teil[0]), s(teil[1]))
+        name = params(teil[2])
+        basis = 7 + (1 if typ[0] == 'text' else 3 if typ == ('message', 'rfc822') else 0)
+        disp = teil[basis + 1] if len(teil) > basis + 1 else None
+        kinder = []
+    disp = (s(disp[0]), params(disp[1])) if isinstance(disp, list) else None
+
+    def ist():
+        a, b = typ
+        if a == 'application' and b in ('pkcs7-mime', 'xpkcs7mime', 'xpkcs7-mime', 'x-pkcs7-mime'):
+            return False
+        if typ == ('application', 'pgp-encrypted'):
+            return eltern != ('multipart', 'encrypted')
+        if typ == ('application', 'octet-stream') and eltern == ('multipart', 'encrypted'):
+            return False
+        if a == 'application' and b in ('pkcs7-signature', 'xpkcs7signature', 'xpkcs7-signature',
+                                        'x-pkcs7-signature', 'pgp-signature'):
+            return eltern != ('multipart', 'signed')
+        if eltern and typ == ('message', 'rfc822'):
+            return True
+        if eltern == ('multipart', 'mixed') and not disp and ('name' in name or 'filename' in name):
+            return True
+        if not disp:
+            return False
+        if disp[0] == 'attachment':
+            return True
+        if disp[0] != 'inline' or a not in ('text', 'image'):
+            return bool(disp[1].get('filename'))
+        return False
+
+    return ist() or any(bodystructure_anhang(k, typ) for k in kinder)
+
+
+def imap_liste(daten):
+    """#365: Antwort von UID FETCH (BODYSTRUCTURE) als verschachtelte Listen (Literale als Strings)."""
+    roh = b''
+    for x in daten:
+        if isinstance(x, tuple):
+            kopf = x[0][:x[0].rfind(b'{')]
+            roh += kopf + b'"' + x[1].replace(b'\\', b'\\\\').replace(b'"', b'\\"') + b'"'
+        elif isinstance(x, bytes):
+            roh += x
+    stapel, aktuell = [], []
+    for t in re.findall(rb'\(|\)|"(?:\\.|[^"\\])*"|[^\s()"]+', roh):
+        if t == b'(':
+            stapel.append(aktuell)
+            aktuell = []
+        elif t == b')':
+            fertig, aktuell = aktuell, stapel.pop()
+            aktuell.append(fertig)
+        elif t.startswith(b'"'):
+            aktuell.append(re.sub(rb'\\(.)', rb'\1', t[1:-1]))
+        else:
+            aktuell.append(None if t.upper() == b'NIL' else t)
+    return aktuell
+
+
+def suche_zahlen(k, ziel):
+    """#365: nur lesend, unabhängig von Camel: Treffer wie die Suche der App (mail-search.c) je Ordner. Text:
+    IMAP UID SEARCH OR SUBJECT/FROM/TO/CC/BODY bzw. Graph $search; Filter: UNSEEN, FLAGGED (Graph isRead,
+    importance high wie camel-m365-folder.c:659-660), Anhang aus BODYSTRUCTURE (bodystructure_anhang) bzw.
+    Graph hasAttachments (camel-m365-folder.c:650-651). Ohne Gelöschte und Junk wie --anzahl. ziel „*“: alle
+    Ordner des Kontos (LIST wie die Seitenleiste bei geops@ ohne Abos; Graph /me/messages), nur Text, Summe. Zeilen
+    „SUCHE <UID>/<Ordner> text N ungelesen N markiert N anhang N“ bzw. „SUCHE <UID>/* text N“."""
+    w = SUCHE_WORT
+    if not k.goa.get_mail().props.imap_supported:
+        def zaehle(pfad):
+            n, url = 0, pfad
+            while url:
+                antwort = graph(k, 'GET', url)
+                n += len(antwort['value'])
+                url = antwort.get('@odata.nextLink', '').replace(GRAPH, '') or None
+            return n
+        if ziel == '*':
+            print('SUCHE %s/* text %d' % (k.account.get_uid(),
+                                          zaehle('/me/messages?$select=id&$top=100&$search=%22' + w + '%22')))
+            return 0
+        basis = '/me/mailFolders/inbox/messages?$select=id&$top=100'
+        print('SUCHE %s/%s text %d ungelesen %d markiert %d anhang %d' % (
+            k.account.get_uid(), ziel, zaehle(basis + '&$search=%22' + w + '%22'),
+            zaehle(basis + '&$filter=isRead%20eq%20false'), zaehle(basis + '&$filter=importance%20eq%20%27high%27'),
+            zaehle(basis + '&$filter=hasAttachments%20eq%20true')))
+        return 0
+    c = imap_verbinden(k)
+    sichtbar = ['UNDELETED', 'UNKEYWORD', 'Junk', 'UNKEYWORD', '$Junk']
+    text = ['OR', 'SUBJECT', w, 'OR', 'FROM', w, 'OR', 'TO', w, 'OR', 'CC', w, 'BODY', w]
+    try:
+        if ziel == '*':
+            summe = 0
+            for z in c.list('""', '*')[1]:
+                m = re.match(rb'\((?P<flags>[^)]*)\) (?P<delim>"[^"]*"|NIL) (?P<name>.*)$', z) \
+                    if isinstance(z, bytes) else None
+                if not m or b'\\noselect' in m.group('flags').lower():
+                    continue
+                roh = m.group('name').decode()
+                c.select(roh if roh.startswith('"') else '"%s"' % roh, readonly=True)
+                n = len(c.uid('SEARCH', None, *(sichtbar + text))[1][0].split())
+                if n:
+                    print('TREFFER %s %d' % (roh, n))
+                summe += n
+            print('SUCHE %s/* text %d' % (k.account.get_uid(), summe))
+            return 0
+        name, _ = imap_ordner(c, ziel)
+        c.select('"%s"' % name, readonly=True)
+        alle = c.uid('SEARCH', None, *sichtbar)[1][0].split()
+        anhang = 0
+        if alle:
+            daten = c.uid('FETCH', b','.join(alle).decode(), '(BODYSTRUCTURE)')[1]
+            for eintrag in imap_liste(daten):
+                if isinstance(eintrag, list):
+                    i = [j for j, x in enumerate(eintrag) if x == b'BODYSTRUCTURE'][0]
+                    anhang += bodystructure_anhang(eintrag[i + 1])
+        print('SUCHE %s/%s text %d ungelesen %d markiert %d anhang %d' % (
+            k.account.get_uid(), ziel, len(c.uid('SEARCH', None, *(sichtbar + text))[1][0].split()),
+            len(c.uid('SEARCH', None, *(sichtbar + ['UNSEEN']))[1][0].split()),
+            len(c.uid('SEARCH', None, *(sichtbar + ['FLAGGED']))[1][0].split()), anhang))
+    finally:
+        c.logout()
     return 0
 
 
@@ -1568,6 +1775,131 @@ def entwurf(k, weg):
     return 0
 
 
+# tests/aktionen.sh setzt je Durchgang einen eigenen Namen: microsoft365 verwechselt einen neu angelegten Ordner
+# mit dem gelöschten gleichen Namens (ErrorSyncFolderNotFound, gemessen #363).
+AKTION_ORDNER = os.environ.get('AKTION_ORDNER', 'Revolution-Aktionen')
+# Je Durchgang eine eigene Message-ID: Kopien früherer Durchgänge in „Gelöschte Elemente“ zählen nicht mit.
+AKTION_ID = msgid('aktionen-363-' + AKTION_ORDNER)
+# Ziel neben dem Ordner, nicht darunter: microsoft365 behält die Unterordner eines gelöschten Ordners im Cache
+# (gemessen #363, auch wenn das Kind zuerst gelöscht wird).
+AKTION_ZIEL = AKTION_ORDNER + '-Ziel'
+
+
+def imap_alle(c):
+    """[(IMAP-Name, Camel-Name, Attribute)] aller wählbaren Ordner (LIST)."""
+    out = []
+    for zeile in c.list()[1]:
+        m = re.match(rb'\((.*?)\) "(.*?)" "?(.*?)"?$', zeile)
+        if m and b'\\Noselect' not in m.group(1):
+            name = m.group(3).decode()
+            out.append((name, mutf7_decode(name).replace(m.group(2).decode(), '/'), m.group(1)))
+    return out
+
+
+def ort(k, was, aktion=None):
+    """#363: siehe Kopf (--ort). Aktions-Mail in eigenem Ordner Revolution-Aktionen (daneben „…-Ziel“ fürs
+    Verschieben), nicht in Revolution-Test (dort arbeiten andere Tests mit der obersten Zeile, PM 28.10.).
+    Gmail: „Alle Nachrichten“ (\\All) enthält jede Mail außer Papierkorb und Spam; zurück daraus per COPY."""
+    if aktion:
+        nur_testkonten([k.adresse])
+    ids = {'A': AKTION_ID} if was == 'aktion' else \
+        {str(nr): msgid('konversation-357-%d' % nr) for nr, eigen, _, _ in KONVERSATION if not eigen}
+    gefunden = {}
+    if k.goa.get_mail().props.imap_supported:
+        c = imap_verbinden(k)
+        test = imap_ordner(c)[0]
+        pfad = test[:len(test) - len(ORDNER)] + AKTION_ORDNER
+        trenner = c.list('""', '"%s"' % test)[1][0].decode().split('"')[1]
+        if aktion == 'anlegen':
+            for name in (pfad, pfad + '-Ziel'):
+                if not c.list('""', '"%s"' % name)[1][0]:
+                    print(c.create('"%s"' % name), c.subscribe('"%s"' % name))
+        for _ in range(10):  # Gmail listet einen neuen Ordner nicht immer sofort (gemessen #363)
+            alle = imap_alle(c)
+            heim = next(((n, cm) for n, cm, _ in alle if n == pfad), None) if was == 'aktion' else ('INBOX', 'INBOX')
+            if heim or aktion != 'anlegen':
+                break
+            time.sleep(2)
+        for name, camel, attr in alle:
+            c.select('"%s"' % name, readonly=True)
+            for nr, mid in ids.items():
+                for uid in c.uid('SEARCH', None, 'UNDELETED', 'HEADER', 'Message-ID', mid)[1][0].split():
+                    print('ORT %s %s %d' % (nr, camel, '\\Seen' in c.uid('FETCH', uid, '(FLAGS)')[1][0].decode()))
+                    gefunden.setdefault(nr, []).append((name, camel, uid, b'\\All' in attr))
+        for nr, orte in gefunden.items():
+            if aktion == 'zurueck' and all(o[1] != heim[1] for o in orte):
+                quelle = next((o for o in orte if not o[3]), orte[0])
+                c.select('"%s"' % quelle[0])
+                print(c.uid('COPY' if quelle[3] else 'MOVE', quelle[2], '"%s"' % heim[0]))
+        if aktion == 'anlegen' and 'A' not in gefunden:
+            m = EmailMessage(policy=email.policy.SMTP)
+            m.set_content('Testmail für Löschen, Archiv, Spam, Verschieben (#363).\n')
+            m['Subject'], m['From'], m['To'] = PREFIX + ' Aktionen 363', ANZEIGE_ABSENDER, k.adresse
+            m['Date'], m['Message-ID'] = email.utils.formatdate(localtime=True), AKTION_ID
+            print(c.append('"%s"' % heim[0], None, None, m.as_bytes()))
+        if aktion == 'aufraeumen' and was == 'aktion':
+            # Nur die eigene Mail (Message-ID) endgültig: \\Deleted + UID EXPUNGE ihrer UIDs; bei Gmail aus
+            # „Alle Nachrichten“ erst in den Papierkorb (Expunge dort nähme nur das Label).
+            papierkorb = next((n for n, _, at in alle if b'\\Trash' in at), None)
+            for name, _, uid, alle_nachrichten in sorted(gefunden.get('A', []), key=lambda o: o[3]):
+                c.select('"%s"' % name)
+                if alle_nachrichten and papierkorb:
+                    print(c.uid('MOVE', uid, '"%s"' % papierkorb))
+                    continue
+                print(c.uid('STORE', uid, '+FLAGS', '(\\Deleted)'), c.uid('EXPUNGE', uid))
+            if papierkorb:
+                c.select('"%s"' % papierkorb)
+                for uid in c.uid('SEARCH', None, 'HEADER', 'Message-ID', AKTION_ID)[1][0].split():
+                    print(c.uid('STORE', uid, '+FLAGS', '(\\Deleted)'), c.uid('EXPUNGE', uid))
+            c.select('INBOX', readonly=True)
+            for name in (pfad + '-Ziel', pfad):
+                print(c.delete('"%s"' % name))
+        if heim:
+            print('HEIM %s' % heim[1])
+        c.logout()
+        return 0
+    # Angelegte Ordner-IDs in AKTION_IDS (Datei des Laufs); endgültig gelöscht werden nur diese (PM 28.10.).
+    ids_datei = os.environ.get('AKTION_IDS')
+    eigene = graph(k, 'GET', "/me/mailFolders?$filter=displayName%20eq%20'" + AKTION_ORDNER + "'")['value']
+    if aktion == 'anlegen' and not eigene:
+        eigene = [graph(k, 'POST', '/me/mailFolders', {'displayName': AKTION_ORDNER})]
+        ziel = graph(k, 'POST', '/me/mailFolders', {'displayName': AKTION_ZIEL})
+        with open(ids_datei, 'a') as f:
+            f.write('%s %s\n%s %s\n' % (eigene[0]['id'], AKTION_ORDNER, ziel['id'], AKTION_ZIEL))
+        print('ANGELEGT %s %s, %s %s' % (eigene[0]['id'], AKTION_ORDNER, ziel['id'], AKTION_ZIEL))
+    heim = (eigene[0]['id'] if eigene else None) if was == 'aktion' else graph(k, 'GET', '/me/mailFolders/inbox')['id']
+    for nr, mid in ids.items():
+        mails = graph(k, 'GET', "/me/messages?$filter=internetMessageId%20eq%20'" + urllib.parse.quote(mid)
+                      + "'&$select=isRead,parentFolderId")['value']
+        for m in mails:
+            ordner = graph(k, 'GET', '/me/mailFolders/%s?$select=displayName' % m['parentFolderId'])['displayName']
+            print('ORT %s %s %d' % (nr, ordner, m['isRead']))
+            gefunden[nr] = True
+            # Nur eine Kopie und nur, wenn keine mehr daheim ist (ältere Kopien im Papierkorb bleiben).
+            if aktion == 'zurueck' and all(x['parentFolderId'] != heim for x in mails) and m is mails[0]:
+                print(graph(k, 'POST', '/me/messages/%s/move' % m['id'], {'destinationId': heim})['parentFolderId'] == heim)
+            if aktion == 'aufraeumen' and was == 'aktion' and ordner != 'Gelöschte Elemente':
+                graph(k, 'POST', '/me/messages/%s/move' % m['id'], {'destinationId': 'deleteditems'})
+                print('IN GELÖSCHTE ELEMENTE aus %s' % ordner)
+    if aktion == 'anlegen' and 'A' not in gefunden:
+        # PR_MESSAGE_FLAGS 0 (ungelesen, nicht MSGFLAG_UNSENT): keine Entwurf-Mail.
+        graph(k, 'POST', '/me/mailFolders/%s/messages' % heim, {
+            'subject': PREFIX + ' Aktionen 363', 'internetMessageId': AKTION_ID,
+            'body': {'contentType': 'text', 'content': 'Testmail für Löschen, Archiv, Spam, Verschieben (#363).'},
+            'from': {'emailAddress': {'address': ANZEIGE_ABSENDER}}, 'toRecipients': [{'emailAddress': {'address': k.adresse}}],
+            'singleValueExtendedProperties': [{'id': 'Integer 0x0E07', 'value': '0'}]})
+    if aktion == 'aufraeumen' and was == 'aktion' and ids_datei and os.path.exists(ids_datei):
+        for zeile in reversed(open(ids_datei).read().split('\n')):
+            if zeile.endswith(' ' + AKTION_ORDNER) or zeile.endswith(' ' + AKTION_ZIEL):
+                fid = zeile.split(' ', 1)[0]
+                graph(k, 'POST', '/me/mailFolders/%s/permanentDelete' % fid)
+                print('ORDNER GELOESCHT %s' % zeile)
+        os.rename(ids_datei, ids_datei + '.erledigt')
+    if eigene or was != 'aktion':
+        print('HEIM %s' % (AKTION_ORDNER if was == 'aktion' else 'Posteingang'))
+    return 0
+
+
 TESTORDNER = 'Revolution-Offline'
 
 
@@ -1862,6 +2194,117 @@ def live_flags(k):
     return 0
 
 
+# ---------------------------------------------------------------- #362 Senden
+
+def imap_rollen(c):
+    """{rolle: IMAP-Name} für eingang, spam, gesendet, papierkorb (SPECIAL-USE, sonst Name)."""
+    rollen = {'eingang': 'INBOX'}
+    for zeile in c.list()[1]:
+        treffer = re.match(rb'\((.*?)\) "(.*?)" "?(.*?)"?$', zeile)
+        if not treffer:
+            continue
+        attr, name = treffer.group(1).decode(), treffer.group(3).decode()
+        kurz = name.split(treffer.group(2).decode())[-1]
+        if '\\Sent' in attr:
+            rollen['gesendet'] = name
+        elif '\\Junk' in attr or ('spam' not in rollen and kurz in ('Junk', 'Spam')):
+            rollen['spam'] = name
+        elif '\\Trash' in attr:
+            rollen['papierkorb'] = name
+    return rollen
+
+
+def imap_suche(c, name, message_id, nur_test=False):
+    c.select('"%s"' % name, readonly=not nur_test)
+    uids = c.uid('SEARCH', None, 'HEADER', 'Message-ID', '"%s"' % message_id)[1][0].split()
+    if nur_test:
+        uids = [u for u in uids if PREFIX.encode() in c.uid('FETCH', u, '(BODY.PEEK[HEADER.FIELDS (SUBJECT)])')[1][0][1]]
+    return uids
+
+
+GRAPH_ROLLEN = (('eingang', 'inbox'), ('spam', 'junkemail'), ('gesendet', 'sentitems'))
+
+
+def graph_suche(k, message_id):
+    """[(rolle, id, Betreff)] der Nachrichten mit dieser internetMessageId, nur GET."""
+    ordner = {graph(k, 'GET', '/me/mailFolders/' + w)['id']: r for r, w in GRAPH_ROLLEN}
+    filt = urllib.parse.quote("internetMessageId eq '%s'" % message_id)
+    mails = graph(k, 'GET', '/me/messages?$filter=%s&$select=parentFolderId,subject' % filt)['value']
+    return [(ordner.get(m['parentFolderId'], 'andere'), m['id'], m['subject']) for m in mails]
+
+
+def zustellung(k, message_id):
+    """#362: nur lesend."""
+    if not message_id.startswith('<'):
+        message_id = '<%s>' % message_id
+    zahl = {'eingang': 0, 'spam': 0, 'gesendet': 0}
+    if k.goa.get_mail().props.imap_supported:
+        c = imap_verbinden(k)
+        try:
+            for rolle, name in imap_rollen(c).items():
+                if rolle in zahl:
+                    zahl[rolle] = len(imap_suche(c, name, message_id))
+        finally:
+            c.logout()
+    else:
+        for rolle, _, _ in graph_suche(k, message_id):
+            if rolle in zahl:
+                zahl[rolle] += 1
+    for rolle, n in zahl.items():
+        print('ZUSTELLUNG %s %s %d' % (k.adresse, rolle, n))
+    return 0
+
+
+def aufraeumen(k, message_ids):
+    """#362: nur Testkonten, nur [Revolution-Test]-Mails mit diesen Message-IDs."""
+    nur_testkonten([k.adresse])
+    ids = [m if m.startswith('<') else '<%s>' % m for m in message_ids]
+    if k.goa.get_mail().props.imap_supported:
+        c = imap_verbinden(k)
+        try:
+            rollen = imap_rollen(c)
+            gmail = 'gmail' in k.adresse
+            for rolle in ('eingang', 'spam', 'gesendet'):
+                if rolle not in rollen:
+                    continue
+                n = 0
+                for mid in ids:
+                    uids = imap_suche(c, rollen[rolle], mid, nur_test=True)
+                    if not uids:
+                        continue
+                    n += len(uids)
+                    menge = b','.join(uids).decode()
+                    if gmail:
+                        c.uid('MOVE', menge, '"%s"' % rollen['papierkorb'])
+                    else:
+                        c.uid('STORE', menge, '+FLAGS', '(\\Deleted)')
+                        c.uid('EXPUNGE', menge)
+                print('AUFGERAEUMT %s %s %d' % (k.adresse, rolle, n))
+            if gmail:
+                n = 0
+                for mid in ids:
+                    uids = imap_suche(c, rollen['papierkorb'], mid, nur_test=True)
+                    if uids:
+                        n += len(uids)
+                        menge = b','.join(uids).decode()
+                        c.uid('STORE', menge, '+FLAGS', '(\\Deleted)')
+                        c.uid('EXPUNGE', menge)
+                print('AUFGERAEUMT %s papierkorb %d' % (k.adresse, n))
+        finally:
+            c.logout()
+    else:
+        zahl = {}
+        for mid in ids:
+            for rolle, gid, betreff in graph_suche(k, mid):
+                if not (betreff or '').startswith(PREFIX):
+                    continue
+                graph(k, 'POST', '/me/messages/%s/permanentDelete' % gid)
+                zahl[rolle] = zahl.get(rolle, 0) + 1
+        for rolle in ('eingang', 'spam', 'gesendet'):
+            print('AUFGERAEUMT %s %s %d' % (k.adresse, rolle, zahl.get(rolle, 0)))
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description='Testdaten für Revolution (#344)')
     ap.add_argument('--dry-run', action='store_true', help='nur anzeigen, nichts senden/schreiben')
@@ -1892,6 +2335,8 @@ def main():
     ap.add_argument('--kombiniert', nargs='?', const='', metavar='LOG',
                     help='#351: nur lesend Posteingänge aller Konten (EXAMINE, Graph), Vergleich mit LOG')
     ap.add_argument('--entwurf', nargs='+', metavar='KONTO [weg]', help='#360: Entwürfe des Tests am Server')
+    ap.add_argument('--ort', nargs='+', metavar='KONTO aktion|konversation [anlegen|zurueck|aufraeumen]',
+                    help='#363: Ordner der Aktions-Mail bzw. Konversation am Server; anlegen bzw. zurück')
     ap.add_argument('--live-flags', metavar='KONTO', help='#351: nur lesend Flags der Live-Mails im Posteingang')
     ap.add_argument('--antwort', action='store_true',
                     help='#359: Testmail für Antworten per APPEND in den Posteingang von %s' % ANTWORT_KONTO)
@@ -1906,7 +2351,24 @@ def main():
                     help='#357: Konversation (5 Mails) per APPEND in Posteingang und Gesendet (geops@, outlook.com)')
     ap.add_argument('--schwer', nargs=2, metavar=('KONTO', 'neu|papierkorb'),
                     help='#412: große Mail mit Start- und Zielmail im Posteingang (IMAP, nicht privat@)')
+    ap.add_argument('--zustellung', nargs=2, metavar=('KONTO', 'MESSAGE-ID'),
+                    help='#362: nur lesend Anzahl der Nachricht in Posteingang, Spam, Gesendet')
+    ap.add_argument('--aufraeumen', nargs='+', metavar='KONTO MESSAGE-ID',
+                    help='#362: vom Test gesendete Mails endgültig löschen (Testkonten)')
+    ap.add_argument('--suche', action='store_true',
+                    help='#365: Such-Mail per APPEND in geops@ (Posteingang, Revolution-Test) und outlook.com')
+    ap.add_argument('--suche-zahlen', nargs=2, metavar=('KONTO', 'ORDNER'),
+                    help='#365: nur lesend Treffer der Suche und der Filter je Ordner (ORDNER * = alle per LIST, nur Text)')
     args = ap.parse_args()
+    if args.zustellung or args.aufraeumen:
+        adresse = (args.zustellung or args.aufraeumen)[0].lower()
+        nur_testkonten([adresse])
+        k = konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse]
+        if args.zustellung:
+            return zustellung(k, args.zustellung[1])
+        if len(args.aufraeumen) < 2:
+            ap.error('--aufraeumen KONTO MESSAGE-ID …')
+        return aufraeumen(k, args.aufraeumen[1:])
     if args.last is not None and args.last < 1:
         ap.error('--last N mit N ≥ 1 (#411)')
 
@@ -1935,6 +2397,13 @@ def main():
         if args.entwurf[1:] not in ([], ['weg']):
             ap.error('--entwurf KONTO [weg]')
         return entwurf(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse], args.entwurf[1:] == ['weg'])
+    if args.ort:
+        if len(args.ort) not in (2, 3) or args.ort[1] not in ('aktion', 'konversation') or \
+                args.ort[2:] not in ([], ['anlegen'], ['zurueck'], ['aufraeumen']):
+            ap.error('--ort KONTO aktion|konversation [anlegen|zurueck|aufraeumen]')
+        adresse = args.ort[0].lower()
+        nur_testkonten([adresse])
+        return ort(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse], *args.ort[1:])
 
     if args.live_flags:
         adresse = args.live_flags.lower()
@@ -1950,6 +2419,11 @@ def main():
         if args.sortierung[1] not in ('basis', 'neu', 'papierkorb'):
             ap.error('--sortierung KONTO basis|neu|papierkorb')
         return sortierung(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse], args.sortierung[1])
+
+    if args.suche_zahlen:
+        adresse = args.suche_zahlen[0].lower()
+        nur_testkonten([adresse])
+        return suche_zahlen(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse], args.suche_zahlen[1])
 
     if args.konversation_flags:
         adresse = args.konversation_flags.lower()
@@ -2019,6 +2493,13 @@ def main():
         for a in ANHANG_KONTEN:
             konten[a].store.disconnect_sync(True, None)
         return 0
+    if args.suche:
+        for a in SUCHE_KONTEN:
+            store_oeffnen(session, konten[a])
+        suche(konten, args.dry_run)
+        for a in SUCHE_KONTEN:
+            konten[a].store.disconnect_sync(True, None)
+        return 0
     if args.konversation:
         for a in KONVERSATION_KONTEN:
             store_oeffnen(session, konten[a])
@@ -2056,8 +2537,8 @@ def main():
 # und als Zeile in der Datei TESTDATEN_WIEDERHOLT (Umgebung, tests/abbruch.sh zählt sie).
 TRANSIENT = (imaplib.IMAP4.abort, ConnectionError, TimeoutError, ssl.SSLError, urllib.error.URLError)
 MODI = ('--pruefen', '--ordner', '--anzeige', '--anhang', '--anhang-teile', '--last', '--flags', '--ungelesen',
-        '--zaehler', '--anzahl', '--server', '--kombiniert', '--live-flags', '--schwer', '--antwort',
-        '--antwort-kopf')
+        '--zaehler', '--anzahl', '--server', '--kombiniert', '--live-flags', '--schwer', '--suche-zahlen',
+        '--antwort', '--antwort-kopf', '--zustellung', '--ort')
 
 
 def main_mit_wiederholung():

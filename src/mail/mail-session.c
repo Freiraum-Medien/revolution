@@ -30,7 +30,8 @@
  * Übernommen aus Evolution 3.56.2 (src/libemail-engine/e-mail-session.c), gekürzt.
  * Übernommen (Zeilen der Vorlage):
  *   Proxy-Resolver je Dienst                 166-276
- *   mail_session_add_from_source (Stores)    558-652
+ *   mail_session_add_from_source (Stores)    558-652 (#362 auch Versanddienste)
+ *   Signal „flush-outbox“ (#362)             2206-2220, 2966-2979
  *   Eigenschaft „registry“, dispose          1018-1187
  *   constructed (Konten, Registry-Signale)   1212-1271
  *   add_service                              1370-1423
@@ -38,9 +39,10 @@
  *   class_init, new, Datenordner             2139-2160, 2411-2428, 2891-2911
  * Abschnitt „Anmeldung“ (#347): authenticate_sync und trust_prompt übernommen aus
  * Evolution 3.56.2 (src/mail/e-mail-ui-session.c), gekürzt; Einzelheiten dort.
- * Weggelassen: Archiv-Ordner, lokaler und Suchordner-Store, Junk-Filter, Auto-Refresh,
- * Outbox-Flush, forward_to, Transporte, Ordner-Cache; sie kommen mit den Folgetasks
- * (#348 Ordner, #362 Postausgang) oder haben in Revolution keinen Nutzer. Damit entfallen alle e-util-Aufrufe
+ * Weggelassen: Archiv-Ordner, Suchordner-Store, Junk-Filter, Auto-Refresh,
+ * verzögertes Senden, forward_to, Ordner-Cache; sie kommen mit den Folgetasks
+ * (#348 Ordner) oder haben in Revolution keinen Nutzer. Der lokale Store (nur Postausgang)
+ * steht in mail-outbox.c (#362). Damit entfallen alle e-util-Aufrufe
  * (e_passwords_*, e_util_ref_settings, e_signal_connect_notify, e_util_is_running_flatpak)
  * und alle übrigen libemail-engine-Dateien.
  * Geändert gegenüber der Vorlage:
@@ -66,6 +68,11 @@
  *   - #348/#415: get_filter_driver liefert keinen Treiber (keine Regeln, Einzelheiten dort).
  *   - #351: Der Suchordner-Store der Favoriten (CamelVeeStore, mail-favorites.c) hat keine ESource:
  *     add_service konfiguriert ihn nicht, der Abgleich entfernt ihn nicht.
+ *   - #362: Versanddienste (Transporte) wie e-mail-session.c:558-575 und 1248-1261, aber nur die der
+ *     Identitäten angezeigter Konten (Regel wie die Stores); der Abgleich entfernt sie mit dem Konto.
+ *     Signal „flush-outbox“ und e_mail_session_flush_outbox (2207-2220, 2966-2979, ohne verzögertes
+ *     Senden). Der lokale Store des Postausgangs (REVOLUTION_MAIL_LOCAL_UID, mail-outbox.c) hat wie der
+ *     Suchordner-Store keine ESource.
  */
 
 #define G_LOG_DOMAIN "revolution"
@@ -112,6 +119,7 @@ enum {
 
 enum {
 	SERVICES_CHANGED,
+	FLUSH_OUTBOX,
 	LAST_SIGNAL
 };
 
@@ -237,18 +245,31 @@ mail_session_configure_proxy_resolver (ESourceRegistry *registry,
 
 static void
 mail_session_add_from_source (RevolutionMailSession *session,
+                              CamelProviderType type,
                               ESource *source)
 {
 	ESourceBackend *extension;
 	CamelService *service;
 	const gchar *uid;
 	const gchar *backend_name;
+	const gchar *extension_name;
 	gchar *display_name;
 	GError *error = NULL;
 
+	switch (type) {
+		case CAMEL_PROVIDER_STORE:
+			extension_name = E_SOURCE_EXTENSION_MAIL_ACCOUNT;
+			break;
+		case CAMEL_PROVIDER_TRANSPORT:
+			extension_name = E_SOURCE_EXTENSION_MAIL_TRANSPORT;
+			break;
+		default:
+			g_return_if_reached ();
+	}
+
 	uid = e_source_get_uid (source);
 
-	extension = e_source_get_extension (source, E_SOURCE_EXTENSION_MAIL_ACCOUNT);
+	extension = e_source_get_extension (source, extension_name);
 	backend_name = e_source_backend_get_backend_name (extension);
 
 	/* Sanity checks. */
@@ -257,14 +278,14 @@ mail_session_add_from_source (RevolutionMailSession *session,
 
 	service = camel_session_add_service (
 		CAMEL_SESSION (session), uid,
-		backend_name, CAMEL_PROVIDER_STORE, &error);
+		backend_name, type, &error);
 
 	/* Our own CamelSession.add_service() method will handle the
 	 * new CamelService, so we only need to unreference it here. */
 	if (service != NULL) {
 		/* #346: Beleg für die DoD; „UI-Thread“ ist der Besitzer des Standard-Kontexts. */
-		g_debug ("Store registriert: %s %s (Thread %p, UI-Thread: %s)",
-			 uid, backend_name, (gpointer) g_thread_self (),
+		g_debug ("%s registriert: %s %s (Thread %p, UI-Thread: %s)",
+			 type == CAMEL_PROVIDER_STORE ? "Store" : "Versanddienst", uid, backend_name, (gpointer) g_thread_self (),
 			 g_main_context_is_owner (g_main_context_default ()) ? "ja" : "nein");
 		g_object_unref (service);
 	}
@@ -295,14 +316,50 @@ mail_session_remove_service (RevolutionMailSession *session,
  * (revolution_mail_account_hidden_reason); Stores verschwundener oder ausgeblendeter
  * Konten werden entfernt wie in mail_session_source_removed_cb (e-mail-session.c:675-704).
  * Läuft im Worker. */
+/* #362: Versanddienst der Identität eines angezeigten Kontos (Mail Account „identity-uid“, Mail
+ * Submission „transport-uid“), wie Evolution ihn zur Nachricht sucht (e-mail-session-utils.c:1478-1510);
+ * ohne Dienst wird er angelegt. Rückgabe: seine UID oder NULL. */
+static gchar *
+mail_session_note_transport (RevolutionMailSession *session,
+                             ESource *account)
+{
+	ESourceMailAccount *extension = e_source_get_extension (account, E_SOURCE_EXTENSION_MAIL_ACCOUNT);
+	gchar *identity_uid = e_source_mail_account_dup_identity_uid (extension);
+	ESource *identity = identity_uid != NULL ? e_source_registry_ref_source (session->registry, identity_uid) : NULL;
+	ESource *transport = NULL;
+	CamelService *service;
+	gchar *uid = NULL;
+
+	if (identity != NULL && e_source_has_extension (identity, E_SOURCE_EXTENSION_MAIL_SUBMISSION))
+		uid = e_source_mail_submission_dup_transport_uid (
+			e_source_get_extension (identity, E_SOURCE_EXTENSION_MAIL_SUBMISSION));
+	if (uid != NULL)
+		transport = e_source_registry_ref_source (session->registry, uid);
+	if (transport == NULL || !e_source_has_extension (transport, E_SOURCE_EXTENSION_MAIL_TRANSPORT))
+		g_clear_pointer (&uid, g_free);
+
+	service = uid != NULL ? camel_session_ref_service (CAMEL_SESSION (session), uid) : NULL;
+	if (uid != NULL && service == NULL)
+		mail_session_add_from_source (session, CAMEL_PROVIDER_TRANSPORT, transport);
+
+	g_clear_object (&service);
+	g_clear_object (&transport);
+	g_clear_object (&identity);
+	g_free (identity_uid);
+
+	return uid;
+}
+
 static void
 mail_session_sync_stores (RevolutionMailSession *session)
 {
 	CamelSession *camel_session = CAMEL_SESSION (session);
 	GList *list, *link;
+	GHashTable *transports;
 
 	g_mutex_lock (&session->sync_lock);
 
+	transports = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
 	list = e_source_registry_list_sources (session->registry, E_SOURCE_EXTENSION_MAIL_ACCOUNT);
 
 	for (link = list; link != NULL; link = g_list_next (link)) {
@@ -314,9 +371,17 @@ mail_session_sync_stores (RevolutionMailSession *session)
 		shown = revolution_mail_account_hidden_reason (session->registry, source) == NULL;
 
 		if (shown && service == NULL)
-			mail_session_add_from_source (session, source);
+			mail_session_add_from_source (session, CAMEL_PROVIDER_STORE, source);
 		else if (!shown && service != NULL)
 			mail_session_remove_service (session, service);
+
+		/* #362 */
+		if (shown) {
+			gchar *transport_uid = mail_session_note_transport (session, source);
+
+			if (transport_uid != NULL)
+				g_hash_table_add (transports, transport_uid);
+		}
 
 		g_clear_object (&service);
 	}
@@ -329,18 +394,22 @@ mail_session_sync_stores (RevolutionMailSession *session)
 		CamelService *service = CAMEL_SERVICE (link->data);
 		ESource *source;
 
-		/* #351: Suchordner-Store der Favoriten ohne ESource (mail-favorites.c). */
-		if (CAMEL_IS_VEE_STORE (service))
+		/* #351: Suchordner-Store der Favoriten ohne ESource (mail-favorites.c); #362 ebenso der
+		 * Store des Postausgangs (mail-outbox.c). */
+		if (CAMEL_IS_VEE_STORE (service) || g_strcmp0 (camel_service_get_uid (service), REVOLUTION_MAIL_LOCAL_UID) == 0)
 			continue;
 
 		source = e_source_registry_ref_source (session->registry, camel_service_get_uid (service));
-		if (source == NULL)
+		/* #362: Versanddienst ohne angezeigtes Konto. */
+		if (source == NULL ||
+		    (CAMEL_IS_TRANSPORT (service) && !g_hash_table_contains (transports, camel_service_get_uid (service))))
 			mail_session_remove_service (session, service);
 
 		g_clear_object (&source);
 	}
 
 	g_list_free_full (list, (GDestroyNotify) g_object_unref);
+	g_hash_table_unref (transports);
 
 	g_mutex_unlock (&session->sync_lock);
 }
@@ -524,6 +593,11 @@ mail_session_add_service (CamelSession *session,
 	/* #351: Der Suchordner-Store der Favoriten hat keine ESource (mail-favorites.c);
 	 * Evolution konfiguriert seinen über die eingebaute Quelle „vfolder“ (e-mail-session.c:897-915). */
 	if (CAMEL_IS_VEE_STORE (service))
+		return service;
+
+	/* #362: Store des Postausgangs ohne ESource, konfiguriert in mail-outbox.c wie Evolution den
+	 * eingebauten lokalen Store (e-mail-session.c:824-850). */
+	if (g_strcmp0 (uid, REVOLUTION_MAIL_LOCAL_UID) == 0)
 		return service;
 
 	if (CAMEL_IS_SERVICE (service)) {
@@ -888,6 +962,14 @@ revolution_mail_session_class_init (RevolutionMailSessionClass *class)
 		G_SIGNAL_RUN_LAST,
 		0, NULL, NULL, NULL,
 		G_TYPE_NONE, 0);
+
+	/* #362: e-mail-session.c:2206-2220, EMailSession::flush-outbox; main.c sendet den Postausgang. */
+	signals[FLUSH_OUTBOX] = g_signal_new (
+		"flush-outbox",
+		G_TYPE_FROM_CLASS (class),
+		G_SIGNAL_RUN_FIRST,
+		0, NULL, NULL, NULL,
+		G_TYPE_NONE, 0);
 }
 
 static void
@@ -944,4 +1026,13 @@ revolution_mail_session_take_errors (RevolutionMailSession *session)
 	g_ptr_array_add (errors, NULL);
 
 	return (gchar **) g_ptr_array_free (errors, FALSE);
+}
+
+/* #362: e-mail-session.c:2966-2979 (e_mail_session_flush_outbox), ohne verzögertes Senden; im UI-Thread. */
+void
+revolution_mail_session_flush_outbox (RevolutionMailSession *session)
+{
+	g_return_if_fail (REVOLUTION_IS_MAIL_SESSION (session));
+
+	g_signal_emit (session, signals[FLUSH_OUTBOX], 0);
 }

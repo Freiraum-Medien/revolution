@@ -598,8 +598,10 @@ static gboolean
 tree_has_type (CamelFolderInfo *fi,
                guint32          type)
 {
+  /* #363: ohne die virtuellen Ordner von imapx (.#evolution/Trash, /Junk, camel-imapx-store.c:1270-1283). */
   for (; fi != NULL; fi = fi->next)
-    if ((fi->flags & CAMEL_FOLDER_TYPE_MASK) == type || tree_has_type (fi->child, type))
+    if (((fi->flags & CAMEL_FOLDER_TYPE_MASK) == type && (fi->flags & CAMEL_FOLDER_VIRTUAL) == 0) ||
+        tree_has_type (fi->child, type))
       return TRUE;
 
   return FALSE;
@@ -651,6 +653,11 @@ revolution_mail_folder_mark_special (CamelStore      *store,
     { CAMEL_FOLDER_TYPE_DRAFTS,  CAMEL_STORE_SETUP_DRAFTS_FOLDER,  "Entwürfe", NULL, "ESource" },
     { CAMEL_FOLDER_TYPE_SENT,    CAMEL_STORE_SETUP_SENT_FOLDER,    "Gesendet", NULL, "ESource" },
     { CAMEL_FOLDER_TYPE_ARCHIVE, CAMEL_STORE_SETUP_ARCHIVE_FOLDER, "Archiv",   NULL, "ESource" },
+    /* #363: Ziele für Löschen und Spam (mail-view.c, transfer_message). Aus der ESource setzt imapx den
+     * Typ selbst (use-real-trash-path/-junk-path, camel-imapx-store.c:356-372), sonst gilt die
+     * Ersteinrichtung (SPECIAL-USE oder Name, dort 2873-2885), z. B. geops@ „INBOX/Junk“ ohne \Junk. */
+    { CAMEL_FOLDER_TYPE_TRASH,   "Backend:Imapx Backend:real-trash-path:s", "Papierkorb", NULL, "Ersteinrichtung" },
+    { CAMEL_FOLDER_TYPE_JUNK,    "Backend:Imapx Backend:real-junk-path:s",  "Spam",       NULL, "Ersteinrichtung" },
   };
   g_autoptr (ESource) account = e_source_registry_ref_source (registry, uid);
   g_autoptr (ESource) identity = NULL;
@@ -709,6 +716,28 @@ revolution_mail_folder_mark_special (CamelStore      *store,
     }
 
   apply_special (store, info, special, G_N_ELEMENTS (special));
+
+  /* #363: Den virtuellen Papierkorb bzw. Spam-Ordner fügt Camel nur ohne echten Ordner ein (CAMEL_STORE_VTRASH/
+   * VJUNK, camel-store.c:1727-1760), imapx setzt die Flags nach use-real-trash-/junk-path der ESource
+   * (camel-imapx-store.c:158-169); Evolution zeigt dann nur den echten (em-folder-tree-model.c übernimmt die
+   * Ordnerliste ohne eigene Auswahl). Revolution typisiert den echten Ordner nur im Speicher (oben), daher den
+   * virtuellen gleichen Typs hier weglassen. Camel hängt ihn nie an den Anfang der Liste (add_special_info,
+   * camel-store.c:1037-1063). */
+  for (CamelFolderInfo *prev = info, *fi = info != NULL ? info->next : NULL; fi != NULL; fi = prev->next)
+    {
+      guint32 type = fi->flags & CAMEL_FOLDER_TYPE_MASK;
+
+      if ((fi->flags & CAMEL_FOLDER_VIRTUAL) != 0 && (type == CAMEL_FOLDER_TYPE_TRASH || type == CAMEL_FOLDER_TYPE_JUNK) &&
+          tree_has_type (info, type))
+        {
+          g_debug ("Spezialordner: %s virtueller Ordner %s ausgeblendet", uid, fi->full_name);
+          prev->next = fi->next;
+          fi->next = NULL;
+          camel_folder_info_free (fi);
+        }
+      else
+        prev = fi;
+    }
 
   for (gsize i = 0; i < G_N_ELEMENTS (special); i++)
     g_free (special[i].name);

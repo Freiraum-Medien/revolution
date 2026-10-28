@@ -8,6 +8,8 @@
 #                      Verbindungsaufbau ein RST („Verbindung zurückgesetzt“, wie info@ in Abnahme #358);
 #                      jede weitere geht durch
 #         sperre PORT  jede neue Verbindung zu PORT abgewiesen (TCP RST auf SYN, „Verbindung verweigert“)
+#         kappen PORT  #362: jede Verbindung zu PORT, auch bestehende, bekommt RST
+#         haengen PORT #362: Pakete zu PORT verworfen (Verbindungsaufbau hängt)
 #         frei PORT    Regel für PORT weg
 #       nft-Tabelle „kapp<PORT>“, Kette im Ausgang vor der Umleitung des Relais (Priorität -150, nach
 #       conntrack -200, vor NAT -100).
@@ -57,6 +59,12 @@ def kappen(kommando):
                   'tcp dport %d ct mark 0x420 ct state established reject with tcp reset\n' % (port, port))
     elif art == 'sperre':
         regeln = 'tcp dport %d ct state new reject with tcp reset\n' % port
+    elif art == 'kappen':
+        # #362: auch bestehende Verbindungen zu PORT (jedes Paket bekommt RST).
+        regeln = 'tcp dport %d reject with tcp reset\n' % port
+    elif art == 'haengen':
+        # #362: Pakete zu PORT verwerfen, eine neue Verbindung hängt im Aufbau.
+        regeln = 'tcp dport %d drop\n' % port
     else:
         raise ValueError(art)
     nft('table ip %s {\n chain aus {\n  type filter hook output priority -150; policy accept;\n%s }\n}\n'

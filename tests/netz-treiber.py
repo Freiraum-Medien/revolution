@@ -298,6 +298,12 @@ def ordner_wie_server(schritt, uids, ab):
     namen, anzahl = referenz()
     texte = [t for _, t in log_zeilen()[ab:]]
     for uid in uids:
+        # #363: virtuellen Papierkorb/Spam neben echtem Ordner blendet die App aus (mail-folder.c, Log).
+        aus = {m.group(1) for _, t in log_zeilen() for m in
+               [re.match(r'^Spezialordner: %s virtueller Ordner (\.#evolution/(Trash|Junk)) ausgeblendet$' % re.escape(uid), t)] if m}
+        if aus and uid in namen:
+            namen[uid] = namen[uid] - aus
+            anzahl[uid] = anzahl.get(uid, 0) - len(aus)
         n = [int(m.group(1)) for t in texte for m in [re.match(r'^Ordner: %s (\d+) geladen$' % re.escape(uid), t)] if m]
         app = {t[len('Ordner: %s ' % uid):] for t in texte if t.startswith('Ordner: %s ' % uid)
                and not re.match(r'^Ordner: \S+ (\d+ geladen|nicht |abgeglichen|neu |entfernt )', t)}

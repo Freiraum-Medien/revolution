@@ -1,0 +1,160 @@
+// Detailansicht eines Kontakts (#369), Inhalt in contacts-detail.c.
+// Aufbau nach quelltext/stamp/src/views/contact/stamp-contact-details.blp:4-117 (Leerzustand | Inhalt,
+// Avatar und Name mittig, je Feldtyp eine Liste) und dem M2-Prototyp (Tag m2-prototyp,
+// contacts-view.blp:475-700: Kopf mittig, runde Schnellaktion, gleiche Typen in einer Karte).
+// Karten als Standard-libadwaita boxed-list mit AdwActionRow (Stilklasse property: Typ gedimmt
+// oben, Wert normal darunter).
+using Gtk 4.0;
+using Adw 1;
+
+template $RevolutionContactsDetail: Adw.Bin {
+  child: Stack stack {
+    // Ohne Auswahl: Leerzustand wie Stamp (stamp-contact-details.blp:10-23).
+    StackPage {
+      name: "empty";
+
+      child: Adw.StatusPage {
+        icon-name: "avatar-default-symbolic";
+        title: _("No Contact Selected");
+      };
+    }
+
+    StackPage {
+      name: "contact";
+
+      // Kopf und Karten scrollen gemeinsam wie GNOME Contacts (contacts-contact-pane.ui:
+      // GtkScrolledWindow > AdwClamp), Maße wie der Prototyp.
+      child: ScrolledWindow {
+        hscrollbar-policy: never;
+
+        child: Adw.Clamp {
+          maximum-size: 620;
+          tightening-threshold: 480;
+          margin-start: 12;
+          margin-end: 12;
+          margin-top: 18;
+          margin-bottom: 24;
+
+          child: Box {
+            orientation: vertical;
+            spacing: 18;
+
+            // Kopf: großer Avatar und Name mittig (Dokument #5, Prototyp kontakte-hell.png).
+            Box {
+              orientation: vertical;
+              spacing: 12;
+              halign: center;
+
+              // presentation: der Name steht darunter, sonst doppelt vorgelesen.
+              Adw.Avatar avatar {
+                size: 96;
+                show-initials: true;
+                halign: center;
+                accessible-role: presentation;
+              }
+
+              // Name halbfett (Dokument #5, style.css .contact-name).
+              Label name_label {
+                wrap: true;
+                wrap-mode: word_char;
+                justify: center;
+
+                styles [
+                  "title-1",
+                  "contact-name",
+                ]
+              }
+
+              // Schnellaktion: nur „Mail schreiben“ in M6 (Dokument #19 „Nicht in M6“: Anrufen,
+              // Termin, Teilen); Symbol wie der Prototyp. Aktion und Ziel (erste Adresse) setzt contacts-detail.c.
+              Box {
+                halign: center;
+                margin-top: 6;
+
+                Button mail_button {
+                  icon-name: "mail-message-new-symbolic";
+                  tooltip-text: _("Send Email");
+
+                  accessibility {
+                    label: _("Send Email");
+                  }
+
+                  styles [
+                    "contact-action",
+                  ]
+                }
+              }
+            }
+
+            // Gleiche Typen in einer Karte (Dokument #5), Reihenfolge wie Evolution
+            // (eab-contact-formatter.c:1118-1142: E-Mail und Telefon, Adressen, Arbeit, Notiz).
+            ListBox email_list {
+              selection-mode: none;
+              visible: false;
+
+              styles [
+                "boxed-list",
+              ]
+
+              accessibility {
+                label: _("Email Addresses");
+              }
+            }
+
+            ListBox phone_list {
+              selection-mode: none;
+              visible: false;
+
+              styles [
+                "boxed-list",
+              ]
+
+              accessibility {
+                label: _("Phone Numbers");
+              }
+            }
+
+            ListBox address_list {
+              selection-mode: none;
+              visible: false;
+
+              styles [
+                "boxed-list",
+              ]
+
+              accessibility {
+                label: _("Addresses");
+              }
+            }
+
+            ListBox org_list {
+              selection-mode: none;
+              visible: false;
+
+              styles [
+                "boxed-list",
+              ]
+
+              accessibility {
+                label: _("Organization");
+              }
+            }
+
+            ListBox note_list {
+              selection-mode: none;
+              visible: false;
+
+              styles [
+                "boxed-list",
+              ]
+
+              accessibility {
+                label: _("Notes");
+              }
+            }
+          };
+        };
+      };
+    }
+  };
+}

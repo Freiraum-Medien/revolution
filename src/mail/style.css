@@ -333,6 +333,25 @@ menubutton.primary-menu popover.menu separator {
   color: var(--accent-fg-color);
 }
 
+/* #369: Name im Kopf des Details groß (title-1) und halbfett wie .mail-sender;
+ * runde Schnellaktion, Tönung wie .mail-notice-button (aus dem Prototyp, Tag m2-prototyp). */
+.contact-name {
+  font-weight: 600;
+}
+
+button.contact-action {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--accent-bg-color) 16%, transparent);
+  color: var(--accent-color);
+}
+
+button.contact-action:hover {
+  background-color: color-mix(in srgb, var(--accent-bg-color) 24%, transparent);
+}
+
 /* Buchstabenleiste A–Z: klein, Akzentfarbe, ohne Knopfabstand. */
 .letter-bar button {
   min-height: 0;

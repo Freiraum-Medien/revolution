@@ -14,6 +14,11 @@
 #            Nicht-Treffer, Escape), ändern, löschen – jede Änderung live ohne Neuladen.
 #   outlook  dunkel, microsoft365 „Kontakte“ outlook.com (3be9d2a4…): dasselbe live über EDS; dazu Gegenprobe am Server
 #            über Graph (ohne EDS): erscheint/verschwindet der Kontakt ohne Refresh? sonst nach e_book_client_refresh.
+#   google-dunkel  #369 dunkel, nur die Detailansicht im Google-Buch (Bild m6-369-detail-dunkel.png).
+# #369 (DETAIL, kontakte-treiber.py): google und google-dunkel mit Testkontakt „Erika Revolution-Test Detail …“ (alle
+# Felder), Vergleich mit Python-GI, „Mail schreiben“ (Composer nur geöffnet, nie gesendet), google zusätzlich Feld live
+# ändern; outlook legt denselben Kontakt einmal an und belegt, welche Felder microsoft365 übernimmt.
+#   TEILE  Läufe, Standard „google outlook google-dunkel“ (zum Eingrenzen, z. B. TEILE=google-dunkel)
 # Schreiben nur in diese beiden Bücher (Briefing Zusatz M6), nur Testkontakte „Revolution-Test 368 …“ über die
 # gespeicherte UID bzw. Graph-ID; höchstens 20 Schreibvorgänge je Lauf und Buch (geprüft). Am Ende: kein Testkontakt
 # übrig (--kontakt-live pruefen, Graph GET 404) und Kontaktzahlen wie vorher. Zeilen „OK …“/„FEHLER …“, Exit 0 ohne
@@ -63,7 +68,7 @@ else
 fi
 
 lauf () {
-  local name="$1" buch="$2" modus="$3" schema="$4" graph="$5" rundir rc=0
+  local name="$1" buch="$2" modus="$3" schema="$4" graph="$5" detail="$6" bildname="$7" rundir rc=0
   bus_frei || { echo "FEHLER  $name: Session-Bus: $APP_ID läuft schon"; return 1; }
   rundir="$(mktemp -d)"
   timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK -u M365_DEBUG \
@@ -72,6 +77,7 @@ lauf () {
     ADW_DEBUG_COLOR_SCHEME="$schema" G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals \
     REVOLUTION_BOOK="$buch" BIN="$BIN" OUT="$OUT" NAME="m6-368-$name" BUCH="$buch" MODUS="$modus" GRAPH="$graph" \
     VERGLEICH="$OUT/adressbuecher.txt" KONTAKT="$OUT/$name-kontakt.txt" GRAPH_DATEI="$OUT/$name-graph.txt" \
+    DETAIL="$detail" DETAIL_DATEI="$OUT/$name-detail.txt" DETAIL_BILD="$bildname" \
     TESTDATEN="$APP_DIR/tests/testdaten.py" \
     xvfb-run -a -s "-screen 0 1400x900x24" python3 -I "$APP_DIR/tests/kontakte-treiber.py" || rc=$?
   rm -rf "$rundir"
@@ -82,16 +88,18 @@ lauf () {
 
 # Aufräumen und Beleg: gespeicherter Testkontakt nicht mehr vorhanden (sonst jetzt löschen, zählt als FEHLER).
 aufgeraeumt () {
-  local name="$1" buch="$2"
-  if [ -s "$OUT/$name-kontakt.txt" ]; then
-    td --kontakt-live pruefen "$buch" "$OUT/$name-kontakt.txt" >"$OUT/$name-aufraeumen.txt" 2>&1
-    if grep -q '^VORHANDEN 0 ' "$OUT/$name-aufraeumen.txt"; then
-      echo "OK      $name: Testkontakt $(cut -d' ' -f3 "$OUT/$name-kontakt.txt") nicht mehr im Buch"
+  local name="$1" buch="$2" datei
+  : >"$OUT/$name-aufraeumen.txt"
+  for datei in "$OUT/$name-kontakt.txt" "$OUT/$name-detail.txt"; do
+    [ -s "$datei" ] || continue
+    td --kontakt-live pruefen "$buch" "$datei" >>"$OUT/$name-aufraeumen.txt" 2>&1
+    if [ "$(tail -1 "$OUT/$name-aufraeumen.txt" | cut -d' ' -f1-2)" = "VORHANDEN 0" ]; then
+      echo "OK      $name: Testkontakt $(cut -d' ' -f3 "$datei") nicht mehr im Buch"
     else
-      echo "FEHLER  $name: Testkontakt noch vorhanden, wird gelöscht: $(cat "$OUT/$name-aufraeumen.txt")"; FEHLER=$((FEHLER + 1))
-      td --kontakt-live loeschen "$buch" "$OUT/$name-kontakt.txt" >>"$OUT/$name-aufraeumen.txt" 2>&1
+      echo "FEHLER  $name: Testkontakt noch vorhanden, wird gelöscht: $(tail -1 "$OUT/$name-aufraeumen.txt")"; FEHLER=$((FEHLER + 1))
+      td --kontakt-live loeschen "$buch" "$datei" >>"$OUT/$name-aufraeumen.txt" 2>&1
     fi
-  fi
+  done
   if [ -s "$OUT/$name-graph.txt" ] && ! grep -q ': WEG ' "$OUT/$name.txt"; then
     echo "FEHLER  $name: Graph-Kontakt nicht als gelöscht belegt, wird gelöscht"; FEHLER=$((FEHLER + 1))
     td --kontakt-graph loeschen "$OUT/$name-graph.txt" >>"$OUT/$name-aufraeumen.txt" 2>&1
@@ -108,15 +116,22 @@ aufgeraeumt () {
 
 teil () {
   local name="$1" buch="$2"; shift
-  rm -f "$OUT/$name-kontakt.txt" "$OUT/$name-graph.txt"
+  rm -f "$OUT/$name-kontakt.txt" "$OUT/$name-graph.txt" "$OUT/$name-detail.txt"
   lauf "$name" "$@" | tee "$OUT/$name.txt"
   teilschritt "$name" "${PIPESTATUS[0]}" "$OUT/$name.txt"
   FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/$name.txt")))
   aufgeraeumt "$name" "$buch"
 }
 
-teil google "$GOOGLE_BUCH" alle prefer-light 0
-teil outlook "$OUTLOOK_BUCH" live prefer-dark 1
+TEILE="${TEILE:-google outlook google-dunkel}"
+for t in $TEILE; do
+  case "$t" in
+    google) teil google "$GOOGLE_BUCH" alle prefer-light 0 voll m6-369-detail-hell ;;
+    outlook) teil outlook "$OUTLOOK_BUCH" live prefer-dark 1 m365 m6-369-detail-m365 ;;
+    google-dunkel) teil google-dunkel "$GOOGLE_BUCH" detail prefer-dark 0 anzeige m6-369-detail-dunkel ;;
+    *) echo "FEHLER  TEILE: $t unbekannt"; FEHLER=$((FEHLER + 1)) ;;
+  esac
+done
 
 td --adressbuecher >"$OUT/adressbuecher-nachher.txt" 2>&1
 if diff -q <(grep '^ADRESSBUCH' "$OUT/adressbuecher.txt") <(grep '^ADRESSBUCH' "$OUT/adressbuecher-nachher.txt") >/dev/null; then

@@ -25,6 +25,8 @@ src/mail/mail-reader.blp
 src/mail/mail-attachment.blp
 src/mail/mail-conversation.blp
 src/contacts/contacts-contact.c
+src/contacts/contacts-detail.blp
+src/contacts/contacts-detail.c
 src/contacts/contacts-view.blp
 src/contacts/contacts-view.c
 src/calendar/calendar-view.blp

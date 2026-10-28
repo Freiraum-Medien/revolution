@@ -21,5 +21,6 @@ void                       revolution_contacts_contact_set_contact (RevolutionCo
 const char                *revolution_contacts_contact_get_uid     (RevolutionContactsContact *self);
 const char                *revolution_contacts_contact_get_name    (RevolutionContactsContact *self);
 const char                *revolution_contacts_contact_get_initial (RevolutionContactsContact *self);
+EContact                  *revolution_contacts_contact_get_contact (RevolutionContactsContact *self);
 
 G_END_DECLS

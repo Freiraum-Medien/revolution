@@ -140,6 +140,14 @@
 #                                 nur mit Nachname „Revolution-Test…“ (modify_contact_sync, remove_contact_by_uid_sync);
 #                                 pruefen (nur lesend) „VORHANDEN 0|1 <UID> <Name>“; refresh e_book_client_refresh_sync.
 #                                 Zeilen „ANGELEGT|GEAENDERT|GELOESCHT <UID> <Name>“, „SCHREIBVORGANG <BUCH>“ je Schreiben
+#   tests/testdaten.py --kontakt-live detail|lesen|feld BUCH DATEI
+#                                 #369, Schreibregeln wie oben: detail legt „Erika Revolution-Test Detail <Zeit>“ mit allen
+#                                 Feldern der Detailansicht an (Vor-/Nachname, kleines eingebettetes Foto, 2 E-Mails
+#                                 TYPE=WORK/HOME, 4 Telefone WORK/HOME/CELL/WORK+FAX, 3 Adressen (eine mit LABEL), Firma/Abteilung/Position, mehrzeilige
+#                                 Notiz mit Umlauten), UID nach DATEI wie anlegen, dazu „SOLL <JSON>“ (geschrieben);
+#                                 lesen (nur lesend) „FELDER <JSON>“: was EDS jetzt hält (Name, E-Mails/Telefone mit TYPE,
+#                                 Adressen mit Label, Firma, Abteilung, Position, Notiz, Foto); feld ändert Notiz und Mobil
+#                                 („GEAENDERT <UID> <JSON>“); löschen wie oben mit loeschen
 #   tests/testdaten.py --kontakt-graph anlegen|loeschen DATEI
 #                                 #368, Gegenprobe am Server ohne EDS (Graph, nur KONTO_M365 /me/contacts): anlegen
 #                                 POST mit Nachname „Revolution-Test 368 Graph <Zeit>“, ID nach DATEI („GRAPH <ID> <Name>“);
@@ -1897,7 +1905,7 @@ def adressbuecher(registry):
 def kontakt_live(registry, aktion, buch, datei):
     """#368: siehe Kopf (--kontakt-live). Ändern/Löschen nur über die gespeicherte UID, nie per Suche."""
     EBook, EBookContacts = ebook()
-    if aktion != 'pruefen' and buch not in KONTAKT_SCHREIBBAR:
+    if aktion not in ('pruefen', 'lesen') and buch not in KONTAKT_SCHREIBBAR:
         sys.exit('ABBRUCH: Adressbuch %s ist nicht zum Schreiben freigegeben' % buch)
     quelle = registry.ref_source(buch)
     if quelle is None:
@@ -1906,6 +1914,16 @@ def kontakt_live(registry, aktion, buch, datei):
     if aktion == 'refresh':
         c.refresh_sync(cancellable())
         print('REFRESH %s' % buch, flush=True)
+        return 0
+    if aktion == 'detail':
+        neu = EBookContacts.Contact.new_from_vcard(detail_vcard(datetime.datetime.now().strftime('%H%M%S')))
+        soll = detail_felder(neu)
+        uid = c.add_contact_sync(neu, EBookContacts.BookOperationFlags.NONE, cancellable())[1]
+        with open(datei, 'w') as f:
+            f.write('KONTAKT %s %s %s\n' % (buch, uid, neu.get_property('full-name')))
+        print('SCHREIBVORGANG %s' % buch)
+        print('ANGELEGT %s %s' % (uid, neu.get_property('full-name')))
+        print('SOLL %s' % json.dumps(soll, ensure_ascii=False), flush=True)
         return 0
     if aktion == 'anlegen':
         zeit = datetime.datetime.now().strftime('%H%M%S')
@@ -1936,6 +1954,9 @@ def kontakt_live(registry, aktion, buch, datei):
     if aktion == 'pruefen':
         print('VORHANDEN 1 %s %s' % (uid, x.get_property('full-name')), flush=True)
         return 0
+    if aktion == 'lesen':
+        print('FELDER %s' % json.dumps(detail_felder(x), ensure_ascii=False), flush=True)
+        return 0
     if not (x.get_property('name') and (x.get_property('name').family or '').startswith(KONTAKT_PREFIX)):
         sys.exit('ABBRUCH: Kontakt %s hat keinen Nachnamen %s…' % (uid, KONTAKT_PREFIX))
     if aktion == 'aendern':
@@ -1943,11 +1964,82 @@ def kontakt_live(registry, aktion, buch, datei):
         c.modify_contact_sync(x, EBookContacts.BookOperationFlags.NONE, cancellable())
         print('SCHREIBVORGANG %s' % buch)
         print('GEAENDERT %s %s' % (uid, x.get_property('full-name')), flush=True)
+    elif aktion == 'feld':
+        # #369: Notiz um eine Zeile ergänzen und die Mobilnummer ersetzen (Live-Änderung im Detail).
+        F = EBookContacts.ContactField
+        x.set_property('note', (x.get_property('note') or '') + '\nDritte Zeile: geändert %s'
+                       % datetime.datetime.now().strftime('%H%M%S'))
+        telefone = x.get_attributes(F.TEL)
+        for a in telefone:
+            if 'CELL' in [t.upper() for t in (a.get_param('TYPE') or [])]:
+                a.remove_values()
+                a.add_value('+49 172 0000369')
+        x.set_attributes(F.TEL, telefone)
+        c.modify_contact_sync(x, EBookContacts.BookOperationFlags.NONE, cancellable())
+        print('SCHREIBVORGANG %s' % buch)
+        print('GEAENDERT %s %s' % (uid, json.dumps(detail_felder(x), ensure_ascii=False)), flush=True)
     elif aktion == 'loeschen':
         c.remove_contact_by_uid_sync(uid, EBookContacts.BookOperationFlags.NONE, cancellable())
         print('SCHREIBVORGANG %s' % buch)
         print('GELOESCHT %s %s' % (uid, x.get_property('full-name')), flush=True)
     return 0
+
+
+DETAIL_TELEFONE = (('WORK,VOICE', '+49 30 0000369'), ('HOME,VOICE', '+49 221 0000369'), ('CELL', '+49 171 0000369'),
+                   ('WORK,FAX', '+49 30 0000370'))  # Runde 2: Typkombination wie Evolution („Fax (Arbeit)“)
+# Runde 2: Adresse mit fertigem Label (LABEL hat Vorrang vor den ADR-Teilen, Evolution accum_address).
+DETAIL_LABEL = 'Postfach 3690\nPostweg 1\n20095 Hamburg\nDeutschland'
+DETAIL_NOTIZ = 'Erste Zeile mit Umlauten: Grüße aus Köln, Straße, Maß\nZweite Zeile: ÄÖÜ äöü ß'
+
+
+def detail_vcard(zeit):
+    """#369: vCard 3.0 mit allen Feldern der Detailansicht; E-Mails nur an Testkonten (nie gesendet)."""
+    from PIL import Image, ImageDraw
+    bild = Image.new('RGB', (48, 48), (230, 97, 0))
+    ImageDraw.Draw(bild).ellipse((12, 8, 36, 32), fill=(255, 255, 255))
+    puffer = io.BytesIO()
+    bild.save(puffer, 'PNG')
+    foto = base64.b64encode(puffer.getvalue()).decode()
+    familie = '%s Detail %s' % (KONTAKT_PREFIX, zeit)
+    zeilen = ['BEGIN:VCARD', 'VERSION:3.0', 'N:%s;Erika;;;' % familie, 'FN:Erika %s' % familie,
+              'X-EVOLUTION-FILE-AS:%s\\, Erika' % familie,
+              'EMAIL;TYPE=WORK:%s' % KONTO_IMAP_2, 'EMAIL;TYPE=HOME:%s' % KONTO_IMAP_1]
+    zeilen += ['TEL;TYPE=%s:%s' % (typ, nummer) for typ, nummer in DETAIL_TELEFONE]
+    zeilen += ['ADR;TYPE=WORK:;;Friedrichstraße 12;Berlin;;10117;Deutschland',
+               'ADR;TYPE=HOME:;;Mühlenweg 3;Köln;;50667;Deutschland',
+               'ADR;TYPE=OTHER:;;Postweg 1;Hamburg;;20095;Deutschland',
+               'LABEL;TYPE=OTHER:%s' % DETAIL_LABEL.replace('\n', '\\n'),
+               'ORG:Freiraum Medien Test;Entwicklung', 'TITLE:Testerin',
+               'NOTE:%s' % DETAIL_NOTIZ.replace('\n', '\\n'),
+               'PHOTO;ENCODING=b;TYPE=PNG:%s' % foto, 'END:VCARD']
+    return '\r\n'.join(zeilen) + '\r\n'
+
+
+def detail_felder(x):
+    """#369: Felder der Detailansicht so, wie EDS sie hält (unabhängig von der App gelesen)."""
+    _, EBookContacts = ebook()
+    F = EBookContacts.ContactField
+
+    def attrs(feld):
+        return [{'typen': sorted(t.upper() for t in (a.get_param('TYPE') or [])), 'wert': a.get_value()}
+                for a in x.get_attributes(feld) if (a.get_value() or '').strip()]
+    adressen = {}
+    for art in ('work', 'home', 'other'):
+        a = x.get_property('address-' + art)
+        label = x.get_property('address-label-' + art)
+        if a is not None or label:
+            adressen[art] = {'label': label, 'po': a and a.po, 'ext': a and a.ext, 'street': a and a.street,
+                             'locality': a and a.locality, 'region': a and a.region, 'code': a and a.code,
+                             'country': a and a.country}
+    foto = x.get_property('photo')
+    return {'uid': x.get_property('id'), 'name': x.get_property('full-name'),
+            'given': x.get_property('name') and x.get_property('name').given,
+            'family': x.get_property('name') and x.get_property('name').family,
+            'emails': attrs(F.EMAIL), 'telefone': attrs(F.TEL), 'adressen': adressen,
+            'firma': x.get_property('org'), 'abteilung': x.get_property('org-unit'), 'position': x.get_property('title'),
+            'notiz': x.get_property('note'),
+            'foto': None if foto is None else ('inline' if foto.type == EBookContacts.ContactPhotoType.INLINED
+                                               else 'uri')}
 
 
 def kontakt_graph(k, aktion, datei):
@@ -2693,7 +2785,7 @@ def main():
     ap.add_argument('--kontakt', nargs='?', const='', choices=('', 'anlegen', 'weg'),
                     help='#361: Testkontakt im Google-Adressbuch von %s' % KONTAKT_KONTO)
     ap.add_argument('--adressbuecher', action='store_true', help='#368: nur lesend Adressbücher und Kontaktzahl')
-    ap.add_argument('--kontakt-live', nargs=3, metavar=('anlegen|aendern|loeschen|pruefen|refresh', 'BUCH', 'DATEI'),
+    ap.add_argument('--kontakt-live', nargs=3, metavar=('anlegen|aendern|loeschen|pruefen|refresh|detail|lesen|feld', 'BUCH', 'DATEI'),
                     help='#368: Testkontakt von außen über EDS')
     ap.add_argument('--kontakt-graph', nargs=2, metavar=('anlegen|loeschen', 'DATEI'),
                     help='#368: Testkontakt in %s direkt über Graph' % KONTO_M365)
@@ -2773,8 +2865,8 @@ def main():
     if args.adressbuecher:
         return adressbuecher(EDataServer.SourceRegistry.new_sync(None))
     if args.kontakt_live:
-        if args.kontakt_live[0] not in ('anlegen', 'aendern', 'loeschen', 'pruefen', 'refresh'):
-            ap.error('--kontakt-live anlegen|aendern|loeschen|pruefen|refresh BUCH DATEI')
+        if args.kontakt_live[0] not in ('anlegen', 'aendern', 'loeschen', 'pruefen', 'refresh', 'detail', 'lesen', 'feld'):
+            ap.error('--kontakt-live anlegen|aendern|loeschen|pruefen|refresh|detail|lesen|feld BUCH DATEI')
         return kontakt_live(EDataServer.SourceRegistry.new_sync(None), *args.kontakt_live)
     if args.kontakt_graph:
         if args.kontakt_graph[0] not in ('anlegen', 'loeschen'):

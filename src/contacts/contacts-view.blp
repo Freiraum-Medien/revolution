@@ -527,13 +527,9 @@ template $RevolutionContactsView: Adw.BreakpointBin {
         };
       }
 
-      // Ohne Auswahl: Leerzustand wie Stamp (stamp-contact-details.blp:10-23).
-      // Detail (Kopf, Reiter Details | Verlauf | Firma) folgt in M6, Muster im Tag m2-prototyp.
-      // #368: zeigt bis #369 nur den Namen der Auswahl (on_contact_selected).
-      content: Adw.StatusPage contact_status {
-        icon-name: "avatar-default-symbolic";
-        title: _("No Contact Selected");
-      };
+      // #369: Detail der Auswahl (contacts-detail.blp), ohne Auswahl Leerzustand. Reiter
+      // Verlauf | Firma des Prototyps sind nicht in M6 (Dokument #19).
+      content: $RevolutionContactsDetail detail {};
     }
 
 

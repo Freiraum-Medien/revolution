@@ -11,13 +11,24 @@
 #                 Neuladen in der Liste (Log + AT-SPI + Bild).
 #   GRAPH=1       zusätzlich Gegenprobe am Server (tests/testdaten.py --kontakt-graph, Graph ohne EDS): erscheint der
 #                 Kontakt ohne Refresh? sonst nach --kontakt-live refresh (e_book_client_refresh_sync).
-# Umgebung: BIN, OUT, NAME, BUCH, MODUS, VERGLEICH, KONTAKT (Datei für die UID), GRAPH_DATEI, TESTDATEN, TIMEOUT.
+#   MODUS=detail  nur die Detailansicht (#369, siehe DETAIL).
+#   DETAIL        #369 nach den Schritten oben (leer = aus): Testkontakt mit allen Feldern von außen anlegen
+#                 (tests/testdaten.py --kontakt-live detail), über die Suche wählen; jeder Wert und jede Typ-Bezeichnung
+#                 im Detail (AT-SPI) gleich dem unabhängig per Python-GI gelesenen (--kontakt-live lesen), Bild; dann
+#                 voll     „Mail schreiben“ oben per Maus und je Zeile per Tab/Enter öffnet den Composer mit
+#                          „Name <Adresse>“ in An (AT-SPI), Escape schließt ohne Entwurf; Feld von außen ändern
+#                          (--kontakt-live feld) erscheint im Detail; löschen leert das Detail.
+#                 anzeige  wie voll ohne Feldänderung.
+#                 m365     ohne Composer: welche Felder das Buch übernimmt (SOLL gegen FELDER, „WERT“), löschen.
+# Umgebung: BIN, OUT, NAME, BUCH, MODUS, VERGLEICH, KONTAKT (Datei für die UID), GRAPH_DATEI, TESTDATEN, TIMEOUT,
+#           DETAIL, DETAIL_DATEI (UID des Detail-Testkontakts), DETAIL_BILD (Name des Detail-Bilds).
 # Ausgabe: „OK …“, „FEHLER …“, „WERT …“; Bilder OUT/NAME-<Schritt>.png.
 #
 # Copyright 2026 Arnd Messer
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import json
 import os
 import re
 import subprocess
@@ -41,6 +52,9 @@ TESTDATEN = os.environ['TESTDATEN']
 TIMEOUT = int(os.environ.get('TIMEOUT', '120'))
 GRAPH_WARTEN = int(os.environ.get('GRAPH_WARTEN', '60'))
 LOG = os.path.join(OUT, NAME + '.log')
+DETAIL = os.environ.get('DETAIL', '')
+DETAIL_DATEI = os.environ.get('DETAIL_DATEI', '')
+DETAIL_BILD = os.environ.get('DETAIL_BILD', NAME + '-detail')
 SUCHE = 'Revolution-Test 368'
 NICHT = 'Zqxjvwq'
 
@@ -113,25 +127,32 @@ def tippe(text):
             taste(TASTEN.get(ch, ch))
 
 
-def bild(schritt):
+def bild(schritt, pfad=None):
     root = d.screen().root
     g = root.get_geometry()
-    pfad = os.path.join(OUT, '%s-%s.png' % (NAME, schritt))
+    pfad = pfad or os.path.join(OUT, '%s-%s.png' % (NAME, schritt))
     Image.frombytes('RGB', (g.width, g.height), root.get_image(0, 0, g.width, g.height, X.ZPixmap,
                                                                0xffffffff).data, 'raw', 'BGRX').save(pfad)
     wert('Bild %s' % pfad)
 
 
-def fenster():
-    for _ in range(100):
+def fenster(titel='Revolution', weg=False, zeit=20):
+    """X-Fenster mit diesem Titel (sichtbar); weg: warten, bis es keins mehr gibt (True)."""
+    ende = time.monotonic() + zeit
+    while time.monotonic() < ende:
+        treffer = None
         for w in d.screen().root.query_tree().children:
             try:
-                if w.get_wm_name() == 'Revolution' and w.get_attributes().map_state == X.IsViewable:
-                    return w
+                if w.get_wm_name() == titel and w.get_attributes().map_state == X.IsViewable:
+                    treffer = w
             except Exception:
                 pass
+        if weg and treffer is None:
+            return True
+        if not weg and treffer is not None:
+            return treffer
         time.sleep(0.2)
-    return None
+    return False if weg else None
 
 
 def schliessen(w):
@@ -395,6 +416,270 @@ def graph_probe():
     (ok if warte_zeile(name, False) else falsch)('Graph löschen: Zeile „%s“ weg (AT-SPI)' % name)
 
 
+# ------------------------------------------------------------------ Detailansicht (#369)
+
+EMAIL_TYP = (('WORK', 'Arbeit'), ('HOME', 'Privat'))
+# Wie Evolution get_phone_location: genau ein Sondertyp → sein Name (Ort Arbeit/Privat in Klammern), Fax ohne Ort
+# → „Weiteres Fax“, PREF allein → „Telefon, primär“, sonst nur der Ort bzw. „Telefon“ (#369 Runde 2).
+TELEFON_SONDER = (('X-EVOLUTION-ASSISTANT', 'Telefon des Assistenten'), ('X-EVOLUTION-CALLBACK', 'Rückruf-Telefon'),
+                  ('CAR', 'Autotelefon'), ('X-EVOLUTION-COMPANY', 'Firmentelefon'), ('ISDN', 'ISDN'), ('CELL', 'Mobil'),
+                  ('FAX', 'Fax'), ('PAGER', 'Pager'), ('X-EVOLUTION-RADIO', 'Funk'), ('X-EVOLUTION-TELEX', 'Telex'),
+                  ('X-EVOLUTION-TTYTDD', 'TTY/TDD'))
+
+
+def telefon_typ(typen):
+    arbeit, privat = 'WORK' in typen, 'HOME' in typen
+    ort = 'Arbeit' if arbeit and not privat else 'Privat' if privat and not arbeit else None
+    sonder = [(t, n) for t, n in TELEFON_SONDER if t in typen]
+    if not sonder and 'PREF' in typen:
+        return 'Telefon, primär'
+    if len(sonder) != 1:
+        return ort or 'Telefon'
+    if ort is None:
+        return 'Weiteres Fax' if sonder[0][0] == 'FAX' else sonder[0][1]
+    return '%s (%s)' % (sonder[0][1], ort)
+ADRESSE_TYP = (('work', 'Arbeit'), ('home', 'Privat'), ('other', 'Weitere'))
+
+
+def typ_name(typen, tabelle, sonst):
+    for typ, name in tabelle:
+        if typ in typen:
+            return name
+    return sonst
+
+
+def adresse_text(a):
+    """Erwarteter Text einer Adresse: Label der vCard, sonst Postfach, Zusatz, Straße, PLZ Ort, Region, Land."""
+    if a.get('label'):
+        return a['label']
+    ort = ' '.join(x for x in (a.get('code'), a.get('locality')) if x).strip()
+    return '\n'.join(x for x in (a.get('po'), a.get('ext'), a.get('street'), ort, a.get('region'), a.get('country')) if x)
+
+
+def detail_soll(f):
+    """{Liste (Barrierefreiheits-Name): [(Typ, Wert)]} wie die Detailansicht sie zeigen muss (leere fehlen)."""
+    soll = {'E-Mail-Adressen': [(typ_name(e['typen'], EMAIL_TYP, 'E-Mail'), e['wert'].strip()) for e in f['emails']],
+            'Telefonnummern': [(telefon_typ(t['typen']), t['wert'].strip()) for t in f['telefone']],
+            'Adressen': [(name, adresse_text(f['adressen'][art])) for art, name in ADRESSE_TYP
+                         if art in f['adressen'] and adresse_text(f['adressen'][art])],
+            'Organisation': [(n, f[k]) for k, n in (('firma', 'Firma'), ('abteilung', 'Abteilung'),
+                                                     ('position', 'Position')) if f.get(k)],
+            'Notizen': [('Notizen', f['notiz'])] if f.get('notiz') else []}
+    return {k: v for k, v in soll.items() if v}
+
+
+def knoten(o):
+    if o is None:
+        return
+    yield o
+    for i in range(o.get_child_count()):
+        yield from knoten(o.get_child_at_index(i))
+
+
+def zeilen_texte(liste):
+    """[[Texte der Labels]] je Zeile („list item“) einer Liste."""
+    out = []
+    for i in range(liste.get_child_count()):
+        z = liste.get_child_at_index(i)
+        if z is not None:
+            out.append([k.get_name() for k in knoten(z) if k.get_role_name() == 'label'])
+    return out
+
+
+def detail_lesen(felder_vorher=None):
+    aus = testdaten('--kontakt-live', 'lesen', BUCH, DETAIL_DATEI)
+    return json.loads(re.search(r'^FELDER (.*)$', aus, re.M).group(1))
+
+
+def detail_vergleichen(f, schritt):
+    """Jeder Wert und Typ im Detail (AT-SPI) gleich dem unabhängig gelesenen (Python-GI)."""
+    w = wurzel()
+    name = f['name']
+    labels = [k.get_name() for k in knoten(w) if k.get_role_name() == 'label']
+    (ok if labels.count(name) >= 2 else falsch)('%s: Name „%s“ im Kopf (und in der Liste), AT-SPI' % (schritt, name))
+    soll = detail_soll(f)
+    for liste_name in ('E-Mail-Adressen', 'Telefonnummern', 'Adressen', 'Organisation', 'Notizen'):
+        liste = finde(w, 'list', liste_name)
+        ist = zeilen_texte(liste) if liste is not None else []
+        erwartet = soll.get(liste_name, [])
+        if not erwartet:
+            (ok if liste is None or not ist else falsch)('%s: Karte „%s“ leer und nicht angezeigt (%s)'
+                                                         % (schritt, liste_name, ist))
+            continue
+        passt = len(ist) == len(erwartet) and all(typ in z and wert in z for (typ, wert), z in zip(erwartet, ist))
+        (ok if passt else falsch)('%s: Karte „%s“ = Python-GI: %s%s' % (
+            schritt, liste_name, ' | '.join('%s: %s' % (t, v.replace('\n', '⏎')) for t, v in erwartet),
+            '' if passt else ' – angezeigt: %s' % ist))
+
+
+def detail_suchen(name):
+    """Testkontakt über die Suche (ein Treffer) wählen: AT-SPI select_child nimmt die Position im Modell."""
+    fokus_liste()
+    ab = marke()
+    taste('Control_L', 'f')
+    begriff = name.split(' ', 1)[1]
+    tippe(begriff)
+    m = warte(r'Kontakte: %s Ansicht „%s“' % (re.escape(BUCH), re.escape('(contains "x-evolution-any-field" "%s")'
+                                                                          % begriff)), ab, 30)
+    n = fertig(BUCH, ab + m.end(), 60) if m else None
+    if n != 1:
+        falsch('Detail: Suche „%s“: %s Treffer, erwartet 1' % (name, n))
+        return None
+    if not warte_zeile(name):
+        falsch('Detail: Zeile „%s“ nicht in der Liste' % name)
+        return None
+    ab = marke()
+    kontaktliste().select_child(0)
+    return ab
+
+
+def composer_fenster(weg=False, zeit=20):
+    """Composer: sichtbares Fenster mit anderem Titel als das Hauptfenster (wie composer-treiber.py)."""
+    ende = time.monotonic() + zeit
+    while time.monotonic() < ende:
+        treffer = None
+        for w in d.screen().root.query_tree().children:
+            try:
+                name = w.get_wm_name()
+                if name and name != 'Revolution' and w.get_attributes().map_state == X.IsViewable:
+                    treffer = w
+            except Exception:
+                pass
+        if (treffer is None) == weg:
+            return True if weg else treffer
+        time.sleep(0.2)
+    return False if weg else None
+
+
+def fokussiert():
+    for k in knoten(wurzel()):
+        if k.get_state_set().contains(Atspi.StateType.FOCUSED):
+            return k
+    return None
+
+
+def composer_pruefen(an, weg, ab):
+    """Composer offen mit An = an (AT-SPI), Escape schließt ohne Entwurf."""
+    m = warte(r'Composer: mailto An (\d+), ', ab, 30)
+    w = composer_fenster()
+    if not w:
+        falsch('Mail schreiben %s: kein Composer (%s)' % (weg, m and m.group(0)))
+        return
+    warte(r'Composer: Neu vorbereitet', ab, 30)
+    time.sleep(2)
+    titel = w.get_wm_name()
+    frame = finde(wurzel(), 'frame', titel)
+    feld = [k for k in knoten(frame) if k.get_name() == 'An' and k.get_role_name() in ('entry', 'text')]
+    text = Atspi.Text.get_text(feld[0], 0, Atspi.Text.get_character_count(feld[0])) if feld else None
+    (ok if m and m.group(1) == '1' and text == an else falsch)(
+        'Mail schreiben %s: Composer „%s“ mit An „%s“ (erwartet „%s“)' % (weg, titel, text, an))
+    bild('composer-' + re.sub(r'[^a-z0-9]+', '-', weg.lower()).strip('-')[:40])
+    g = w.get_geometry()
+    xtest.fake_input(d, X.MotionNotify, x=g.x + g.width // 2, y=g.y + g.height // 2)
+    d.sync()
+    time.sleep(0.3)
+    taste('Escape')
+    (ok if composer_fenster(weg=True) else falsch)('Mail schreiben %s: Escape schließt den Composer' % weg)
+    (ok if warte(r'Entwurf: ', ab, 3) is None else falsch)('Mail schreiben %s: ungeändert geschlossen, kein Entwurf' % weg)
+    # Ohne Fenstermanager bleibt der X-Fokus nach dem Schließen beim Composer-Fenster stehen: wieder dem Zeiger
+    # folgen lassen (wie beim Start), Zeiger über das Hauptfenster.
+    d.set_input_focus(X.PointerRoot, X.RevertToPointerRoot, X.CurrentTime)
+    xtest.fake_input(d, X.MotionNotify, x=900, y=500)
+    d.sync()
+    time.sleep(0.5)
+
+
+def detail():
+    t = time.monotonic()
+    ab = marke()
+    aus = testdaten('--kontakt-live', 'detail', BUCH, DETAIL_DATEI)
+    uid, name = re.search(r'^ANGELEGT (\S+) (.*)$', aus, re.M).groups()
+    soll = json.loads(re.search(r'^SOLL (.*)$', aus, re.M).group(1))
+    (ok if warte(r'Kontakte: %s neu %s ' % (re.escape(BUCH), re.escape(uid)), ab, 60) else falsch)(
+        'Detail: Testkontakt „%s“ live in der Liste nach %.1f s' % (name, time.monotonic() - t))
+    f = detail_lesen()
+    wert('Detail Python-GI: %s' % json.dumps(f, ensure_ascii=False))
+    for k in ('name', 'given', 'family', 'emails', 'telefone', 'adressen', 'firma', 'abteilung', 'position', 'notiz', 'foto'):
+        if f.get(k) != soll.get(k):
+            wert('Detail Feld %s: geschrieben %s, im Buch %s' % (k, json.dumps(soll.get(k), ensure_ascii=False),
+                                                                json.dumps(f.get(k), ensure_ascii=False)))
+    gleich = [k for k in ('name', 'emails', 'telefone', 'adressen', 'firma', 'abteilung', 'position', 'notiz', 'foto')
+              if f.get(k) == soll.get(k)]
+    wert('Detail: Buch übernimmt unverändert %s' % ', '.join(gleich))
+    ab = detail_suchen(name)
+    if ab is None:
+        return
+    m = warte(r'Kontakt-Detail: %s „%s“, (.*)$' % (re.escape(uid), re.escape(f['name'])), ab, 20)
+    (ok if m else falsch)('Detail: Auswahl zeigt den Kontakt (%s)' % (m and m.group(1)))
+    time.sleep(2)
+    detail_vergleichen(f, 'Detail')
+    bild('detail', os.path.join(OUT, DETAIL_BILD + '.png'))
+    # Zweites Bild mit Organisation und Notiz: Detail ans Ende rollen (Mausrad über dem Detail), dann zurück.
+    for knopf in (5, 4):
+        xtest.fake_input(d, X.MotionNotify, x=1000, y=600)
+        for _ in range(15):
+            xtest.fake_input(d, X.ButtonPress, knopf)
+            xtest.fake_input(d, X.ButtonRelease, knopf)
+        d.sync()
+        time.sleep(1)
+        if knopf == 5:
+            bild('detail-unten', os.path.join(OUT, DETAIL_BILD + '-unten.png'))
+    if DETAIL in ('voll', 'anzeige') and f['emails']:
+        an = [('%s <%s>' % (f['name'], e['wert'].strip())) for e in f['emails']]
+        # Tastatur: Tab bis „Mail schreiben“ oben (erste Adresse), Enter; dann weiter bis zum Papierflieger der
+        # letzten Adresse, Enter. Mausklick per Koordinaten geht hier nicht: AT-SPI meldet für Knöpfe im
+        # ScrolledWindow falsche Lagen (gemessen 20,20 40x40); die erste Zeile daher über die AT-SPI-Aktion.
+        for ziel, adresse in (('Mail schreiben', an[0]), ('Mail an %s schreiben' % f['emails'][-1]['wert'].strip(), an[-1])):
+            gefunden = []
+            for _ in range(16):
+                taste('Tab')
+                k = fokussiert()
+                gefunden.append(k.get_name() if k else None)
+                if k is not None and k.get_name() == ziel:
+                    break
+            if gefunden and gefunden[-1] == ziel:
+                ok('Tastatur: Tab erreicht „%s“ (%s)' % (ziel, ' → '.join(str(x) for x in gefunden)))
+                ab = marke()
+                taste('Return')
+                composer_pruefen(adresse, '„%s“ (Tab/Enter)' % ziel, ab)
+            else:
+                falsch('Tastatur: Tab erreicht „%s“ nicht (%s)' % (ziel, ' → '.join(str(x) for x in gefunden)))
+        ziel = 'Mail an %s schreiben' % f['emails'][0]['wert'].strip()
+        knopf = finde(wurzel(), 'button', ziel)
+        aktion = knopf.get_action_iface() if knopf is not None else None
+        if aktion is None or aktion.get_n_actions() < 1:
+            falsch('„%s“: keine AT-SPI-Aktion' % ziel)
+        else:
+            ab = marke()
+            aktion.do_action(0)
+            composer_pruefen(an[0], '„%s“ (AT-SPI-Aktion %s)' % (ziel, aktion.get_action_name(0)), ab)
+    if DETAIL == 'voll':
+        t = time.monotonic()
+        ab = marke()
+        testdaten('--kontakt-live', 'feld', BUCH, DETAIL_DATEI)
+        m = warte(r'Kontakt-Detail: %s „' % re.escape(uid), ab, 60)
+        (ok if m else falsch)('Live: Feldänderung von außen im Detail nach %.1f s' % (time.monotonic() - t))
+        time.sleep(1)
+        neu = detail_lesen()
+        (ok if neu['notiz'] != f['notiz'] and neu['telefone'] != f['telefone'] else falsch)(
+            'Live: Notiz und Mobil im Buch geändert (Python-GI)')
+        detail_vergleichen(neu, 'Live')
+        alt = [t['wert'] for t in f['telefone'] if 'CELL' in t['typen']]
+        labels = [k.get_name() for k in knoten(wurzel()) if k.get_role_name() == 'label']
+        (ok if alt and alt[0] not in labels else falsch)('Live: alte Mobilnummer %s nicht mehr angezeigt' % alt)
+        bild('detail-live')
+    t = time.monotonic()
+    ab = marke()
+    testdaten('--kontakt-live', 'loeschen', BUCH, DETAIL_DATEI)
+    m = warte(r'Kontakt-Detail: leer', ab, 60)
+    (ok if m else falsch)('Löschen von außen leert das Detail nach %.1f s' % (time.monotonic() - t))
+    time.sleep(1)
+    (ok if finde(wurzel(), 'label', 'Kein Kontakt ausgewählt') is not None else falsch)(
+        'Löschen: „Kein Kontakt ausgewählt“ sichtbar (AT-SPI)')
+    bild('detail-geloescht')
+    taste('Escape')
+
+
 def pruefen():
     soll = vergleich()
     ab = 0
@@ -427,9 +712,12 @@ def pruefen():
         if n0 is None:
             falsch('zurück zu %s: nicht geladen' % BUCH)
             return
-    live(n0)
+    if MODUS != 'detail':
+        live(n0)
     if GRAPH:
         graph_probe()
+    if DETAIL:
+        detail()
     andere = [z for z in log_text().splitlines() if z.startswith('(revolution:') and 'revolution-DEBUG' not in z]
     (ok if not andere else falsch)('keine Warnungen/Criticals im Log%s' % ('' if not andere else ': %s' % andere[:3]))
 

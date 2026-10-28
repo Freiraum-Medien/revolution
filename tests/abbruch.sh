@@ -1,6 +1,6 @@
 # Abbruch eines Teilschritts zählt als FEHLER (#411); gemeinsam für die Testskripte in tests/.
 #
-# Einbinden nach OUT (Ausgabeordner) und APP_DIR:  . "$APP_DIR/tests/abbruch.sh"
+# Einbinden nach OUT (Ausgabeordner), APP_DIR und BUILD:  . "$APP_DIR/tests/abbruch.sh"
 #   td ARGUMENTE…          tests/testdaten.py mit Zeitlimit TD_TIMEOUT (Standard 300 s). Exit ≠ 0
 #                          (Traceback, ABBRUCH, Zeitlimit) ist ein Abbruch: Zeile „FEHLER  Abbruch: …“
 #                          auf stderr und in OUT/abbrueche.txt, auch aus $(…) und Pipes heraus.
@@ -17,6 +17,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# #439: Datenordner des Profils (revolution bzw. revolution-devel) aus dem Build, für tests/testdaten.py.
+export USER_DIR="${USER_DIR:-$(sed -n 's/^#define USER_DIR_NAME "\(.*\)"$/\1/p' "${BUILD:-}/config.h" 2>/dev/null)}"
 ABBRUECHE="$OUT/abbrueche.txt"
 export TESTDATEN_WIEDERHOLT="$OUT/wiederholt.txt"
 : >"$ABBRUECHE"

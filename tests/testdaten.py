@@ -128,6 +128,13 @@
 #                                 Posteingang, Spam und Gesendet (IMAP UID STORE \Deleted + UID EXPUNGE, Gmail
 #                                 erst UID MOVE in den Papierkorb; Graph POST …/permanentDelete); Zeilen
 #                                 „AUFGERAEUMT <Adresse> <Ordner> <N>“
+#   tests/testdaten.py --konten   #364, nur lesend, ohne Verbindung: je Mail-Konto aus GOA „KONTO <UID> <Adresse>“
+#                                 (für REVOLUTION_SKIP_ACCOUNTS: alle außer dem Testkonto eines Laufs)
+#   tests/testdaten.py --ordnertest KONTO
+#                                 #364, nur lesend, unabhängig von Camel: Ordner, deren Pfad einen Teil
+#                                 „Revolution-Ordnertest…“ hat, direkt vom Server (IMAP LIST "" * auch
+#                                 \Noselect, Camel-Namen mit „/“; Graph GET mailFolders/childFolders mit
+#                                 Anzeigenamen); Zeilen „ORDNERTEST <Name>“, zuletzt „ORDNERTEST-ANZAHL <N>“
 #
 # Copyright 2026 Arnd Messer
 #
@@ -1870,6 +1877,31 @@ def zaehler_graph(k, feld='unreadItemCount'):
     return out
 
 
+ORDNERTEST = 'Revolution-Ordnertest'
+
+
+def ordnertest(k):
+    """#364: nur lesend. Testordner am Server, auch \\Noselect (verwaiste Elternordner)."""
+    if k.account.get_extension(EDataServer.SOURCE_EXTENSION_MAIL_ACCOUNT).get_backend_name() == 'microsoft365':
+        namen = list(zaehler_graph(k, 'totalItemCount'))
+    else:
+        c = imap_verbinden(k)
+        namen = []
+        for z in c.list('""', '*')[1]:
+            m = re.match(rb'\((?P<flags>[^)]*)\) (?P<delim>"[^"]*"|NIL) (?P<name>.*)$', z) \
+                if isinstance(z, bytes) else None
+            if m and b'\\nonexistent' not in m.group('flags').lower():
+                delim = m.group('delim').decode().strip('"')
+                name = mutf7_decode(m.group('name').decode().strip('"'))
+                namen.append(name.replace(delim, '/') if delim != 'NIL' else name)
+        c.logout()
+    treffer = sorted(n for n in namen if any(t.startswith(ORDNERTEST) for t in n.split('/')))
+    for n in treffer:
+        print('ORDNERTEST %s' % n)
+    print('ORDNERTEST-ANZAHL %d' % len(treffer))
+    return 0
+
+
 def zaehler(konten, log):
     """#350: nur lesend. Ungelesene je Ordner unabhängig von Camel; mit log Vergleich mit dem
     letzten „Ungelesen: <UID> <Ordner> <N>“ der App je Ordner."""
@@ -2142,6 +2174,8 @@ def main():
                     help='#362: vom Test gesendete Mails endgültig löschen (Testkonten)')
     ap.add_argument('--suche', action='store_true',
                     help='#365: Such-Mail per APPEND in geops@ (Posteingang, Revolution-Test) und outlook.com')
+    ap.add_argument('--konten', action='store_true', help='#364: nur lesend UID und Adresse aller Mail-Konten')
+    ap.add_argument('--ordnertest', metavar='KONTO', help='#364: nur lesend Testordner %s* vom Server' % ORDNERTEST)
     ap.add_argument('--suche-zahlen', nargs=2, metavar=('KONTO', 'ORDNER'),
                     help='#365: nur lesend Treffer der Suche und der Filter je Ordner (ORDNER * = alle per LIST, nur Text)')
     args = ap.parse_args()
@@ -2156,6 +2190,15 @@ def main():
         return aufraeumen(k, args.aufraeumen[1:])
     if args.last is not None and args.last < 1:
         ap.error('--last N mit N ≥ 1 (#411)')
+
+    if args.konten:
+        for k in ordner_konten(EDataServer.SourceRegistry.new_sync(None)):
+            print('KONTO %s %s' % (k.account.get_uid(), k.adresse))
+        return 0
+    if args.ordnertest:
+        adresse = args.ordnertest.lower()
+        nur_testkonten([adresse])
+        return ordnertest(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse])
 
     if args.testordner:
         adresse = args.testordner[0].lower()
@@ -2309,7 +2352,7 @@ def main():
 TRANSIENT = (imaplib.IMAP4.abort, ConnectionError, TimeoutError, ssl.SSLError, urllib.error.URLError)
 MODI = ('--pruefen', '--ordner', '--anzeige', '--anhang', '--anhang-teile', '--last', '--flags', '--ungelesen',
         '--zaehler', '--anzahl', '--server', '--kombiniert', '--live-flags', '--schwer', '--suche-zahlen',
-        '--antwort', '--antwort-kopf', '--zustellung')
+        '--antwort', '--antwort-kopf', '--zustellung', '--ordnertest')
 
 
 def main_mit_wiederholung():

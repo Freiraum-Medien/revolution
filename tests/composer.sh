@@ -5,7 +5,8 @@
 # Aufruf: tests/composer.sh [AUSGABEORDNER]   (Standard BUILD/m5-359)
 #   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
 #   LAEUFE   Auswahl der Läufe, Standard „hell dunkel a11y konversation eigen eigen-konversation
-#            weiterleiten-hell weiterleiten-dunkel entwurf entwurf-imap entwurf-graph“
+#            weiterleiten-hell weiterleiten-dunkel entwurf entwurf-imap entwurf-graph adressen-hell adressen-dunkel
+#            antworten-imap allen-imap weiterleiten-imap antworten-graph allen-graph weiterleiten-graph fehler“
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 600; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
 # Testmail: tests/testdaten.py --antwort (APPEND in den Posteingang von geops@, idempotent; mehrere
@@ -41,6 +42,8 @@
 # nicht nutzbar (Datei statt .Outbox): Meldung, Fenster bleibt offen, Senden wieder möglich. Danach je gesendeter
 # Nachricht (OUT/gesendet.txt) testdaten.py --zustellung: genau 1× beim Empfänger, 1× in Gesendet; Flags der Originale
 # vom Server (--original … flags); Aufräumen nur der eigenen Message-IDs (--aufraeumen, --original … aufraeumen).
+# #361: m5-361-adressen-hell/-dunkel: Adressvervollständigung mit dem Testkontakt im Google-Adressbuch von
+# KONTO_GOOGLE@example.invalid (tests/testdaten.py --kontakt anlegen vorher, --kontakt weg nachher).
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler (tests/abbruch.sh).
 #
 # Copyright 2026 Arnd Messer
@@ -52,7 +55,7 @@ set -u
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
-OUT="${1:-$BUILD/m5-359}"
+OUT="$(realpath -m "${1:-$BUILD/m5-359}")"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-600}"
 FEHLER=0
 
@@ -102,6 +105,13 @@ for s in r.list_sources(E.SOURCE_EXTENSION_MAIL_ACCOUNT):
     a = i.get_extension(E.SOURCE_EXTENSION_MAIL_IDENTITY).get_address() if i and i.has_extension(E.SOURCE_EXTENSION_MAIL_IDENTITY) else ""
     if a and a not in ("KONTO_IMAP_2@example.invalid", "KONTO_M365@example.invalid"): print(s.get_uid())' | paste -sd,)"
     echo "WERT    REVOLUTION_SKIP_ACCOUNTS=$OHNE" ;;
+esac
+# #361: Testkontakt (nur Google-Adressbuch des Testkontos, Name „Revolution-Test …“).
+ADRESSBUCH=""
+case " ${LAEUFE:-adressen} " in
+  *" adressen"*)
+    td --kontakt anlegen >"$OUT/kontakt.txt" 2>&1 || { cat "$OUT/kontakt.txt"; abbruch_bilanz; exit 1; }
+    ADRESSBUCH="$(sed -n 's/^ADRESSBUCH \([^ ]*\) .*/\1/p' "$OUT/kontakt.txt")" ;;
 esac
 ANHANG_BETREFF="Anhänge PDF, Bild, ZIP"
 ENTWURF_ORDNER_IMAP=""
@@ -162,7 +172,7 @@ lauf () {
     G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals REVOLUTION_FOLDER="$ordner" REVOLUTION_MESSAGE="$betreff" \
     "${extra[@]}" \
     REVOLUTION_TEST_HOOKS=1 REVOLUTION_TEST_MIME="$OUT/$name-senden.eml" \
-    BIN="$BIN" OUT="$OUT" NAME="$name" ORDNER="$ORDNER" KOPF="$OUT/original-kopf.txt" APP_DIR="$APP_DIR" \
+    ADRESSBUCH="$ADRESSBUCH" BIN="$BIN" OUT="$OUT" NAME="$name" ORDNER="$ORDNER" KOPF="$OUT/original-kopf.txt" APP_DIR="$APP_DIR" \
     xvfb-run -a -s "-screen 0 1200x760x24" python3 -I "$APP_DIR/tests/composer-treiber.py" || rc=$?
   rm -rf "$rundir"
   for _ in $(seq 10); do [ "$(bus_hat_app)" = "(false,)" ] && break; sleep 1; done
@@ -178,9 +188,10 @@ for lauf in "m5-359-hell hell prefer-light aus" "m5-359-dunkel dunkel prefer-dar
            "m5-432-antworten-imap hell prefer-light aus" "m5-432-allen-imap hell prefer-light aus" \
            "m5-432-weiterleiten-imap hell prefer-light aus" "m5-432-antworten-graph hell prefer-light aus" \
            "m5-432-allen-graph hell prefer-light aus" "m5-432-weiterleiten-graph hell prefer-light aus" \
-           "m5-432-fehler hell prefer-light aus"; do
+           "m5-432-fehler hell prefer-light aus" \
+           "m5-361-adressen-hell hell prefer-light" "m5-361-adressen-dunkel dunkel prefer-dark"; do
   set -- $lauf
-  case " ${LAEUFE:-hell dunkel a11y konversation eigen eigen-konversation weiterleiten-hell weiterleiten-dunkel entwurf entwurf-imap entwurf-graph antworten-imap allen-imap weiterleiten-imap antworten-graph allen-graph weiterleiten-graph fehler} " in
+  case " ${LAEUFE:-hell dunkel a11y konversation eigen eigen-konversation weiterleiten-hell weiterleiten-dunkel entwurf entwurf-imap entwurf-graph adressen-hell adressen-dunkel antworten-imap allen-imap weiterleiten-imap antworten-graph allen-graph weiterleiten-graph fehler} " in
     *" ${1#m5-[34][0-9][0-9]-} "*) ;; *) continue ;; esac
   # #432: Postausgang nicht nutzbar: Datei an der Stelle des Maildir-Ordners .Outbox (mail-outbox.c).
   if [ "$1" = m5-432-fehler ]; then
@@ -278,6 +289,14 @@ for b in "432 IMAP" "432 Graph" "432 Fehler"; do
   done
 done
 rm -rf "$OUT/daten" "$OUT/daten-fehler"
+
+case " ${LAEUFE:-adressen} " in
+  *" adressen"*)
+    td --kontakt weg >"$OUT/kontakt-weg.txt" 2>&1
+    td --kontakt | tee "$OUT/kontakt-pruefung.txt"
+    grep -q '^KONTAKT ' "$OUT/kontakt-pruefung.txt" &&
+      { echo "FEHLER  Aufräumen: Testkontakt übrig"; FEHLER=$((FEHLER + 1)); } ;;
+esac
 
 abbruch_bilanz
 echo "Ergebnis: $FEHLER Fehler, Ausgaben in $OUT"

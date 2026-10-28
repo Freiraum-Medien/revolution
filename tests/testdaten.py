@@ -112,6 +112,11 @@
 #   tests/testdaten.py --antwort-kopf
 #                                 #359, nur lesend (IMAP EXAMINE + UID FETCH): Kopfzeilen der Testmail vom
 #                                 Server, je Zeile „KOPF <Name>: <Wert>“ (Vergleich mit der Antwort)
+#   tests/testdaten.py --kontakt [anlegen|weg]
+#                                 #361: Testkontakt „Revolution-Test Kontakt 361“ (zwei Adressen) im Google-Adressbuch (CardDAV
+#                                 über EDS) von KONTO_GOOGLE@example.invalid, nie in Persönlich/lokal; ohne Aktion nur
+#                                 lesend; anlegen, falls er fehlt; weg löscht genau die Kontakte mit diesem Namen
+#                                 (UID-weise); Zeilen „ADRESSBUCH <UID> <Name>“, „KONTAKT <UID> <Name> <Adresse>“
 #   tests/testdaten.py --entwurf KONTO BETREFF [weg MESSAGE-ID …]
 #                                 #360, unabhängig von Camel: Entwürfe mit genau diesem Betreff (je Lauf eindeutig,
 #                                 Präfix „[Revolution-Test] Entwurf 360“) im Entwürfe-Ordner (IMAP: LIST mit \\Drafts,
@@ -1732,6 +1737,41 @@ def imap_entwuerfe(c):
     return kandidaten[0]
 
 
+KONTAKT_KONTO = 'KONTO_GOOGLE@example.invalid'
+KONTAKT_NAME = 'Revolution-Test Kontakt 361'
+KONTAKT_ADRESSE = 'HILFS_KONTAKT361@example.invalid'
+
+
+def kontakt(registry, aktion):
+    """#361: siehe Kopf (--kontakt). Schreibt nur in das Adressbuch unter der GOA-Sammlung des Testkontos."""
+    gi.require_version('EBook', '1.2')
+    gi.require_version('EBookContacts', '1.2')
+    from gi.repository import EBook, EBookContacts
+    nur_testkonten([KONTAKT_KONTO])
+    sammlung = konten_finden(registry)[KONTAKT_KONTO].account.get_parent()
+    buecher = [b for b in registry.list_sources(EDataServer.SOURCE_EXTENSION_ADDRESS_BOOK)
+               if b.get_parent() == sammlung]
+    if len(buecher) != 1:
+        sys.exit('ABBRUCH: %d Adressbücher unter %s' % (len(buecher), KONTAKT_KONTO))
+    print('ADRESSBUCH %s %s' % (buecher[0].get_uid(), buecher[0].get_display_name()))
+    c = EBook.BookClient.connect_sync(buecher[0], 30, cancellable())
+    abfrage = '(is "full_name" "%s")' % KONTAKT_NAME
+    vorhanden = c.get_contacts_sync(abfrage, cancellable())[1]
+    if aktion == 'anlegen' and not vorhanden:
+        neu = EBookContacts.Contact.new()
+        neu.set_property('full-name', KONTAKT_NAME)
+        neu.set_property('email-1', KONTAKT_ADRESSE)
+        neu.set_property('email-2', KONTAKT_ADRESSE.replace('@', 'b@'))  # zweite Zeile für die Pfeiltasten
+        print('ANGELEGT %s' % c.add_contact_sync(neu, EBookContacts.BookOperationFlags.NONE, cancellable())[1])
+        vorhanden = c.get_contacts_sync(abfrage, cancellable())[1]
+    for x in vorhanden:
+        print('KONTAKT %s %s %s' % (x.get_property('id'), x.get_property('full-name'), x.get_property('email-1')))
+        if aktion == 'weg' and x.get_property('full-name').startswith('Revolution-Test'):
+            c.remove_contact_by_uid_sync(x.get_property('id'), EBookContacts.BookOperationFlags.NONE, cancellable())
+            print('GELOESCHT %s' % x.get_property('id'))
+    return 0
+
+
 def entwurf(k, betreff, weg):
     """#360: Entwürfe mit genau diesem Betreff (je Lauf eindeutig) am Server zählen; weg = Message-IDs aus dem
     App-Log („Entwurf: gespeichert …“), nur diese Entwürfe endgültig löschen (eigene Testdaten)."""
@@ -2416,6 +2456,8 @@ def main():
                     help='#360: Entwürfe mit diesem Betreff am Server; weg: nur diese Message-IDs löschen')
     ap.add_argument('--ort', nargs='+', metavar='KONTO aktion|konversation [anlegen|zurueck|aufraeumen]',
                     help='#363: Ordner der Aktions-Mail bzw. Konversation am Server; anlegen bzw. zurück')
+    ap.add_argument('--kontakt', nargs='?', const='', choices=('', 'anlegen', 'weg'),
+                    help='#361: Testkontakt im Google-Adressbuch von %s' % KONTAKT_KONTO)
     ap.add_argument('--live-flags', metavar='KONTO', help='#351: nur lesend Flags der Live-Mails im Posteingang')
     ap.add_argument('--antwort', action='store_true',
                     help='#359: Testmail für Antworten per APPEND in den Posteingang von %s' % ANTWORT_KONTO)
@@ -2477,6 +2519,9 @@ def main():
 
     if args.antwort or args.antwort_kopf:
         return antwort(konten_finden(EDataServer.SourceRegistry.new_sync(None))[ANTWORT_KONTO], args.antwort_kopf)
+
+    if args.kontakt is not None:
+        return kontakt(EDataServer.SourceRegistry.new_sync(None), args.kontakt)
 
     if args.entwurf:
         if len(args.entwurf) < 2 or (len(args.entwurf) > 2 and args.entwurf[2] != 'weg'):

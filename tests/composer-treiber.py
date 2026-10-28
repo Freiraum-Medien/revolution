@@ -552,8 +552,13 @@ def td(*argumente):
 
 def entwuerfe(konto, soll, schritt, betreff=None):
     """Sichtbare Entwürfe dieses Laufs am Server (tests/testdaten.py --entwurf, Betreff des Kontos)."""
-    aus = td('--entwurf', konto, betreff or ENTWURF + (' IMAP' if konto == KONTO else ' Graph'))
-    m = re.search(r'^ENTWUERFE (\d+) (\d+)$', aus, re.M)
+    # #432: Graph-Listen folgen einem Verschieben verzögert (gemessen: Entwurf nach 3 s noch sichtbar, danach weg).
+    for _ in range(6):
+        aus = td('--entwurf', konto, betreff or ENTWURF + (' IMAP' if konto == KONTO else ' Graph'))
+        m = re.search(r'^ENTWUERFE (\d+) (\d+)$', aus, re.M)
+        if m is None or int(m.group(1)) == soll or konto == KONTO:
+            break
+        time.sleep(5)
     wert('%s: Server %s: %s' % (schritt, konto, ' | '.join(z for z in aus.splitlines() if z.startswith('ENTWURF'))))
     pruefe(m is not None and int(m.group(1)) == soll,
            '%s: %s zeigt %s sichtbare Entwürfe (erwartet %d)' % (schritt, konto, m and m.group(1), soll))
@@ -911,7 +916,13 @@ def fehlerfall():
         if n == 1:
             bild('fehler-toast', w)
     z = marke()
+    zeiger(COMPOSER)
     taste('Escape', 1)
+    if warte(r'^Entwurf: vor dem Schließen speichern$', z, 5) is None:
+        # Gemessen (m5-432-probe2): mit sichtbarem Toast schloss Escape den Composer nicht.
+        wert('fehler: erstes Escape ohne Schließen (Toast sichtbar), zweites nach Ablauf des Toasts')
+        time.sleep(5)
+        taste('Escape', 1)
     pruefe(warte(r'^Entwurf: gespeichert folder://', z, 60) is not None and fenster(weg=True, zeit=60),
            'fehler: Escape sichert die Nachricht als Entwurf und schließt')
     entwuerfe(KONTO, 1, 'fehler', betreff)

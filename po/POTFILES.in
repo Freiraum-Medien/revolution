@@ -10,6 +10,7 @@ src/mail/mail-reader.c
 src/mail/mail-attachment.c
 src/mail/mail-favorites.c
 src/mail/mail-session.c
+src/mail/mail-outbox.c
 src/mail/mail-search.c
 src/mail/mail-thread.c
 src/mail/mail-conversation.c

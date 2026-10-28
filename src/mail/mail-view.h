@@ -48,6 +48,8 @@ void revolution_mail_view_update_folders (RevolutionMailView *self,
                                           CamelFolderInfo    *info);
 void revolution_mail_view_refresh_account (RevolutionMailView *self,
                                            const char         *uid);
+void revolution_mail_view_set_outbox (RevolutionMailView *self,
+                                      guint               count);
 RevolutionMailFolder *revolution_mail_view_find_place (RevolutionMailView    *self,
                                                        RevolutionMailMessage *message);
 void revolution_mail_view_show_message (RevolutionMailView *self,

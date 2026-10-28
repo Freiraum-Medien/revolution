@@ -2,7 +2,7 @@
 # Postausgang, Senden, Fehlerfall (#362) gegen die echten Testkonten.
 #
 # Aufruf: tests/senden.sh [AUSGABEORDNER]   (Standard BUILD/m5-362)
-#   BUILD     Build-Ordner, Standard build/ im Repo (vorher meson compile)
+#   BUILD     Build-Ordner, Standard build-devel/ im Repo (#439, Profil development) (vorher meson compile)
 #   LAEUFE    Zahl der Läufe, Standard 3
 #   PHASEN    Standard „senden netz kill kopie“ (tests/senden-treiber.py)
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 1800
@@ -26,7 +26,7 @@ set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$APP_DIR/tests/testkonten.sh"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
 OUT="$(realpath -m "${1:-$BUILD/m5-362}")"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-1800}"

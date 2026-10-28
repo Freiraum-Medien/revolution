@@ -3,7 +3,7 @@
 # gegen die Testkonten KONTO_IMAP_2 (IMAP) und KONTO_M365 (Graph).
 #
 # Aufruf: tests/composer.sh [AUSGABEORDNER]   (Standard BUILD/m5-359)
-#   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
+#   BUILD    Build-Ordner, Standard build-devel/ im Repo (#439, Profil development) (vorher meson compile)
 #   LAEUFE   Auswahl der Läufe, Standard „hell dunkel a11y konversation eigen eigen-konversation
 #            weiterleiten-hell weiterleiten-dunkel entwurf entwurf-imap entwurf-graph adressen-hell adressen-dunkel
 #            antworten-imap allen-imap weiterleiten-imap antworten-graph allen-graph weiterleiten-graph fehler“
@@ -54,13 +54,16 @@ set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$APP_DIR/tests/testkonten.sh"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
+# #439: Daten-/Cache-Ordner der App je Profil (revolution bzw. revolution-devel) aus dem Build.
+USER_DIR="$(sed -n 's/^#define USER_DIR_NAME "\(.*\)"$/\1/p' "$BUILD/config.h" 2>/dev/null)"
 OUT="$(realpath -m "${1:-$BUILD/m5-359}")"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-600}"
 FEHLER=0
 
 [ -x "$BIN" ] || { echo "FEHLER  Build: $BIN fehlt (meson compile)"; exit 1; }
+[ -n "$USER_DIR" ] || { echo "FEHLER  Build: USER_DIR_NAME fehlt in $BUILD/config.h"; exit 1; }
 for tool in xvfb-run gdbus python3; do command -v "$tool" >/dev/null || { echo "FEHLER  $tool fehlt"; exit 1; }; done
 python3 -c 'import Xlib, PIL' 2>/dev/null || { echo "FEHLER  python3-xlib/python3-pil fehlt"; exit 1; }
 python3 -c 'import gi; gi.require_version("Atspi", "2.0")' 2>/dev/null || { echo "FEHLER  gir1.2-atspi-2.0 fehlt"; exit 1; }
@@ -196,7 +199,7 @@ for lauf in "m5-359-hell hell prefer-light aus" "m5-359-dunkel dunkel prefer-dar
     *" ${1#m5-[34][0-9][0-9]-} "*) ;; *) continue ;; esac
   # #432: Postausgang nicht nutzbar: Datei an der Stelle des Maildir-Ordners .Outbox (mail-outbox.c).
   if [ "$1" = m5-432-fehler ]; then
-    rm -rf "$OUT/daten-fehler"; mkdir -p "$OUT/daten-fehler/revolution/mail/local"; : >"$OUT/daten-fehler/revolution/mail/local/.Outbox"
+    rm -rf "$OUT/daten-fehler"; mkdir -p "$OUT/daten-fehler/$USER_DIR/mail/local"; : >"$OUT/daten-fehler/$USER_DIR/mail/local/.Outbox"
   fi
   lauf "$1" "$2" "$3" "${4:-}" | tee "$OUT/$1.txt"
   teilschritt "$1" "${PIPESTATUS[0]}" "$OUT/$1.txt"

@@ -2,7 +2,7 @@
 # Löschen mit Rückgängig, Archivieren, Spam, Verschieben (#363) gegen die echten Testkonten.
 #
 # Aufruf: flock build/.run.lock tests/aktionen.sh [AUSGABEORDNER]   (Standard BUILD/m5-363)
-#   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
+#   BUILD    Build-Ordner, Standard build-devel/ im Repo (#439, Profil development) (vorher meson compile)
 #   KONTEN   Standard „KONTO_IMAP_2 KONTO_M365 KONTO_GOOGLE“
 #   LAEUFE   Durchgänge, Standard 3
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 900; TD_TIMEOUT je tests/testdaten.py, Standard 300
@@ -33,7 +33,7 @@ set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$APP_DIR/tests/testkonten.sh"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m5-363}"
 KONTEN="${KONTEN:-${KONTO_IMAP_2} ${KONTO_M365} ${KONTO_GOOGLE}}"

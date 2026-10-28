@@ -26,6 +26,9 @@ conf.set_quoted('GETTEXT_PACKAGE', meson.project_name())
 conf.set_quoted('LOCALEDIR', get_option('prefix') / get_option('localedir'))
 # Wie Stamp (quelltext/stamp/meson.build:22): DEVEL schaltet die Stilklasse „devel“.
 conf.set('DEVEL', profile == 'Devel')
+# #439: Daten- und Cache-Ordner je Profil (~/.local/share|.cache/revolution bzw. revolution-devel),
+# damit Testläufe der Entwicklungsvariante die Daten der installierten App nicht berühren.
+conf.set_quoted('USER_DIR_NAME', profile == 'Devel' ? 'revolution-devel' : 'revolution')
 # #354: Web-Process-Extension des Lesebereichs (src/web-extension). Installiert unter libdir;
 # aus dem Build-Ordner gestartet nimmt die App die Erweiterung im Build-Ordner (mail-reader.c).
 web_extensions_dir = get_option('prefix') / get_option('libdir') / 'revolution' / 'web-extensions'

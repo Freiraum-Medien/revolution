@@ -4,3 +4,5 @@ build-hook/
 tests/__pycache__/
 build-install/
 __pycache__/
+build-devel/
+build-hook-devel/

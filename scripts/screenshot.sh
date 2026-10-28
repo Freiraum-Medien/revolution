@@ -23,7 +23,7 @@
 #     z. B. bis die Ordner aller Konten geladen sind (#348); Standard 0
 #   SCHEMA_DIR=Pfad (optional, Umgebung, #353): kompiliertes GSettings-Schema, Standard BUILD/data;
 #     Tests setzen damit Vorgaben per .gschema.override (z. B. mark-seen=false)
-#   BUILD=Pfad (optional, Umgebung): Build-Ordner, Standard build/ im Repo. GSettings-Schema
+#   BUILD=Pfad (optional, Umgebung): Build-Ordner, Standard build-devel/ im Repo (#439, Profil development). GSettings-Schema
 #     aus BUILD/data, Einstellungen nur im Speicher (GSETTINGS_BACKEND=memory, #342).
 #   GSETTINGS_BACKEND=keyfile (optional, Umgebung, #350): Einstellungen über mehrere Starts, dann
 #     mit eigenem XDG_CONFIG_HOME (Datei XDG_CONFIG_HOME/glib-2.0/settings/keyfile), z. B. für
@@ -48,7 +48,7 @@
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
 OUT_DIR="${OUT_DIR:-$APP_DIR/../Design/Prototyp}"
 

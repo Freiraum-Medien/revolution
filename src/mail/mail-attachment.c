@@ -473,7 +473,7 @@ selected_attachment (RevolutionMailAttachmentBar *self)
 static char *
 temp_base (void)
 {
-  return g_build_filename (g_get_user_cache_dir (), "revolution", "attachments", NULL);
+  return g_build_filename (g_get_user_cache_dir (), USER_DIR_NAME, "attachments", NULL);
 }
 
 /* Aufräumen wie Evolution e-mktemp.c:47, 54-90 (TEMP_EXPIRE 2 h, Zugriffszeit, Zeile 79): beim Start im

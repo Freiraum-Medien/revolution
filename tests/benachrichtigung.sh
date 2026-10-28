@@ -2,7 +2,7 @@
 # Benachrichtigungen, Hintergrund, mailto (#366) gegen das Testkonto KONTO_IMAP_2.
 #
 # Aufruf: tests/benachrichtigung.sh [AUSGABEORDNER]   (Standard BUILD/m5-366)
-#   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
+#   BUILD    Build-Ordner, Standard build-devel/ im Repo (#439, Profil development) (vorher meson compile)
 #   LAEUFE   Anzahl der Durchgänge, Standard 3; ARTEN Auswahl der Läufe, Standard „haupt menue“
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 600; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
@@ -41,7 +41,7 @@ set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$APP_DIR/tests/testkonten.sh"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m5-366}"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-600}"

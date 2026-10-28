@@ -2,7 +2,7 @@
 # Suche (#365) gegen die echten Testkonten.
 #
 # Aufruf: tests/suche.sh [AUSGABEORDNER]   (Standard BUILD/m5-365)
-#   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
+#   BUILD    Build-Ordner, Standard build-devel/ im Repo (#439, Profil development) (vorher meson compile)
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 900; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
 # Testdaten: tests/testdaten.py --suche (Mail mit einem Wort nur im Text in geops@ Posteingang und
@@ -29,7 +29,7 @@ set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$APP_DIR/tests/testkonten.sh"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m5-365}"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-900}"

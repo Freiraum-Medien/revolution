@@ -219,7 +219,9 @@ UNTERORDNER = ORDNER + '/Archiv-Test'
 REMOTE_BILD = 'https://upload.wikimedia.org/wikipedia/commons/a/a9/Example.jpg'
 TIMEOUT = 90
 WARTEN = 600
-CACHE = os.path.join(GLib.get_user_cache_dir(), 'revolution', 'testdaten')
+# #439: Camel-Cache im Ordner des Profils (USER_DIR aus tests/abbruch.sh bzw. BUILD/config.h), nie im
+# Cache der installierten App (~/.cache/revolution); Standard Entwicklungsvariante.
+CACHE = os.path.join(GLib.get_user_cache_dir(), os.environ.get('USER_DIR') or 'revolution-devel', 'testdaten')
 
 
 def nur_testkonten(adressen):

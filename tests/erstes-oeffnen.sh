@@ -4,7 +4,7 @@
 # Aufruf: tests/erstes-oeffnen.sh KONTO-UID/ORDNER [AUSGABEORDNER]   (Standard BUILD/m4-410)
 #   KONTO-UID/ORDNER  IMAP-Ordner wie REVOLUTION_FOLDER, z. B. <UID>/INBOX/Zander; nur gelesen
 #                     (die App wählt keine Nachricht, setzt also keine Flags)
-#   BUILD             Build-Ordner, Standard build/ im Repo (vorher meson compile)
+#   BUILD             Build-Ordner, Standard build-devel/ im Repo (#439, Profil development) (vorher meson compile)
 #   LAEUFE            App-Starts, Standard 3
 #   TIMEOUT           Sekunden je Start bis „vollständig“, Standard 300
 #   NACHLAUF          Sekunden nach „vollständig“ für spätere Live-Änderungen, Standard 20
@@ -37,7 +37,7 @@
 set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
 ORDNER="${1:-}"
 OUT="${2:-$BUILD/m4-410}"

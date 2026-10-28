@@ -2,7 +2,7 @@
 # Banner „Keine Verbindung“ je Konto (#420) gegen die echten Konten, Verbindung zur Laufzeit gekappt.
 #
 # Aufruf: tests/banner.sh [AUSGABEORDNER]   (Standard BUILD/m4-420)
-#   BUILD     Build-Ordner, Standard build/ im Repo (vorher meson compile)
+#   BUILD     Build-Ordner, Standard build-devel/ im Repo (#439, Profil development) (vorher meson compile)
 #   LAEUFE    Zahl der Läufe, Standard 3
 #   IMAP      IMAP-Testkonto, Standard KONTO_IMAP_2 (Server sslin.df.eu:993)
 #   M365      microsoft365-Testkonto, Standard KONTO_M365 (Graph über 443)
@@ -28,7 +28,7 @@ set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$APP_DIR/tests/testkonten.sh"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m4-420}"
 IMAP="${IMAP:-${KONTO_IMAP_2}}"

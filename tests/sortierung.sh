@@ -2,7 +2,7 @@
 # Konversationsliste und Lesebereich bei Live-Änderungen (#418, #419), echtes Testkonto.
 #
 # Aufruf: tests/sortierung.sh [AUSGABEORDNER]   (Standard BUILD/m4-418)
-#   BUILD     Build-Ordner, Standard build/ im Repo (vorher meson compile)
+#   BUILD     Build-Ordner, Standard build-devel/ im Repo (#439, Profil development) (vorher meson compile)
 #   KONTO     Testkonto (IMAP, nicht privat@), Standard KONTO_IMAP_2
 #   LAEUFE    Durchgänge, Standard 3
 #   TEILE     Standard „oben lesen nicht-oben“
@@ -46,7 +46,7 @@ set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$APP_DIR/tests/testkonten.sh"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m4-418}"
 KONTO="${KONTO:-${KONTO_IMAP_2}}"

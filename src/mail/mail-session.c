@@ -991,9 +991,9 @@ revolution_mail_session_new (ESourceRegistry *registry)
 
 	/* Wie mail_session_get_data_dir/_cache_dir (e-mail-session.c:2891-2911), unter
 	 * „revolution“ statt „evolution“. */
-	user_data_dir = g_build_filename (g_get_user_data_dir (), "revolution", "mail", NULL);
+	user_data_dir = g_build_filename (g_get_user_data_dir (), USER_DIR_NAME, "mail", NULL);
 	g_mkdir_with_parents (user_data_dir, 0700);
-	user_cache_dir = g_build_filename (g_get_user_cache_dir (), "revolution", "mail", NULL);
+	user_cache_dir = g_build_filename (g_get_user_cache_dir (), USER_DIR_NAME, "mail", NULL);
 	g_mkdir_with_parents (user_cache_dir, 0700);
 
 	session = g_object_new (

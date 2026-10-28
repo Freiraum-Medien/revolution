@@ -2,7 +2,7 @@
 # Ordner anlegen, umbenennen, löschen (#364) gegen geops@ (IMAP), outlook.com (microsoft365) und Gmail (Labels).
 #
 # Aufruf: flock build/.run.lock tests/ordner.sh [AUSGABEORDNER]   (Standard BUILD/m5-364)
-#   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
+#   BUILD    Build-Ordner, Standard build-devel/ im Repo (#439, Profil development) (vorher meson compile)
 #   LAEUFE   Anzahl Läufe, Standard 3;  KONTEN  Standard „KONTO_IMAP_2 KONTO_M365
 #            KONTO_GOOGLE“;  LAUF_TIMEOUT  Sekunden je App-Start, Standard 900
 #
@@ -22,8 +22,10 @@ set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$APP_DIR/tests/testkonten.sh"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
+# #439: Daten-/Cache-Ordner der App je Profil (revolution bzw. revolution-devel) aus dem Build.
+USER_DIR="$(sed -n 's/^#define USER_DIR_NAME "\(.*\)"$/\1/p' "$BUILD/config.h" 2>/dev/null)"
 OUT="${1:-$BUILD/m5-364}"
 LAEUFE="${LAEUFE:-3}"
 KONTEN="${KONTEN:-${KONTO_IMAP_2} ${KONTO_M365} ${KONTO_GOOGLE}}"
@@ -31,6 +33,7 @@ LAUF_TIMEOUT="${LAUF_TIMEOUT:-900}"
 FEHLER=0
 
 [ -x "$BIN" ] || { echo "FEHLER  Build: $BIN fehlt (meson compile)"; exit 1; }
+[ -n "$USER_DIR" ] || { echo "FEHLER  Build: USER_DIR_NAME fehlt in $BUILD/config.h"; exit 1; }
 python3 -c 'import Xlib, PIL, gi; gi.require_version("Atspi", "2.0")' 2>/dev/null ||
   { echo "FEHLER  python3-xlib/python3-pil/gir1.2-atspi-2.0 fehlt"; exit 1; }
 APP_ID="$(sed -n 's/.*<id>\(.*\)<\/id>.*/\1/p' "$BUILD/data/"*.metainfo.xml | head -1)"
@@ -72,12 +75,12 @@ lauf () {
   [ "$(bus_hat_app)" = "(false,)" ] || echo "FEHLER  $name: App nach dem Lauf noch auf dem Bus"
   # #363: microsoft365-Ordner-Cache (camel-m365-store.c:81) und Summaries (folders.db, eds-compat.c) ohne
   # verwaiste Testordner.
-  baum="$HOME/.cache/revolution/mail/$uid/folder-tree"
+  baum="$HOME/.cache/$USER_DIR/mail/$uid/folder-tree"
   if [ -f "$baum" ]; then
     rest="$(grep 'Revolution-Ordnertest' "$baum"; python3 -c 'import sqlite3, sys
 db = sqlite3.connect("file:%s?mode=ro" % sys.argv[1], uri=True)
 print(*[r[0] for r in db.execute("select folder_name from folders where folder_name like ?", ("%Revolution-Ordnertest%",))])' \
-      "$HOME/.cache/revolution/mail/$uid/folders.db")"
+      "$HOME/.cache/$USER_DIR/mail/$uid/folders.db")"
     if [ -n "$rest" ]; then
       echo "FEHLER  $name: verwaist in folder-tree/folders.db: $(echo "$rest" | tr '\n' ' ')"
     else

@@ -2,7 +2,7 @@
 # Lasttest der Nachrichtenliste (#352) gegen das echte Testkonto KONTO_IMAP_1.
 #
 # Aufruf: tests/nachrichtenliste.sh [AUSGABEORDNER]   (Standard BUILD/m4-352)
-#   BUILD         Build-Ordner, Standard build/ im Repo (vorher meson compile)
+#   BUILD         Build-Ordner, Standard build-devel/ im Repo (#439, Profil development) (vorher meson compile)
 #   LAST_ANZAHL   Mindestzahl Mails im Ordner Revolution-Last, Standard 3000
 #   LAST_TIMEOUT  Sekunden je App-Start bis zur vollständig geladenen Liste, Standard 300
 #   KONVERSATIONEN 1 (Standard, wie die App seit #357): Liste als Konversationen (conversations=true per
@@ -40,7 +40,7 @@ set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$APP_DIR/tests/testkonten.sh"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m4-352}"
 ANZAHL="${LAST_ANZAHL:-3000}"

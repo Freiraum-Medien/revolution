@@ -2,7 +2,7 @@
 # Online/Offline nach Netzstatus (#408) gegen die echten Konten, Netz zur Laufzeit ohne root.
 #
 # Aufruf: tests/netz.sh [AUSGABEORDNER]   (Standard BUILD/m4-408)
-#   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
+#   BUILD    Build-Ordner, Standard build-devel/ im Repo (#439, Profil development) (vorher meson compile)
 #   KONTO    Konto mit Ordner Revolution-Test für Liste und Nachricht aus dem Cache, Standard
 #            KONTO_M365 (microsoft365, Kernpunkt aus #348)
 #   KONTO2   zweites Konto für Netz weg beim Verbinden und Markieren ohne Netz, Standard
@@ -58,7 +58,7 @@ set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$APP_DIR/tests/testkonten.sh"
-BUILD="${BUILD:-$APP_DIR/build}"
+BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m4-408}"
 KONTO="${KONTO:-${KONTO_M365}}"

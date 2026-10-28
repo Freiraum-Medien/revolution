@@ -127,6 +127,23 @@
 #                                 über EDS) von KONTO_GOOGLE, nie in Persönlich/lokal; ohne Aktion nur
 #                                 lesend; anlegen, falls er fehlt; weg löscht genau die Kontakte mit diesem Namen
 #                                 (UID-weise); Zeilen „ADRESSBUCH <UID> <Name>“, „KONTAKT <UID> <Name> <Adresse>“
+#   tests/testdaten.py --adressbuecher
+#                                 #368, nur lesend, eigener Prozess (Python-GI EBook.BookClient, dieselbe Schicht wie
+#                                 GNOME Contacts): je aktiviertem Adressbuch „ADRESSBUCH <UID> <Konto> / <Name>“ mit
+#                                 „nurlesend 0|1 initial 0|1 kontakte N listen L“ (N ohne Kontaktlisten, Abfrage wie die App
+#                                 (contains "x-evolution-any-field" ""), nur bei do-initial-query, sonst „-“)
+#   tests/testdaten.py --kontakt-live anlegen|aendern|loeschen|pruefen|refresh BUCH DATEI
+#                                 #368, schreibend nur in den freigegebenen Büchern (KONTAKT_SCHREIBBAR: Google-CardDAV
+#                                 Gmail test account, microsoft365 „Kontakte“ outlook.com, „Persönlich“): anlegen legt
+#                                 „Live Revolution-Test 368 <Zeit>“ (Nachname „Revolution-Test 368 <Zeit>“) an und schreibt
+#                                 „KONTAKT <BUCH> <UID> <Name>“ nach DATEI; aendern/loeschen nur genau diese UID aus DATEI und
+#                                 nur mit Nachname „Revolution-Test…“ (modify_contact_sync, remove_contact_by_uid_sync);
+#                                 pruefen (nur lesend) „VORHANDEN 0|1 <UID> <Name>“; refresh e_book_client_refresh_sync.
+#                                 Zeilen „ANGELEGT|GEAENDERT|GELOESCHT <UID> <Name>“, „SCHREIBVORGANG <BUCH>“ je Schreiben
+#   tests/testdaten.py --kontakt-graph anlegen|loeschen DATEI
+#                                 #368, Gegenprobe am Server ohne EDS (Graph, nur KONTO_M365 /me/contacts): anlegen
+#                                 POST mit Nachname „Revolution-Test 368 Graph <Zeit>“, ID nach DATEI („GRAPH <ID> <Name>“);
+#                                 loeschen DELETE genau dieser ID (Nachname vorher per GET geprüft)
 #   tests/testdaten.py --entwurf KONTO BETREFF [weg MESSAGE-ID …]
 #                                 #360, unabhängig von Camel: Entwürfe mit genau diesem Betreff (je Lauf eindeutig,
 #                                 Präfix „[Revolution-Test] Entwurf 360“) im Entwürfe-Ordner (IMAP: LIST mit \\Drafts,
@@ -1845,6 +1862,123 @@ def kontakt(registry, aktion):
     return 0
 
 
+# #368: Schreiben nur in diese Adressbücher (Briefing Zusatz M6, 28.10.2026).
+KONTAKT_SCHREIBBAR = ('518e93226d14866ae0d8074ec0128a43c0c0c257', '3be9d2a4067fd00b72a3d3d5dbd529075a08ea88',
+                      'system-address-book')
+KONTAKT_PREFIX = 'Revolution-Test'
+ALLE_KONTAKTE = '(contains "x-evolution-any-field" "")'
+
+
+def ebook():
+    gi.require_version('EBook', '1.2')
+    gi.require_version('EBookContacts', '1.2')
+    from gi.repository import EBook, EBookContacts
+    return EBook, EBookContacts
+
+
+def adressbuecher(registry):
+    """#368: siehe Kopf (--adressbuecher), nur lesend."""
+    EBook, _ = ebook()
+    for b in registry.list_enabled(EDataServer.SOURCE_EXTENSION_ADDRESS_BOOK):
+        eltern = registry.ref_source(b.get_parent()) if b.get_parent() else None
+        konto = (eltern or b).get_display_name()
+        c = EBook.BookClient.connect_sync(b, 0xffffffff, cancellable())
+        initial = c.check_capability('do-initial-query')
+        n, listen = '-', '-'
+        if initial:
+            alle = c.get_contacts_sync(ALLE_KONTAKTE, cancellable())[1]
+            listen = sum(1 for x in alle if x.get_property('list'))
+            n = len(alle) - listen
+        print('ADRESSBUCH %s %s / %s nurlesend %d initial %d kontakte %s listen %s'
+              % (b.get_uid(), konto, b.get_display_name(), c.is_readonly(), initial, n, listen), flush=True)
+    return 0
+
+
+def kontakt_live(registry, aktion, buch, datei):
+    """#368: siehe Kopf (--kontakt-live). Ändern/Löschen nur über die gespeicherte UID, nie per Suche."""
+    EBook, EBookContacts = ebook()
+    if aktion != 'pruefen' and buch not in KONTAKT_SCHREIBBAR:
+        sys.exit('ABBRUCH: Adressbuch %s ist nicht zum Schreiben freigegeben' % buch)
+    quelle = registry.ref_source(buch)
+    if quelle is None:
+        sys.exit('ABBRUCH: Adressbuch %s fehlt' % buch)
+    c = EBook.BookClient.connect_sync(quelle, 0xffffffff, cancellable())
+    if aktion == 'refresh':
+        c.refresh_sync(cancellable())
+        print('REFRESH %s' % buch, flush=True)
+        return 0
+    if aktion == 'anlegen':
+        zeit = datetime.datetime.now().strftime('%H%M%S')
+        name = EBookContacts.ContactName.new()
+        name.given = 'Live'
+        name.family = '%s 368 %s' % (KONTAKT_PREFIX, zeit)
+        neu = EBookContacts.Contact.new()
+        neu.set_property('name', name)
+        neu.set_property('full-name', 'Live %s' % name.family)
+        neu.set_property('file-as', '%s, Live' % name.family)  # microsoft365 verlangt file_as
+        uid = c.add_contact_sync(neu, EBookContacts.BookOperationFlags.NONE, cancellable())[1]
+        with open(datei, 'w') as f:
+            f.write('KONTAKT %s %s %s\n' % (buch, uid, neu.get_property('full-name')))
+        print('SCHREIBVORGANG %s' % buch)
+        print('ANGELEGT %s %s' % (uid, neu.get_property('full-name')), flush=True)
+        return 0
+    zeile = open(datei).read().split(None, 3)
+    if len(zeile) < 3 or zeile[0] != 'KONTAKT' or zeile[1] != buch:
+        sys.exit('ABBRUCH: %s enthält keinen Testkontakt aus %s' % (datei, buch))
+    uid = zeile[2]
+    try:
+        x = c.get_contact_sync(uid, cancellable())[1]
+    except GLib.Error as e:
+        if aktion == 'pruefen' and 'not found' in e.message.lower():
+            print('VORHANDEN 0 %s' % uid, flush=True)
+            return 0
+        raise
+    if aktion == 'pruefen':
+        print('VORHANDEN 1 %s %s' % (uid, x.get_property('full-name')), flush=True)
+        return 0
+    if not (x.get_property('name') and (x.get_property('name').family or '').startswith(KONTAKT_PREFIX)):
+        sys.exit('ABBRUCH: Kontakt %s hat keinen Nachnamen %s…' % (uid, KONTAKT_PREFIX))
+    if aktion == 'aendern':
+        x.set_property('full-name', x.get_property('full-name') + ' geändert')
+        c.modify_contact_sync(x, EBookContacts.BookOperationFlags.NONE, cancellable())
+        print('SCHREIBVORGANG %s' % buch)
+        print('GEAENDERT %s %s' % (uid, x.get_property('full-name')), flush=True)
+    elif aktion == 'loeschen':
+        c.remove_contact_by_uid_sync(uid, EBookContacts.BookOperationFlags.NONE, cancellable())
+        print('SCHREIBVORGANG %s' % buch)
+        print('GELOESCHT %s %s' % (uid, x.get_property('full-name')), flush=True)
+    return 0
+
+
+def kontakt_graph(k, aktion, datei):
+    """#368: siehe Kopf (--kontakt-graph); nur KONTO_M365, nur die gespeicherte ID."""
+    nur_testkonten([k.adresse])
+    if aktion == 'anlegen':
+        nachname = '%s 368 Graph %s' % (KONTAKT_PREFIX, datetime.datetime.now().strftime('%H%M%S'))
+        neu = graph(k, 'POST', '/me/contacts', {'givenName': 'Server', 'surname': nachname,
+                                                'fileAs': '%s, Server' % nachname})
+        with open(datei, 'w') as f:
+            f.write('GRAPH %s %s\n' % (neu['id'], neu.get('displayName')))
+        print('SCHREIBVORGANG graph')
+        print('ANGELEGT %s %s' % (neu['id'], neu.get('displayName')), flush=True)
+        return 0
+    zeile = open(datei).read().split(None, 2)
+    if len(zeile) < 2 or zeile[0] != 'GRAPH':
+        sys.exit('ABBRUCH: %s enthält keine Graph-ID' % datei)
+    x = graph(k, 'GET', '/me/contacts/%s?$select=surname,displayName' % zeile[1])
+    if not (x.get('surname') or '').startswith(KONTAKT_PREFIX):
+        sys.exit('ABBRUCH: Graph-Kontakt %s hat keinen Nachnamen %s…' % (zeile[1], KONTAKT_PREFIX))
+    graph(k, 'DELETE', '/me/contacts/%s' % zeile[1])
+    print('SCHREIBVORGANG graph')
+    print('GELOESCHT %s %s' % (zeile[1], x.get('displayName')), flush=True)
+    try:
+        graph(k, 'GET', '/me/contacts/%s?$select=surname' % zeile[1])
+        print('NOCH-DA %s' % zeile[1])
+    except urllib.error.HTTPError as e:
+        print('WEG %s HTTP %d' % (zeile[1], e.code), flush=True)
+    return 0
+
+
 def entwurf(k, betreff, weg):
     """#360: Entwürfe mit genau diesem Betreff (je Lauf eindeutig) am Server zählen; weg = Message-IDs aus dem
     App-Log („Entwurf: gespeichert …“), nur diese Entwürfe endgültig löschen (eigene Testdaten)."""
@@ -2558,6 +2692,11 @@ def main():
                     help='#363: Ordner der Aktions-Mail bzw. Konversation am Server; anlegen bzw. zurück')
     ap.add_argument('--kontakt', nargs='?', const='', choices=('', 'anlegen', 'weg'),
                     help='#361: Testkontakt im Google-Adressbuch von %s' % KONTAKT_KONTO)
+    ap.add_argument('--adressbuecher', action='store_true', help='#368: nur lesend Adressbücher und Kontaktzahl')
+    ap.add_argument('--kontakt-live', nargs=3, metavar=('anlegen|aendern|loeschen|pruefen|refresh', 'BUCH', 'DATEI'),
+                    help='#368: Testkontakt von außen über EDS')
+    ap.add_argument('--kontakt-graph', nargs=2, metavar=('anlegen|loeschen', 'DATEI'),
+                    help='#368: Testkontakt in %s direkt über Graph' % KONTO_M365)
     ap.add_argument('--live-flags', metavar='KONTO', help='#351: nur lesend Flags der Live-Mails im Posteingang')
     ap.add_argument('--antwort', action='store_true',
                     help='#359: Testmail für Antworten per APPEND in den Posteingang von %s' % ANTWORT_KONTO)
@@ -2631,6 +2770,16 @@ def main():
     if args.antwort or args.antwort_kopf:
         return antwort(konten_finden(EDataServer.SourceRegistry.new_sync(None))[ANTWORT_KONTO], args.antwort_kopf)
 
+    if args.adressbuecher:
+        return adressbuecher(EDataServer.SourceRegistry.new_sync(None))
+    if args.kontakt_live:
+        if args.kontakt_live[0] not in ('anlegen', 'aendern', 'loeschen', 'pruefen', 'refresh'):
+            ap.error('--kontakt-live anlegen|aendern|loeschen|pruefen|refresh BUCH DATEI')
+        return kontakt_live(EDataServer.SourceRegistry.new_sync(None), *args.kontakt_live)
+    if args.kontakt_graph:
+        if args.kontakt_graph[0] not in ('anlegen', 'loeschen'):
+            ap.error('--kontakt-graph anlegen|loeschen DATEI')
+        return kontakt_graph(konten_finden(EDataServer.SourceRegistry.new_sync(None))[KONTO_M365], *args.kontakt_graph)
     if args.kontakt is not None:
         return kontakt(EDataServer.SourceRegistry.new_sync(None), args.kontakt)
 

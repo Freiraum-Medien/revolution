@@ -5,7 +5,8 @@
 # Aufruf: tests/composer.sh [AUSGABEORDNER]   (Standard BUILD/m5-359)
 #   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
 #   LAEUFE   Auswahl der Läufe, Standard „hell dunkel a11y konversation eigen eigen-konversation
-#            weiterleiten-hell weiterleiten-dunkel entwurf entwurf-imap entwurf-graph adressen-hell adressen-dunkel“
+#            weiterleiten-hell weiterleiten-dunkel entwurf entwurf-imap entwurf-graph adressen-hell adressen-dunkel
+#            antworten-imap allen-imap weiterleiten-imap antworten-graph allen-graph weiterleiten-graph fehler“
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 600; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
 # Testmail: tests/testdaten.py --antwort (APPEND in den Posteingang von geops@, idempotent; mehrere
@@ -33,6 +34,14 @@
 # Entwürfe-Ordner (aus dem Log von m5-360-entwurf) Strg+O, Strg+S ersetzt, Senden (Test) löscht den Entwurf.
 # Betreff der Entwürfe je Aufruf eindeutig (ENTWURF_LAUF); danach --entwurf KONTO BETREFF weg MESSAGE-IDs: nur die
 # Entwürfe, die die App laut Log gespeichert hat (UID EXPUNGE bzw. Graph permanentDelete genau dieser).
+# #432 Senden über den Postausgang (REVOLUTION_TEST_SEND=1, die MIME-Datei ist dann nur eine Kopie; eigener
+# Postausgang XDG_DATA_HOME=AUSGABEORDNER/daten): m5-360-entwurf-imap/-graph senden wirklich (geops@ → privat@,
+# outlook.com → geops@). m5-432-antworten/allen/weiterleiten-imap|-graph: je Lauf ein eigenes ungelesenes Original
+# im Posteingang (tests/testdaten.py --original, Absender und Empfänger nur Testkonten), Strg+R, Strg+Umschalt+R
+# bzw. Strg+Alt+F, Strg+Enter; bei „antworten“ dazu Strg+N mit Strg+S (Entwurf) und Senden. m5-432-fehler: Postausgang
+# nicht nutzbar (Datei statt .Outbox): Meldung, Fenster bleibt offen, Senden wieder möglich. Danach je gesendeter
+# Nachricht (OUT/gesendet.txt) testdaten.py --zustellung: genau 1× beim Empfänger, 1× in Gesendet; Flags der Originale
+# vom Server (--original … flags); Aufräumen nur der eigenen Message-IDs (--aufraeumen, --original … aufraeumen).
 # #361: m5-361-adressen-hell/-dunkel: Adressvervollständigung mit dem Testkontakt im Google-Adressbuch von
 # KONTO_GOOGLE@example.invalid (tests/testdaten.py --kontakt anlegen vorher, --kontakt weg nachher).
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler (tests/abbruch.sh).
@@ -46,7 +55,7 @@ set -u
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
-OUT="${1:-$BUILD/m5-359}"
+OUT="$(realpath -m "${1:-$BUILD/m5-359}")"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-600}"
 FEHLER=0
 
@@ -82,7 +91,7 @@ BETREFF="$(sed -n 's/^KOPF Subject: //p' "$OUT/original-kopf.txt")"
 
 # #360: Testdaten und Aufräumen (nur Test-Entwürfe der zwei Konten).
 case " ${LAEUFE:-weiterleiten} " in
-  *" weiterleiten"*|*" entwurf"*)
+  *" weiterleiten"*|*" entwurf"*|*" antworten-"*|*" allen-"*|*" fehler"*)
     td --anhang >"$OUT/anhang.txt" 2>&1 || { cat "$OUT/anhang.txt"; abbruch_bilanz; exit 1; }
     td --anhang-teile KONTO_IMAP_2@example.invalid "$OUT/teile" >"$OUT/teile.txt" 2>&1 || { cat "$OUT/teile.txt"; abbruch_bilanz; exit 1; }
     head -c 4096 /dev/urandom >"$OUT/anhang-360.bin"
@@ -109,6 +118,21 @@ ENTWURF_ORDNER_IMAP=""
 # Betreff der Entwürfe je Aufruf eindeutig (Review R2: kein Aufräumen über fremde Betreffe, parallele Agenten).
 ENTWURF_LAUF="$(date +%Y%m%d%H%M%S)-$$"
 ENTWURF_ORDNER_GRAPH=""
+# #432: Konto-UIDs (Posteingang: imapx „INBOX“, microsoft365 „Posteingang“) und Originale dieses Aufrufs.
+read -r UID_GEOPS UID_OUTLOOK < <(PYTHONPATH="$APP_DIR/tests" timeout 60 python3 -c 'import testdaten as t
+from gi.repository import EDataServer as E
+k = t.konten_finden(E.SourceRegistry.new_sync(None))
+print(k["KONTO_IMAP_2@example.invalid"].account.get_uid(), k["KONTO_M365@example.invalid"].account.get_uid())')
+case " ${LAEUFE:-antworten-} " in
+  *" antworten-"*|*" allen-"*|*" weiterleiten-imap"*|*" weiterleiten-graph"*)
+    td --original KONTO_IMAP_2@example.invalid "$ENTWURF_LAUF" anlegen >"$OUT/originale-geops.txt" 2>&1 || { cat "$OUT/originale-geops.txt"; abbruch_bilanz; exit 1; }
+    td --original KONTO_M365@example.invalid "$ENTWURF_LAUF" anlegen >"$OUT/originale-arndmesser.txt" 2>&1 ||
+      { cat "$OUT/originale-arndmesser.txt"; abbruch_bilanz; exit 1; }
+    grep '^ORIGINAL' "$OUT"/originale-*.txt | cut -c1-160 ;;
+esac
+: >"$OUT/gesendet.txt"
+
+art () { case "$1" in *-antworten-*) echo Antworten ;; *-allen-*) echo Allen ;; *) echo Weiterleiten ;; esac; }
 
 lauf () {
   local name="$1" theme="$2" schema="$3" a11y="$4" rundir rc=0 einstellungen="$SCHEMA" betreff="$BETREFF" ordner="$ORDNER"
@@ -120,14 +144,26 @@ lauf () {
     m5-360-weiterleiten-*) betreff="$ANHANG_BETREFF" ;;
     m5-360-entwurf-imap) ordner="$ENTWURF_ORDNER_IMAP"; betreff="Entwurf 360 $ENTWURF_LAUF IMAP" ;;
     m5-360-entwurf-graph) ordner="$ENTWURF_ORDNER_GRAPH"; betreff="Entwurf 360 $ENTWURF_LAUF Graph" ;;
+    m5-432-*-imap) ordner="$UID_GEOPS/INBOX"; betreff="432 $ENTWURF_LAUF $(art "$name")" ;;
+    m5-432-*-graph) ordner="$UID_OUTLOOK/Posteingang"; betreff="432 $ENTWURF_LAUF $(art "$name")" ;;
   esac
   case "$name" in
     m5-360-*) extra=(REVOLUTION_SKIP_ACCOUNTS="$OHNE" REVOLUTION_TEST_AUTOSAVE=10 TEILE="$OUT/teile.txt" ENTWURF_LAUF="$ENTWURF_LAUF"
                      REVOLUTION_TEST_ATTACH="$OUT/anhang-360.bin:$OUT/anhang-360.svg") ;;
   esac
+  case "$name" in
+    m5-360-entwurf-imap|m5-360-entwurf-graph|m5-432-*)
+      extra+=(REVOLUTION_SKIP_ACCOUNTS="$OHNE" REVOLUTION_TEST_SEND=1 XDG_DATA_HOME="$OUT/daten" ENTWURF_LAUF="$ENTWURF_LAUF"
+             ORIGINALE="$OUT/originale-$([ "${name%-graph}" != "$name" ] && echo arndmesser || echo geops).txt")
+      [ "$name" = m5-432-fehler ] && extra+=(XDG_DATA_HOME="$OUT/daten-fehler")
+      [ "${name#m5-432-}" != "$name" ] && [ "${name%-graph}" != "$name" ] && extra+=(M365_DEBUG=1) ;;
+  esac
   # #360: Graph-Anfragen beim Speichern in outlook.com (Echo-Schutz #416); der Treiber filtert Kopfzeilen und Token.
   [ "$name" = m5-360-entwurf ] && extra+=(M365_DEBUG=1)
   [ -n "$ordner" ] || { echo "FEHLER  $name: Entwürfe-Ordner unbekannt (Lauf m5-360-entwurf)"; return 1; }
+  # Innerhalb der run.lock: die vorige Instanz gibt den Namen verzögert frei (bis 30 s).
+  for _ in $(seq 30); do [ "$(bus_hat_app)" = "(false,)" ] && break; sleep 1; done
+  [ "$(bus_hat_app)" = "(false,)" ] || { echo "FEHLER  $name: $APP_ID läuft schon"; return 1; }
   rundir="$(mktemp -d)"
   timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \
     XDG_RUNTIME_DIR="$rundir" GSETTINGS_SCHEMA_DIR="$einstellungen" GSETTINGS_BACKEND=memory \
@@ -149,10 +185,18 @@ for lauf in "m5-359-hell hell prefer-light aus" "m5-359-dunkel dunkel prefer-dar
            "m5-359-eigen-konversation hell prefer-light aus" "m5-360-weiterleiten-hell hell prefer-light" \
            "m5-360-weiterleiten-dunkel dunkel prefer-dark" "m5-360-entwurf hell prefer-light" \
            "m5-360-entwurf-imap hell prefer-light aus" "m5-360-entwurf-graph hell prefer-light aus" \
+           "m5-432-antworten-imap hell prefer-light aus" "m5-432-allen-imap hell prefer-light aus" \
+           "m5-432-weiterleiten-imap hell prefer-light aus" "m5-432-antworten-graph hell prefer-light aus" \
+           "m5-432-allen-graph hell prefer-light aus" "m5-432-weiterleiten-graph hell prefer-light aus" \
+           "m5-432-fehler hell prefer-light aus" \
            "m5-361-adressen-hell hell prefer-light" "m5-361-adressen-dunkel dunkel prefer-dark"; do
   set -- $lauf
-  case " ${LAEUFE:-hell dunkel a11y konversation eigen eigen-konversation weiterleiten-hell weiterleiten-dunkel entwurf entwurf-imap entwurf-graph adressen-hell adressen-dunkel} " in
-    *" ${1#m5-3[56][0-9]-} "*) ;; *) continue ;; esac
+  case " ${LAEUFE:-hell dunkel a11y konversation eigen eigen-konversation weiterleiten-hell weiterleiten-dunkel entwurf entwurf-imap entwurf-graph adressen-hell adressen-dunkel antworten-imap allen-imap weiterleiten-imap antworten-graph allen-graph weiterleiten-graph fehler} " in
+    *" ${1#m5-[34][0-9][0-9]-} "*) ;; *) continue ;; esac
+  # #432: Postausgang nicht nutzbar: Datei an der Stelle des Maildir-Ordners .Outbox (mail-outbox.c).
+  if [ "$1" = m5-432-fehler ]; then
+    rm -rf "$OUT/daten-fehler"; mkdir -p "$OUT/daten-fehler/revolution/mail/local"; : >"$OUT/daten-fehler/revolution/mail/local/.Outbox"
+  fi
   lauf "$1" "$2" "$3" "${4:-}" | tee "$OUT/$1.txt"
   teilschritt "$1" "${PIPESTATUS[0]}" "$OUT/$1.txt"
   FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/$1.txt")))
@@ -180,6 +224,71 @@ if [ -n "$MIDS" ]; then
   grep -q '^ENTWUERFE [1-9]\|^ENTWUERFE [0-9]* [1-9]' "$OUT/aufraeumen-pruefung.txt" &&
     { echo "FEHLER  Aufräumen: Test-Entwürfe dieses Laufs am Server übrig"; FEHLER=$((FEHLER + 1)); }
 fi
+
+# #432: Zustellung je gesendeter Nachricht (bis 5 min warten), dann genau 1× beim Empfänger und 1× in Gesendet.
+anzahl () {  # MESSAGE-ID KONTO ROLLE
+  local n=0
+  for _ in $(seq 30); do
+    n="$(td --zustellung "$2" "$1" | awk -v r="$3" '$1 == "ZUSTELLUNG" && $3 == r { print $4 }')"
+    [ "${n:-0}" -ge 1 ] && break
+    sleep 10
+  done
+  echo "${n:-0}"
+}
+pruefe_zahl () {  # NAME TEXT IST
+  if [ "$3" = 1 ]; then echo "OK      $1: $2 1×"; else echo "FEHLER  $1: $2 ${3}× (erwartet 1)"; FEHLER=$((FEHLER + 1)); fi
+}
+while read -r name mid von empf; do
+  for konto in $empf; do
+    case " KONTO_IMAP_1@example.invalid KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid KONTO_GOOGLE@example.invalid " in
+      *" $konto "*) pruefe_zahl "$name" "$mid beim Empfänger $konto (Posteingang)" "$(anzahl "$mid" "$konto" eingang)" ;;
+      *) echo "FEHLER  $name: Empfänger $konto ist kein Testkonto"; FEHLER=$((FEHLER + 1)) ;;
+    esac
+  done
+  pruefe_zahl "$name" "$mid in Gesendet von $von" "$(anzahl "$mid" "$von" gesendet)"
+done < <(tee "$OUT/zustellung-liste.txt" <"$OUT/gesendet.txt")
+
+# #432: Flags der Originale vom Server. IMAP: \Answered (+ \Seen) nach Antworten/Allen antworten; FORWARDED kennt
+# imapx nicht als IMAP-Flag (EDS camel-imapx-utils.c:83-94), nur lokal. Graph kennt ANSWERED/FORWARDED nicht
+# (evolution-ews camel-m365-folder.c:663-664), am Server sichtbar nur isRead (SEEN).
+flagzeile () { sed -n "s/^FLAGS $2 //p" "$OUT/originale-flags-$1.txt"; }
+for konto in KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid; do
+  k="${konto%%@*}"
+  [ -s "$OUT/originale-$k.txt" ] || continue
+  td --original "$konto" "$ENTWURF_LAUF" flags >"$OUT/originale-flags-$k.txt" 2>&1
+  sed 's/^/WERT    Original '"$konto"': /' "$OUT/originale-flags-$k.txt"
+  art=imap; [ "$k" = arndmesser ] && art=graph
+  for a in Antworten Allen Weiterleiten; do
+    grep -q "^m5-432-$(tr '[:upper:]' '[:lower:]' <<<"$a")-$art " "$OUT/gesendet.txt" || continue
+    f="$(flagzeile "$k" "$a")"
+    case "$art/$a" in
+      imap/Weiterleiten) soll='ohne \Answered und \Seen'; grep -Eq 'Answered|Seen' <<<"$f" && soll="$soll!" ;;
+      imap/*) soll='\Answered und \Seen'; { grep -q 'Answered' <<<"$f" && grep -q 'Seen' <<<"$f"; } || soll="$soll!" ;;
+      graph/Weiterleiten) soll='isRead=False'; grep -q 'isRead=False' <<<"$f" || soll="$soll!" ;;
+      graph/*) soll='isRead=True'; grep -q 'isRead=True' <<<"$f" || soll="$soll!" ;;
+    esac
+    if [ "${soll%!}" = "$soll" ]; then echo "OK      Original $konto $a am Server: $f"
+    else echo "FEHLER  Original $konto $a am Server: „$f“ (erwartet ${soll%!})"; FEHLER=$((FEHLER + 1)); fi
+  done
+done
+
+# #432: Aufräumen nur eigener Nachrichten (Message-IDs aus gesendet.txt bzw. der Originale), Daten-Ordner.
+MIDS_GESENDET="$(awk '{ print $2 }' "$OUT/gesendet.txt" | sort -u)"
+if [ -n "$MIDS_GESENDET" ]; then
+  for konto in KONTO_IMAP_2@example.invalid KONTO_IMAP_1@example.invalid KONTO_M365@example.invalid; do
+    td --aufraeumen "$konto" $MIDS_GESENDET | tee -a "$OUT/aufraeumen-gesendet.txt"
+  done
+fi
+for konto in KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid; do
+  [ -s "$OUT/originale-${konto%%@*}.txt" ] && td --original "$konto" "$ENTWURF_LAUF" aufraeumen >>"$OUT/aufraeumen-originale.txt" 2>&1
+done
+for b in "432 IMAP" "432 Graph" "432 Fehler"; do
+  for konto in KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid; do
+    [ -n "$MIDS" ] && td --entwurf "$konto" "[Revolution-Test] Entwurf 360 $ENTWURF_LAUF $b" | grep '^ENTWUERFE [1-9]' &&
+      { echo "FEHLER  Aufräumen: Entwürfe „$b“ in $konto übrig"; FEHLER=$((FEHLER + 1)); }
+  done
+done
+rm -rf "$OUT/daten" "$OUT/daten-fehler"
 
 case " ${LAEUFE:-adressen} " in
   *" adressen"*)

@@ -43,4 +43,13 @@ void        revolution_mail_send_message         (CamelMimeMessage     *message,
 gboolean    revolution_mail_send_message_finish  (GAsyncResult         *result,
                                                   GError              **error);
 
+/* #432: Flags an der Nachricht uid im Ordner „folder://STORE-UID/PFAD“ setzen und abgleichen (Entwurf löschen,
+ * Original beantwortet/weitergeleitet; composer.c ersetzt damit die vorige Fassung eines Entwurfs). Im Worker. */
+gboolean    revolution_mail_folder_uri_set_flags_sync (CamelSession     *session,
+                                                       const char       *folder_uri,
+                                                       const char       *uid,
+                                                       guint32           flags,
+                                                       GCancellable     *cancellable,
+                                                       GError          **error);
+
 G_END_DECLS

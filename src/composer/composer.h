@@ -35,13 +35,4 @@ GtkWindow *revolution_composer_new (GtkApplication         *application,
                                     const char             *folder_name,
                                     const char             *message_uid);
 
-/* #360, Haken für #362 (Senden): Die gebaute Nachricht trägt wie bei Evolution X-Evolution-Identity (UID der
- * gewählten Identität, Wahl des Transports) und nach einem gespeicherten Entwurf X-Evolution-Draft-Folder/
- * -Message. Nach erfolgreichem Versand im Worker aufrufen (Evolution mail-ops.c:845): markiert den Entwurf
- * als gelöscht. Vor dem Versand X-Evolution-* entfernen (Evolution mail_tool_remove_xevolution_headers). */
-gboolean revolution_composer_handle_draft_headers_sync (CamelSession      *session,
-                                                        CamelMimeMessage  *message,
-                                                        GCancellable      *cancellable,
-                                                        GError           **error);
-
 G_END_DECLS

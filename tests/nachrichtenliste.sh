@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lasttest der Nachrichtenliste (#352) gegen das echte Testkonto KONTO_IMAP_1@example.invalid.
+# Lasttest der Nachrichtenliste (#352) gegen das echte Testkonto KONTO_IMAP_1.
 #
 # Aufruf: tests/nachrichtenliste.sh [AUSGABEORDNER]   (Standard BUILD/m4-352)
 #   BUILD         Build-Ordner, Standard build/ im Repo (vorher meson compile)
@@ -39,6 +39,7 @@
 set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+. "$APP_DIR/tests/testkonten.sh"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m4-352}"
@@ -81,7 +82,7 @@ cp "$APP_DIR/data/"*.gschema.xml "$SCHEMA/"
 printf '[de.freiraum_medien.Revolution]\nmark-seen=false\nconversations=%s\n' "$([ "${KONVERSATIONEN:-1}" = 1 ] && echo true || echo false)" \
   >"$SCHEMA/90_test.gschema.override"
 glib-compile-schemas --strict "$SCHEMA" || { fehler "Schema: glib-compile-schemas $SCHEMA"; exit 1; }
-td --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last >"$OUT/ungelesen-vorher.txt" 2>&1 \
+td --ungelesen "$KONTO_IMAP_1" Revolution-Last >"$OUT/ungelesen-vorher.txt" 2>&1 \
   || { abbruch_bilanz; echo "Ergebnis: $FEHLER Fehler (siehe $OUT/ungelesen-vorher.txt)"; exit 1; }
 
 # „LAST <UID>/<voller Ordnername> <Anzahl>“
@@ -217,12 +218,12 @@ else
 fi
 
 # #353: Ausgangszustand am Server (ungelesene UIDs) unverändert?
-td --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last >"$OUT/ungelesen-nachher.txt" 2>&1
+td --ungelesen "$KONTO_IMAP_1" Revolution-Last >"$OUT/ungelesen-nachher.txt" 2>&1
 if [ -s "$OUT/ungelesen-nachher.txt" ] && cmp -s "$OUT/ungelesen-vorher.txt" "$OUT/ungelesen-nachher.txt"; then
   ok "Server: ungelesene Mails in Revolution-Last unverändert ($(cut -d' ' -f2 "$OUT/ungelesen-vorher.txt"))"
 else
   fehler "Server: ungelesene Mails geändert (vorher $(cut -d' ' -f2 "$OUT/ungelesen-vorher.txt"), nachher $(cut -d' ' -f2 "$OUT/ungelesen-nachher.txt")); Rückstellung:"
-  td --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last --soll "$OUT/ungelesen-vorher.txt" | sed 's/^/        /'
+  td --ungelesen "$KONTO_IMAP_1" Revolution-Last --soll "$OUT/ungelesen-vorher.txt" | sed 's/^/        /'
 fi
 
 abbruch_bilanz

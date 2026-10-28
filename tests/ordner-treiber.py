@@ -25,6 +25,8 @@ import traceback
 import gi
 gi.require_version('Atspi', '2.0')
 from gi.repository import Atspi  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from testkonten import KONTO_M365  # noqa: E402
 from PIL import Image  # noqa: E402
 from Xlib import X, XK, display, protocol  # noqa: E402
 from Xlib.ext import xtest  # noqa: E402
@@ -342,7 +344,7 @@ def pruefen():
     taste('F2')
     dialog(R, leeren=True)
     schritt('Umbenennen in „%s“' % R, ab, r'umbenannt (\S*)', [R])
-    if KONTO == 'KONTO_M365@example.invalid':
+    if KONTO == KONTO_M365:
         # Prüf-Lauf R1: nur Groß-/Kleinschreibung (eds-compat.c lässt die Summary dann stehen).
         klick(zeile(R))
         ab = len(log_text())

@@ -3,7 +3,7 @@
 #
 # Aufruf: flock build/.run.lock tests/aktionen.sh [AUSGABEORDNER]   (Standard BUILD/m5-363)
 #   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
-#   KONTEN   Standard „KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid KONTO_GOOGLE@example.invalid“
+#   KONTEN   Standard „KONTO_IMAP_2 KONTO_M365 KONTO_GOOGLE“
 #   LAEUFE   Durchgänge, Standard 3
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 900; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
@@ -21,7 +21,7 @@
 # lesend freigegebenen). microsoft365: M365_DEBUG=1, im Log nur „[graph] METHODE Pfad“; geprüft: kein
 # PATCH. Gmail-Lauf dunkel (Screenshot des Hinweises hell und dunkel). Am Ende jedes Laufs
 # --ort … zurueck (Mail wieder im Ausgangsordner, falls ein Schritt scheiterte).
-# Bekannte Grenze EDS imapx (Geisterzeilen nach schnellem Verschieben/Rückgängig, README „#363“) meldet der
+# Bekannte Grenze EDS imapx (Geisterzeilen nach schnellem Verschieben/Rückgängig, docs/ENTWICKLUNG.md „#363“) meldet der
 # Treiber als „WERT … BEKANNT …“, nicht als FEHLER und nicht stillschweigend.
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler (#411: Abbruch = FEHLER).
 #
@@ -32,10 +32,11 @@
 set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+. "$APP_DIR/tests/testkonten.sh"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m5-363}"
-KONTEN="${KONTEN:-KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid KONTO_GOOGLE@example.invalid}"
+KONTEN="${KONTEN:-${KONTO_IMAP_2} ${KONTO_M365} ${KONTO_GOOGLE}}"
 LAEUFE="${LAEUFE:-3}"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-900}"
 FEHLER=0
@@ -99,8 +100,8 @@ for n in $(seq 1 "$LAEUFE"); do
     schema=prefer-light
     [ "${konto#*gmail}" != "$konto" ] && schema=prefer-dark
     case "$konto" in
-      KONTO_M365@example.invalid) eingang=Posteingang ;;
-      KONTO_GOOGLE@example.invalid) eingang= ;;
+      "$KONTO_M365") eingang=Posteingang ;;
+      "$KONTO_GOOGLE") eingang= ;;
       *) eingang=INBOX ;;
     esac
     td --ort "$konto" aktion anlegen >"$OUT/$n-${konto%%@*}-anlegen.txt" 2>&1

@@ -3,13 +3,13 @@
 #
 # Aufruf: tests/sortierung.sh [AUSGABEORDNER]   (Standard BUILD/m4-418)
 #   BUILD     Build-Ordner, Standard build/ im Repo (vorher meson compile)
-#   KONTO     Testkonto (IMAP, nicht privat@), Standard KONTO_IMAP_2@example.invalid
+#   KONTO     Testkonto (IMAP, nicht privat@), Standard KONTO_IMAP_2
 #   LAEUFE    Durchgänge, Standard 3
 #   TEILE     Standard „oben lesen nicht-oben“
 #   TIMEOUT   Sekunden je App-Start bis „vollständig“, Standard 300
 #   NACHLAUF  Sekunden nach der Live-Änderung bis zur Aufnahme, Standard 8 (Teil lesen: 25, Gelesen-Timer)
 #   OHNE      Konten-UIDs, die die App nicht lädt (REVOLUTION_SKIP_ACCOUNTS, #415), Standard das nur lesend
-#             freigegebene NUR_LESEND_3@example.invalid
+#             freigegebene NUR_LESEND_3
 #
 # Je Teil und Durchgang legt tests/testdaten.py --sortierung KONTO basis „Pruef418 Faden“ (ungelesen, Datum
 # 20.10.2026, eine Nachricht) und „Pruef418 Oben“ (Datum jetzt) in den Posteingang; danach kommen alle
@@ -45,10 +45,11 @@
 set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+. "$APP_DIR/tests/testkonten.sh"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m4-418}"
-KONTO="${KONTO:-KONTO_IMAP_2@example.invalid}"
+KONTO="${KONTO:-${KONTO_IMAP_2}}"
 LAEUFE="${LAEUFE:-3}"
 TEILE="${TEILE:-oben lesen nicht-oben}"
 TIMEOUT="${TIMEOUT:-300}"

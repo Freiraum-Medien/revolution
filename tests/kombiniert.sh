@@ -3,7 +3,7 @@
 #
 # Aufruf: tests/kombiniert.sh [AUSGABEORDNER]   (Standard BUILD/m4-351)
 #   BUILD  Build-Ordner, Standard build/ im Repo (vorher meson compile)
-#   KONTO  Testkonto für Flags und Live-Mail, Standard KONTO_IMAP_2@example.invalid (IMAP mit IDLE;
+#   KONTO  Testkonto für Flags und Live-Mail, Standard KONTO_IMAP_2 (IMAP mit IDLE;
 #          nicht privat@: Quota)
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 1200; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
@@ -37,10 +37,11 @@
 set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+. "$APP_DIR/tests/testkonten.sh"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m4-351}"
-KONTO="${KONTO:-KONTO_IMAP_2@example.invalid}"
+KONTO="${KONTO:-${KONTO_IMAP_2}}"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-1200}"
 FEHLER=0
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Benachrichtigungen, Hintergrund, mailto (#366) gegen das Testkonto KONTO_IMAP_2@example.invalid.
+# Benachrichtigungen, Hintergrund, mailto (#366) gegen das Testkonto KONTO_IMAP_2.
 #
 # Aufruf: tests/benachrichtigung.sh [AUSGABEORDNER]   (Standard BUILD/m5-366)
 #   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
@@ -8,7 +8,7 @@
 #
 # Je Durchgang zwei App-Starts im eigenen Xvfb (echter Session-Bus, Einstellungen im Speicher, X11) mit
 # run-in-background=true und mark-seen=false (eigenes Schema mit .gschema.override). Die App lädt nur
-# geops@ und KONTO_M365@example.invalid (REVOLUTION_SKIP_ACCOUNTS: alle anderen, auch die nur lesend freigegebenen).
+# geops@ und KONTO_M365 (REVOLUTION_SKIP_ACCOUNTS: alle anderen, auch die nur lesend freigegebenen).
 # Benachrichtigungen gehen an den Benachrichtigungsdienst der Sitzung und dürfen auf dem Desktop erscheinen
 # (Arnd 27.10.2026). Weg wie im Betrieb (GLib wählt unter GNOME org.gtk.Notifications); mit
 # GNOTIFICATION_BACKEND=freedesktop org.freedesktop.Notifications. Beides im Mitschnitt von dbus-monitor geprüft.
@@ -19,7 +19,7 @@
 #     dieselbe Benachrichtigung „(und 1 weitere)“ (dbus-monitor AddNotification bzw. Notify).
 #   - Aktion der Benachrichtigung (org.gtk.Actions.Activate „show-message“ mit dem Ziel aus dem Log) wählt
 #     den Posteingang von geops@ und die Nachricht; Benachrichtigung zurückgezogen (RemoveNotification bzw. CloseNotification).
-#   - Hinweis microsoft365 ohne Push am Abschnittskopf von KONTO_M365@example.invalid (AT-SPI); Abruf-Zeitgeber
+#   - Hinweis microsoft365 ohne Push am Abschnittskopf von KONTO_M365 (AT-SPI); Abruf-Zeitgeber
 #     je Konto (Log), ausgelöst über app.test-refresh (REVOLUTION_TEST_HOOKS=1).
 #   - mailto als Argument (zweiter Prozess → laufende Instanz) und per „gio open“ mit eigenem
 #     XDG_CONFIG_HOME/XDG_DATA_HOME/XDG_DATA_DIRS (mimeapps.list, Desktop-Datei mit Exec = BIN): Composer mit
@@ -40,11 +40,12 @@
 set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+. "$APP_DIR/tests/testkonten.sh"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m5-366}"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-600}"
-KONTO=KONTO_IMAP_2@example.invalid
+KONTO=$KONTO_IMAP_2
 FEHLER=0
 
 [ -x "$BIN" ] || { echo "FEHLER  Build: $BIN fehlt (meson compile)"; exit 1; }
@@ -79,7 +80,7 @@ import testdaten as t
 from gi.repository import EDataServer
 r = EDataServer.SourceRegistry.new_sync(None)
 k = t.konten_finden(r)
-geops, outlook = k["KONTO_IMAP_2@example.invalid"].account.get_uid(), k["KONTO_M365@example.invalid"].account.get_uid()
+geops, outlook = k[t.KONTO_IMAP_2].account.get_uid(), k[t.KONTO_M365].account.get_uid()
 print(geops, outlook, ",".join(sorted(s.get_uid() for s in r.list_sources(EDataServer.SOURCE_EXTENSION_MAIL_ACCOUNT)
                                      if s.get_uid() not in (geops, outlook))))' "$APP_DIR")
 [ -n "${SKIP:-}" ] || { echo "FEHLER  Konten: UIDs nicht gefunden"; exit 1; }

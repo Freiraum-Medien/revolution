@@ -192,7 +192,7 @@ add_sources_free (AddSources *sources)
   g_free (sources);
 }
 
-/* Im Worker: Quellordner holen (immer camel_store_get_folder_sync, README „Camel-Ordner“) und den
+/* Im Worker: Quellordner holen (immer camel_store_get_folder_sync, docs/ENTWICKLUNG.md „Camel-Ordner“) und den
  * Suchordnern hinzufügen; camel_vee_folder_add_folder durchsucht dabei die Summary des Quellordners
  * (camel-vee-folder.c:302-333), ohne Server. Posteingänge gleicht main.c beim Start ab
  * (refresh_inbox_thread); Entwürfe und Gesendet hier einmal, sonst zeigten sie nur den Stand des

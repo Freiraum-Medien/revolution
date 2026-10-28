@@ -731,7 +731,7 @@ load_message_thread (GTask        *task,
       return;
     }
 
-  /* Ordner immer über camel_store_get_folder_sync (README „Camel-Ordner“). */
+  /* Ordner immer über camel_store_get_folder_sync (docs/ENTWICKLUNG.md „Camel-Ordner“). */
   folder = camel_store_get_folder_sync (CAMEL_STORE (service), load->full_name, 0, cancellable, &error);
   if (folder != NULL)
     message = camel_folder_get_message_sync (folder, load->message_uid, cancellable, &error);
@@ -1375,7 +1375,7 @@ on_cid_request (WebKitURISchemeRequest *request,
   }
 }
 
-/* Erweiterung aus dem Build-Ordner, wenn die App von dort läuft (README „Build und Test“),
+/* Erweiterung aus dem Build-Ordner, wenn die App von dort läuft (docs/ENTWICKLUNG.md „Build und Test“),
  * sonst aus dem Installationsort. */
 static const char *
 extensions_directory (void)

@@ -25,6 +25,7 @@
 set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+. "$APP_DIR/tests/testkonten.sh"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
 OUT="$(realpath -m "${1:-$BUILD/m5-362}")"
@@ -69,8 +70,8 @@ r = E.SourceRegistry.new_sync(None)
 print(",".join(sorted(s.get_uid() for s in r.list_sources(E.SOURCE_EXTENSION_MAIL_ACCOUNT)
                       if s.get_uid() not in sys.argv[1:])))' "$@"
 }
-SKIP_SENDEN="$(skip_ausser "$(uid_von KONTO_IMAP_2@example.invalid)" "$(uid_von KONTO_M365@example.invalid)" "$(uid_von KONTO_GOOGLE@example.invalid)")"
-SKIP_GEOPS="$(skip_ausser "$(uid_von KONTO_IMAP_2@example.invalid)")"
+SKIP_SENDEN="$(skip_ausser "$(uid_von "$KONTO_IMAP_2")" "$(uid_von "$KONTO_M365")" "$(uid_von "$KONTO_GOOGLE")")"
+SKIP_GEOPS="$(skip_ausser "$(uid_von "$KONTO_IMAP_2")")"
 [ -n "$SKIP_SENDEN" ] && [ -n "$SKIP_GEOPS" ] || { echo "FEHLER  Konten: Ausschlussliste leer"; exit 1; }
 
 # Unix-Sockets brauchen kurze Pfade (108 Byte), daher eigener Ordner unter /tmp.

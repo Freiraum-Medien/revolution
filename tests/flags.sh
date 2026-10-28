@@ -3,7 +3,7 @@
 #
 # Aufruf: tests/flags.sh [AUSGABEORDNER]   (Standard BUILD/m4-353)
 #   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
-#   KONTEN   Testkonten, Standard „KONTO_IMAP_1@example.invalid KONTO_M365@example.invalid KONTO_GOOGLE@example.invalid“
+#   KONTEN   Testkonten, Standard „KONTO_IMAP_1 KONTO_M365 KONTO_GOOGLE“
 #   LAST     1 (Standard): zusätzlich Lauf in Revolution-Last von privat@ (Auswahl/Scrollposition)
 #   IDLE     1 (Standard): zusätzlich Lauf im Posteingang von privat@ (neue/gelöschte Mail per IDLE)
 #   BEENDEN  1 (Standard): Strg+K und Umschalt+Strg+L, sofort schließen; beide am Server (privat@)
@@ -32,10 +32,11 @@
 set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+. "$APP_DIR/tests/testkonten.sh"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m4-353}"
-KONTEN="${KONTEN:-KONTO_IMAP_1@example.invalid KONTO_M365@example.invalid KONTO_GOOGLE@example.invalid}"
+KONTEN="${KONTEN:-${KONTO_IMAP_1} ${KONTO_M365} ${KONTO_GOOGLE}}"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-1200}"
 FEHLER=0
 
@@ -96,27 +97,27 @@ for konto in $KONTEN; do
 done
 
 # Ohne Netz markieren, mit Netz nachholen (privat@ Revolution-Test).
-server_markiert () { td --flags KONTO_IMAP_1@example.invalid | sed -n 's/^FLAGS [01] \([01]\) \[Revolution-Test\] Einladung.*/\1/p'; }
-server_gelesen () { td --flags KONTO_IMAP_1@example.invalid | sed -n 's/^FLAGS \([01]\) [01] \[Revolution-Test\] Einladung.*/\1/p'; }
+server_markiert () { td --flags "$KONTO_IMAP_1" | sed -n 's/^FLAGS [01] \([01]\) \[Revolution-Test\] Einladung.*/\1/p'; }
+server_gelesen () { td --flags "$KONTO_IMAP_1" | sed -n 's/^FLAGS \([01]\) [01] \[Revolution-Test\] Einladung.*/\1/p'; }
 if [ "${OFFLINE:-1}" = 1 ]; then
-  ordner="$(td --flags KONTO_IMAP_1@example.invalid | sed -n 's/^ORDNER //p')"
+  ordner="$(td --flags "$KONTO_IMAP_1" | sed -n 's/^ORDNER //p')"
   gelesen_vorher="$(server_gelesen)"
   if [ "$(server_markiert)" = 0 ]; then
-    # Erst mit Netz laden: imapx übergeht fremdes EXPUNGE außerhalb von IDLE (README), gelöschte
+    # Erst mit Netz laden: imapx übergeht fremdes EXPUNGE außerhalb von IDLE (docs/ENTWICKLUNG.md), gelöschte
     # Live-Mails stünden sonst im Cache noch oben; das Laden mit Netz gleicht den Cache ab.
-    lauf m4-353-vorbereiten KONTO_IMAP_1@example.invalid "$ordner" "$SCHEMA" >"$OUT/m4-353-vorbereiten.txt"
+    lauf m4-353-vorbereiten "$KONTO_IMAP_1" "$ordner" "$SCHEMA" >"$OUT/m4-353-vorbereiten.txt"
     teilschritt m4-353-vorbereiten "$?" "$OUT/m4-353-vorbereiten.txt"
-    PRAEFIX="unshare -n --map-current-user" lauf m4-353-offline KONTO_IMAP_1@example.invalid "$ordner" "$SCHEMA" | tee "$OUT/m4-353-offline.txt"
+    PRAEFIX="unshare -n --map-current-user" lauf m4-353-offline "$KONTO_IMAP_1" "$ordner" "$SCHEMA" | tee "$OUT/m4-353-offline.txt"
     teilschritt m4-353-offline "${PIPESTATUS[0]}" "$OUT/m4-353-offline.txt"
     m="$(server_markiert)"
     if [ "$m" = 0 ]; then echo "OK      m4-353-offline: Server nach dem Lauf ohne Netz unverändert (markiert=0)"
     else echo "FEHLER  m4-353-offline: Server markiert=$m ohne Netz"; fi | tee -a "$OUT/m4-353-offline.txt"
-    lauf m4-353-nachholen KONTO_IMAP_1@example.invalid "$ordner" "$SCHEMA" | tee "$OUT/m4-353-nachholen.txt"
+    lauf m4-353-nachholen "$KONTO_IMAP_1" "$ordner" "$SCHEMA" | tee "$OUT/m4-353-nachholen.txt"
     teilschritt m4-353-nachholen "${PIPESTATUS[0]}" "$OUT/m4-353-nachholen.txt"
     m="$(server_markiert)"
     if [ "$m" = 1 ]; then echo "OK      m4-353-nachholen: Markierung ohne Netz nach Start mit Netz am Server (markiert=1)"
     else echo "FEHLER  m4-353-nachholen: Server markiert=$m, erwartet 1"; fi | tee -a "$OUT/m4-353-nachholen.txt"
-    td --server KONTO_IMAP_1@example.invalid unmarkiert >/dev/null
+    td --server "$KONTO_IMAP_1" unmarkiert >/dev/null
     m="$(server_markiert)"
     g="$(server_gelesen)"
     if [ "$m" = 0 ] && [ "$g" = "$gelesen_vorher" ]; then echo "OK      m4-353-nachholen: Ausgangszustand am Server (markiert=0, gelesen=$g wie vorher)"
@@ -130,18 +131,18 @@ fi
 # Beenden mit wartenden Flag-Aufträgen (privat@): Strg+K, 30 ms später Umschalt+Strg+L, sofort
 # schließen; die Anwendung bleibt gehalten, bis beide am Server sind (mail-view.c, hold_for_flags).
 if [ "${BEENDEN:-1}" = 1 ]; then
-  ordner="$(td --flags KONTO_IMAP_1@example.invalid | sed -n 's/^ORDNER //p')"
+  ordner="$(td --flags "$KONTO_IMAP_1" | sed -n 's/^ORDNER //p')"
   g0="$(server_gelesen)"; m0="$(server_markiert)"
   if [ "$g0" = 0 ] && [ "$m0" = 0 ]; then
-    lauf m4-353-beenden KONTO_IMAP_1@example.invalid "$ordner" "$SCHEMA" | tee "$OUT/m4-353-beenden.txt"
+    lauf m4-353-beenden "$KONTO_IMAP_1" "$ordner" "$SCHEMA" | tee "$OUT/m4-353-beenden.txt"
     teilschritt m4-353-beenden "${PIPESTATUS[0]}" "$OUT/m4-353-beenden.txt"
     g="$(server_gelesen)"; m="$(server_markiert)"
     if [ "$g" = 1 ] && [ "$m" = 1 ]; then echo "OK      m4-353-beenden: Server nach dem Schließen gelesen=1 markiert=1"
     else echo "FEHLER  m4-353-beenden: Server gelesen=$g markiert=$m, erwartet 1/1"; fi | tee -a "$OUT/m4-353-beenden.txt"
     if pgrep -f "^$BIN" >/dev/null; then echo "FEHLER  m4-353-beenden: Rest-Prozess $BIN"
     else echo "OK      m4-353-beenden: kein Rest-Prozess"; fi | tee -a "$OUT/m4-353-beenden.txt"
-    td --server KONTO_IMAP_1@example.invalid ungelesen >/dev/null
-    td --server KONTO_IMAP_1@example.invalid unmarkiert >/dev/null
+    td --server "$KONTO_IMAP_1" ungelesen >/dev/null
+    td --server "$KONTO_IMAP_1" unmarkiert >/dev/null
     g="$(server_gelesen)"; m="$(server_markiert)"
     if [ "$g" = 0 ] && [ "$m" = 0 ]; then echo "OK      m4-353-beenden: Ausgangszustand am Server (0/0)"
     else echo "FEHLER  m4-353-beenden: Ausgangszustand nicht erreicht ($g/$m)"; fi | tee -a "$OUT/m4-353-beenden.txt"
@@ -155,8 +156,8 @@ fi
 # Posteingang schon auf einer anderen Verbindung idlet (camel-imapx-conn-manager.c:1268-1278). Daher
 # der Beleg im Posteingang.
 if [ "${IDLE:-1}" = 1 ]; then
-  uid="$(td --flags KONTO_IMAP_1@example.invalid 2>/dev/null | sed -n 's#^ORDNER \([^/]*\)/.*#\1#p')"
-  lauf m4-353-idle KONTO_IMAP_1@example.invalid "$uid/INBOX" | tee "$OUT/m4-353-idle.txt"
+  uid="$(td --flags "$KONTO_IMAP_1" 2>/dev/null | sed -n 's#^ORDNER \([^/]*\)/.*#\1#p')"
+  lauf m4-353-idle "$KONTO_IMAP_1" "$uid/INBOX" | tee "$OUT/m4-353-idle.txt"
   teilschritt m4-353-idle "${PIPESTATUS[0]}" "$OUT/m4-353-idle.txt"
   FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/m4-353-idle.txt")))
 fi
@@ -164,16 +165,16 @@ fi
 # Revolution-Last: mark-seen=false (Schema mit .gschema.override), damit nur die Kürzel Flags
 # ändern; ungelesene UIDs am Server vorher/nachher gleich, sonst FEHLER und Rückstellung per IMAP.
 if [ "${LAST:-1}" = 1 ]; then
-  td --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last >"$OUT/last-ungelesen-vorher.txt" 2>&1
+  td --ungelesen "$KONTO_IMAP_1" Revolution-Last >"$OUT/last-ungelesen-vorher.txt" 2>&1
   ordner="$(TD_TIMEOUT=900 td --last 3000 --dry-run 2>/dev/null | sed -n 's/^LAST \(.*\) [0-9]*$/\1/p')"
-  lauf m4-353-last KONTO_IMAP_1@example.invalid "$ordner" "$SCHEMA" | tee "$OUT/m4-353-last.txt"
+  lauf m4-353-last "$KONTO_IMAP_1" "$ordner" "$SCHEMA" | tee "$OUT/m4-353-last.txt"
   teilschritt m4-353-last "${PIPESTATUS[0]}" "$OUT/m4-353-last.txt"
-  td --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last >"$OUT/last-ungelesen-nachher.txt" 2>&1
+  td --ungelesen "$KONTO_IMAP_1" Revolution-Last >"$OUT/last-ungelesen-nachher.txt" 2>&1
   if grep -q '^UNGELESEN ' "$OUT/last-ungelesen-vorher.txt" && cmp -s "$OUT/last-ungelesen-vorher.txt" "$OUT/last-ungelesen-nachher.txt"; then
     echo "OK      m4-353-last: Server ungelesen wie vorher ($(cut -d' ' -f2 "$OUT/last-ungelesen-vorher.txt"))" | tee -a "$OUT/m4-353-last.txt"
   else
     echo "FEHLER  m4-353-last: Server ungelesen vorher $(cut -d' ' -f2 "$OUT/last-ungelesen-vorher.txt"), nachher $(cut -d' ' -f2 "$OUT/last-ungelesen-nachher.txt"); Rückstellung per IMAP:" | tee -a "$OUT/m4-353-last.txt"
-    td --ungelesen KONTO_IMAP_1@example.invalid Revolution-Last --soll "$OUT/last-ungelesen-vorher.txt" | sed 's/^/        /'
+    td --ungelesen "$KONTO_IMAP_1" Revolution-Last --soll "$OUT/last-ungelesen-vorher.txt" | sed 's/^/        /'
   fi
   FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/m4-353-last.txt")))
 fi

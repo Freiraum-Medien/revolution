@@ -21,6 +21,8 @@ import urllib.parse
 import gi
 gi.require_version('Atspi', '2.0')
 from gi.repository import Atspi  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from testkonten import KONTO_IMAP_1, KONTO_IMAP_2, KONTO_M365, KONTO_GOOGLE  # noqa: E402
 
 from PIL import Image  # noqa: E402
 from Xlib import X, XK, display, protocol  # noqa: E402
@@ -29,7 +31,7 @@ from Xlib.ext import xtest  # noqa: E402
 BIN, OUT, NAME, WAS, APP_DIR, APP_ID = (os.environ[k] for k in ('BIN', 'OUT', 'NAME', 'WAS', 'APP_DIR', 'APP_ID'))
 KONTO, GEOPS, OUTLOOK, XDG, NEU = (os.environ[k] for k in ('KONTO', 'GEOPS', 'OUTLOOK', 'XDG', 'NEU'))
 APP_PFAD = '/' + APP_ID.replace('.', '/')
-MAILTO_AN, MAILTO_CC, MAILTO_BCC = 'KONTO_IMAP_2@example.invalid', 'KONTO_IMAP_1@example.invalid', 'KONTO_GOOGLE@example.invalid'
+MAILTO_AN, MAILTO_CC, MAILTO_BCC = KONTO_IMAP_2, KONTO_IMAP_1, KONTO_GOOGLE
 MAILTO_BETREFF = '[Revolution-Test] mailto Ä ö & Test'
 MAILTO_TEXT = 'Zeile 1\nZeile 2 mit https://example.org'
 
@@ -389,12 +391,12 @@ def haupt():
 
 def hinweis_m365():
     f = app_fenster('Revolution')
-    kopf = [k for k in knoten(f) if k.get_name() == 'KONTO_M365@example.invalid' and k.get_role_name() == 'label'] if f else []
+    kopf = [k for k in knoten(f) if k.get_name() == KONTO_M365 and k.get_role_name() == 'label'] if f else []
     beschreibung = [k.get_description() for k in kopf]
     wert('Abschnittskopf outlook.com: %s' % beschreibung)
     pruefe(any(b and 'kein Push' in b and 'Abruf alle 60 Minuten' in b for b in beschreibung),
            'Hinweis microsoft365 ohne Push am Kontokopf (AT-SPI-Beschreibung)')
-    g = [k for k in knoten(f) if k.get_name() == 'KONTO_IMAP_2@example.invalid' and k.get_role_name() == 'label'] if f else []
+    g = [k for k in knoten(f) if k.get_name() == KONTO_IMAP_2 and k.get_role_name() == 'label'] if f else []
     pruefe(g and not any(k.get_description() for k in g), 'kein Hinweis bei geops@ (IMAP)')
 
 

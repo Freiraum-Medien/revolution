@@ -2,3 +2,5 @@ build/
 build-hook/
 .omc/
 tests/__pycache__/
+build-install/
+__pycache__/

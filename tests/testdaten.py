@@ -124,7 +124,7 @@
 #                                 „BEFEHL …“
 #   tests/testdaten.py --kontakt [anlegen|weg]
 #                                 #361: Testkontakt „Revolution-Test Kontakt 361“ (zwei Adressen) im Google-Adressbuch (CardDAV
-#                                 über EDS) von KONTO_GOOGLE@example.invalid, nie in Persönlich/lokal; ohne Aktion nur
+#                                 über EDS) von KONTO_GOOGLE, nie in Persönlich/lokal; ohne Aktion nur
 #                                 lesend; anlegen, falls er fehlt; weg löscht genau die Kontakte mit diesem Namen
 #                                 (UID-weise); Zeilen „ADRESSBUCH <UID> <Name>“, „KONTAKT <UID> <Name> <Adresse>“
 #   tests/testdaten.py --entwurf KONTO BETREFF [weg MESSAGE-ID …]
@@ -202,14 +202,19 @@ gi.require_version('EDataServer', '1.2')
 gi.require_version('Goa', '1.0')
 from gi.repository import GLib, Gio, Camel, EDataServer, Goa
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from testkonten import (KONTO_IMAP_1, KONTO_IMAP_2, KONTO_M365, KONTO_GOOGLE,  # noqa: E402
+                        NUR_LESEND_1, NUR_LESEND_2, NUR_LESEND_3, HILFS_JANA, HILFS_LENA, HILFS_TOM,
+                        HILFS_KONTAKT361, MSGID_DOMAIN)  # noqa: E402
+
 PREFIX = '[Revolution-Test]'
-TESTKONTEN = ('KONTO_IMAP_1@example.invalid', 'KONTO_IMAP_2@example.invalid',
-              'KONTO_M365@example.invalid', 'KONTO_GOOGLE@example.invalid')
-NUR_LESEND = ('NUR_LESEND_1@example.invalid', 'NUR_LESEND_2@example.invalid', 'NUR_LESEND_3@example.invalid')
-ABSENDER = ('KONTO_IMAP_1@example.invalid', 'KONTO_IMAP_2@example.invalid')
+TESTKONTEN = (KONTO_IMAP_1, KONTO_IMAP_2,
+              KONTO_M365, KONTO_GOOGLE)
+NUR_LESEND = (NUR_LESEND_1, NUR_LESEND_2, NUR_LESEND_3)
+ABSENDER = (KONTO_IMAP_1, KONTO_IMAP_2)
 ORDNER = 'Revolution-Test'
 LAST_ORDNER = 'Revolution-Last'
-LAST_KONTO = 'KONTO_IMAP_1@example.invalid'
+LAST_KONTO = KONTO_IMAP_1
 UNTERORDNER = ORDNER + '/Archiv-Test'
 REMOTE_BILD = 'https://upload.wikimedia.org/wikipedia/commons/a/a9/Example.jpg'
 TIMEOUT = 90
@@ -267,17 +272,17 @@ def pdf_bytes():
 
 def ics_text():
     att = ''.join('ATTENDEE;CN=%s;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:%s\r\n'
-                  % (a, a) for a in TESTKONTEN if a != 'KONTO_IMAP_1@example.invalid')
+                  % (a, a) for a in TESTKONTEN if a != KONTO_IMAP_1)
     return ('BEGIN:VCALENDAR\r\nPRODID:-//Revolution//testdaten//DE\r\nVERSION:2.0\r\n'
-            'METHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:revolution-test-einladung@example.invalid\r\n'
+            'METHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:revolution-test-einladung@%s\r\n'
             'DTSTAMP:20261023T080000Z\r\nDTSTART:20261105T090000Z\r\nDTEND:20261105T100000Z\r\n'
             'SUMMARY:%s Abstimmung Testdaten\r\nLOCATION:Online\r\nSEQUENCE:0\r\n'
-            'STATUS:CONFIRMED\r\nORGANIZER;CN=KONTO_IMAP_1@example.invalid:mailto:KONTO_IMAP_1@example.invalid\r\n'
-            '%sEND:VEVENT\r\nEND:VCALENDAR\r\n' % (PREFIX, att))
+            'STATUS:CONFIRMED\r\nORGANIZER;CN=%s:mailto:%s\r\n'
+            '%sEND:VEVENT\r\nEND:VCALENDAR\r\n' % (MSGID_DOMAIN, PREFIX, KONTO_IMAP_1, KONTO_IMAP_1, att))
 
 
 def msgid(name):
-    return '<revolution-test-%s@example.invalid>' % name
+    return '<revolution-test-%s@%s>' % (name, MSGID_DOMAIN)
 
 
 # Jede Mail: Schlüssel, Absender, Betreff, Bauanweisung, gelesen?
@@ -304,19 +309,19 @@ def baue(key):
 
 
 MAILS = [
-    ('text', 'KONTO_IMAP_1@example.invalid', PREFIX + ' Einfache Text-Mail', False),
-    ('html', 'KONTO_IMAP_2@example.invalid', PREFIX + ' HTML mit Remote-Bild', True),
-    ('anhang', 'KONTO_IMAP_1@example.invalid', PREFIX + ' Anhänge PNG und PDF', True),
-    ('thread1', 'KONTO_IMAP_1@example.invalid', PREFIX + ' Projektplanung', True),
-    ('thread2', 'KONTO_IMAP_2@example.invalid', PREFIX + ' Re: Projektplanung', True),
-    ('thread3', 'KONTO_IMAP_1@example.invalid', PREFIX + ' Re: Projektplanung', True),
-    ('einladung', 'KONTO_IMAP_1@example.invalid', PREFIX + ' Einladung: Abstimmung Testdaten', True),
+    ('text', KONTO_IMAP_1, PREFIX + ' Einfache Text-Mail', False),
+    ('html', KONTO_IMAP_2, PREFIX + ' HTML mit Remote-Bild', True),
+    ('anhang', KONTO_IMAP_1, PREFIX + ' Anhänge PNG und PDF', True),
+    ('thread1', KONTO_IMAP_1, PREFIX + ' Projektplanung', True),
+    ('thread2', KONTO_IMAP_2, PREFIX + ' Re: Projektplanung', True),
+    ('thread3', KONTO_IMAP_1, PREFIX + ' Re: Projektplanung', True),
+    ('einladung', KONTO_IMAP_1, PREFIX + ' Einladung: Abstimmung Testdaten', True),
 ]
 KOPIEN = {'anhang': UNTERORDNER, 'einladung': ORDNER}
 
 # #354: Mails für die Anzeige, per APPEND (kein Versand) in den Posteingang jedes Testkontos.
 # Absender als Kopfzeile ein Testkonto mit Anzeigenamen. Erkennung wie MAILS über (Betreff, Absender).
-ANZEIGE_ABSENDER = 'KONTO_IMAP_1@example.invalid'
+ANZEIGE_ABSENDER = KONTO_IMAP_1
 ANZEIGE = [
     ('anzeige-html', PREFIX + ' Anzeige HTML: Jahresabrechnung'),
     ('anzeige-latin1', PREFIX + ' Anzeige Text ISO-8859-1: Grüße aus Köln'),
@@ -328,9 +333,9 @@ ANZEIGE = [
     ('anzeige-remote-fremd', PREFIX + ' Anzeige Remote anderer Absender'),
 ]
 # #355: abweichender Absender je Schlüssel (sonst ANZEIGE_ABSENDER)
-ANZEIGE_ANDERE = {'anzeige-remote-fremd': 'KONTO_IMAP_2@example.invalid'}
+ANZEIGE_ANDERE = {'anzeige-remote-fremd': KONTO_IMAP_2}
 # #411: nicht mehr in privat@ (Quota fast voll); kein Test braucht die Anzeige-Mails dort.
-ANZEIGE_KONTEN = ('KONTO_IMAP_2@example.invalid', 'KONTO_M365@example.invalid', 'KONTO_GOOGLE@example.invalid')
+ANZEIGE_KONTEN = (KONTO_IMAP_2, KONTO_M365, KONTO_GOOGLE)
 REMOTE_HOST = 'https://upload.wikimedia.org'
 
 
@@ -341,7 +346,7 @@ def anzeige_html():
                                    ('<b>Ihr Guthaben</b>', '<b style="color:#0b7fab">84,20 €</b>')])
     absatz = ('<p>Das Guthaben überweisen wir in den nächsten Tagen auf Ihr Konto. Den neuen Abschlag '
               'haben wir an Ihren Verbrauch angepasst. Fragen beantworten wir gern unter '
-              '<a href="mailto:KONTO_IMAP_1@example.invalid">KONTO_IMAP_1@example.invalid</a>.</p>')
+              '<a href="mailto:%s">%s</a>.</p>' % (KONTO_IMAP_1, KONTO_IMAP_1))
     return ('<!DOCTYPE html><html><head><meta charset="utf-8"><style>'
             'body{font-family:sans-serif;color:#1d1d1d;margin:0}'
             '.rahmen{max-width:640px;margin:0 auto;padding:32px 40px}'
@@ -398,17 +403,17 @@ def anzeige_nachricht(key, betreff):
     elif key == 'anzeige-latin1':
         m.set_content('Hallo Arnd,\n\nviele Grüße aus Köln! Umlaute in ISO-8859-1: äöü ÄÖÜ ß, '
                       'dazu »Zitat« und ½ Liter.\n\nLink: https://www.gnome.org/ und Adresse '
-                      'KONTO_IMAP_1@example.invalid\n\nEinrückung:\n    vier Leerzeichen\n\tein Tab\n\n'
+                      '%s\n\nEinrückung:\n    vier Leerzeichen\n\tein Tab\n\n'
                       '> Zitierte Zeile aus der vorigen Mail\n> mit zweiter Zeile\n\n'
-                      'Tschüß\nRevolution #354\n', charset='iso-8859-1')
+                      'Tschüß\nRevolution #354\n' % KONTO_IMAP_1, charset='iso-8859-1')
     elif key == 'anzeige-cid':
         m.set_content('Inline-Bild nur in der HTML-Fassung.\n')
         m.add_alternative('<html><body><p>Inline-Bild aus der Mail (cid:), blaues Quadrat 16×16 '
-                          'auf 64×64 skaliert:</p><p><img src="cid:revolution-bild@example.invalid" '
-                          'width="64" height="64" alt="Inline-Bild"></p><p>Ende.</p></body></html>\n',
+                          'auf 64×64 skaliert:</p><p><img src="cid:revolution-bild@%s" '
+                          'width="64" height="64" alt="Inline-Bild"></p><p>Ende.</p></body></html>\n' % MSGID_DOMAIN,
                           subtype='html')
         m.get_payload()[1].add_related(png_bytes(), maintype='image', subtype='png',
-                                       cid='<revolution-bild@example.invalid>', filename='bild.png')
+                                       cid='<revolution-bild@%s>' % MSGID_DOMAIN, filename='bild.png')
     elif key == 'anzeige-dunkel':
         m.set_content('Abschlag ab Januar (Textfassung).\n')
         m.add_alternative(anzeige_dunkel_html(), subtype='html')
@@ -434,7 +439,7 @@ def anzeige_nachricht(key, betreff):
     m['Subject'] = betreff
     m['From'] = email.utils.formataddr(('Revolution Testdaten', absender))
     m['To'] = ANZEIGE_ABSENDER
-    m['Cc'] = 'KONTO_IMAP_2@example.invalid'
+    m['Cc'] = KONTO_IMAP_2
     m['Date'] = email.utils.formatdate(localtime=True)
     m['Message-ID'] = msgid(key)
     msg = Camel.MimeMessage.new()
@@ -469,7 +474,7 @@ def anzeige(konten, dry):
 # #356: Mail mit Anhängen für die Anhangleiste, per APPEND (kein Versand) in den Posteingang der
 # Testkonten außer privat@ (Quota fast voll). Inhalte selbst erzeugt und schadlos, fest (gleiche Bytes
 # bei jedem Lauf). Erkennung wie ANZEIGE über (Betreff, Absender).
-ANHANG_KONTEN = ('KONTO_IMAP_2@example.invalid', 'KONTO_M365@example.invalid', 'KONTO_GOOGLE@example.invalid')
+ANHANG_KONTEN = (KONTO_IMAP_2, KONTO_M365, KONTO_GOOGLE)
 ANHANG_BETREFF = PREFIX + ' Anhänge PDF, Bild, ZIP'
 ANHANG_ID = 'anhang-356'
 
@@ -595,7 +600,7 @@ def anhang_teile(k, ziel):
 # #357: Thread mit 5 Mails. Feste Daten und Message-IDs (gleiche Bytes bei jedem Lauf); Antworten mit
 # In-Reply-To auf die vorige und References auf alle vorigen (RFC 5322 3.6.4), wie Camel sie für Threads
 # liest (camel_folder_thread_messages_new, camel-folder-thread.c:540-610).
-KONVERSATION_KONTEN = ('KONTO_IMAP_2@example.invalid', 'KONTO_M365@example.invalid')
+KONVERSATION_KONTEN = (KONTO_IMAP_2, KONTO_M365)
 KONVERSATION_BETREFF = PREFIX + ' Konversation Marktstand'
 KONVERSATION_PARTNER = ('Jana Albrecht', ANZEIGE_ABSENDER)
 # Nr. 3 als HTML mit entferntem Bild und Anhang: Sperre (#355) und Anhänge (#356) je Nachricht der
@@ -744,10 +749,10 @@ SORTIERUNG_OBEN = PREFIX + ' Pruef418 Oben'
 
 
 # #359: Testmail für Antworten und Allen antworten in geops@ (Posteingang). Eigene Adressen (Identitäten
-# in GOA: geops@, privat@, KONTO_M365@example.invalid) entfernt Allen antworten wie Evolution
+# in GOA: geops@, privat@, KONTO_M365) entfernt Allen antworten wie Evolution
 # (em-composer-utils.c:3669-3734, 3790-3810); die übrigen Adressen sind Plus-Adressen der Testkonten
 # (Zustellung ins Testkonto, aber keine Identität). Festes Datum in der Vergangenheit.
-ANTWORT_KONTO = 'KONTO_IMAP_2@example.invalid'
+ANTWORT_KONTO = KONTO_IMAP_2
 ANTWORT_BETREFF = 'RE: ' + PREFIX + ' Standplan Samstag'
 ANTWORT_MID = msgid('antwort-359-3')
 
@@ -760,12 +765,12 @@ def antwort_nachricht():
                       '<span style="color:#1a5fb4">Stand 12</span>.</p><p>Viele Grüße<br>Jana</p>'
                       '</body></html>\n', subtype='html')
     m['Subject'] = ANTWORT_BETREFF
-    m['From'] = email.utils.formataddr(('Jana Albrecht', 'HILFS_JANA@example.invalid'))
+    m['From'] = email.utils.formataddr(('Jana Albrecht', HILFS_JANA))
     m['To'] = ', '.join([email.utils.formataddr(('Revolution Test', ANTWORT_KONTO)),
-                         email.utils.formataddr(('Tom Becker', 'HILFS_TOM@example.invalid'))])
-    m['Cc'] = ', '.join([email.utils.formataddr(('Privat', 'KONTO_IMAP_1@example.invalid')),
-                         email.utils.formataddr(('Lena Hoffmann', 'HILFS_LENA@example.invalid')),
-                         'KONTO_M365@example.invalid'])
+                         email.utils.formataddr(('Tom Becker', HILFS_TOM))])
+    m['Cc'] = ', '.join([email.utils.formataddr(('Privat', KONTO_IMAP_1)),
+                         email.utils.formataddr(('Lena Hoffmann', HILFS_LENA)),
+                         KONTO_M365])
     m['Date'] = email.utils.format_datetime(
         datetime.datetime(2026, 10, 24, 9, 30, tzinfo=datetime.timezone(datetime.timedelta(hours=2))))
     m['Message-ID'] = ANTWORT_MID
@@ -785,9 +790,9 @@ EIGEN_EINGANG_BETREFF = 'AW: ' + PREFIX + ' Eigene Mail im Eingang'
 def eigen_nachricht(nr):
     m = EmailMessage(policy=email.policy.SMTP)
     ich = email.utils.formataddr(('Revolution Test', ANTWORT_KONTO))
-    jana = email.utils.formataddr(('Jana Albrecht', 'HILFS_JANA@example.invalid'))
-    lena = email.utils.formataddr(('Lena Hoffmann', 'HILFS_LENA@example.invalid'))
-    tom = email.utils.formataddr(('Tom Becker', 'HILFS_TOM@example.invalid'))
+    jana = email.utils.formataddr(('Jana Albrecht', HILFS_JANA))
+    lena = email.utils.formataddr(('Lena Hoffmann', HILFS_LENA))
+    tom = email.utils.formataddr(('Tom Becker', HILFS_TOM))
     if nr == 1:
         m.set_content('Bringt jemand die Kisten mit?\n')
         m['Subject'], m['From'], m['To'], m['Cc'] = EIGEN_BETREFF, jana, ich, lena
@@ -840,7 +845,7 @@ def antwort(k, nur_kopf):
 
 def sortierung(k, aktion):
     nur_testkonten([k.adresse])
-    if k.adresse == 'KONTO_IMAP_1@example.invalid':
+    if k.adresse == KONTO_IMAP_1:
         sys.exit('ABBRUCH: --sortierung nicht in privat@ (Quota, #411)')
     if not k.goa.get_mail().props.imap_supported:
         sys.exit('ABBRUCH: --sortierung nur für IMAP')
@@ -893,7 +898,7 @@ def sortierung(k, aktion):
 
 # #365: Suche. Ein Wort, das nur im Text dieser Mail steht (nicht in Betreff, Absender, Empfänger), in
 # geops@ (Posteingang und Revolution-Test: „Alle Ordner“ findet beide) und outlook.com (Posteingang).
-SUCHE_KONTEN = ('KONTO_IMAP_2@example.invalid', 'KONTO_M365@example.invalid')
+SUCHE_KONTEN = (KONTO_IMAP_2, KONTO_M365)
 SUCHE_BETREFF = PREFIX + ' Suche Wochenmarkt'
 SUCHE_WORT = 'Quittenbrotkiste'
 
@@ -1124,7 +1129,7 @@ def last_nachricht(nr, jetzt):
     m['From'] = email.utils.formataddr((name, '%s@example.org' % lokal))
     m['To'] = LAST_KONTO
     m['Date'] = email.utils.format_datetime(jetzt - datetime.timedelta(minutes=173 * nr))
-    m['Message-ID'] = '<revolution-last-%04d@example.invalid>' % nr
+    m['Message-ID'] = '<revolution-last-%04d@%s>' % (nr, MSGID_DOMAIN)
     msg = Camel.MimeMessage.new()
     msg.construct_from_stream_sync(Camel.StreamMem.new_with_buffer(m.as_bytes()), None)
     return msg
@@ -1803,9 +1808,9 @@ def imap_entwuerfe(c):
     return kandidaten[0]
 
 
-KONTAKT_KONTO = 'KONTO_GOOGLE@example.invalid'
+KONTAKT_KONTO = KONTO_GOOGLE
 KONTAKT_NAME = 'Revolution-Test Kontakt 361'
-KONTAKT_ADRESSE = 'HILFS_KONTAKT361@example.invalid'
+KONTAKT_ADRESSE = HILFS_KONTAKT361
 
 
 def kontakt(registry, aktion):
@@ -2048,7 +2053,7 @@ def schwer(k, aktion):
     """#412: neu (APPEND, idempotent) oder papierkorb (UID MOVE in den Ordner mit \\Trash, nicht
     endgültig gelöscht). Zeilen „ORDNER <Konto-UID>/INBOX“, „SCHWER <Rolle> <UID> <Bytes>“."""
     nur_testkonten([k.adresse])
-    if k.adresse == 'KONTO_IMAP_1@example.invalid':
+    if k.adresse == KONTO_IMAP_1:
         sys.exit('ABBRUCH: --schwer nicht in privat@ (Quota, #411)')
     if not k.goa.get_mail().props.imap_supported:
         sys.exit('ABBRUCH: --schwer nur für IMAP')
@@ -2447,8 +2452,8 @@ ORIGINAL_ARTEN = ('Antworten', 'Allen', 'Weiterleiten')
 
 
 def original_daten(k, lauf, art):
-    von, kopie = (('KONTO_IMAP_1@example.invalid', 'KONTO_M365@example.invalid') if k.adresse == 'KONTO_IMAP_2@example.invalid'
-                  else ('KONTO_IMAP_2@example.invalid', 'KONTO_IMAP_1@example.invalid'))
+    von, kopie = ((KONTO_IMAP_1, KONTO_M365) if k.adresse == KONTO_IMAP_2
+                  else (KONTO_IMAP_2, KONTO_IMAP_1))
     nur_testkonten([von, kopie, k.adresse])
     return von, kopie, '%s 432 %s %s' % (PREFIX, lauf, art), msgid('original-432-%s-%s' % (lauf, art.lower()))
 
@@ -2580,9 +2585,9 @@ def main():
     args = ap.parse_args()
     if args.original:
         adresse = args.original[0].lower()
-        if adresse not in ('KONTO_IMAP_2@example.invalid', 'KONTO_M365@example.invalid') or \
+        if adresse not in (KONTO_IMAP_2, KONTO_M365) or \
                 args.original[2] not in ('anlegen', 'flags', 'aufraeumen'):
-            ap.error('--original KONTO_IMAP_2@example.invalid|KONTO_M365@example.invalid LAUF anlegen|flags|aufraeumen')
+            ap.error('--original %s|%s LAUF anlegen|flags|aufraeumen' % (KONTO_IMAP_2, KONTO_M365))
         return original(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse], *args.original[1:])
     if args.zustellung or args.aufraeumen:
         adresse = (args.zustellung or args.aufraeumen)[0].lower()

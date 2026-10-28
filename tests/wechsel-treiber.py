@@ -216,7 +216,7 @@ def bilder_pruefen(tag, pause, nr, bilder, kopf_start):
     = Ziel, sonst Schwer). Kein Bild mit dem Inhalt einer anderen Mail als der im Kopf (Start blau,
     Schwer gelb, Ziel grün) länger als GRENZE_MS; am Ende Ziel (grün). Kürzer: WERT mit Dauer, bekannte
     Grenze von WebKitGTK 2.52.6 (nach COMMITTED bleibt das zuletzt gezeichnete Bild bis zum ersten
-    Zeichnen des neuen Dokuments, keine API dafür; README, Entscheidung Arnd #412)."""
+    Zeichnen des neuen Dokuments, keine API dafür; docs/ENTWICKLUNG.md, Entscheidung Arnd #412)."""
     kopf_ziel = bilder[-1][1].crop(BETREFF).tobytes()
     erwartet = {'Start': 'blau', 'Schwer': 'gelb', 'Ziel': 'gruen'}
     alt = {'Schwer': 0, 'Ziel': 0}

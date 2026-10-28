@@ -1,5 +1,5 @@
 # #347: Prüfprogramm für die Anmeldung gegen die echten Server (kein meson test, braucht
-# GOA-Konten und Netz). Aufruf und Fehlerfälle: tests/anmeldung.c, README „Anmeldung“.
+# GOA-Konten und Netz). Aufruf und Fehlerfälle: tests/anmeldung.c, docs/ENTWICKLUNG.md „Anmeldung“.
 executable('anmeldung',
   'anmeldung.c',
   '../src/mail/mail-account.c',
@@ -12,7 +12,7 @@ executable('anmeldung',
 )
 
 # #416: Verschieben und Papierkorb gegen ein Testkonto (kein meson test, braucht GOA und Netz).
-# Aufruf und Prüfung: tests/verschieben.sh, README „eds-compat.c“.
+# Aufruf und Prüfung: tests/verschieben.sh, docs/ENTWICKLUNG.md „eds-compat.c“.
 executable('verschieben',
   'verschieben.c',
   '../src/eds-compat.c',
@@ -27,7 +27,7 @@ executable('verschieben',
 
 # #349: Smoke-Test gegen die echten Konten (braucht Netz, GOA und den Session-Bus), daher eigene
 # Suite, die der Standardlauf auslässt (add_test_setup in meson.build); Aufruf:
-# meson test -C build --suite smoke -v. Ablauf und Prüfungen: tests/smoke.sh, README.
+# meson test -C build --suite smoke -v. Ablauf und Prüfungen: tests/smoke.sh, docs/ENTWICKLUNG.md.
 test('smoke', find_program('smoke.sh'),
   suite: 'smoke',
   env: ['BUILD=' + meson.project_build_root()],

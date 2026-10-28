@@ -3,7 +3,7 @@
 #
 # Aufruf: tests/konversationen.sh [AUSGABEORDNER]   (Standard BUILD/m4-357)
 #   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
-#   KONTEN   Testkonten, Standard „KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid“ (Konversation aus
+#   KONTEN   Testkonten, Standard „KONTO_IMAP_2 KONTO_M365“ (Konversation aus
 #            tests/testdaten.py --konversation: 3 Mails im Posteingang, 2 eigene im Gesendet-Ordner)
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 900; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
@@ -28,10 +28,11 @@
 set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+. "$APP_DIR/tests/testkonten.sh"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m4-357}"
-KONTEN="${KONTEN:-KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid}"
+KONTEN="${KONTEN:-${KONTO_IMAP_2} ${KONTO_M365}}"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-900}"
 FEHLER=0
 

@@ -45,9 +45,12 @@ import time
 import traceback
 from email.message import EmailMessage
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from testkonten import KONTO_IMAP_1, KONTO_IMAP_2, KONTO_M365, KONTO_GOOGLE  # noqa: E402
+
 HIER = os.path.dirname(os.path.abspath(__file__))
-TESTKONTEN = ('KONTO_IMAP_1@example.invalid', 'KONTO_IMAP_2@example.invalid',
-              'KONTO_M365@example.invalid', 'KONTO_GOOGLE@example.invalid')
+TESTKONTEN = (KONTO_IMAP_1, KONTO_IMAP_2,
+              KONTO_M365, KONTO_GOOGLE)
 PREFIX = '[Revolution-Test]'
 
 
@@ -287,12 +290,12 @@ def treiber():
     def phase_senden():
         fall = 'senden'
         ab, w = start(fall, daten_ordner(fall))
-        verbunden(fall, ab, ('KONTO_IMAP_2@example.invalid', 'KONTO_M365@example.invalid', 'KONTO_GOOGLE@example.invalid'))
+        verbunden(fall, ab, (KONTO_IMAP_2, KONTO_M365, KONTO_GOOGLE))
         faelle = (
-            ('KONTO_IMAP_2@example.invalid', 'KONTO_IMAP_1@example.invalid', 'smtp', r'Kopie in %s/' % KONTEN['KONTO_IMAP_2@example.invalid']['konto']),
-            ('KONTO_M365@example.invalid', 'KONTO_GOOGLE@example.invalid', 'microsoft365',
+            (KONTO_IMAP_2, KONTO_IMAP_1, 'smtp', r'Kopie in %s/' % KONTEN[KONTO_IMAP_2]['konto']),
+            (KONTO_M365, KONTO_GOOGLE, 'microsoft365',
              r'Kopie in Gesendet legt der Server an \(microsoft365\)$'),
-            ('KONTO_GOOGLE@example.invalid', 'KONTO_IMAP_2@example.invalid', 'smtp', r'Kopie in Gesendet legt der Server an \(Gmail\)$'),
+            (KONTO_GOOGLE, KONTO_IMAP_2, 'smtp', r'Kopie in Gesendet legt der Server an \(Gmail\)$'),
         )
         mids = []
         for absender, empfaenger, protokoll, kopie in faelle:
@@ -310,7 +313,7 @@ def treiber():
             genau_einmal(kurz, absender, empfaenger, mid, gesendet_soll=1)
 
     def phase_netz():
-        absender, empfaenger = 'KONTO_IMAP_2@example.invalid', 'KONTO_IMAP_1@example.invalid'
+        absender, empfaenger = KONTO_IMAP_2, KONTO_IMAP_1
         transport = KONTEN[absender]['transport']
         fall = 'netz'
         ab, w = start(fall, daten_ordner(fall))
@@ -391,7 +394,7 @@ def treiber():
     def phase_kopie():
         """Kopie nach Gesendet scheitert (IMAP 993 gekappt, SMTP 465 frei): gesendet, bleibt im Postausgang,
         Banner; 993 frei, F5: nur die Kopie, genau einmal in Gesendet und beim Empfänger."""
-        absender, empfaenger = 'KONTO_IMAP_2@example.invalid', 'KONTO_IMAP_1@example.invalid'
+        absender, empfaenger = KONTO_IMAP_2, KONTO_IMAP_1
         transport = KONTEN[absender]['transport']
         fall = 'kopie'
         ab, w = start(fall, daten_ordner(fall))
@@ -426,7 +429,7 @@ def treiber():
         genau_einmal('Kopie', absender, empfaenger, mid, gesendet_soll=1)
 
     def phase_kill():
-        absender, empfaenger = 'KONTO_IMAP_2@example.invalid', 'KONTO_IMAP_1@example.invalid'
+        absender, empfaenger = KONTO_IMAP_2, KONTO_IMAP_1
         transport = KONTEN[absender]['transport']
         for fall, muster in (('abgelegt', r'^Postausgang: %s abgelegt'),
                              ('beginnt', r'^Senden: %s über '),

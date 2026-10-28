@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Echo-Schutz bei Verschieben und Papierkorb (#416) gegen KONTO_M365@example.invalid (microsoft365).
+# Echo-Schutz bei Verschieben und Papierkorb (#416) gegen KONTO_M365 (microsoft365).
 #
 # Aufruf: flock build/.run.lock tests/verschieben.sh [AUSGABEORDNER]   (Standard BUILD/m5-416)
 #   BUILD   Build-Ordner, Standard build/ im Repo (vorher meson compile)
@@ -18,7 +18,7 @@
 #               camel-m365-folder.c:1553) und zurück.
 # Nach jedem Schritt synchronisiert tests/verschieben alle offenen Ordner (wie der Zeitgeber
 # store-changes). Prüfung je Schritt: schreibend nur POST …/move, kein PATCH (Echo). Das nur
-# lesend freigegebene NUR_LESEND_3@example.invalid lädt die Session gar nicht (REVOLUTION_SKIP_ACCOUNTS).
+# lesend freigegebene NUR_LESEND_3 lädt die Session gar nicht (REVOLUTION_SKIP_ACCOUNTS).
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler.
 #
 # Copyright 2026 Arnd Messer
@@ -28,12 +28,13 @@
 set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+. "$APP_DIR/tests/testkonten.sh"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/tests/verschieben"
 OUT="${1:-$BUILD/m5-416}"
 LAEUFE="${LAEUFE:-3}"
 ROH="${ROH:-0}"
-KONTO=KONTO_M365@example.invalid
+KONTO=$KONTO_M365
 GEOPS=332762f8d2b105ea5f2d32ef30a7ac32d4ce684e
 EINLADUNG='[Revolution-Test] Einladung: Abstimmung Testdaten'
 MAIL='[Revolution-Test] Anzeige Inline-Bild (cid)'
@@ -80,7 +81,7 @@ schritt () {
   shift
   start=$(wc -l <"$LOG")
   echo "== $name" | tee -a "$RUMPF" >>"$LOG"
-  G_MESSAGES_DEBUG=revolution M365_DEBUG=1 REVOLUTION_TEST_HOOKS=1 REVOLUTION_SKIP_ACCOUNTS="$GEOPS" \
+  TESTKONTEN="$TESTKONTEN" G_MESSAGES_DEBUG=revolution M365_DEBUG=1 REVOLUTION_TEST_HOOKS=1 REVOLUTION_SKIP_ACCOUNTS="$GEOPS" \
     timeout -k 10 300 "$BIN" "$@" 2>&1 | python3 -I -c "$FILTER" "$RUMPF" >>"$LOG"
   rc=${PIPESTATUS[0]}
   schreib="$(tail -n +"$((start + 1))" "$LOG" | grep -E '^\[graph(-batch)?\] (POST|PATCH|PUT|DELETE) ' |

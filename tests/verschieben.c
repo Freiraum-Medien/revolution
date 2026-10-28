@@ -8,8 +8,9 @@
  * Aufruf (G_MESSAGES_DEBUG=revolution zeigt die Rücksetzung „Abgleich: …“):
  *   verschieben [--roh] KONTO QUELLE ZIEL BETREFF   Nachricht mit genau diesem Betreff verschieben
  *   verschieben [--roh] KONTO abgleich ORDNER        Ordner holen und abgleichen (Abgleich mit Echo-Schutz)
- *   KONTO: Adresse eines der vier Testkonten (Anzeigename des Stores), ORDNER/QUELLE/ZIEL: voller
- *   Camel-Name oder „Papierkorb“ (revolution_eds_store_get_trash_folder_sync).
+ *   KONTO: Adresse eines der Testkonten aus der Umgebung TESTKONTEN (tests/testkonten.sh; Anzeigename
+ *   des Stores), ORDNER/QUELLE/ZIEL: voller Camel-Name oder „Papierkorb“
+ *   (revolution_eds_store_get_trash_folder_sync).
  *   --roh: Papierkorb und Verschieben direkt über Camel (camel_store_get_trash_folder_sync,
  *   camel_folder_transfer_messages_to_sync), Gegenprobe ohne Echo-Schutz.
  *
@@ -27,10 +28,6 @@
 
 #include "eds-compat.h"
 #include "mail/mail-session.h"
-
-static const char * const testkonten[] = {
-  "KONTO_IMAP_1@example.invalid", "KONTO_IMAP_2@example.invalid", "KONTO_M365@example.invalid", "KONTO_GOOGLE@example.invalid", NULL
-};
 
 static gboolean roh;
 
@@ -130,6 +127,7 @@ main (int    argc,
   g_autolist (CamelService) services = NULL;
   g_autofree char *camel_dir = NULL;
   CamelStore *store = NULL;
+  g_auto (GStrv) testkonten = NULL;
   gboolean ok;
 
   g_option_context_add_main_entries (context, entries, NULL);
@@ -139,7 +137,14 @@ main (int    argc,
       g_printerr ("%s\n", error != NULL ? error->message : "Aufruf: siehe tests/verschieben.c");
       return 2;
     }
-  if (!g_strv_contains (testkonten, argv[1]))
+  /* Schreibend freigegebene Testkonten aus tests/testkonten.sh (TESTKONTEN, ~/.config/revolution/testkonten.ini). */
+  if (g_getenv ("TESTKONTEN") == NULL)
+    {
+      g_printerr ("TESTKONTEN fehlt (tests/testkonten.sh)\n");
+      return 2;
+    }
+  testkonten = g_strsplit (g_getenv ("TESTKONTEN"), " ", -1);
+  if (!g_strv_contains ((const char * const *) testkonten, argv[1]))
     {
       g_printerr ("kein Testkonto: %s\n", argv[1]);
       return 2;

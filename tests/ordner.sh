@@ -3,8 +3,8 @@
 #
 # Aufruf: flock build/.run.lock tests/ordner.sh [AUSGABEORDNER]   (Standard BUILD/m5-364)
 #   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
-#   LAEUFE   Anzahl Läufe, Standard 3;  KONTEN  Standard „KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid
-#            KONTO_GOOGLE@example.invalid“;  LAUF_TIMEOUT  Sekunden je App-Start, Standard 900
+#   LAEUFE   Anzahl Läufe, Standard 3;  KONTEN  Standard „KONTO_IMAP_2 KONTO_M365
+#            KONTO_GOOGLE“;  LAUF_TIMEOUT  Sekunden je App-Start, Standard 900
 #
 # Je Lauf und Konto ein App-Start im eigenen Xvfb (echter Session-Bus, Einstellungen im Speicher, AT-SPI wie
 # tests/suche.sh), geladen wird nur dieses Konto: alle anderen per REVOLUTION_SKIP_ACCOUNTS (tests/testdaten.py
@@ -21,11 +21,12 @@
 set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+. "$APP_DIR/tests/testkonten.sh"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m5-364}"
 LAEUFE="${LAEUFE:-3}"
-KONTEN="${KONTEN:-KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid KONTO_GOOGLE@example.invalid}"
+KONTEN="${KONTEN:-${KONTO_IMAP_2} ${KONTO_M365} ${KONTO_GOOGLE}}"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-900}"
 FEHLER=0
 
@@ -56,7 +57,7 @@ lauf () {
   skip="$(awk -v k="$konto" '$1 == "KONTO" && $3 != k { printf "%s%s", s, $2; s = "," }' "$OUT/konten.txt")"
   [ -n "$uid" ] || { echo "FEHLER  $name: $konto nicht in GOA"; return 1; }
   # outlook.com: Graph-Anfragen ins Log (nur Methode und Pfad, Treiber filtert), Prüfung auf Echo-PATCH (#416).
-  [ "$konto" = KONTO_M365@example.invalid ] && m365=1
+  [ "$konto" = "$KONTO_M365" ] && m365=1
   bus_frei || { echo "FEHLER  $name: Session-Bus: $APP_ID läuft schon"; return 1; }
   rundir="$(mktemp -d)"
   timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK \

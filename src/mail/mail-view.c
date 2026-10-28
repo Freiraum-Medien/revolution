@@ -345,7 +345,7 @@ find_account (RevolutionMailView *self,
 }
 
 /* #345: Konten aus der Registry in den Store, nur im UI-Thread (Registry-Signale kommen
- * dort an, README „Worker“). Reihenfolge alphabetisch nach Anzeigename wie Evolutions
+ * dort an, docs/ENTWICKLUNG.md „Worker“). Reihenfolge alphabetisch nach Anzeigename wie Evolutions
  * Standard (e-mail-account-store.c:119-153, g_utf8_collate); e_source_registry_list_sources
  * sortiert schon so (EDS e-source-registry.c:2474-2476, e-source.c:3368-3375). Evolutions
  * eigene Reihenfolge (sortorder.ini, e-mail-account-store.c:565) liest Revolution nicht
@@ -465,7 +465,7 @@ account_folders (gpointer item,
  * Hier beides in einem Worker-GTask (Architektur 1): erst der Stand im Cache, nach
  * camel_folder_refresh_info_sync der Stand des Servers, dieser nur, wenn er sich vom Cache
  * unterscheidet. Die Einträge entstehen im Worker und kommen in Blöcken in den UI-Thread
- * (g_main_context_invoke_full), dort nur g_list_store_splice (README „Datenmodell“). Ein
+ * (g_main_context_invoke_full), dort nur g_list_store_splice (docs/ENTWICKLUNG.md „Datenmodell“). Ein
  * anderer Ordner bricht das Laden über den GCancellable ab; verspätete Blöcke erkennt die
  * Generation. Sortierung nach Datum absteigend wie der Prototyp (Dokument #5); Evolution
  * sortiert ohne gespeicherten Zustand nicht (message-list.etspec:46-50). */
@@ -1264,7 +1264,7 @@ load_messages_thread (GTask        *task,
       return;
     }
 
-  /* Ordner immer über camel_store_get_folder_sync (README „Camel-Ordner“). */
+  /* Ordner immer über camel_store_get_folder_sync (docs/ENTWICKLUNG.md „Camel-Ordner“). */
   folder = camel_store_get_folder_sync (CAMEL_STORE (service), load->full_name, 0, load_op, &error);
   if (folder == NULL)
     {

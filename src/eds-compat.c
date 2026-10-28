@@ -6,7 +6,7 @@
  */
 
 /* Die einzige Stelle für Aufrufe, die von der EDS-/Camel-Version abhängen
- * (CLAUDE.md Architektur-Festlegung 6, README „Architektur“).
+ * (CLAUDE.md Architektur-Festlegung 6, docs/ENTWICKLUNG.md „Architektur“).
  * EDS_CHECK_VERSION: /usr/include/evolution-data-server/libedataserver/eds-version.h:63. */
 
 #define G_LOG_DOMAIN "revolution"

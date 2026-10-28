@@ -4,8 +4,8 @@
 # Aufruf: tests/banner.sh [AUSGABEORDNER]   (Standard BUILD/m4-420)
 #   BUILD     Build-Ordner, Standard build/ im Repo (vorher meson compile)
 #   LAEUFE    Zahl der Läufe, Standard 3
-#   IMAP      IMAP-Testkonto, Standard KONTO_IMAP_2@example.invalid (Server sslin.df.eu:993)
-#   M365      microsoft365-Testkonto, Standard KONTO_M365@example.invalid (Graph über 443)
+#   IMAP      IMAP-Testkonto, Standard KONTO_IMAP_2 (Server sslin.df.eu:993)
+#   M365      microsoft365-Testkonto, Standard KONTO_M365 (Graph über 443)
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 600
 #
 # Netz wie tests/netz.sh: die App läuft im eigenen Netz-Namensraum, tests/netz-relay.py leitet TCP und
@@ -15,7 +15,7 @@
 #                    der Ordnerliste neu (Fall info@ aus Abnahme #358): kein Banner übrig
 #   m4-420-sperre-N  993 und 443 abgewiesen: Banner „Keine Verbindung (2 Konten)“; 993 frei, F5: nur der
 #                    Fehler von IMAP weg, Banner „Keine Verbindung“; 443 frei, F5: Banner weg
-# Die App lädt nur IMAP und M365; alle anderen Konten (auch NUR_LESEND_3@example.invalid, nur lesend, und die
+# Die App lädt nur IMAP und M365; alle anderen Konten (auch NUR_LESEND_3, nur lesend, und die
 # übrigen Konten auf sslin.df.eu) schließt REVOLUTION_SKIP_ACCOUNTS aus (REVOLUTION_TEST_HOOKS=1).
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler. Abbrüche zählen als FEHLER
 # (tests/abbruch.sh, #411).
@@ -27,11 +27,12 @@
 set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+. "$APP_DIR/tests/testkonten.sh"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m4-420}"
-IMAP="${IMAP:-KONTO_IMAP_2@example.invalid}"
-M365="${M365:-KONTO_M365@example.invalid}"
+IMAP="${IMAP:-${KONTO_IMAP_2}}"
+M365="${M365:-${KONTO_M365}}"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-600}"
 FEHLER=0
 

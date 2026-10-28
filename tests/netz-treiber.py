@@ -33,6 +33,8 @@ from Xlib.ext import xtest
 
 gi.require_version('Atspi', '2.0')
 from gi.repository import Atspi  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from testkonten import NUR_LESEND_3  # noqa: E402
 
 BIN, OUT, NAME, APP_DIR = os.environ['BIN'], os.environ['OUT'], os.environ['NAME'], os.environ['APP_DIR']
 CTRL, RELAIS_LOG, REF = os.environ['CTRL'], os.environ['RELAIS_LOG'], os.environ['REF']
@@ -477,7 +479,7 @@ def m365_laden(uids):
             # #409: Leerzeilen in REF (IndexError, Phase m365 brach ab)
             if len(teile) > 3 and teile[0] == 'ANZAHL':
                 namen[teile[3]] = teile[1]
-    uid = namen['NUR_LESEND_3@example.invalid']
+    uid = namen[NUR_LESEND_3]
     key = re.escape('%s Posteingang' % uid)
     ab_datei = dateizeilen()
     for nr, verzoegerung in enumerate((0.1, 0.2) * 4):

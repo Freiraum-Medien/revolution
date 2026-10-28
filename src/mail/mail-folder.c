@@ -287,7 +287,7 @@ folder_from_info (CamelFolderInfo       *fi,
 }
 
 /* Hängt first und seine Geschwister (mit Unterordnern) sortiert an store an; nur im
- * UI-Thread (README „Datenmodell“). Gibt die Zahl aller Ordner zurück. */
+ * UI-Thread (docs/ENTWICKLUNG.md „Datenmodell“). Gibt die Zahl aller Ordner zurück. */
 guint
 revolution_mail_folder_append_tree (GListStore            *store,
                                     CamelFolderInfo       *first,

@@ -267,7 +267,7 @@ lauf () {
 }
 
 # Namen wie LAEUFE oben. Mail 4800 px hoch, damit alle Konten mit allen Ordnern im Bild sind
-# (wie README „Ordner“); Kalender und Kontakte in der Standardgröße des Fensters.
+# (wie docs/ENTWICKLUNG.md „Ordner“); Kalender und Kontakte in der Standardgröße des Fensters.
 lauf mail-hell prefer-light "" 1200x4800
 lauf mail-dunkel prefer-dark "" 1200x4800
 lauf kalender-hell prefer-light "Control_L+2" 1200x760

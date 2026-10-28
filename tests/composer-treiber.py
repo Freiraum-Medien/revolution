@@ -28,6 +28,9 @@ import gi
 gi.require_version('Atspi', '2.0')
 gi.require_version('EDataServer', '1.2')
 from gi.repository import Atspi, EDataServer  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from testkonten import (KONTO_IMAP_1, KONTO_IMAP_2, KONTO_M365, KONTO_GOOGLE, HILFS_JANA, HILFS_LENA,  # noqa: E402
+                        HILFS_TOM, HILFS_KONTAKT361, HILFS_KONTAKT361B, MSGID_DOMAIN)  # noqa: E402
 
 from PIL import Image  # noqa: E402
 from Xlib import X, XK, display, protocol  # noqa: E402
@@ -37,7 +40,7 @@ BIN, OUT, NAME, ORDNER, KOPF = (os.environ[k] for k in ('BIN', 'OUT', 'NAME', 'O
 MIME = os.environ['REVOLUTION_TEST_MIME']
 # #432: mit REVOLUTION_TEST_SEND=1 sendet die App wirklich (Postausgang), die MIME-Datei ist dann eine Kopie.
 SENDEN = os.environ.get('REVOLUTION_TEST_SEND') == '1'
-KONTO = 'KONTO_IMAP_2@example.invalid'
+KONTO = KONTO_IMAP_2
 LOGKEY = ORDNER.replace('/', ' ', 1)
 # Zeiger über dem Hauptfenster rechts (Lesebereich), außerhalb des Composers (960×720 bei 0,0).
 HAUPT = (1150, 420)
@@ -332,7 +335,7 @@ def pruefe_antwort(schritt, allen, eigen):
     pruefe(str(m['In-Reply-To']) == kopf['Message-ID'], '%s: In-Reply-To %s' % (schritt, m['In-Reply-To']))
     refs = kopf['References'] + ' ' + kopf['Message-ID']
     pruefe(' '.join(str(m['References']).split()) == refs, '%s: References %s' % (schritt, m['References']))
-    pruefe(m['Message-ID'] and m['Message-ID'] != kopf['Message-ID'] and m['Message-ID'].endswith('@example.invalid>'),
+    pruefe(m['Message-ID'] and m['Message-ID'] != kopf['Message-ID'] and m['Message-ID'].endswith('@%s>' % KONTO.split('@')[1]),
            '%s: eigene Message-ID %s' % (schritt, m['Message-ID']))
     t = teile(m)
     pruefe(set(t) == {'text/plain', 'text/html'} and m.get_content_type() == 'multipart/alternative',
@@ -402,7 +405,7 @@ def neu():
         return
     time.sleep(2)
     zeiger(COMPOSER)
-    tippe('KONTO_IMAP_1@example.invalid')
+    tippe(KONTO_IMAP_1)
     taste('Tab', 0.2)
     taste('Tab', 0.2)
     taste('Tab', 0.2)
@@ -430,7 +433,7 @@ def neu():
     if not senden('neu', w):
         return
     m = email.message_from_bytes(open(os.path.join(OUT, '%s-neu.eml' % NAME), 'rb').read(), policy=email.policy.default)
-    pruefe(adressen(m['To']) == ['KONTO_IMAP_1@example.invalid'] and adressen(m['From']) == [KONTO],
+    pruefe(adressen(m['To']) == [KONTO_IMAP_1] and adressen(m['From']) == [KONTO],
            'neu: From %s To %s' % (m['From'], m['To']))
     pruefe(str(m['Subject']) == '[Revolution-Test] Neu 359', 'neu: Subject %s' % m['Subject'])
     pruefe(m['In-Reply-To'] is None and m['References'] is None, 'neu: ohne In-Reply-To/References')
@@ -461,13 +464,13 @@ def a11y():
 
 def konversation():
     """#357: In der Konversation antwortet Strg+R auf die neueste Nachricht (tests/testdaten.py --konversation,
-    Nr. 5 von „Jana Albrecht“ <KONTO_IMAP_1@example.invalid>, References auf 1 bis 4)."""
+    Nr. 5 von „Jana Albrecht“ <KONTO_IMAP_1>, References auf 1 bis 4)."""
     ab = marke()
     zeiger(HAUPT)
     taste('Control_L+r')
-    # Nr. 5 kommt von KONTO_IMAP_1@example.invalid, einer eigenen Identität: Allen antworten (R2, em-composer-utils.c:5127-5131);
+    # Nr. 5 kommt von KONTO_IMAP_1, einer eigenen Identität: Allen antworten (R2, em-composer-utils.c:5127-5131);
     # ohne andere Empfänger füllt Evolution An mit dem Absender auf (3818-3823).
-    pruefe(warte(r'^Composer: Absender privat@arndmesser\.de ist eigene Adresse, Allen antworten$', ab, 60) is not None,
+    pruefe(warte(r'^Composer: Absender %s ist eigene Adresse, Allen antworten$' % re.escape(KONTO_IMAP_1), ab, 60) is not None,
            'konversation: Absender ist eigene Adresse')
     pruefe(warte(r'^Composer: Allen antworten vorbereitet, Von %s$' % re.escape(KONTO), ab, 60) is not None,
            'konversation: Strg+R öffnet den Composer (Allen antworten)')
@@ -480,10 +483,10 @@ def konversation():
         return
     m = email.message_from_bytes(open(os.path.join(OUT, '%s-konversation.eml' % NAME), 'rb').read(),
                                  policy=email.policy.default)
-    mid = ['<revolution-test-konversation-357-%d@example.invalid>' % i for i in range(1, 6)]
+    mid = ['<revolution-test-konversation-357-%d@%s>' % (i, MSGID_DOMAIN) for i in range(1, 6)]
     pruefe(str(m['In-Reply-To']) == mid[4], 'konversation: In-Reply-To %s (neueste, Nr. 5)' % m['In-Reply-To'])
     pruefe(' '.join(str(m['References']).split()) == ' '.join(mid), 'konversation: References %s' % m['References'])
-    pruefe(adressen(m['To']) == ['KONTO_IMAP_1@example.invalid'], 'konversation: To %s' % m['To'])
+    pruefe(adressen(m['To']) == [KONTO_IMAP_1], 'konversation: To %s' % m['To'])
     pruefe(not m['Cc'], 'konversation: kein Cc (%s)' % m['Cc'])
     pruefe(str(m['Subject']) == 'Re: [Revolution-Test] Konversation Marktstand', 'konversation: Subject %s' % m['Subject'])
 
@@ -507,7 +510,7 @@ def antwort_eigen(schritt, nr, an, kopie, betreff, regel):
         return
     m = email.message_from_bytes(open(os.path.join(OUT, '%s-%s.eml' % (NAME, schritt)), 'rb').read(),
                                  policy=email.policy.default)
-    mid = ['<revolution-test-eigen-359-%d@example.invalid>' % i for i in (1, 2, 3)]
+    mid = ['<revolution-test-eigen-359-%d@%s>' % (i, MSGID_DOMAIN) for i in (1, 2, 3)]
     refs = ' '.join(mid[:2]) if nr == 2 else mid[2]
     pruefe(adressen(m['To']) == an, '%s: To %s (erwartet %s)' % (schritt, adressen(m['To']), an))
     pruefe(adressen(m['Cc']) == kopie, '%s: Cc %s (erwartet %s)' % (schritt, adressen(m['Cc']), kopie))
@@ -518,7 +521,7 @@ def antwort_eigen(schritt, nr, an, kopie, betreff, regel):
 
 # ------------------------------------------------------------------ #360
 
-ANHANG_MID = '<revolution-test-anhang-356@example.invalid>'
+ANHANG_MID = '<revolution-test-anhang-356@%s>' % MSGID_DOMAIN
 # Betreff je Lauf von tests/composer.sh eindeutig (ENTWURF_LAUF), Aufräumen nur über eigene Message-IDs.
 ENTWURF = '[Revolution-Test] Entwurf 360 ' + os.environ.get('ENTWURF_LAUF', '')
 
@@ -579,7 +582,7 @@ def weiterleiten():
     time.sleep(3)
     titel = w.get_wm_name()
     wert('weiterleiten: Fenstertitel „%s“' % titel)
-    tippe('KONTO_IMAP_1@example.invalid')
+    tippe(KONTO_IMAP_1)
     ab = marke()
     taste('Control_L+m', 1)
     pruefe(warte(r'^Composer: 2 Anhänge hinzugefügt$', ab, 30) is not None, 'weiterleiten: Strg+M fügt 2 Dateien an')
@@ -682,7 +685,7 @@ def entwurf_neu():
         return
     time.sleep(2)
     intervall = int(os.environ['REVOLUTION_TEST_AUTOSAVE'])
-    entwurf_tippen(w, 'KONTO_IMAP_1@example.invalid', ENTWURF + ' IMAP', 'Erste Fassung')
+    entwurf_tippen(w, KONTO_IMAP_1, ENTWURF + ' IMAP', 'Erste Fassung')
     pruefe(warte(r'^Entwurf: gespeichert folder://', ab, intervall + 60) is not None, 'entwurf: Autosave speichert')
     tippe(' zweite Fassung')
     pruefe(warte(r'^Entwurf: folder://\S+ \d+ als gelöscht markiert \(abgeglichen\)$', ab, intervall + 60) is not None,
@@ -720,12 +723,12 @@ def entwurf_neu():
     entwurf_tippen(w, KONTO, ENTWURF + ' Graph', 'Erste Fassung')
     titel = w.get_wm_name()
     pruefe(a11y_klick(titel, 'toggle button', 'Von') == 1, 'entwurf graph: Auswahl Von geöffnet (%d Popups)' % len(aufklapper()))
-    schritte = liste.index('KONTO_M365@example.invalid') - liste.index(KONTO)
+    schritte = liste.index(KONTO_M365) - liste.index(KONTO)
     for _ in range(abs(schritte)):
         taste('Down' if schritte > 0 else 'Up', 0.2)
     taste('Return', 1)
-    gewechselt = warte(r'^Composer: Von arndmesser@outlook\.com ', ab, 10) is not None
-    pruefe(gewechselt, 'entwurf graph: Von KONTO_M365@example.invalid')
+    gewechselt = warte(r'^Composer: Von %s ' % re.escape(KONTO_M365), ab, 10) is not None
+    pruefe(gewechselt, 'entwurf graph: Von %s' % KONTO_M365)
     if not gewechselt:
         bild('entwurf-von', w)
         taste('Escape', 0.5)
@@ -749,7 +752,7 @@ def entwurf_neu():
     zeiger(COMPOSER)
     taste('Escape', 1)
     pruefe(fenster(weg=True), 'entwurf graph: Escape schließt den Composer')
-    entwuerfe('KONTO_M365@example.invalid', 1, 'entwurf graph')
+    entwuerfe(KONTO_M365, 1, 'entwurf graph')
 
 
 def entwurf_oeffnen(konto, art, vorher):
@@ -843,8 +846,8 @@ def senden_432(art):
     """Antworten/Allen antworten/Weiterleiten auf das Original des Laufs (REVOLUTION_MESSAGE), wirklich gesendet:
     X-Evolution-Source-*, Flags am Original nach dem Senden (Log), Empfänger nur Testkonten; bei „antworten“ dazu
     Neu mit Entwurf. Graph: genau 1 PATCH (am Original), kein Echo-PATCH (#416)."""
-    konto = KONTO if NAME.endswith('-imap') else 'KONTO_M365@example.invalid'
-    andere = 'KONTO_IMAP_1@example.invalid' if konto == KONTO else KONTO
+    konto = KONTO if NAME.endswith('-imap') else KONTO_M365
+    andere = KONTO_IMAP_1 if konto == KONTO else KONTO
     kombi, typ, soll = QUELLE[art]
     roh = roh_zeilen()
     ab = marke()
@@ -901,7 +904,7 @@ def fehlerfall():
         return
     time.sleep(2)
     zeiger(COMPOSER)
-    entwurf_tippen(w, 'KONTO_IMAP_1@example.invalid', betreff, 'Fehlerfall')
+    entwurf_tippen(w, KONTO_IMAP_1, betreff, 'Fehlerfall')
     for n in (1, 2):
         s, roh = marke(), roh_zeilen()
         taste('Control_L+Return', 1)
@@ -930,8 +933,8 @@ def fehlerfall():
 
 # ------------------------------------------------------------------ #361 Adressvervollständigung
 
-KONTAKT = 'Revolution-Test Kontakt 361 <HILFS_KONTAKT361@example.invalid>'
-KONTAKT_2 = 'Revolution-Test Kontakt 361 <HILFS_KONTAKT361B@example.invalid>'
+KONTAKT = 'Revolution-Test Kontakt 361 <%s>' % HILFS_KONTAKT361
+KONTAKT_2 = 'Revolution-Test Kontakt 361 <%s>' % HILFS_KONTAKT361B
 
 
 def vorschlaege():
@@ -963,7 +966,7 @@ def feld_text(titel, name):
 
 def vervollstaendigen():
     """#361: Strg+N; „Re“ (2 Zeichen) sucht nicht, „Rev“ zeigt den Testkontakt (tests/testdaten.py --kontakt anlegen,
-    Google-Adressbuch von KONTO_GOOGLE@example.invalid); Pfeile, Escape, Enter in An, Mausklick in Kopie; Senden (Test)
+    Google-Adressbuch von KONTO_GOOGLE); Pfeile, Escape, Enter in An, Mausklick in Kopie; Senden (Test)
     trägt „Name <Adresse>“ in To und Cc."""
     ab = marke()
     zeiger(HAUPT)
@@ -1044,7 +1047,7 @@ def vervollstaendigen():
                                  policy=email.policy.default)
     for kopf in ('To', 'Cc'):
         pruefe(email.utils.getaddresses([str(m[kopf])]) == [('Revolution-Test Kontakt 361',
-                                                              'HILFS_KONTAKT361@example.invalid')],
+                                                              HILFS_KONTAKT361)],
                'adressen: MIME %s %s' % (kopf, m[kopf]))
 
 
@@ -1114,13 +1117,13 @@ def main():
         elif NAME.endswith('-entwurf-imap'):
             entwurf_oeffnen(KONTO, 'IMAP', 'Erste Fassung zweite Fassung dritte Fassung')
         elif NAME.endswith('-entwurf-graph'):
-            entwurf_oeffnen('KONTO_M365@example.invalid', 'Graph', 'Erste Fassung zweite Fassung')
+            entwurf_oeffnen(KONTO_M365, 'Graph', 'Erste Fassung zweite Fassung')
         elif NAME.endswith('-eigen'):
-            antwort_eigen('eigen', 3, ['HILFS_JANA@example.invalid'], ['HILFS_LENA@example.invalid'],
-                  'Re: [Revolution-Test] Eigene Mail im Eingang', 'Absender KONTO_IMAP_2@example.invalid ist eigene Adresse')
+            antwort_eigen('eigen', 3, [HILFS_JANA], [HILFS_LENA],
+                  'Re: [Revolution-Test] Eigene Mail im Eingang', 'Absender %s ist eigene Adresse' % KONTO_IMAP_2)
         elif NAME.endswith('-eigen-konversation'):
-            antwort_eigen('eigen-konversation', 2, ['HILFS_JANA@example.invalid'],
-                  ['HILFS_LENA@example.invalid', 'HILFS_TOM@example.invalid'],
+            antwort_eigen('eigen-konversation', 2, [HILFS_JANA],
+                  [HILFS_LENA, HILFS_TOM],
                   'Re: [Revolution-Test] Eigene Antwort Kisten', 'Nachricht aus Gesendet')
         elif NAME.endswith('-konversation'):
             konversation()

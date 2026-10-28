@@ -52,7 +52,7 @@
  *     deaktivierte Nicht-GOA-Konten und die eingebauten Speicher local/vfolder/rss
  *     keinen Store.
  *   - Die Registry-Signale (dort vier Rückrufe, 654-760) starten einen Abgleich im
- *     Worker-GTask (README „Worker“): add_service legt je Store die Datenbank an
+ *     Worker-GTask (docs/ENTWICKLUNG.md „Worker“): add_service legt je Store die Datenbank an
  *     (EDS camel-store.c:516-547). Der Abgleich deckt auch eine (de)aktivierte Collection
  *     ab, deren Mail-Konto selbst kein Signal sendet.
  *   - Datenordner ~/.local/share/revolution/mail und ~/.cache/revolution/mail statt
@@ -439,7 +439,7 @@ mail_session_sync_done_cb (GObject *source_object,
 	g_signal_emit (source_object, signals[SERVICES_CHANGED], 0);
 }
 
-/* Registry-Signale kommen im UI-Thread an (README „Architektur“). Ist schon ein Abgleich
+/* Registry-Signale kommen im UI-Thread an (docs/ENTWICKLUNG.md „Architektur“). Ist schon ein Abgleich
  * angefordert, deckt er dieses Signal mit ab („source-changed“ kommt auch für Kalender
  * und Adressbücher). */
 static void

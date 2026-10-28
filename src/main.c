@@ -156,7 +156,7 @@ create_user_dirs (RevolutionMailView *mail_view)
     }
 }
 
-/* #343 Worker-Muster (README „Architektur“): EDS-Aufruf im Worker-Thread, Ergebnis im
+/* #343 Worker-Muster (docs/ENTWICKLUNG.md „Architektur“): EDS-Aufruf im Worker-Thread, Ergebnis im
  * Rückruf im UI-Thread. Vorlage Evolution libemail-engine e-mail-session.c:2538-2618
  * (mail_session_get_inbox_thread, e_mail_session_get_inbox). task_data ist der UI-Thread,
  * nur für den Vergleich im Log. */
@@ -179,7 +179,7 @@ load_registry_thread (GTask        *task,
     g_task_return_pointer (task, registry, g_object_unref);
 }
 
-/* #346: CamelSession im Worker (README „Worker“); revolution_mail_session_new registriert
+/* #346: CamelSession im Worker (docs/ENTWICKLUNG.md „Worker“); revolution_mail_session_new registriert
  * die Stores der Konten. Danach online wie Evolution nach dem Start (e-mail-backend.c:323)
  * und Stamp (stamp-session.c:326); es baut noch keine Verbindung auf.
  * #347: Vorher camel_init wie Evolution (e-mail-backend.c:1301), aber im Worker wie Stamp
@@ -255,7 +255,7 @@ note_store_result_free (NoteStoreResult *result)
   g_free (result);
 }
 
-/* #347: Store online schalten im Worker (README „Worker“) wie Evolution nach dem Start
+/* #347: Store online schalten im Worker (docs/ENTWICKLUNG.md „Worker“) wie Evolution nach dem Start
  * (e-mail-backend.c:323-339, e_mail_store_go_online_sync e-mail-store-utils.c:214-240).
  * Die Stores entstehen vor camel_session_set_online und damit offline (EDS
  * camel-offline-store.c:142); imapx verbindet offline nicht. camel_offline_store_set_online_sync
@@ -364,7 +364,7 @@ note_store_thread (GTask        *task,
 /* #350: Posteingang beim Start aktualisieren wie Evolutions Abruf nach dem Start (mail-send-recv.c,
  * refresh_folders_exec: camel_store_get_folder_sync, camel_folder_refresh_info_sync) und im
  * UI-Thread beobachten (Ungelesen-Zähler, revolution_mail_folder_watch). Ordner immer über
- * camel_store_get_folder_sync (README „Camel-Ordner“). Ein Fehler beim Aktualisieren (z. B. ohne
+ * camel_store_get_folder_sync (docs/ENTWICKLUNG.md „Camel-Ordner“). Ein Fehler beim Aktualisieren (z. B. ohne
  * Netz) lässt den Stand des Caches stehen. */
 static void
 refresh_inbox_thread (GTask        *task,
@@ -844,7 +844,7 @@ free_lock (GMutex *lock)
  * (libemail-engine/e-mail-session.c:638-650, e_source_refresh_add_timeout; Standard an, 60 Minuten,
  * EDS e-source-refresh.c:357-360, 385-388). Bei Ablauf ruft Evolution den Store ab, wenn die Session
  * online ist (mail/e-mail-ui-session.c:1058-1065); hier der Posteingang wie nach dem Start. Für
- * microsoft365 der einzige Weg zu neuen Mails ohne F5 (kein Push, README #353). */
+ * microsoft365 der einzige Weg zu neuen Mails ohne F5 (kein Push, docs/ENTWICKLUNG.md #353). */
 static void
 on_refresh_timeout (ESource  *source,
                     gpointer  user_data)

@@ -1,0 +1,59 @@
+# Testkonten für die Skripte in tests/ (#437). Kopie nach ~/.config/revolution/testkonten.ini
+# (chmod 600) und mit den eigenen Konten aus GNOME Online Accounts füllen; die Datei gehört nicht ins Repo.
+#   adresse       Mail-Adresse des Kontos (Anzeigename des Camel-Stores)
+#   goa_identity  Identity des Kontos in GNOME Online Accounts
+#   typ           imap | m365 | google
+#   freigabe      schreibend (Tests schreiben und senden) | lesend (Tests lesen nur)
+
+[konto_imap_1]
+adresse = KONTO_IMAP_1@example.invalid
+goa_identity = KONTO_IMAP_1@example.invalid
+typ = imap
+freigabe = schreibend
+
+[konto_imap_2]
+adresse = KONTO_IMAP_2@example.invalid
+goa_identity = KONTO_IMAP_2@example.invalid
+typ = imap
+freigabe = schreibend
+
+[konto_m365]
+adresse = KONTO_M365@example.invalid
+goa_identity = KONTO_M365@example.invalid
+typ = m365
+freigabe = schreibend
+
+[konto_google]
+adresse = KONTO_GOOGLE@example.invalid
+goa_identity = KONTO_GOOGLE@example.invalid
+typ = google
+freigabe = schreibend
+
+[nur_lesend_1]
+adresse = NUR_LESEND_1@example.invalid
+goa_identity = NUR_LESEND_1@example.invalid
+typ = imap
+freigabe = lesend
+
+[nur_lesend_2]
+adresse = NUR_LESEND_2@example.invalid
+goa_identity = NUR_LESEND_2@example.invalid
+typ = imap
+freigabe = lesend
+
+[nur_lesend_3]
+adresse = NUR_LESEND_3@example.invalid
+goa_identity = NUR_LESEND_3@example.invalid
+typ = m365
+freigabe = lesend
+
+[hilfsadressen]
+# Plus-Adressen der Testkonten (zustellbar) in Testmails und im Testkontakt
+jana = HILFS_JANA@example.invalid
+lena = HILFS_LENA@example.invalid
+tom = HILFS_TOM@example.invalid
+kontakt361 = HILFS_KONTAKT361@example.invalid
+kontakt361b = HILFS_KONTAKT361B@example.invalid
+# Domain für Message-IDs, Content-IDs und Kalender-UIDs der Testmails (gleich lassen, sonst findet
+# tests/testdaten.py vorhandene Testmails nicht wieder)
+msgid_domain = example.invalid

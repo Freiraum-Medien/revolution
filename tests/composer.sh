@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Composer: Neu, Antworten, Allen antworten (#359), Weiterleiten, Anhänge, Entwürfe, Signatur, Identität (#360)
-# gegen die Testkonten KONTO_IMAP_2@example.invalid (IMAP) und KONTO_M365@example.invalid (Graph).
+# gegen die Testkonten KONTO_IMAP_2 (IMAP) und KONTO_M365 (Graph).
 #
 # Aufruf: tests/composer.sh [AUSGABEORDNER]   (Standard BUILD/m5-359)
 #   BUILD    Build-Ordner, Standard build/ im Repo (vorher meson compile)
@@ -43,7 +43,7 @@
 # Nachricht (OUT/gesendet.txt) testdaten.py --zustellung: genau 1× beim Empfänger, 1× in Gesendet; Flags der Originale
 # vom Server (--original … flags); Aufräumen nur der eigenen Message-IDs (--aufraeumen, --original … aufraeumen).
 # #361: m5-361-adressen-hell/-dunkel: Adressvervollständigung mit dem Testkontakt im Google-Adressbuch von
-# KONTO_GOOGLE@example.invalid (tests/testdaten.py --kontakt anlegen vorher, --kontakt weg nachher).
+# KONTO_GOOGLE (tests/testdaten.py --kontakt anlegen vorher, --kontakt weg nachher).
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler (tests/abbruch.sh).
 #
 # Copyright 2026 Arnd Messer
@@ -53,6 +53,7 @@
 set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+. "$APP_DIR/tests/testkonten.sh"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
 OUT="$(realpath -m "${1:-$BUILD/m5-359}")"
@@ -93,17 +94,17 @@ BETREFF="$(sed -n 's/^KOPF Subject: //p' "$OUT/original-kopf.txt")"
 case " ${LAEUFE:-weiterleiten} " in
   *" weiterleiten"*|*" entwurf"*|*" antworten-"*|*" allen-"*|*" fehler"*)
     td --anhang >"$OUT/anhang.txt" 2>&1 || { cat "$OUT/anhang.txt"; abbruch_bilanz; exit 1; }
-    td --anhang-teile KONTO_IMAP_2@example.invalid "$OUT/teile" >"$OUT/teile.txt" 2>&1 || { cat "$OUT/teile.txt"; abbruch_bilanz; exit 1; }
+    td --anhang-teile "$KONTO_IMAP_2" "$OUT/teile" >"$OUT/teile.txt" 2>&1 || { cat "$OUT/teile.txt"; abbruch_bilanz; exit 1; }
     head -c 4096 /dev/urandom >"$OUT/anhang-360.bin"
     cp "$APP_DIR/src/icons/scalable/actions/drafts-symbolic.svg" "$OUT/anhang-360.svg"
     # Konten ohne Schreibfreigabe (Briefing M5) und alle nicht benötigten ausschließen.
     OHNE="$(python3 -c '
-import gi; gi.require_version("EDataServer", "1.2"); from gi.repository import EDataServer as E
+import sys, gi; gi.require_version("EDataServer", "1.2"); from gi.repository import EDataServer as E
 r = E.SourceRegistry.new_sync(None)
 for s in r.list_sources(E.SOURCE_EXTENSION_MAIL_ACCOUNT):
     i = r.ref_source(s.get_extension(E.SOURCE_EXTENSION_MAIL_ACCOUNT).get_identity_uid() or "")
     a = i.get_extension(E.SOURCE_EXTENSION_MAIL_IDENTITY).get_address() if i and i.has_extension(E.SOURCE_EXTENSION_MAIL_IDENTITY) else ""
-    if a and a not in ("KONTO_IMAP_2@example.invalid", "KONTO_M365@example.invalid"): print(s.get_uid())' | paste -sd,)"
+    if a and a not in sys.argv[1:]: print(s.get_uid())' "$KONTO_IMAP_2" "$KONTO_M365" | paste -sd,)"
     echo "WERT    REVOLUTION_SKIP_ACCOUNTS=$OHNE" ;;
 esac
 # #361: Testkontakt (nur Google-Adressbuch des Testkontos, Name „Revolution-Test …“).
@@ -122,11 +123,11 @@ ENTWURF_ORDNER_GRAPH=""
 read -r UID_GEOPS UID_OUTLOOK < <(PYTHONPATH="$APP_DIR/tests" timeout 60 python3 -c 'import testdaten as t
 from gi.repository import EDataServer as E
 k = t.konten_finden(E.SourceRegistry.new_sync(None))
-print(k["KONTO_IMAP_2@example.invalid"].account.get_uid(), k["KONTO_M365@example.invalid"].account.get_uid())')
+print(k[t.KONTO_IMAP_2].account.get_uid(), k[t.KONTO_M365].account.get_uid())')
 case " ${LAEUFE:-antworten-} " in
   *" antworten-"*|*" allen-"*|*" weiterleiten-imap"*|*" weiterleiten-graph"*)
-    td --original KONTO_IMAP_2@example.invalid "$ENTWURF_LAUF" anlegen >"$OUT/originale-geops.txt" 2>&1 || { cat "$OUT/originale-geops.txt"; abbruch_bilanz; exit 1; }
-    td --original KONTO_M365@example.invalid "$ENTWURF_LAUF" anlegen >"$OUT/originale-arndmesser.txt" 2>&1 ||
+    td --original "$KONTO_IMAP_2" "$ENTWURF_LAUF" anlegen >"$OUT/originale-geops.txt" 2>&1 || { cat "$OUT/originale-geops.txt"; abbruch_bilanz; exit 1; }
+    td --original "$KONTO_M365" "$ENTWURF_LAUF" anlegen >"$OUT/originale-arndmesser.txt" 2>&1 ||
       { cat "$OUT/originale-arndmesser.txt"; abbruch_bilanz; exit 1; }
     grep '^ORIGINAL' "$OUT"/originale-*.txt | cut -c1-160 ;;
 esac
@@ -216,8 +217,8 @@ MIDS="$(cat "$OUT"/*.log 2>/dev/null | sed -n 's/.*Entwurf: gespeichert [^ ]* [^
 if [ -n "$MIDS" ]; then
   echo "WERT    eigene Entwürfe: $(wc -l <<<"$MIDS") Message-IDs"
   : >"$OUT/aufraeumen-pruefung.txt"
-  for konto in KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid; do
-    art=IMAP; [ "$konto" = KONTO_M365@example.invalid ] && art=Graph
+  for konto in ${KONTO_IMAP_2} ${KONTO_M365}; do
+    art=IMAP; [ "$konto" = "$KONTO_M365" ] && art=Graph
     td --entwurf "$konto" "[Revolution-Test] Entwurf 360 $ENTWURF_LAUF $art" weg $MIDS >>"$OUT/aufraeumen.txt" 2>&1
     td --entwurf "$konto" "[Revolution-Test] Entwurf 360 $ENTWURF_LAUF $art" | tee -a "$OUT/aufraeumen-pruefung.txt"
   done
@@ -240,7 +241,7 @@ pruefe_zahl () {  # NAME TEXT IST
 }
 while read -r name mid von empf; do
   for konto in $empf; do
-    case " KONTO_IMAP_1@example.invalid KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid KONTO_GOOGLE@example.invalid " in
+    case " $TESTKONTEN " in
       *" $konto "*) pruefe_zahl "$name" "$mid beim Empfänger $konto (Posteingang)" "$(anzahl "$mid" "$konto" eingang)" ;;
       *) echo "FEHLER  $name: Empfänger $konto ist kein Testkonto"; FEHLER=$((FEHLER + 1)) ;;
     esac
@@ -252,7 +253,7 @@ done < <(tee "$OUT/zustellung-liste.txt" <"$OUT/gesendet.txt")
 # imapx nicht als IMAP-Flag (EDS camel-imapx-utils.c:83-94), nur lokal. Graph kennt ANSWERED/FORWARDED nicht
 # (evolution-ews camel-m365-folder.c:663-664), am Server sichtbar nur isRead (SEEN).
 flagzeile () { sed -n "s/^FLAGS $2 //p" "$OUT/originale-flags-$1.txt"; }
-for konto in KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid; do
+for konto in ${KONTO_IMAP_2} ${KONTO_M365}; do
   k="${konto%%@*}"
   [ -s "$OUT/originale-$k.txt" ] || continue
   td --original "$konto" "$ENTWURF_LAUF" flags >"$OUT/originale-flags-$k.txt" 2>&1
@@ -275,15 +276,15 @@ done
 # #432: Aufräumen nur eigener Nachrichten (Message-IDs aus gesendet.txt bzw. der Originale), Daten-Ordner.
 MIDS_GESENDET="$(awk '{ print $2 }' "$OUT/gesendet.txt" | sort -u)"
 if [ -n "$MIDS_GESENDET" ]; then
-  for konto in KONTO_IMAP_2@example.invalid KONTO_IMAP_1@example.invalid KONTO_M365@example.invalid; do
+  for konto in ${KONTO_IMAP_2} ${KONTO_IMAP_1} ${KONTO_M365}; do
     td --aufraeumen "$konto" $MIDS_GESENDET | tee -a "$OUT/aufraeumen-gesendet.txt"
   done
 fi
-for konto in KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid; do
+for konto in ${KONTO_IMAP_2} ${KONTO_M365}; do
   [ -s "$OUT/originale-${konto%%@*}.txt" ] && td --original "$konto" "$ENTWURF_LAUF" aufraeumen >>"$OUT/aufraeumen-originale.txt" 2>&1
 done
 for b in "432 IMAP" "432 Graph" "432 Fehler"; do
-  for konto in KONTO_IMAP_2@example.invalid KONTO_M365@example.invalid; do
+  for konto in ${KONTO_IMAP_2} ${KONTO_M365}; do
     [ -n "$MIDS" ] && td --entwurf "$konto" "[Revolution-Test] Entwurf 360 $ENTWURF_LAUF $b" | grep '^ENTWUERFE [1-9]' &&
       { echo "FEHLER  Aufräumen: Entwürfe „$b“ in $konto übrig"; FEHLER=$((FEHLER + 1)); }
   done

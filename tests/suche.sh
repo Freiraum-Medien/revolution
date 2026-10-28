@@ -28,12 +28,13 @@
 set -u
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+. "$APP_DIR/tests/testkonten.sh"
 BUILD="${BUILD:-$APP_DIR/build}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m5-365}"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-900}"
-GEOPS=KONTO_IMAP_2@example.invalid
-OUTLOOK=KONTO_M365@example.invalid
+GEOPS=$KONTO_IMAP_2
+OUTLOOK=$KONTO_M365
 FEHLER=0
 
 [ -x "$BIN" ] || { echo "FEHLER  Build: $BIN fehlt (meson compile)"; exit 1; }

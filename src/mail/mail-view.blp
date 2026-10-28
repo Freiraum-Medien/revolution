@@ -408,7 +408,8 @@ template $RevolutionMailView: Adw.BreakpointBin {
         StackPage {
           name: "empty";
 
-          child: Adw.StatusPage {
+          // #365: Titel je nach Suche (mail-view.c, set_empty_page).
+          child: Adw.StatusPage empty_page {
             icon-name: "inbox-symbolic";
             title: _("Keine Nachrichten");
           };
@@ -788,17 +789,50 @@ template $RevolutionMailView: Adw.BreakpointBin {
             StackPage {
               name: "search";
 
-              // Escape (GtkSearchEntry::stop-search) schließt die Suche.
-              child: SearchEntry search_entry {
-                hexpand: true;
-                placeholder-text: _("E-Mails durchsuchen");
-                // Tippen in der Liste startet die Suche (HIG-SE „type to search“, wie main).
-                key-capture-widget: list_pane;
-                search-started => $on_search_started() swapped;
-                stop-search => $on_search_stop() swapped;
+              child: Box {
+                spacing: 6;
 
-                accessibility {
-                  label: _("E-Mails durchsuchen");
+                // Escape (GtkSearchEntry::stop-search) schließt die Suche.
+                SearchEntry search_entry {
+                  hexpand: true;
+                  placeholder-text: _("E-Mails durchsuchen");
+                  // Tippen in der Liste startet die Suche (HIG-SE „type to search“, wie main).
+                  key-capture-widget: list_pane;
+                  // #365: Suche nach Tipp-Pause wie Stamp (stamp-conversation-list.blp:146-147), nicht je Taste
+                  // am Server (mail-search.c).
+                  search-delay: 500;
+                  search-started => $on_search_started() swapped;
+                  stop-search => $on_search_stop() swapped;
+                  search-changed => $on_search_changed() swapped;
+
+                  accessibility {
+                    label: _("E-Mails durchsuchen");
+                  }
+                }
+
+                // #365: Suchbereich wie Evolutions „Aktueller Ordner | Alle Konten“
+                // (e-mail-shell-view.c:1297-1309), nur sichtbar während der Suche; Alt+O / Alt+A.
+                Adw.ToggleGroup search_scope {
+                  valign: center;
+                  notify::active-name => $on_search_changed() swapped;
+
+                  Adw.Toggle {
+                    name: "folder";
+                    label: _("Dieser _Ordner");
+                    use-underline: true;
+                    tooltip: _("Im gewählten Ordner suchen");
+                  }
+
+                  Adw.Toggle {
+                    name: "all";
+                    label: _("_Alle Ordner");
+                    use-underline: true;
+                    tooltip: _("In allen Ordnern aller Konten suchen");
+                  }
+
+                  accessibility {
+                    label: _("Suchbereich");
+                  }
                 }
               };
             }

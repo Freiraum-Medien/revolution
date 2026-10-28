@@ -8,11 +8,11 @@
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 900; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
 # Je Durchgang und Konto ein App-Start im eigenen Xvfb (echter Session-Bus, Einstellungen im Speicher,
-# mark-seen=false) im eigenen Ordner Revolution-Aktionen (mit Unterordner Ziel) und der Aktions-Mail darin:
+# mark-seen=false) im eigenen Ordner Revolution-Aktionen-<Uhrzeit> (daneben …-Ziel) und der Aktions-Mail darin:
 # tests/testdaten.py --ort KONTO aktion anlegen, am Ende des Durchgangs und bei jedem Abbruch (trap)
 # … aufraeumen (Mail endgültig, nur ihre eigene UID bzw. ID, und beide Ordner weg; PM 28.10.: nicht in
 # Revolution-Test, dort arbeiten andere Tests). Auswahl über REVOLUTION_MESSAGE. Treiber
-# tests/aktionen-treiber.py: Entf, Umschalt+Strg+J, Umschalt+Strg+M mit Menüeintrag, Ziehen auf „Ziel“
+# tests/aktionen-treiber.py: Entf, Umschalt+Strg+J, Umschalt+Strg+M mit Menüeintrag, Ziehen auf „…-Ziel“
 # der Seitenleiste, Entf mit Knopf „Rückgängig“, Strg+Alt+A (Gmail ohne Archivordner: Banner); nach jeder
 # Aktion Ziel am Server (tests/testdaten.py --ort, IMAP bzw. Graph) und nächste Nachricht gewählt, dann
 # Rückgängig (Strg+Z bzw. Knopf im Hinweis) und Stand am Server wie vorher. geops@ und outlook.com

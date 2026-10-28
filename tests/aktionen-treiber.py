@@ -204,7 +204,7 @@ def menue():
     ab = len(log_zeilen())
     taste('Control_L+Shift_L+m', 1.0)
     ziele = [t.split('Aktion: Ziel ', 1)[1] for t in log_zeilen()[ab:] if t.startswith('Aktion: Ziel ')]
-    treffer = [i for i, z in enumerate(ziele) if z.endswith(HEIM.rsplit('/', 1)[-1] + '/Ziel')]
+    treffer = [i for i, z in enumerate(ziele) if z.endswith(HEIM.rsplit('/', 1)[-1] + '-Ziel')]
     if len(treffer) != 1:
         raise RuntimeError('Menü: Ziele im Log %s' % ziele)
     for _ in range(len(ziele) + 1):
@@ -220,11 +220,11 @@ def menue():
 
 
 def ziehen_auf_ordner():
-    zeile = a11y_finden('list item', 'Ziel')
+    zeile = a11y_finden('list item', HEIM.rsplit('/', 1)[-1] + '-Ziel')
     erste = a11y_finden('list item', 'Alle Eingänge')
     if zeile is None or erste is None:
-        raise RuntimeError('Seitenleiste: „Ziel“ nicht gefunden')
-    # Die Zeilen der Seitenleiste meldet GTK 4.22 um einen festen Betrag zu hoch (gemessen: „Ziel“ eine Zeile
+        raise RuntimeError('Seitenleiste: Zielordner nicht gefunden')
+    # Die Zeilen der Seitenleiste meldet GTK 4.22 um einen festen Betrag zu hoch (gemessen: Zielordner eine Zeile
     # über der wirklichen); Abgleich an „Alle Eingänge“, das im Fenster 1200×900 bei y = 100 steht (Screenshots).
     x, y = mitte(zeile)
     ziehen(ZEILE, (x, y + 100 - mitte(erste)[1]))

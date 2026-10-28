@@ -116,7 +116,7 @@
 #                                 #363: Ordner am Server mit der Aktions-Mail bzw. den eingehenden Mails der
 #                                 Konversation (#357), per Message-ID (IMAP LIST + EXAMINE + UID SEARCH bzw.
 #                                 Graph GET); Zeilen „ORT <Nr> <Ordner> <gelesen 0|1>“, „HEIM <Ordner>“. anlegen:
-#                                 Ordner Revolution-Aktionen mit Unterordner Ziel und die Aktions-Mail darin
+#                                 Ordner Revolution-Aktionen und …-Ziel daneben, die Aktions-Mail im ersten
 #                                 (APPEND bzw. Graph); zurueck: per UID MOVE bzw. Graph move zurück nach
 #                                 Revolution-Aktionen bzw. INBOX; aufraeumen: Aktions-Mail endgültig löschen
 #                                 (nur ihre UIDs bzw. IDs) und die beiden Ordner entfernen (nur Testkonten)
@@ -1696,10 +1696,14 @@ def server(k, aktion, ziel=ORDNER, warte=None):
     return 0
 
 
-AKTION_ID = msgid('aktionen-363')
 # tests/aktionen.sh setzt je Durchgang einen eigenen Namen: microsoft365 verwechselt einen neu angelegten Ordner
 # mit dem gelöschten gleichen Namens (ErrorSyncFolderNotFound, gemessen #363).
 AKTION_ORDNER = os.environ.get('AKTION_ORDNER', 'Revolution-Aktionen')
+# Je Durchgang eine eigene Message-ID: Kopien früherer Durchgänge in „Gelöschte Elemente“ zählen nicht mit.
+AKTION_ID = msgid('aktionen-363-' + AKTION_ORDNER)
+# Ziel neben dem Ordner, nicht darunter: microsoft365 behält die Unterordner eines gelöschten Ordners im Cache
+# (gemessen #363, auch wenn das Kind zuerst gelöscht wird).
+AKTION_ZIEL = AKTION_ORDNER + '-Ziel'
 
 
 def imap_alle(c):
@@ -1714,7 +1718,7 @@ def imap_alle(c):
 
 
 def ort(k, was, aktion=None):
-    """#363: siehe Kopf (--ort). Aktions-Mail in eigenem Ordner Revolution-Aktionen (Unterordner „Ziel“ fürs
+    """#363: siehe Kopf (--ort). Aktions-Mail in eigenem Ordner Revolution-Aktionen (daneben „…-Ziel“ fürs
     Verschieben), nicht in Revolution-Test (dort arbeiten andere Tests mit der obersten Zeile, PM 28.10.).
     Gmail: „Alle Nachrichten“ (\\All) enthält jede Mail außer Papierkorb und Spam; zurück daraus per COPY."""
     if aktion:
@@ -1728,7 +1732,7 @@ def ort(k, was, aktion=None):
         pfad = test[:len(test) - len(ORDNER)] + AKTION_ORDNER
         trenner = c.list('""', '"%s"' % test)[1][0].decode().split('"')[1]
         if aktion == 'anlegen':
-            for name in (pfad, pfad + trenner + 'Ziel'):
+            for name in (pfad, pfad + '-Ziel'):
                 if not c.list('""', '"%s"' % name)[1][0]:
                     print(c.create('"%s"' % name), c.subscribe('"%s"' % name))
         for _ in range(10):  # Gmail listet einen neuen Ordner nicht immer sofort (gemessen #363)
@@ -1769,7 +1773,7 @@ def ort(k, was, aktion=None):
                 for uid in c.uid('SEARCH', None, 'HEADER', 'Message-ID', AKTION_ID)[1][0].split():
                     print(c.uid('STORE', uid, '+FLAGS', '(\\Deleted)'), c.uid('EXPUNGE', uid))
             c.select('INBOX', readonly=True)
-            for name in (pfad + trenner + 'Ziel', pfad):
+            for name in (pfad + '-Ziel', pfad):
                 print(c.delete('"%s"' % name))
         if heim:
             print('HEIM %s' % heim[1])
@@ -1780,10 +1784,10 @@ def ort(k, was, aktion=None):
     eigene = graph(k, 'GET', "/me/mailFolders?$filter=displayName%20eq%20'" + AKTION_ORDNER + "'")['value']
     if aktion == 'anlegen' and not eigene:
         eigene = [graph(k, 'POST', '/me/mailFolders', {'displayName': AKTION_ORDNER})]
-        ziel = graph(k, 'POST', '/me/mailFolders/%s/childFolders' % eigene[0]['id'], {'displayName': 'Ziel'})
+        ziel = graph(k, 'POST', '/me/mailFolders', {'displayName': AKTION_ZIEL})
         with open(ids_datei, 'a') as f:
-            f.write('%s %s\n%s %s/Ziel\n' % (eigene[0]['id'], AKTION_ORDNER, ziel['id'], AKTION_ORDNER))
-        print('ANGELEGT %s %s, %s %s/Ziel' % (eigene[0]['id'], AKTION_ORDNER, ziel['id'], AKTION_ORDNER))
+            f.write('%s %s\n%s %s\n' % (eigene[0]['id'], AKTION_ORDNER, ziel['id'], AKTION_ZIEL))
+        print('ANGELEGT %s %s, %s %s' % (eigene[0]['id'], AKTION_ORDNER, ziel['id'], AKTION_ZIEL))
     heim = (eigene[0]['id'] if eigene else None) if was == 'aktion' else graph(k, 'GET', '/me/mailFolders/inbox')['id']
     for nr, mid in ids.items():
         mails = graph(k, 'GET', "/me/messages?$filter=internetMessageId%20eq%20'" + urllib.parse.quote(mid)
@@ -1806,10 +1810,8 @@ def ort(k, was, aktion=None):
             'from': {'emailAddress': {'address': ANZEIGE_ABSENDER}}, 'toRecipients': [{'emailAddress': {'address': k.adresse}}],
             'singleValueExtendedProperties': [{'id': 'Integer 0x0E07', 'value': '0'}]})
     if aktion == 'aufraeumen' and was == 'aktion' and ids_datei and os.path.exists(ids_datei):
-        # Erst „Ziel“, dann den eigenen Ordner (umgekehrte Reihenfolge der Datei): das Delta der Ordnerliste meldet
-        # die Kinder eines gelöschten Ordners nicht, Camel behielte sie (gemessen #363, folder-tree der App).
         for zeile in reversed(open(ids_datei).read().split('\n')):
-            if zeile.endswith(' ' + AKTION_ORDNER) or zeile.endswith(' %s/Ziel' % AKTION_ORDNER):
+            if zeile.endswith(' ' + AKTION_ORDNER) or zeile.endswith(' ' + AKTION_ZIEL):
                 fid = zeile.split(' ', 1)[0]
                 graph(k, 'POST', '/me/mailFolders/%s/permanentDelete' % fid)
                 print('ORDNER GELOESCHT %s' % zeile)

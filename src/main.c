@@ -153,9 +153,9 @@ create_user_dirs (RevolutionMailView *mail_view)
           continue;
         }
 
-      message = g_strdup_printf (_("Ordner „%s“ konnte nicht angelegt werden: %s"), dir, g_strerror (errno));
+      message = g_strdup_printf (_("Could not create folder “%s”: %s"), dir, g_strerror (errno));
       g_warning ("%s", message);
-      revolution_mail_view_show_error (mail_view, _("Datenordner fehlt"), message, FALSE);
+      revolution_mail_view_show_error (mail_view, _("Data Folder Missing"), message, FALSE);
     }
 }
 
@@ -318,7 +318,7 @@ note_store_thread (GTask        *task,
       !camel_offline_store_set_online_sync (CAMEL_OFFLINE_STORE (store), TRUE, cancellable, &result->connect_error) &&
       result->connect_error == NULL)
     result->connect_error = g_error_new_literal (CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_UNAVAILABLE,
-                                                 _("Verbindung ohne Fehlermeldung abgebrochen"));
+                                                 _("Connection closed without an error message"));
   else if (CAMEL_IS_OFFLINE_STORE (store) && result->offline)
     camel_offline_store_set_online_sync (CAMEL_OFFLINE_STORE (store), FALSE, cancellable, &result->offline_error);
   else if (!CAMEL_IS_OFFLINE_STORE (store) && result->offline &&
@@ -532,11 +532,11 @@ on_store_noted (GObject      *source_object,
       g_warning ("Anmeldung %s (%s): %s", display_name, uid, error->message);
 
       if (g_error_matches (error, G_TLS_ERROR, G_TLS_ERROR_BAD_CERTIFICATE))
-        title = _("Zertifikat nicht vertrauenswürdig");
+        title = _("Certificate Not Trusted");
       else if (g_error_matches (error, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_CANT_AUTHENTICATE))
-        title = _("Anmeldung fehlgeschlagen");
+        title = _("Authentication Failed");
       else
-        title = _("Keine Verbindung");
+        title = _("No Connection");
 
       /* #420: Die Ordnerliste danach verbindet einen online gebliebenen Store neu
        * (store_maybe_connect_sync, camel-store.c:262-315); ist er schon verbunden, ist der Fehler
@@ -593,7 +593,7 @@ on_store_noted (GObject      *source_object,
     {
       g_warning ("Ordner %s (%s): %s", display_name, uid, noted->folders_error->message);
       detail = g_strdup_printf ("%s: %s", display_name, noted->folders_error->message);
-      revolution_mail_view_show_error (mail_view, _("Ordner nicht geladen"), detail, TRUE);
+      revolution_mail_view_show_error (mail_view, _("Folders Not Loaded"), detail, TRUE);
     }
   else
     g_debug ("Ordner: %s nicht geladen: %s", uid, noted->folders_error->message);
@@ -901,7 +901,7 @@ note_stores (RevolutionMailSession *session,
   GCancellable *cancellable = line;
 
   for (guint i = 0; errors[i] != NULL; i++)
-    revolution_mail_view_show_error (mail_view, _("Konto nicht eingerichtet"), errors[i], TRUE);
+    revolution_mail_view_show_error (mail_view, _("Account Not Set Up"), errors[i], TRUE);
 
   /* #351: Quellen entfernter Stores aus den Favoriten nehmen (mail-favorites.c). */
   revolution_mail_favorites_sync_session (CAMEL_SESSION (session));
@@ -1298,9 +1298,9 @@ on_registry_loaded (GObject      *source_object,
   if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
     return;
 
-  message = g_strdup_printf (_("Konten konnten nicht geladen werden: %s"), error->message);
+  message = g_strdup_printf (_("Could not load accounts: %s"), error->message);
   g_warning ("%s", message);
-  revolution_mail_view_show_error (mail_view, _("Konten nicht verfügbar"), message, FALSE);
+  revolution_mail_view_show_error (mail_view, _("Accounts Unavailable"), message, FALSE);
 }
 
 static void
@@ -1431,8 +1431,12 @@ main (int    argc,
 {
   g_autoptr (AdwApplication) app = NULL;
   g_autoptr (GSettings) settings = NULL;
+  g_autofree char *exe = g_file_read_link ("/proc/self/exe", NULL);
+  g_autofree char *exe_dir = exe != NULL ? g_path_get_dirname (exe) : NULL;
 
-  bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR);
+  /* #438: Aus dem Build-Ordner gestartet die dort gebauten Übersetzungen, sonst die installierten
+   * (gleiche Erkennung wie die Web-Erweiterung, mail-reader.c extensions_directory). */
+  bindtextdomain (GETTEXT_PACKAGE, g_strcmp0 (exe_dir, BUILD_SRC_DIR) == 0 ? BUILD_LOCALE_DIR : LOCALEDIR);
   bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
   textdomain (GETTEXT_PACKAGE);
 

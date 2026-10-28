@@ -34,6 +34,8 @@ conf.set_quoted('USER_DIR_NAME', profile == 'Devel' ? 'revolution-devel' : 'revo
 web_extensions_dir = get_option('prefix') / get_option('libdir') / 'revolution' / 'web-extensions'
 conf.set_quoted('WEB_EXTENSIONS_DIR', web_extensions_dir)
 conf.set_quoted('BUILD_SRC_DIR', meson.project_build_root() / 'src')
+# #438: aus dem Build-Ordner gestartet die dort gebauten Übersetzungen (po/<Sprache>/LC_MESSAGES, main.c).
+conf.set_quoted('BUILD_LOCALE_DIR', meson.project_build_root() / 'po')
 configure_file(output: 'config.h', configuration: conf)
 
 subdir('data')

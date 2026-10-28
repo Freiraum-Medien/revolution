@@ -207,7 +207,7 @@ revolution_contacts_view_init (RevolutionContactsView *self)
   for (char letter = 'A'; letter <= 'Z'; letter++)
     {
       char text[2] = { letter, '\0' };
-      g_autofree char *tooltip = g_strdup_printf (_("Zu „%s“ springen"), text);
+      g_autofree char *tooltip = g_strdup_printf (_("Jump to “%s”"), text);
       GtkWidget *button = gtk_button_new_with_label (text);
 
       gtk_actionable_set_action_target (GTK_ACTIONABLE (button), "s", text);

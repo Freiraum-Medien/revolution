@@ -310,7 +310,7 @@ revolution_eds_store_get_trash_folder_sync (CamelStore    *store,
   if (trash_info != NULL)
     trash = camel_store_get_folder_sync (store, trash_info->full_name, 0, cancellable, error);
   else
-    g_set_error_literal (error, CAMEL_STORE_ERROR, CAMEL_STORE_ERROR_NO_FOLDER, _("Papierkorb nicht gefunden"));
+    g_set_error_literal (error, CAMEL_STORE_ERROR, CAMEL_STORE_ERROR_NO_FOLDER, _("Trash folder not found"));
   camel_folder_info_free (info);
   if (trash == NULL)
     return NULL;

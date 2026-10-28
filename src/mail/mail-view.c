@@ -186,9 +186,9 @@ set_empty_page (RevolutionMailView *self,
                 gboolean            searching)
 {
   adw_status_page_set_icon_name (self->empty_page, self->search != NULL ? "edit-find-symbolic" : "inbox-symbolic");
-  adw_status_page_set_title (self->empty_page, searching          ? _("Suche läuft …")
-                                               : self->search != NULL ? _("Keine Nachricht entspricht den Suchkriterien")
-                                                                      : _("Keine Nachrichten"));
+  adw_status_page_set_title (self->empty_page, searching          ? _("Searching…")
+                                               : self->search != NULL ? _("No Messages Match the Search Criteria")
+                                                                      : _("No Messages"));
 }
 
 /* #365: Suche aus Suchfeld, Suchbereich und Filter. Die Liste bleibt dieselbe: der gewählte Ordner wird neu
@@ -573,12 +573,12 @@ set_list_subtitle (RevolutionMailView *self,
   /* %'u: Tausenderpunkt nach Gebietsschema (glibc), z. B. „3.000 E-Mails“. #357: in Konversationen
    * deren Zahl, ungelesen dann die Konversationen mit ungelesenen Nachrichten. */
   if (self->conversations)
-    count = g_strdup_printf (ngettext ("%'u Konversation", "%'u Konversationen", total), total);
+    count = g_strdup_printf (ngettext ("%'u conversation", "%'u conversations", total), total);
   else
-    count = g_strdup_printf (ngettext ("%'u E-Mail", "%'u E-Mails", total), total);
+    count = g_strdup_printf (ngettext ("%'u message", "%'u messages", total), total);
   if (unread > 0)
-    /* Translators: „10 E-Mails, 4 ungelesen“; %s ist die Anzahl der E-Mails. */
-    subtitle = g_strdup_printf (_("%s, %'u ungelesen"), count, unread);
+    /* Translators: “10 messages, 4 unread”; %s is the number of messages. */
+    subtitle = g_strdup_printf (_("%s, %'u unread"), count, unread);
 
   gtk_label_set_label (self->list_subtitle, subtitle != NULL ? subtitle : count);
   gtk_widget_set_visible (GTK_WIDGET (self->list_subtitle), TRUE);
@@ -1091,7 +1091,7 @@ send_messages (GTask       *task,
 
       uids = camel_folder_search_by_expression (folder, load->search, op, &load->error);
       if (uids == NULL && load->error == NULL)
-        g_set_error_literal (&load->error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID, _("Suche fehlgeschlagen"));
+        g_set_error_literal (&load->error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID, _("Search Failed"));
       if (uids == NULL)
         return FALSE;
     }
@@ -1260,7 +1260,7 @@ load_messages_thread (GTask        *task,
   if (!CAMEL_IS_STORE (service))
     {
       g_task_return_new_error (task, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_UNAVAILABLE,
-                               _("Konto %s nicht verfügbar"), load->uid);
+                               _("Account %s unavailable"), load->uid);
       return;
     }
 
@@ -1904,7 +1904,7 @@ set_flags_thread (GTask        *task,
     {
       g_free (location);
       g_task_return_new_error (task, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID_UID,
-                               _("Nachricht %s nicht gefunden"), data->uid);
+                               _("Message %s not found"), data->uid);
       return;
     }
   /* #409: für den Notpfad (flags_deadline) merken: im Suchordner „Markiert“ fällt die Nachricht nach
@@ -2081,7 +2081,7 @@ on_flags_set (GObject      *source_object,
     {
       g_warning ("Flags %s %s %s: %s", data->loading, data->uid, data->what, error->message);
       detail = g_strdup_printf ("%s: %s", gtk_label_get_label (self->list_title), error->message);
-      revolution_mail_view_show_error (self, _("Markierung nicht gespeichert"), detail, FALSE);
+      revolution_mail_view_show_error (self, _("Flags Not Saved"), detail, FALSE);
     }
   self->running = NULL;
   start_flags (self);
@@ -2595,7 +2595,7 @@ on_refreshed (GObject      *source_object,
 
   g_warning ("Aktualisieren %s: %s", loading, error->message);
   detail = g_strdup_printf ("%s: %s", gtk_label_get_label (self->list_title), error->message);
-  revolution_mail_view_show_error (self, _("Aktualisieren fehlgeschlagen"), detail, FALSE);
+  revolution_mail_view_show_error (self, _("Refresh Failed"), detail, FALSE);
 }
 
 static void on_folder_selected (RevolutionMailView *self);
@@ -2804,7 +2804,7 @@ on_messages_loaded (GObject      *source_object,
     {
       g_warning ("Nachrichten %s %s: %s", load->uid, load->full_name, error->message);
       detail = g_strdup_printf ("%s: %s", gtk_label_get_label (self->list_title), error->message);
-      revolution_mail_view_show_error (self, _("Nachrichten nicht geladen"), detail, FALSE);
+      revolution_mail_view_show_error (self, _("Messages Not Loaded"), detail, FALSE);
     }
 
   g_debug ("Nachrichten: %s vollständig %u nach %.0f ms, %u verschiedene UIDs", self->loading, n_items,
@@ -2952,9 +2952,9 @@ on_folder_selected (RevolutionMailView *self)
     {
       g_clear_pointer (&load->sent_full_name, g_free);
       g_clear_object (&self->thread_folder);
-      self->thread_folder = revolution_mail_folder_new (REVOLUTION_MAIL_SEARCH_NAME, _("Alle Ordner"), NULL,
+      self->thread_folder = revolution_mail_folder_new (REVOLUTION_MAIL_SEARCH_NAME, _("All Folders"), NULL,
                                                         self->favorites);
-      gtk_label_set_label (self->list_title, _("Alle Ordner"));
+      gtk_label_set_label (self->list_title, _("All Folders"));
       set_empty_page (self, TRUE);
       gtk_stack_set_visible_child_name (self->list_stack, "empty");
     }
@@ -3070,10 +3070,10 @@ revolution_mail_view_find_place (RevolutionMailView    *self,
 typedef enum { ACTION_DELETE, ACTION_ARCHIVE, ACTION_JUNK, ACTION_MOVE, ACTION_UNDO } TransferKind;
 
 static const struct { const char *log; const char *toast; guint32 type; } transfer_kinds[] = {
-  [ACTION_DELETE]  = { "gelöscht",   N_("Gelöscht"),          CAMEL_FOLDER_TYPE_TRASH },
-  [ACTION_ARCHIVE] = { "archiviert", N_("Archiviert"),        CAMEL_FOLDER_TYPE_ARCHIVE },
-  [ACTION_JUNK]    = { "Spam",       N_("Als Spam markiert"), CAMEL_FOLDER_TYPE_JUNK },
-  [ACTION_MOVE]    = { "verschoben", N_("Verschoben"),        0 },
+  [ACTION_DELETE]  = { "gelöscht",   N_("Deleted"),          CAMEL_FOLDER_TYPE_TRASH },
+  [ACTION_ARCHIVE] = { "archiviert", N_("Archived"),        CAMEL_FOLDER_TYPE_ARCHIVE },
+  [ACTION_JUNK]    = { "Spam",       N_("Marked as Junk"), CAMEL_FOLDER_TYPE_JUNK },
+  [ACTION_MOVE]    = { "verschoben", N_("Moved"),        0 },
   [ACTION_UNDO]    = { "rückgängig", NULL,                    0 },
 };
 
@@ -3212,7 +3212,7 @@ transfer_thread (GTask    *task,
                     : camel_store_get_folder_sync (camel_folder_get_parent_store (t->source), t->target, 0, NULL, &error);
     }
   if (error == NULL && (t->source == NULL || t->dest == NULL || t->dest == t->source || uids->len == 0))
-    g_set_error (&error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID_UID, _("Nachricht %s nicht gefunden"), data->uid);
+    g_set_error (&error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID_UID, _("Message %s not found"), data->uid);
   if (error != NULL)
     {
       g_task_return_error (task, error);
@@ -3315,7 +3315,7 @@ on_transferred (RevolutionMailView *self,
   if (self->cancellable == NULL || g_cancellable_is_cancelled (self->cancellable))
     return;
   detail = g_strdup_printf ("%s: %s", gtk_label_get_label (self->list_title), error->message);
-  revolution_mail_view_show_error (self, _("Nicht verschoben"), detail, FALSE);
+  revolution_mail_view_show_error (self, _("Not Moved"), detail, FALSE);
   for (guint i = 0; t->list_folder == self->camel_folder && i < t->uids->len; i++)
     g_hash_table_add (self->pending_changed, g_strdup (t->uids->pdata[i]));
 }
@@ -3448,18 +3448,18 @@ transfer_message (RevolutionMailView    *self,
         }
       else if (g_strcmp0 (uid, target_account) != 0)
         {
-          hint = _("Verschieben zwischen Konten ist nicht möglich");
+          hint = _("Messages cannot be moved between accounts");
           continue;
         }
       if (name == NULL || g_strcmp0 (name, source) == 0)
         {
-          hint = name != NULL ? _("Die Nachricht ist schon in diesem Ordner") : NULL;
+          hint = name != NULL ? _("The message is already in this folder") : NULL;
           g_debug ("Aktion: %s %s nicht möglich, Ziel %s", uid, transfer_kinds[kind].log, name ? "ist die Quelle" : "fehlt");
           if (name == NULL)
             {
               g_autofree char *detail = g_strdup_printf ("%s: %s", uid, _(transfer_kinds[kind].toast));
 
-              revolution_mail_view_show_error (self, _("Kein Zielordner"), detail, FALSE);
+              revolution_mail_view_show_error (self, _("No Target Folder"), detail, FALSE);
             }
           continue;
         }
@@ -3501,10 +3501,10 @@ transfer_message (RevolutionMailView    *self,
   overlay = ADW_TOAST_OVERLAY (gtk_widget_get_ancestor (GTK_WIDGET (self), ADW_TYPE_TOAST_OVERLAY));
   if (overlay == NULL)
     return TRUE;
-  title = kind == ACTION_MOVE ? g_strdup_printf (_("Verschoben nach „%s“"), strrchr (target, '/') ? strrchr (target, '/') + 1 : target)
+  title = kind == ACTION_MOVE ? g_strdup_printf (_("Moved to “%s”"), strrchr (target, '/') ? strrchr (target, '/') + 1 : target)
                               : g_strdup (_(transfer_kinds[kind].toast));
   self->toast = g_object_ref (adw_toast_new (title));
-  adw_toast_set_button_label (self->toast, _("_Rückgängig"));
+  adw_toast_set_button_label (self->toast, _("_Undo"));
   g_signal_connect_object (self->toast, "button-clicked", G_CALLBACK (on_undo), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (self->toast, "dismissed", G_CALLBACK (on_toast_dismissed), self, G_CONNECT_SWAPPED);
   self->undo = g_steal_pointer (&undo);
@@ -3662,7 +3662,7 @@ on_folder_drop (GtkListItem   *item,
   g_debug ("Aktion: Ziehen auf %s", revolution_mail_folder_get_full_name (folder));
   if (account == NULL || account == self->favorites)
     {
-      show_hint (self, _("Hierhin lässt sich nicht verschieben"));
+      show_hint (self, _("Cannot move here"));
       return FALSE;
     }
 
@@ -3763,9 +3763,9 @@ revolution_mail_view_set_property (GObject      *object,
 enum { EDIT_NEW, EDIT_RENAME, EDIT_DELETE };
 
 static const struct { const char *action, *done, *title; } folder_ops[] = {
-  { "new", "angelegt", N_("Ordner nicht angelegt") },
-  { "rename", "umbenannt", N_("Ordner nicht umbenannt") },
-  { "delete", "gelöscht", N_("Ordner nicht gelöscht") },
+  { "new", "angelegt", N_("Folder Not Created") },
+  { "rename", "umbenannt", N_("Folder Not Renamed") },
+  { "delete", "gelöscht", N_("Folder Not Deleted") },
 };
 
 typedef struct
@@ -3951,14 +3951,14 @@ on_folder_edit (GSimpleAction *action,
   g_object_get (self->folder, "display-name", &display_name, NULL);
 
   if (op == EDIT_DELETE)
-    heading = g_strdup_printf (with_children ? _("Ordner „%s“ und alle Unterordner löschen?") : _("Ordner „%s“ löschen?"),
+    heading = g_strdup_printf (with_children ? _("Delete Folder “%s” and All Subfolders?") : _("Delete Folder “%s”?"),
                                display_name);
-  dialog = adw_alert_dialog_new (op == EDIT_NEW ? _("Neuer Ordner") : op == EDIT_RENAME ? _("Ordner umbenennen") : heading,
+  dialog = adw_alert_dialog_new (op == EDIT_NEW ? _("New Folder") : op == EDIT_RENAME ? _("Rename Folder") : heading,
                                  op != EDIT_DELETE ? NULL : with_children
-                                 ? _("Der Inhalt des Ordners und seiner Unterordner wird endgültig gelöscht.")
-                                 : _("Der Inhalt des Ordners wird endgültig gelöscht."));
-  adw_alert_dialog_add_responses (ADW_ALERT_DIALOG (dialog), "cancel", op == EDIT_DELETE ? _("_Nicht löschen") : _("_Abbrechen"),
-                                  "ok", op == EDIT_NEW ? _("_Anlegen") : op == EDIT_RENAME ? _("_Umbenennen") : _("_Löschen"),
+                                 ? _("The contents of the folder and its subfolders will be permanently deleted.")
+                                 : _("The contents of the folder will be permanently deleted."));
+  adw_alert_dialog_add_responses (ADW_ALERT_DIALOG (dialog), "cancel", op == EDIT_DELETE ? _("Do _Not Delete") : _("_Cancel"),
+                                  "ok", op == EDIT_NEW ? _("C_reate") : op == EDIT_RENAME ? _("_Rename") : _("_Delete"),
                                   NULL);
   adw_alert_dialog_set_response_appearance (ADW_ALERT_DIALOG (dialog), "ok",
                                             op == EDIT_DELETE ? ADW_RESPONSE_DESTRUCTIVE : ADW_RESPONSE_SUGGESTED);
@@ -3972,11 +3972,11 @@ on_folder_edit (GSimpleAction *action,
 
       gtk_editable_set_text (GTK_EDITABLE (entry), op == EDIT_RENAME ? (slash != NULL ? slash + 1 : full_name) : "");
       gtk_entry_set_activates_default (GTK_ENTRY (entry), TRUE);
-      gtk_accessible_update_property (GTK_ACCESSIBLE (entry), GTK_ACCESSIBLE_PROPERTY_LABEL, _("Ordnername"), -1);
+      gtk_accessible_update_property (GTK_ACCESSIBLE (entry), GTK_ACCESSIBLE_PROPERTY_LABEL, _("Folder Name"), -1);
       gtk_box_append (GTK_BOX (box), entry);
       if (op == EDIT_NEW)
         {
-          g_autofree char *label = g_strdup_printf (_("_Unterordner von „%s“"), display_name);
+          g_autofree char *label = g_strdup_printf (_("_Subfolder of “%s”"), display_name);
           GtkWidget *check = gtk_check_button_new_with_mnemonic (label);
           gboolean inside = (flags & CAMEL_FOLDER_NOINFERIORS) == 0 &&
                             (flags & CAMEL_FOLDER_TYPE_MASK) != CAMEL_FOLDER_TYPE_TRASH &&
@@ -4211,7 +4211,7 @@ revolution_mail_view_init (RevolutionMailView *self)
   self->accounts = g_list_store_new (REVOLUTION_TYPE_MAIL_ACCOUNT);
   /* #351: Favoriten als erster Abschnitt vor den Konten (Prototyp), außerhalb von self->accounts
    * (sync_accounts gleicht nur die Konten der Registry ab); Ordner sind gleich da. */
-  self->favorites = revolution_mail_account_new (REVOLUTION_MAIL_FAVORITES_UID, _("Favoriten"));
+  self->favorites = revolution_mail_account_new (REVOLUTION_MAIL_FAVORITES_UID, _("Favorites"));
   revolution_mail_favorites_fill (G_LIST_STORE (gtk_tree_list_model_get_model (account_tree (self->favorites))),
                                   self->favorites);
   g_object_set_data (G_OBJECT (self->favorites), "folders-noted", GINT_TO_POINTER (TRUE));
@@ -4220,12 +4220,12 @@ revolution_mail_view_init (RevolutionMailView *self)
   /* #362: Postausgang wie Evolution im lokalen Store „Auf diesem Rechner“ (e-mail-session.c:824-894,
    * em-folder-tree-model.c:1534-1538), Name wie dort „Outbox“ mit eigenem Typ; erst sichtbar, wenn er
    * Nachrichten hat (revolution_mail_view_set_outbox). */
-  self->local = revolution_mail_account_new (REVOLUTION_MAIL_LOCAL_UID, _("Auf diesem Rechner"));
+  self->local = revolution_mail_account_new (REVOLUTION_MAIL_LOCAL_UID, _("On This Computer"));
   {
     CamelFolderInfo *fi = camel_folder_info_new ();
 
     fi->full_name = g_strdup ("Outbox");
-    fi->display_name = g_strdup (_("Postausgang"));
+    fi->display_name = g_strdup (_("Outbox"));
     fi->flags = CAMEL_FOLDER_TYPE_OUTBOX | CAMEL_FOLDER_NOCHILDREN;
     revolution_mail_folder_append_tree (G_LIST_STORE (gtk_tree_list_model_get_model (account_tree (self->local))),
                                         fi, self->local);
@@ -4404,9 +4404,9 @@ update_banner (RevolutionMailView *self,
     }
 
   if (best->per_account && best_count > 1)
-    /* Translators: Titel des Fehlerbanners, z. B. „Keine Verbindung (7 Konten)“:
-     * Fehlerart und Zahl der Konten mit dieser Fehlerart. */
-    shown = g_strdup_printf (ngettext ("%s (%u Konto)", "%s (%u Konten)", best_count),
+    /* Translators: title of the error banner, e.g. “No Connection (7 accounts)”:
+     * kind of error and number of accounts with this kind of error. */
+    shown = g_strdup_printf (ngettext ("%s (%u account)", "%s (%u accounts)", best_count),
                              best->title, best_count);
   else
     shown = g_strdup (best->title);
@@ -4529,11 +4529,11 @@ revolution_mail_view_clear_connection_errors (RevolutionMailView *self)
   if (errors == NULL)
     return;
   for (guint i = 0; i < errors->len; i++)
-    if (g_strcmp0 (((BannerError *) g_ptr_array_index (errors, i))->title, _("Keine Verbindung")) != 0)
+    if (g_strcmp0 (((BannerError *) g_ptr_array_index (errors, i))->title, _("No Connection")) != 0)
       return;
 
   g_object_set_data (G_OBJECT (self), "banner-errors", NULL);
-  update_banner (self, _("Keine Verbindung"));
+  update_banner (self, _("No Connection"));
 }
 
 /* #408: Aufruf aus main.c, sobald der Store des Kontos uid nach „Netz zurück“ wieder verbunden

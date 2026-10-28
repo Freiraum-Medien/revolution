@@ -48,13 +48,13 @@ static const struct
   guint32     source_type;
   const char *expression;
 } favorites[] = {
-  { "inbox",   N_("Alle Eingänge"), "inbox-symbolic",   CAMEL_FOLDER_TYPE_INBOX,
+  { "inbox",   N_("All Inboxes"), "inbox-symbolic",   CAMEL_FOLDER_TYPE_INBOX,
     "(match-all " VISIBLE ")" },
-  { "flagged", N_("Markiert"),      "starred-symbolic", CAMEL_FOLDER_TYPE_INBOX,
+  { "flagged", N_("Flagged"),      "starred-symbolic", CAMEL_FOLDER_TYPE_INBOX,
     "(match-all (and (system-flag \"Flagged\") " VISIBLE "))" },
-  { "drafts",  N_("Entwürfe"),      "drafts-symbolic",  CAMEL_FOLDER_TYPE_DRAFTS,
+  { "drafts",  N_("Drafts"),      "drafts-symbolic",  CAMEL_FOLDER_TYPE_DRAFTS,
     "(match-all " VISIBLE ")" },
-  { "sent",    N_("Gesendet"),      "sent-symbolic",    CAMEL_FOLDER_TYPE_SENT,
+  { "sent",    N_("Sent"),      "sent-symbolic",    CAMEL_FOLDER_TYPE_SENT,
     "(match-all " VISIBLE ")" },
 };
 
@@ -215,7 +215,7 @@ add_sources_thread (GTask        *task,
   if (folders == NULL)
     {
       g_task_return_new_error (task, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_UNAVAILABLE,
-                               _("Favoriten nicht verfügbar"));
+                               _("Favorites unavailable"));
       return;
     }
 

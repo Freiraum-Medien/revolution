@@ -256,7 +256,7 @@ revolution_mail_folder_uri_set_flags_sync (CamelSession *session,
 		folder = camel_store_get_folder_sync (CAMEL_STORE (service), folder_name, 0, cancellable, error);
 		g_free (folder_name);
 	} else {
-		g_set_error (error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID, _("Ordner %s nicht verfügbar"),
+		g_set_error (error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID, _("Folder %s unavailable"),
 		             folder_uri);
 	}
 	g_clear_object (&service);
@@ -269,7 +269,7 @@ revolution_mail_folder_uri_set_flags_sync (CamelSession *session,
 	if (info == NULL && revolution_eds_folder_refresh_info_sync (folder, cancellable, NULL))
 		info = camel_folder_get_message_info (folder, uid);
 	if (info == NULL) {
-		g_set_error (error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID_UID, _("Nachricht %s nicht in %s"),
+		g_set_error (error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID_UID, _("Message %s not in %s"),
 		             uid, folder_uri);
 	} else {
 		camel_folder_set_message_flags (folder, uid, flags, flags);
@@ -653,7 +653,7 @@ mail_send_message (CamelSession *session,
 	if (!message) {
 		/* #362: Banner auch ohne lesbare Nachricht (main.c). */
 		*out_transport_uid = g_strdup (REVOLUTION_MAIL_LOCAL_UID);
-		*out_name = g_strdup (_("Postausgang"));
+		*out_name = g_strdup (_("Outbox"));
 		return SEND_FAILED;
 	}
 
@@ -678,7 +678,7 @@ mail_send_message (CamelSession *session,
 		*out_name = camel_service_dup_display_name (service);
 	} else {
 		*out_transport_uid = g_strdup (identity_uid != NULL ? identity_uid : REVOLUTION_MAIL_LOCAL_UID);
-		*out_name = g_strdup (identity_uid != NULL ? identity_uid : _("Postausgang"));
+		*out_name = g_strdup (identity_uid != NULL ? identity_uid : _("Outbox"));
 	}
 
 	xev_headers = mail_tool_remove_xevolution_headers (message);
@@ -712,7 +712,7 @@ mail_send_message (CamelSession *session,
 			g_set_error (
 				&local_error, CAMEL_SERVICE_ERROR,
 				CAMEL_SERVICE_ERROR_UNAVAILABLE,
-				_("Kein Versanddienst für die Identität %s"),
+				_("No mail transport for identity %s"),
 				identity_uid != NULL ? identity_uid : "?");
 			goto exit;
 		}
@@ -949,7 +949,7 @@ revolution_mail_outbox_flush_sync (CamelSession *session,
 				/* Gesendet, die Kopie folgt im nächsten Lauf (bleibt im Postausgang). */
 				failed++;
 				g_ptr_array_add (flush->failed_uids, g_steal_pointer (&transport_uid));
-				g_ptr_array_add (flush->failed_titles, (gpointer) _("Gesendet, Kopie in Gesendet folgt"));
+				g_ptr_array_add (flush->failed_titles, (gpointer) _("Sent, Copy to Sent Pending"));
 				g_ptr_array_add (flush->failed_details, g_strdup_printf ("%s: %s", name, local_error->message));
 				break;
 			case SEND_OFFLINE:
@@ -957,21 +957,21 @@ revolution_mail_outbox_flush_sync (CamelSession *session,
 			case SEND_UNCLEAR:
 				failed++;
 				g_ptr_array_add (flush->failed_uids, g_steal_pointer (&transport_uid));
-				g_ptr_array_add (flush->failed_titles, (gpointer) _("Versand unterbrochen"));
+				g_ptr_array_add (flush->failed_titles, (gpointer) _("Sending Interrupted"));
 				g_ptr_array_add (flush->failed_details, g_strdup_printf (
-					_("%s: Das Programm wurde während des Sendens beendet, die Nachricht ist "
-					  "vielleicht schon zugestellt. Sie bleibt im Postausgang; F5 sendet sie erneut, "
-					  "dann kommt sie unter Umständen doppelt an."), name));
+					_("%s: The program quit while sending, the message may already have been "
+					  "delivered. It stays in the Outbox; F5 sends it again, in which case it may "
+					  "arrive twice."), name));
 				break;
 			case SEND_FAILED:
 			default:
 				if (g_error_matches (local_error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
 					break;
 				failed++;
-				g_ptr_array_add (flush->failed_titles, (gpointer) _("Nicht gesendet"));
+				g_ptr_array_add (flush->failed_titles, (gpointer) _("Not Sent"));
 				g_ptr_array_add (flush->failed_uids, g_steal_pointer (&transport_uid));
 				g_ptr_array_add (flush->failed_details, g_strdup_printf ("%s: %s", name,
-					local_error != NULL ? local_error->message : _("unbekannter Fehler")));
+					local_error != NULL ? local_error->message : _("unknown error")));
 				break;
 		}
 
@@ -1041,7 +1041,7 @@ append_to_outbox_thread (GTask *task,
 
 	if (folder == NULL) {
 		g_task_return_new_error (task, CAMEL_STORE_ERROR, CAMEL_STORE_ERROR_NO_FOLDER,
-		                         _("Kein Postausgang"));
+		                         _("No outbox"));
 		return;
 	}
 
@@ -1088,7 +1088,7 @@ revolution_mail_send_message (CamelMimeMessage *message,
 	identity = registry != NULL ? e_source_registry_ref_source (registry, identity_uid) : NULL;
 	if (identity == NULL || !e_source_has_extension (identity, E_SOURCE_EXTENSION_MAIL_SUBMISSION)) {
 		g_task_return_new_error (task, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_UNAVAILABLE,
-		                         _("Keine Identität %s"), identity_uid);
+		                         _("No identity %s"), identity_uid);
 		g_clear_object (&identity);
 		g_clear_object (&registry);
 		g_object_unref (task);

@@ -115,7 +115,7 @@ revolution_mail_attachment_get_property (GObject    *object,
         g_autofree char *type = g_content_type_get_description (self->content_type);
         g_autofree char *size = size_text (self);
 
-        /* Translators: zugänglicher Name eines Anhangs: Dateiname, Typ, Größe. */
+        /* Translators: accessible name of an attachment: file name, type, size. */
         g_value_take_string (value, g_strdup_printf (_("%s, %s, %s"), self->name, type, size));
       }
       break;
@@ -308,8 +308,8 @@ display_name (CamelMimePart    *part,
       g_str_equal (base, G_DIR_SEPARATOR_S))
     {
       g_free (base);
-      /* Translators: Dateiname eines Anhangs ohne eigenen Namen (Evolution „attachment.dat“). */
-      base = g_strdup (_("anhang.dat"));
+      /* Translators: file name of an attachment without a name of its own (Evolution “attachment.dat”). */
+      base = g_strdup (_("attachment.dat"));
     }
 
   return g_steal_pointer (&base);
@@ -388,7 +388,7 @@ write_attachment (RevolutionMailAttachment *self,
 
   if (content == NULL)
     {
-      g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, _("Anhang ohne Inhalt"));
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, _("Attachment has no content"));
       return FALSE;
     }
 
@@ -584,7 +584,7 @@ on_launched (GObject      *source,
   if (gtk_file_launcher_launch_finish (GTK_FILE_LAUNCHER (source), result, &error))
     g_debug ("Anhang: %s geöffnet aus %s", launch->attachment->name, path);
   else if (!g_error_matches (error, GTK_DIALOG_ERROR, GTK_DIALOG_ERROR_DISMISSED))
-    show_error (launch->bar, _("Anhang nicht geöffnet"), launch->attachment->name, error);
+    show_error (launch->bar, _("Attachment Not Opened"), launch->attachment->name, error);
 
   launch_free (launch);
 }
@@ -603,7 +603,7 @@ on_open_written (GObject      *source_object,
 
   if (file == NULL)
     {
-      show_error (self, _("Anhang nicht geöffnet"), attachment->name, error);
+      show_error (self, _("Attachment Not Opened"), attachment->name, error);
       return;
     }
 
@@ -717,15 +717,15 @@ save_thread (GTask        *task,
         failures = g_string_new (NULL);
       else
         g_string_append (failures, "; ");
-      g_string_append_printf (failures, "%s: %s", attachment->name, error != NULL ? error->message : _("Kein freier Dateiname"));
+      g_string_append_printf (failures, "%s: %s", attachment->name, error != NULL ? error->message : _("No free file name"));
       g_clear_error (&error);
     }
 
   if (failures != NULL)
     {
       g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                               /* Translators: Alle speichern mit Fehlern, z. B. „2 von 5 nicht gespeichert: …“. */
-                               _("%u von %u nicht gespeichert: %s"), save->attachments->len - save->saved,
+                               /* Translators: Save All with errors, e.g. “2 of 5 not saved: …”. */
+                               _("%u of %u not saved: %s"), save->attachments->len - save->saved,
                                save->attachments->len, failures->str);
       g_string_free (failures, TRUE);
       return;
@@ -745,7 +745,7 @@ on_saved (GObject      *source_object,
   g_autofree char *path = g_file_get_path (save->target);
 
   if (!g_task_propagate_boolean (G_TASK (result), &error))
-    show_error (self, _("Anhang nicht gespeichert"), path, error);
+    show_error (self, _("Attachment Not Saved"), path, error);
 
   g_debug ("Anhänge: %u gespeichert %s %s", save->saved, save->folder ? "im Ordner" : "als", path);
 }
@@ -784,7 +784,7 @@ on_save_chosen (GObject      *source,
   if (target == NULL)
     {
       if (!g_error_matches (error, GTK_DIALOG_ERROR, GTK_DIALOG_ERROR_DISMISSED))
-        show_error (self, _("Anhang nicht gespeichert"), gtk_file_dialog_get_title (dialog), error);
+        show_error (self, _("Attachment Not Saved"), gtk_file_dialog_get_title (dialog), error);
       return;
     }
 
@@ -804,9 +804,9 @@ save_attachment (RevolutionMailAttachmentBar *self,
   attachments = g_ptr_array_new_with_free_func (g_object_unref);
   g_ptr_array_add (attachments, g_object_ref (attachment));
   dialog = gtk_file_dialog_new ();
-  gtk_file_dialog_set_title (dialog, _("Anhang speichern"));
+  gtk_file_dialog_set_title (dialog, _("Save Attachment"));
   gtk_file_dialog_set_initial_name (dialog, attachment->file_name);
-  gtk_file_dialog_set_accept_label (dialog, _("_Speichern"));
+  gtk_file_dialog_set_accept_label (dialog, _("_Save"));
   g_object_set_data_full (G_OBJECT (dialog), "revolution-attachments", attachments, (GDestroyNotify) g_ptr_array_unref);
   gtk_file_dialog_save (dialog, window_for (self), NULL, on_save_chosen, g_object_ref (self));
 }
@@ -826,8 +826,8 @@ save_all (RevolutionMailAttachmentBar *self)
     g_ptr_array_add (attachments, g_list_model_get_item (model, i));
 
   dialog = gtk_file_dialog_new ();
-  gtk_file_dialog_set_title (dialog, _("Alle Anhänge speichern"));
-  gtk_file_dialog_set_accept_label (dialog, _("_Speichern"));
+  gtk_file_dialog_set_title (dialog, _("Save All Attachments"));
+  gtk_file_dialog_set_accept_label (dialog, _("_Save"));
   g_object_set_data_full (G_OBJECT (dialog), "revolution-attachments", attachments, (GDestroyNotify) g_ptr_array_unref);
   g_object_set_data (G_OBJECT (dialog), "revolution-folder", GINT_TO_POINTER (TRUE));
   gtk_file_dialog_select_folder (dialog, window_for (self), NULL, on_save_chosen, g_object_ref (self));

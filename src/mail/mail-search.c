@@ -129,7 +129,7 @@ search_folder (CamelSession  *session,
 
   if (!CAMEL_IS_VEE_STORE (vee_store))
     {
-      g_set_error (error, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_UNAVAILABLE, _("Suche nicht verfügbar"));
+      g_set_error (error, CAMEL_SERVICE_ERROR, CAMEL_SERVICE_ERROR_UNAVAILABLE, _("Search unavailable"));
       return NULL;
     }
 

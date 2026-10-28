@@ -151,14 +151,14 @@ static const struct
   const char *bare_name;
   const char *name;
 } special_folders[] = {
-  { CAMEL_FOLDER_TYPE_INBOX,  "Inbox",  N_("Eingang") },
-  { CAMEL_FOLDER_TYPE_TRASH,  "Trash",  N_("Papierkorb") },
-  { CAMEL_FOLDER_TYPE_JUNK,   "Junk",   N_("Spam") },
-  { CAMEL_FOLDER_TYPE_SENT,   "Sent",   N_("Gesendet") },
-  { CAMEL_FOLDER_TYPE_DRAFTS, "Drafts", N_("Entwürfe") },
+  { CAMEL_FOLDER_TYPE_INBOX,  "Inbox",  N_("Inbox") },
+  { CAMEL_FOLDER_TYPE_TRASH,  "Trash",  N_("Trash") },
+  { CAMEL_FOLDER_TYPE_JUNK,   "Junk",   N_("Junk") },
+  { CAMEL_FOLDER_TYPE_SENT,   "Sent",   N_("Sent") },
+  { CAMEL_FOLDER_TYPE_DRAFTS, "Drafts", N_("Drafts") },
   /* #350: nicht in Evolutions Tabelle; Archiv-Ordner aus der Ersteinrichtung von imapx heißen
    * „Archive“ (camel-imapx-store.c:2814-2816), Name wie der Prototyp. */
-  { CAMEL_FOLDER_TYPE_ARCHIVE, "Archive", N_("Archiv") },
+  { CAMEL_FOLDER_TYPE_ARCHIVE, "Archive", N_("Archive") },
 };
 
 static const char *
@@ -250,8 +250,8 @@ set_unread (RevolutionMailFolder *self,
   if (unread > 0)
     {
       label = g_strdup_printf ("%d", unread);
-      /* Translators: zugänglicher Name einer Ordnerzeile, z. B. „Eingang, 4 ungelesen“. */
-      accessible = g_strdup_printf (ngettext ("%s, %d ungelesen", "%s, %d ungelesen", unread),
+      /* Translators: accessible name of a folder row, e.g. “Inbox, 4 unread”. */
+      accessible = g_strdup_printf (ngettext ("%s, %d unread", "%s, %d unread", unread),
                                     self->display_name, unread);
     }
 

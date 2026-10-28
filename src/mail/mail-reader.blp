@@ -43,7 +43,7 @@ template $RevolutionMailReader: Adw.Bin {
       }
 
       Label {
-        label: _("Entfernte Inhalte gesperrt");
+        label: _("Remote Content Blocked");
         hexpand: true;
         xalign: 0;
         ellipsize: end;
@@ -51,14 +51,14 @@ template $RevolutionMailReader: Adw.Bin {
 
       // Tooltip mit Kürzel setzt mail-reader.c (revolution_mail_reader_init).
       Adw.SplitButton notice_button {
-        label: _("Laden");
+        label: _("Load");
         action-name: "reader.load-remote";
-        dropdown-tooltip: _("Entfernte Inhalte immer laden");
+        dropdown-tooltip: _("Always Load Remote Content");
         menu-model: notice_menu;
         valign: center;
 
         accessibility {
-          description: _("Entfernte Inhalte dieser E-Mail laden");
+          description: _("Load Remote Content of This Message");
         }
 
         styles [
@@ -162,7 +162,7 @@ template $RevolutionMailReader: Adw.Bin {
         }
 
         Label to_caption {
-          label: _("An:");
+          label: _("To:");
 
           styles [
             "dimmed",
@@ -186,11 +186,11 @@ template $RevolutionMailReader: Adw.Bin {
         // Details aufklappbar (Dokument #10 „#354“): Von, An, Kopie, Datum vollständig.
         ToggleButton details_button {
           label: _("Details");
-          tooltip-text: _("Alle Kopfzeilen anzeigen");
+          tooltip-text: _("Show All Headers");
           valign: center;
 
           accessibility {
-            description: _("Alle Kopfzeilen anzeigen");
+            description: _("Show All Headers");
           }
 
           styles [
@@ -214,7 +214,7 @@ template $RevolutionMailReader: Adw.Bin {
         margin-bottom: 14;
 
         Label from_caption {
-          label: _("Von:");
+          label: _("From:");
           xalign: 1;
           yalign: 0;
 
@@ -246,7 +246,7 @@ template $RevolutionMailReader: Adw.Bin {
         }
 
         Label to_full_caption {
-          label: _("An:");
+          label: _("To:");
           xalign: 1;
           yalign: 0;
 
@@ -277,7 +277,7 @@ template $RevolutionMailReader: Adw.Bin {
         }
 
         Label cc_caption {
-          label: _("Kopie:");
+          label: _("Cc:");
           xalign: 1;
           yalign: 0;
           visible: bind cc_full.visible;
@@ -309,7 +309,7 @@ template $RevolutionMailReader: Adw.Bin {
         }
 
         Label date_caption {
-          label: _("Datum:");
+          label: _("Date:");
           xalign: 1;
           yalign: 0;
 

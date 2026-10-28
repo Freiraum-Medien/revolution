@@ -144,11 +144,11 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
               "primary-menu",
             ]
 
-            tooltip-text: _("Hauptmenü");
+            tooltip-text: _("Main Menu");
             menu-model: primary_menu;
 
             accessibility {
-              label: _("Hauptmenü");
+              label: _("Main Menu");
             }
           }
         }
@@ -170,7 +170,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
               margin-bottom: 6;
 
               accessibility {
-                label: _("Datum wählen");
+                label: _("Select Date");
               }
 
               styles [
@@ -190,7 +190,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
               ]
 
               accessibility {
-                label: _("Kalender");
+                label: _("Calendar");
               }
 
               model: NoSelection calendar_model {};
@@ -223,7 +223,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
                     // Anfangszustand aus den Beispieldaten; Umschalten ändert nur das Ankreuzfeld.
                     active: bind template.item as <$RevolutionSampleCalendar>.visible;
                     css-classes: bind template.item as <$RevolutionSampleCalendar>.css-classes;
-                    tooltip-text: _("Kalender ein- oder ausblenden");
+                    tooltip-text: _("Show or Hide Calendar");
                   };
                 }
               };
@@ -273,11 +273,11 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
                 // #402: Knopf immer sichtbar wie Mail (mail-view.blp:208-218); F9 oben im Controller.
                 ToggleButton sidebar_button {
                   icon-name: "sidebar-show-symbolic";
-                  tooltip-text: _("Seitenleiste ein-/ausblenden");
+                  tooltip-text: _("Toggle Sidebar");
                   active: bind split.show-sidebar bidirectional;
 
                   accessibility {
-                    label: _("Seitenleiste ein-/ausblenden");
+                    label: _("Toggle Sidebar");
                   }
                 }
 
@@ -300,14 +300,14 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
               // Escape (GtkSearchEntry::stop-search) schließt die Suche.
               child: SearchEntry search_entry {
                 hexpand: true;
-                placeholder-text: _("Termine durchsuchen");
+                placeholder-text: _("Search Events");
                 // Tippen im Hauptbereich startet die Suche (wie Mail, HIG-SE „type to search“).
                 key-capture-widget: content_pane;
                 search-started => $on_search_started() swapped;
                 stop-search => $on_search_stop() swapped;
 
                 accessibility {
-                  label: _("Termine durchsuchen");
+                  label: _("Search Events");
                 }
               };
             }
@@ -315,11 +315,11 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
 
           ToggleButton search_button {
             icon-name: "edit-find-symbolic";
-            tooltip-text: _("Suchen");
+            tooltip-text: _("Search");
             notify::active => $on_search_toggled() swapped;
 
             accessibility {
-              label: _("Suchen");
+              label: _("Search");
             }
           }
 
@@ -336,7 +336,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
 
         Adw.ViewStackPage {
           name: "month";
-          title: _("_Monat");
+          title: _("_Month");
           use-underline: true;
           icon-name: "calendar-month-symbolic";
 
@@ -362,7 +362,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
               }
 
               Label {
-                label: _("DI");
+                label: _("TU");
                 xalign: 0;
                 margin-start: 12;
 
@@ -373,7 +373,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
               }
 
               Label {
-                label: _("MI");
+                label: _("WE");
                 xalign: 0;
                 margin-start: 12;
 
@@ -384,7 +384,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
               }
 
               Label {
-                label: _("DO");
+                label: _("TH");
                 xalign: 0;
                 margin-start: 12;
 
@@ -417,7 +417,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
               }
 
               Label {
-                label: _("SO");
+                label: _("SU");
                 xalign: 0;
                 margin-start: 12;
 
@@ -445,7 +445,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
                 accessible-role: group;
 
                 accessibility {
-                  label: _("Monat");
+                  label: _("Month");
                 }
               };
             }
@@ -454,7 +454,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
 
         Adw.ViewStackPage {
           name: "week";
-          title: _("_Woche");
+          title: _("_Week");
           use-underline: true;
           icon-name: "calendar-week-symbolic";
           // Aufbau nach gcal-week-view.blp:3-108.
@@ -472,7 +472,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
                 margin-top: 4;
 
                 accessibility {
-                  label: _("Ganztägige Termine");
+                  label: _("All-Day Events");
                 }
               }
             }
@@ -501,7 +501,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
                     row-homogeneous: true;
 
                     accessibility {
-                      label: _("Woche");
+                      label: _("Week");
                     }
                   }
                 };
@@ -518,32 +518,32 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
         [start]
         Button {
           icon-name: "go-previous-symbolic";
-          tooltip-text: _("Zurück");
+          tooltip-text: _("Previous");
           action-name: "calendar.previous";
 
           accessibility {
-            label: _("Zurück");
+            label: _("Previous");
           }
         }
 
         [start]
         Button {
           icon-name: "go-next-symbolic";
-          tooltip-text: _("Vor");
+          tooltip-text: _("Next");
           action-name: "calendar.next";
 
           accessibility {
-            label: _("Vor");
+            label: _("Next");
           }
         }
 
         [start]
         Button {
           action-name: "calendar.today";
-          tooltip-text: _("Zu heute springen");
+          tooltip-text: _("Go to Today");
 
           child: Adw.ButtonContent {
-            label: _("_Heute");
+            label: _("_Today");
             use-underline: true;
             icon-name: "calendar-today-symbolic";
             can-shrink: true;
@@ -559,11 +559,11 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
         [end]
         Button {
           icon-name: "list-add-symbolic";
-          tooltip-text: _("Termin hinzufügen");
+          tooltip-text: _("Add Event");
           action-name: "calendar.new-event";
 
           accessibility {
-            label: _("Termin hinzufügen");
+            label: _("Add Event");
           }
         }
       }
@@ -585,13 +585,13 @@ SizeGroup {
 menu primary_menu {
   section {
     item {
-      label: _("_Neuer Termin");
+      label: _("_New Event");
       action: "calendar.new-event";
       accel: "<primary>n";
     }
 
     item {
-      label: _("_Suchen");
+      label: _("_Search");
       action: "calendar.search";
       accel: "<primary>f";
     }
@@ -600,7 +600,7 @@ menu primary_menu {
   // Ohne Haken wie Mail: zustandslose Aktion calendar.toggle-sidebar statt calendar.sidebar.
   section {
     item {
-      label: _("Seiten_leiste ein-/ausblenden");
+      label: _("Toggle S_idebar");
       action: "calendar.toggle-sidebar";
       accel: "F9";
     }
@@ -608,22 +608,22 @@ menu primary_menu {
 
   // Drei Themes (Arnd 22.10.2026, #340): Radio-Einträge der Aktion app.theme (main.c).
   section {
-    label: _("Darstellung");
+    label: _("Appearance");
 
     item {
-      label: _("_Hell");
+      label: _("_Light");
       action: "app.theme";
       target: "hell";
     }
 
     item {
-      label: _("Dunkel _mit hellem Inhalt");
+      label: _("Dark with Light _Content");
       action: "app.theme";
       target: "dunkel-hell";
     }
 
     item {
-      label: _("_Dunkel");
+      label: _("_Dark");
       action: "app.theme";
       target: "dunkel";
     }
@@ -631,19 +631,19 @@ menu primary_menu {
 
   section {
     item {
-      label: _("_Einstellungen");
+      label: _("_Preferences");
       action: "calendar.preferences";
       accel: "<primary>comma";
     }
 
     item {
-      label: _("_Tastenkürzel");
+      label: _("_Keyboard Shortcuts");
       action: "calendar.shortcuts";
       accel: "<primary>question";
     }
 
     item {
-      label: _("_Info zu Revolution");
+      label: _("_About Revolution");
       action: "calendar.about";
     }
   }

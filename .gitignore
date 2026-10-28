@@ -6,3 +6,4 @@ build-install/
 __pycache__/
 build-devel/
 build-hook-devel/
+po/revolution.pot

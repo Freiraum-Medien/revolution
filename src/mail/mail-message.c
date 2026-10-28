@@ -165,7 +165,7 @@ sender_for (const char *from)
 
   if (from == NULL || camel_address_decode (CAMEL_ADDRESS (address), from) <= 0 ||
       !camel_internet_address_get (address, 0, &name, &email))
-    return g_strdup (from != NULL && *from != '\0' ? from : _("Unbekannter Absender"));
+    return g_strdup (from != NULL && *from != '\0' ? from : _("Unknown Sender"));
 
   bare = g_strstrip (g_strdup (name != NULL ? name : ""));
   if (bare[0] == '<' && g_str_has_suffix (bare, ">"))
@@ -181,7 +181,7 @@ sender_for (const char *from)
   if (*bare != '\0')
     return g_steal_pointer (&bare);
 
-  return g_strdup (email != NULL && *email != '\0' ? email : _("Unbekannter Absender"));
+  return g_strdup (email != NULL && *email != '\0' ? email : _("Unknown Sender"));
 }
 
 /* Datum relativ wie der abgenommene Prototyp (Dokument #5, Design/Prototyp/mail-hell.png):
@@ -210,16 +210,16 @@ date_for (gint64     date,
   days = g_date_days_between (day, today);
 
   if (days == 0)
-    /* Translators: Uhrzeit heutiger Nachrichten in der Liste (g_date_time_format). */
+    /* Translators: time of today’s messages in the list (g_date_time_format). */
     return g_date_time_format (local, _("%H:%M"));
   if (days == 1)
-    return g_strdup (_("Gestern"));
+    return g_strdup (_("Yesterday"));
   if (days > 1 && days < 7)
-    /* Translators: Wochentag (abgekürzt) für Nachrichten der letzten Woche, z. B. „Mo.“. */
-    return g_date_time_format (local, _("%a."));
+    /* Translators: abbreviated weekday for messages of the last week, e.g. “Mon”. */
+    return g_date_time_format (local, _("%a"));
 
-  /* Translators: Datum älterer Nachrichten in der Liste, z. B. „17.10.26“. */
-  return g_date_time_format (local, _("%d.%m.%y"));
+  /* Translators: date of older messages in the list, e.g. “10/17/26”. */
+  return g_date_time_format (local, _("%m/%d/%y"));
 }
 
 /* Vorschau einzeilig für die zwei Zeilen der Liste: Zeilenumbrüche und Tabulatoren als
@@ -274,19 +274,19 @@ account_label_for (CamelStore *store,
 static char *
 accessible_label_for (RevolutionMailMessage *self)
 {
-  g_autofree char *account = self->account != NULL ? g_strdup_printf (_(", Konto %s"), self->account) : NULL;
+  g_autofree char *account = self->account != NULL ? g_strdup_printf (_(", account %s"), self->account) : NULL;
   guint count = self->members != NULL ? g_list_model_get_n_items (G_LIST_MODEL (self->members)) : 0;
-  /* #357: Translators: Anfang des zugänglichen Namens einer Konversationszeile. */
-  g_autofree char *conversation = count > 1 ? g_strdup_printf (ngettext ("Konversation mit %u E-Mail: ",
-                                                                         "Konversation mit %u E-Mails: ", count),
+  /* #357: Translators: start of the accessible name of a conversation row. */
+  g_autofree char *conversation = count > 1 ? g_strdup_printf (ngettext ("Conversation with %u message: ",
+                                                                         "Conversation with %u messages: ", count),
                                                                count)
                                             : NULL;
 
   return g_strdup_printf ("%s%s, %s, %s%s%s%s%s", conversation != NULL ? conversation : "", self->sender,
                           self->subject, self->date,
-                          self->unread ? _(", ungelesen") : "",
-                          self->starred ? _(", markiert") : "",
-                          self->attachment ? _(", mit Anhang") : "",
+                          self->unread ? _(", unread") : "",
+                          self->starred ? _(", flagged") : "",
+                          self->attachment ? _(", with attachment") : "",
                           account != NULL ? account : "");
 }
 
@@ -304,7 +304,7 @@ revolution_mail_message_new (CamelMessageInfo *info,
   self->uid = g_strdup (camel_message_info_get_uid (info));
   self->sender = sender_for (camel_message_info_get_from (info));
   subject = camel_message_info_get_subject (info);
-  self->subject = g_strdup (subject != NULL && *subject != '\0' ? subject : _("(Kein Betreff)"));
+  self->subject = g_strdup (subject != NULL && *subject != '\0' ? subject : _("(No Subject)"));
   self->preview = preview_for (camel_message_info_get_preview (info));
   /* Datum wie Evolution COL_SENT (message-list.c:1854-1866), ohne Absendedatum der Empfang. */
   date = camel_message_info_get_date_sent (info);

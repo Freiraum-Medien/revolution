@@ -388,7 +388,7 @@ revolution_contact_completion_init (RevolutionContactCompletion *self)
   gtk_list_view_set_single_click_activate (GTK_LIST_VIEW (self->view), TRUE);
   /* Ausgewählte Zeile hervorgehoben wie in Seitenleisten (libadwaita-Stilklasse). */
   gtk_widget_add_css_class (self->view, "navigation-sidebar");
-  gtk_accessible_update_property (GTK_ACCESSIBLE (self->view), GTK_ACCESSIBLE_PROPERTY_LABEL, _("Adressvorschläge"), -1);
+  gtk_accessible_update_property (GTK_ACCESSIBLE (self->view), GTK_ACCESSIBLE_PROPERTY_LABEL, _("Address Suggestions"), -1);
   g_signal_connect_object (self->view, "activate", G_CALLBACK (on_activate), self, G_CONNECT_DEFAULT);
 
   gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);

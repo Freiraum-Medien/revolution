@@ -19,6 +19,10 @@
 
 # #439: Datenordner des Profils (revolution bzw. revolution-devel) aus dem Build, für tests/testdaten.py.
 export USER_DIR="${USER_DIR:-$(sed -n 's/^#define USER_DIR_NAME "\(.*\)"$/\1/p' "${BUILD:-}/config.h" 2>/dev/null)}"
+# #438: Die Treiber finden Bedienelemente über ihre deutschen Namen (AT-SPI), die Prüfungen lesen deutsche
+# Titel im Log. Quelltext ist Englisch, Deutsch kommt aus po/de.po: daher läuft jeder Test deutsch,
+# unabhängig von der Sprache am Rechner.
+export LC_ALL=de_DE.UTF-8 LANGUAGE=
 ABBRUECHE="$OUT/abbrueche.txt"
 export TESTDATEN_WIEDERHOLT="$OUT/wiederholt.txt"
 : >"$ABBRUECHE"

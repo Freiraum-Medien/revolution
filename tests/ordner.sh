@@ -68,13 +68,18 @@ lauf () {
   rm -rf "$rundir"
   for _ in $(seq 10); do [ "$(bus_hat_app)" = "(false,)" ] && break; sleep 1; done
   [ "$(bus_hat_app)" = "(false,)" ] || echo "FEHLER  $name: App nach dem Lauf noch auf dem Bus"
-  # #363: microsoft365-Ordner-Cache (camel-m365-store.c:81) ohne verwaiste Testordner.
+  # #363: microsoft365-Ordner-Cache (camel-m365-store.c:81) und Summaries (folders.db, eds-compat.c) ohne
+  # verwaiste Testordner.
   baum="$HOME/.cache/revolution/mail/$uid/folder-tree"
   if [ -f "$baum" ]; then
-    if grep -q 'Revolution-Ordnertest' "$baum"; then
-      echo "FEHLER  $name: verwaist in $baum: $(grep 'Revolution-Ordnertest' "$baum" | tr '\n' ' ')"
+    rest="$(grep 'Revolution-Ordnertest' "$baum"; python3 -c 'import sqlite3, sys
+db = sqlite3.connect("file:%s?mode=ro" % sys.argv[1], uri=True)
+print(*[r[0] for r in db.execute("select folder_name from folders where folder_name like ?", ("%Revolution-Ordnertest%",))])' \
+      "$HOME/.cache/revolution/mail/$uid/folders.db")"
+    if [ -n "$rest" ]; then
+      echo "FEHLER  $name: verwaist in folder-tree/folders.db: $(echo "$rest" | tr '\n' ' ')"
     else
-      echo "OK      $name: kein Testordner in $baum"
+      echo "OK      $name: kein Testordner in $baum und folders.db"
     fi
   fi
   return "$rc"

@@ -18,6 +18,7 @@
 
 #include <glib/gi18n.h>
 
+#include "eds-compat.h"
 #include "mail-folder.h"
 
 struct _RevolutionMailFolder
@@ -784,7 +785,7 @@ revolution_mail_folder_rename_sync (CamelStore    *store,
       return FALSE;
     }
 
-  return camel_store_rename_folder_sync (store, full_name, *new_full_name, cancellable, error);
+  return revolution_eds_store_rename_folder_sync (store, full_name, *new_full_name, cancellable, error);
 }
 
 /* #364: Übernommen aus Evolution 3.56.2 libemail-engine/e-mail-folder-utils.c:997-1066
@@ -830,8 +831,8 @@ remove_recursive (CamelStore       *store,
 /* #364: Löschen mit allen Unterordnern wie Evolution e_mail_folder_remove_sync
  * (libemail-engine/e-mail-folder-utils.c:1080-1171): Stores, die Unterordner selbst mitlöschen
  * (CAMEL_STORE_CAN_DELETE_FOLDERS_AT_ONCE, microsoft365 camel-m365-store.c:109), in einem Aufruf;
- * microsoft365 nimmt dabei den ganzen Teilbaum aus seinem Ordner-Cache (dort 914), ohne geöffnete
- * Ordner abzugleichen (kein Echo, #416). Sonst über die Ordnerliste von unten nach oben
+ * microsoft365 nimmt dabei den ganzen Teilbaum aus seinem Ordner-Cache (camel-m365-store.c:914), ohne
+ * geöffnete Ordner abzugleichen (kein Echo, #416); die Summaries löscht eds-compat.c. Sonst über die Ordnerliste von unten nach oben
  * (remove_recursive), nur der Ordner selbst, nicht seine Geschwister (dort 1131-1150). Im Worker. */
 gboolean
 revolution_mail_folder_delete_sync (CamelStore    *store,
@@ -843,7 +844,7 @@ revolution_mail_folder_delete_sync (CamelStore    *store,
   gboolean success;
 
   if ((camel_store_get_flags (store) & CAMEL_STORE_CAN_DELETE_FOLDERS_AT_ONCE) != 0)
-    return camel_store_delete_folder_sync (store, full_name, cancellable, error);
+    return revolution_eds_store_delete_folder_sync (store, full_name, cancellable, error);
 
   info = camel_store_get_folder_info_sync (store, full_name,
                                            CAMEL_STORE_FOLDER_INFO_RECURSIVE | CAMEL_STORE_FOLDER_INFO_SUBSCRIBED,

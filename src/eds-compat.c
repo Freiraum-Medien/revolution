@@ -406,3 +406,67 @@ revolution_eds_thread_node_get_item (CamelFolderThreadNode *node)
   return (CamelMessageInfo *) node->message;
 #endif
 }
+
+/* #364: microsoft365 nimmt einen gelöschten bzw. umbenannten Ordner nur aus seinem Ordner-Cache
+ * (folder-tree, camel-m365-store.c:849-927, 929-1050), nicht seine Summary aus folders.db (in
+ * Microsoft365/camel kein camel_db_delete_folder; imapx: camel-imapx-store.c:1196-1222, 2446;
+ * camel_store_delete_cached_folder leert nur die Nachrichten, camel-folder.c:1089-1093). Ein später
+ * gleichnamiger Ordner übernimmt dann den Delta-Link des alten (folders.db, Spalte bdata, gemessen
+ * build/m5-364) und scheitert beim Abgleich mit „ErrorSyncFolderNotFound“. Daher die Summaries des
+ * alten Teilbaums nach Erfolg selbst löschen. */
+static void
+forget_summaries (CamelStore      *store,
+                  CamelFolderInfo *fi)
+{
+  for (; fi != NULL; fi = fi->next)
+    {
+      forget_summaries (store, fi->child);
+      camel_db_delete_folder (camel_store_get_db (store), fi->full_name, NULL);
+      g_debug ("Summary: %s %s gelöscht", camel_service_get_uid (CAMEL_SERVICE (store)), fi->full_name);
+    }
+}
+
+static CamelFolderInfo *
+m365_subtree (CamelStore   *store,
+              const char   *full_name,
+              GCancellable *cancellable)
+{
+  return is_microsoft365 (store) ? camel_store_get_folder_info_sync (store, full_name,
+                                                                     CAMEL_STORE_FOLDER_INFO_RECURSIVE |
+                                                                     CAMEL_STORE_FOLDER_INFO_FAST,
+                                                                     cancellable, NULL)
+                                 : NULL;
+}
+
+gboolean
+revolution_eds_store_delete_folder_sync (CamelStore    *store,
+                                         const char    *full_name,
+                                         GCancellable  *cancellable,
+                                         GError       **error)
+{
+  CamelFolderInfo *info = m365_subtree (store, full_name, cancellable);
+  gboolean done = camel_store_delete_folder_sync (store, full_name, cancellable, error);
+
+  if (done)
+    forget_summaries (store, info);
+  g_clear_pointer (&info, camel_folder_info_free);
+
+  return done;
+}
+
+gboolean
+revolution_eds_store_rename_folder_sync (CamelStore    *store,
+                                         const char    *old_name,
+                                         const char    *new_name,
+                                         GCancellable  *cancellable,
+                                         GError       **error)
+{
+  CamelFolderInfo *info = m365_subtree (store, old_name, cancellable);
+  gboolean done = camel_store_rename_folder_sync (store, old_name, new_name, cancellable, error);
+
+  if (done)
+    forget_summaries (store, info);
+  g_clear_pointer (&info, camel_folder_info_free);
+
+  return done;
+}

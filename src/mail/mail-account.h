@@ -22,5 +22,7 @@ void                   revolution_mail_account_set_display_name (RevolutionMailA
                                                                  const char            *display_name);
 const char            *revolution_mail_account_hidden_reason    (ESourceRegistry       *registry,
                                                                  ESource               *source);
+void                   revolution_mail_account_update_note      (RevolutionMailAccount *self,
+                                                                 ESource               *source);
 
 G_END_DECLS

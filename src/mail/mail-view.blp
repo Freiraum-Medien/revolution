@@ -197,6 +197,8 @@ template $RevolutionMailView: Adw.BreakpointBin {
                   template ListHeader {
                     child: Label {
                       label: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.account as <$RevolutionMailAccount>.display-name;
+                      // #366: microsoft365 ohne Push, Abruf alle n Minuten (mail-account.c).
+                      tooltip-text: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.account as <$RevolutionMailAccount>.note;
                       xalign: 0;
                       margin-start: 14;
                       margin-end: 14;
@@ -1149,6 +1151,20 @@ menu primary_menu {
     item {
       label: _("_Info zu Revolution");
       action: "mail.about";
+    }
+  }
+
+  // #366: Hintergrundbetrieb (GSettings run-in-background, Haken) und Beenden (Strg+Q), main.c.
+  section {
+    item {
+      label: _("Im _Hintergrund weiterlaufen");
+      action: "app.run-in-background";
+    }
+
+    item {
+      label: _("_Beenden");
+      action: "app.quit";
+      accel: "<primary>q";
     }
   }
 }

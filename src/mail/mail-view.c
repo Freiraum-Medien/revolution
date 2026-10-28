@@ -70,6 +70,9 @@ struct _RevolutionMailView
   char                *filter;
   char                *return_uid;
   gboolean             returning;
+  /* #366: Ordner („UID/voller Name“) und Nachricht aus der Benachrichtigung (revolution_mail_view_show_message). */
+  char                *show_folder;
+  char                *show_uid;
   AdwOverlaySplitView *split;
   /* #353: Ordner der Liste nach dem Laden (Signal „changed“), Änderungen in der Warteschlange. */
   CamelFolder         *camel_folder;
@@ -364,6 +367,7 @@ sync_accounts (RevolutionMailView *self)
           g_autofree char *name = e_source_dup_display_name (shown->pdata[i]);
 
           revolution_mail_account_set_display_name (account, name);
+          revolution_mail_account_update_note (account, shown->pdata[i]);
         }
     }
   else
@@ -380,6 +384,8 @@ sync_accounts (RevolutionMailView *self)
             revolution_mail_account_set_display_name (account, name);
           else
             account = revolution_mail_account_new (e_source_get_uid (shown->pdata[i]), name);
+          /* #366: Hinweis microsoft365 ohne Push (Tooltip des Abschnittskopfs). */
+          revolution_mail_account_update_note (account, shown->pdata[i]);
           g_ptr_array_add (accounts, account);
         }
       g_list_store_splice (self->accounts, 0, n_items, accounts->pdata, accounts->len);
@@ -752,6 +758,61 @@ merge_messages (RevolutionMailView *self,
     }
 }
 
+/* #366: Die Nachricht aus der Benachrichtigung wählen, sobald ihr Ordner die Liste ist und ihr Block darin
+ * steht; TRUE, wenn gewählt. In einer Konversation die Zeile, die sie enthält. Konversationen aus Ordner
+ * und Gesendet sind ein Suchordner: UID = 8 Zeichen Kennung des echten Ordners + UID dort (EDS
+ * camel-vee-data-cache.c:82-114), der echte Ordner steht in der Quelle der Nachricht. */
+static gboolean
+select_shown (RevolutionMailView *self)
+{
+  GListModel *model = G_LIST_MODEL (self->messages);
+  g_autoptr (RevolutionMailAccount) account = NULL;
+  g_autofree char *place = NULL;
+
+  if (self->show_uid == NULL || self->folder == NULL)
+    return FALSE;
+  g_object_get (self->folder, "account", &account, NULL);
+  place = g_strdup_printf ("%s/%s", account != NULL ? revolution_mail_account_get_uid (account) : "",
+                           revolution_mail_folder_get_full_name (self->folder));
+  if (g_strcmp0 (place, self->show_folder) != 0)
+    return FALSE;
+
+  for (guint i = 0; i < g_list_model_get_n_items (model); i++)
+    {
+      g_autoptr (RevolutionMailMessage) row = g_list_model_get_item (model, i);
+      GListModel *members = revolution_mail_message_get_members (row);
+      guint n = members != NULL ? g_list_model_get_n_items (members) : 1;
+
+      for (guint j = 0; j < n; j++)
+        {
+          g_autoptr (RevolutionMailMessage) message = members != NULL ? g_list_model_get_item (members, j) : g_object_ref (row);
+          const char *uid = revolution_mail_message_get_uid (message), *source_uid, *source_folder;
+          g_autofree char *source = NULL;
+          gboolean found;
+
+          if (revolution_mail_message_get_source (message, &source_uid, &source_folder))
+            {
+              source = g_strdup_printf ("%s/%s", source_uid, source_folder);
+              found = g_strcmp0 (source, place) == 0 && strlen (uid) == 8 + strlen (self->show_uid) &&
+                      strcmp (uid + 8, self->show_uid) == 0;
+            }
+          else
+            found = g_strcmp0 (uid, self->show_uid) == 0;
+
+          if (found)
+            {
+              g_debug ("Benachrichtigung: Nachricht %s gewählt (Zeile %s)", self->show_uid, revolution_mail_message_get_uid (row));
+              g_clear_pointer (&self->show_folder, g_free);
+              g_clear_pointer (&self->show_uid, g_free);
+              gtk_single_selection_set_selected (self->message_selection, i);
+              return TRUE;
+            }
+        }
+    }
+
+  return FALSE;
+}
+
 /* #354: Nur für Testläufe (Screenshots des Lesebereichs) wie REVOLUTION_FOLDER: die
  * Umgebungsvariable REVOLUTION_MESSAGE=<Teil des Betreffs> wählt die erste passende Nachricht,
  * sobald sie in der Liste steht und noch nichts gewählt ist. */
@@ -761,7 +822,7 @@ select_message_from_env (RevolutionMailView *self)
   const char *wanted = g_getenv ("REVOLUTION_MESSAGE");
   GListModel *model = G_LIST_MODEL (self->messages);
 
-  if (gtk_single_selection_get_selected_item (self->message_selection) != NULL)
+  if (select_shown (self) || gtk_single_selection_get_selected_item (self->message_selection) != NULL)
     return;
 
   /* #365: nach dem Ende der Suche die vorher gewählte Nachricht, sobald ihr Block in der Liste steht. */
@@ -3030,6 +3091,8 @@ revolution_mail_view_dispose (GObject *object)
   g_clear_pointer (&self->search, g_free);
   g_clear_pointer (&self->filter, g_free);
   g_clear_pointer (&self->return_uid, g_free);
+  g_clear_pointer (&self->show_folder, g_free);
+  g_clear_pointer (&self->show_uid, g_free);
 
   G_OBJECT_CLASS (revolution_mail_view_parent_class)->dispose (object);
 }
@@ -3492,7 +3555,8 @@ select_initial_folder (RevolutionMailView *self)
 {
   GListModel *accounts = G_LIST_MODEL (self->accounts);
   g_autofree char *saved = NULL;
-  const char *wanted = g_getenv ("REVOLUTION_FOLDER");
+  /* #366: Start über die Benachrichtigung (revolution_mail_view_show_message) vor allem anderen. */
+  const char *wanted = self->show_folder != NULL ? self->show_folder : g_getenv ("REVOLUTION_FOLDER");
 
   if (self->initial_done)
     return;
@@ -3570,6 +3634,45 @@ revolution_mail_view_watch_folder (RevolutionMailView *self,
     item = revolution_mail_folder_find (account_folder_store (account), camel_folder_get_full_name (folder));
   if (item != NULL)
     revolution_mail_folder_watch (item, folder, hold, refreshed);
+}
+
+/* #366: Klick auf die Benachrichtigung (main.c): Mail-Ansicht, Ordner folder_uri und Nachricht uid wählen
+ * wie Evolution notify_default_action_cb (em_folder_tree_set_selected, message_list_select_uid;
+ * plugins/mail-notification/mail-notification.c:453-473). folder_uri wie e_mail_folder_uri_build
+ * (mail-notification.c), gelesen wie e_mail_folder_uri_parse (mail-folder.c, folder_uri_to_name). Sind
+ * die Ordner noch nicht geladen, wählt ihn die Erstauswahl (select_initial_folder); die Nachricht folgt
+ * mit ihrem Block (select_shown). */
+void
+revolution_mail_view_show_message (RevolutionMailView *self,
+                                   const char         *folder_uri,
+                                   const char         *uid)
+{
+  g_autoptr (CamelURL) url = camel_url_new (folder_uri, NULL);
+  g_autoptr (RevolutionMailAccount) account = NULL;
+  g_autoptr (RevolutionMailFolder) folder = NULL;
+  g_autofree char *store_uid = NULL, *name = NULL;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
+
+  if (url == NULL || g_strcmp0 (url->protocol, "folder") != 0 || url->host == NULL || url->path == NULL ||
+      *url->path != '/')
+    return;
+
+  store_uid = url->user != NULL && *url->user != '\0' ? g_strconcat (url->user, "@", url->host, NULL)
+                                                      : g_strdup (url->host);
+  name = camel_url_decode_path (url->path + 1);
+  g_free (self->show_folder);
+  self->show_folder = g_strdup_printf ("%s/%s", store_uid, name);
+  g_set_str (&self->show_uid, uid);
+  adw_view_stack_set_visible_child_name (self->stack, "mail");
+
+  account = find_account (self, store_uid);
+  if (account != NULL)
+    folder = revolution_mail_folder_find (account_folder_store (account), name);
+  if (folder != NULL && folder == self->folder)
+    select_shown (self);
+  else if (folder != NULL)
+    select_folder (self, folder);
 }
 
 /* #348: Ordner eines Kontos aus dem Worker (main.c, camel_store_get_folder_info_sync), im

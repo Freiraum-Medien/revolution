@@ -13,6 +13,8 @@
 
 #include "config.h"
 
+#include <glib/gi18n.h>
+
 #include "mail-account.h"
 
 struct _RevolutionMailAccount
@@ -20,11 +22,13 @@ struct _RevolutionMailAccount
   GObject  parent_instance;
   char    *uid;
   char    *display_name;
+  /* #366: Hinweis zum Abruf (microsoft365 ohne Push), Tooltip des Abschnittskopfs (mail-view.blp). */
+  char    *note;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionMailAccount, revolution_mail_account, G_TYPE_OBJECT)
 
-enum { PROP_0, PROP_UID, PROP_DISPLAY_NAME, N_PROPS };
+enum { PROP_0, PROP_UID, PROP_DISPLAY_NAME, PROP_NOTE, N_PROPS };
 
 static GParamSpec *properties[N_PROPS];
 
@@ -40,6 +44,7 @@ revolution_mail_account_get_property (GObject    *object,
     {
     case PROP_UID:          g_value_set_string (value, self->uid); break;
     case PROP_DISPLAY_NAME: g_value_set_string (value, self->display_name); break;
+    case PROP_NOTE:         g_value_set_string (value, self->note); break;
     default: G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
 }
@@ -51,6 +56,7 @@ revolution_mail_account_finalize (GObject *object)
 
   g_free (self->uid);
   g_free (self->display_name);
+  g_free (self->note);
 
   G_OBJECT_CLASS (revolution_mail_account_parent_class)->finalize (object);
 }
@@ -66,6 +72,7 @@ revolution_mail_account_class_init (RevolutionMailAccountClass *klass)
 
   properties[PROP_UID] = g_param_spec_string ("uid", NULL, NULL, NULL, flags);
   properties[PROP_DISPLAY_NAME] = g_param_spec_string ("display-name", NULL, NULL, NULL, flags);
+  properties[PROP_NOTE] = g_param_spec_string ("note", NULL, NULL, NULL, flags);
   g_object_class_install_properties (object_class, N_PROPS, properties);
 }
 
@@ -156,4 +163,31 @@ revolution_mail_account_set_display_name (RevolutionMailAccount *self,
 
   if (g_set_str (&self->display_name, display_name))
     g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_DISPLAY_NAME]);
+}
+
+/* #366: microsoft365 hat keinen Push (README #353); neue Mails kommen mit dem Abruf alle n Minuten nach
+ * der ESourceRefresh des Kontos (main.c, add_refresh_timeout) oder mit F5. Hinweis nur dafür. */
+void
+revolution_mail_account_update_note (RevolutionMailAccount *self,
+                                     ESource               *source)
+{
+  ESourceRefresh *refresh;
+  g_autofree char *note = NULL;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_ACCOUNT (self));
+
+  if (e_source_has_extension (source, E_SOURCE_EXTENSION_MAIL_ACCOUNT) &&
+      g_strcmp0 (e_source_backend_get_backend_name (e_source_get_extension (source, E_SOURCE_EXTENSION_MAIL_ACCOUNT)),
+                 "microsoft365") == 0)
+    {
+      refresh = e_source_get_extension (source, E_SOURCE_EXTENSION_REFRESH);
+      if (e_source_refresh_get_enabled (refresh) && e_source_refresh_get_interval_minutes (refresh) > 0)
+        note = g_strdup_printf (_("Microsoft 365 meldet neue E-Mails nicht sofort (kein Push): Abruf alle %u Minuten "
+                                  "und mit F5"), e_source_refresh_get_interval_minutes (refresh));
+      else
+        note = g_strdup (_("Microsoft 365 meldet neue E-Mails nicht sofort (kein Push): Abruf mit F5"));
+    }
+
+  if (g_set_str (&self->note, note))
+    g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_NOTE]);
 }

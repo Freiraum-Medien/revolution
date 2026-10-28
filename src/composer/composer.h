@@ -32,5 +32,9 @@ GtkWindow *revolution_composer_new (GtkApplication         *application,
                                     const char             *store_uid,
                                     const char             *folder_name,
                                     const char             *message_uid);
+GtkWindow *revolution_composer_new_mailto (GtkApplication  *application,
+                                           ESourceRegistry *registry,
+                                           CamelSession    *session,
+                                           const char      *mailto);
 
 G_END_DECLS

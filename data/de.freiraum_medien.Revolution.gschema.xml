@@ -52,5 +52,12 @@
       <summary>Nach Konversationen</summary>
       <description>Die Nachrichtenliste zeigt je Konversation (Thread aus Ordner und Gesendet) eine Zeile statt jeder Nachricht einzeln.</description>
     </key>
+    <!-- #366: Hintergrundbetrieb wie Stamp „background-notifications“ (Standard aus,
+         quelltext/stamp/data/org.tabos.stamp.gschema.xml:34-38), Nutzer main.c. -->
+    <key name="run-in-background" type="b">
+      <default>false</default>
+      <summary>Im Hintergrund weiterlaufen</summary>
+      <description>Schließen verbirgt das Fenster nur; Revolution läuft weiter und meldet neue E-Mails, bis „Beenden“ gewählt wird.</description>
+    </key>
   </schema>
 </schemalist>

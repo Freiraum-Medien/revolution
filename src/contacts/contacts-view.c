@@ -11,7 +11,11 @@
  * objects-added/-modified/-removed, complete), nicht einmalig wie Stamp (stamp-contact-list.c:120-152,
  * e_book_client_get_contacts). Suche: neue Ansicht mit EBookQuery (open_view). Jeder EDS-Aufruf
  * (Verbinden, Ansicht anlegen, starten) im Worker-GTask (Architektur 1), Begründung für den
- * UI-Thread der Signale bei start_thread. Bücher sind nur lesend angebunden (#370 schreibt).
+ * UI-Thread der Signale bei start_thread.
+ * #370: Anlegen, Bearbeiten, Löschen (Abschnitt unten): Formular contacts-editor.c im Detailbereich wie
+ * GNOME Contacts, Schreiben per e_book_client_add/modify/remove_contact_sync im Worker-GTask; die Änderung
+ * kommt danach über die Live-Ansicht ins Modell (kein zweites Einfügen). Löschen ohne Dialog mit
+ * Rückgängig-Toast wie GNOME Contacts (Ausführung nach Ablauf, beim Beenden sofort).
  *
  * Copyright 2026 Arnd Messer
  *
@@ -28,7 +32,18 @@
 #include "contacts-book.h"
 #include "contacts-contact.h"
 #include "contacts-detail.h"
+#include "contacts-editor.h"
 #include "contacts-view.h"
+
+/* #370: vorgemerktes Löschen (Rückgängig bis zum Ablauf). */
+typedef struct
+{
+  RevolutionContactsBook    *book;
+  EBookClient               *client;
+  RevolutionContactsContact *item;
+  AdwToast                  *toast;
+  guint                      timeout_id;
+} PendingDelete;
 
 struct _RevolutionContactsView
 {
@@ -50,6 +65,13 @@ struct _RevolutionContactsView
   GtkToggleButton        *search_button;
   AdwOverlaySplitView    *split;
   GtkWidget              *letter_bar;
+  GtkStack               *pane_stack;
+  RevolutionContactsEditor *editor;
+  GtkLabel               *edit_title;
+  GtkButton              *done_button;
+  GtkWidget              *edit_button;
+  GtkWidget              *delete_button;
+  GActionMap             *contact_actions;
 
   ESourceRegistry        *registry;
   GListStore             *books;        /* RevolutionContactsBook */
@@ -69,11 +91,20 @@ struct _RevolutionContactsView
   gboolean                connect_all;  /* ab der ersten Anzeige alle Bücher verbinden */
   guint                   jump_target;  /* Zeile für contacts.jump nach dem Layout */
   gboolean                syncing;      /* sync_books ersetzt die Liste, Auswahl folgt danach */
+  /* #370 */
+  gboolean                editing;      /* Formular offen */
+  gboolean                saving;       /* Schreiben läuft */
+  RevolutionContactsBook *edit_book;    /* Bearbeiten: Buch des Kontakts */
+  GPtrArray              *edit_books;   /* Anlegen: wählbare Bücher in der Reihenfolge der Auswahl */
+  char                   *select_uid;   /* nach dem Anlegen wählen, sobald die Ansicht ihn meldet */
+  PendingDelete          *pending;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionContactsView, revolution_contacts_view, ADW_TYPE_BREAKPOINT_BIN)
 
 static void open_view (RevolutionContactsView *self);
+static void update_actions (RevolutionContactsView *self);
+static void select_pending (RevolutionContactsView *self);
 
 /* ------------------------------------------------------------------ Zustand und Fehler */
 
@@ -153,6 +184,9 @@ add_contacts (RevolutionContactsView *self,
 
       if (uid == NULL)
         continue;
+      /* #370: zum Löschen vorgemerkt, bis Rückgängig oder Ablauf verborgen. */
+      if (self->pending != NULL && g_strcmp0 (uid, revolution_contacts_contact_get_uid (self->pending->item)) == 0)
+        continue;
       item = g_hash_table_lookup (self->by_uid, uid);
       if (is_list (l->data))
         {
@@ -209,6 +243,7 @@ on_objects_added (EBookClientView        *view,
   g_debug ("Kontakte: %s neu %u, geändert %u, Liste %u (UI-Thread %s)", book_uid (self), added, modified,
            g_list_model_get_n_items (G_LIST_MODEL (self->contacts)), ui_thread ());
   update_state (self);
+  select_pending (self);
 }
 
 static void
@@ -295,6 +330,7 @@ on_view_complete (EBookClientView        *view,
   if (error != NULL)
     show_error (self, _("Address Book Incomplete"), error->message);
   update_state (self);
+  select_pending (self);
 }
 
 /* Ansicht abhängen: Handler trennen, Referenz abgeben. dispose der Ansicht meldet dem Server das Ende
@@ -494,6 +530,7 @@ on_readonly_changed (EClient                *client,
     }
   g_debug ("Kontakte: %s nur lesend %s", e_source_get_uid (e_client_get_source (client)),
            e_client_is_readonly (client) ? "ja" : "nein");
+  update_actions (self);
 }
 
 static void
@@ -523,6 +560,7 @@ on_book_connected (GObject      *source_object,
   g_debug ("Kontakte: %s verbunden, nur lesend %s, do-initial-query %s", uid,
            e_client_is_readonly (client) ? "ja" : "nein",
            e_client_check_capability (client, "do-initial-query") ? "ja" : "nein");
+  update_actions (self);
   if (book == self->book)
     open_view (self);
 }
@@ -557,6 +595,7 @@ on_book_selected (RevolutionContactsView *self)
       return;
     }
   g_debug ("Kontakte: Buch %s gewählt", book_uid (self));
+  update_actions (self);
   open_view (self);
   if (self->connect_all)
     connect_book (self, book);
@@ -705,6 +744,7 @@ on_contact_selected (RevolutionContactsView *self)
 
   /* #369: Detail der Auswahl, ohne Auswahl (auch nach Entfernen des Eintrags) leer. */
   revolution_contacts_detail_set_contact (self->detail, item);
+  update_actions (self);
 }
 
 static void

@@ -17,5 +17,7 @@ G_DECLARE_FINAL_TYPE (RevolutionContactsView, revolution_contacts_view, REVOLUTI
 
 void revolution_contacts_view_set_registry (RevolutionContactsView *self,
                                             ESourceRegistry        *registry);
+void revolution_contacts_view_add_sender   (RevolutionContactsView *self,
+                                            const char             *from);
 
 G_END_DECLS

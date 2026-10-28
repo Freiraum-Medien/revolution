@@ -29,7 +29,9 @@
 #include "mail-favorites.h"
 #include "mail-folder.h"
 #include "mail-message.h"
+#include "mail-session.h"
 #include "mail-reader.h"
+#include "mail-search.h"
 #include "mail-thread.h"
 #include "mail-view.h"
 
@@ -59,6 +61,16 @@ struct _RevolutionMailView
   GtkStack            *header_stack;
   GtkSearchEntry      *search_entry;
   GtkToggleButton     *search_button;
+  /* #365: Suche (Ausdruck aus mail-search.c oder NULL), „Alle Ordner“, Suchbereich und Filter (list.filter);
+   * die vor der Suche gewählte Nachricht und ob sie nach dem Ende wieder gewählt wird (select_message_from_env). */
+  AdwToggleGroup      *search_scope;
+  AdwStatusPage       *empty_page;
+  GtkWidget           *folder_list;
+  char                *search;
+  gboolean             search_all;
+  char                *filter;
+  char                *return_uid;
+  gboolean             returning;
   AdwOverlaySplitView *split;
   /* #353: Ordner der Liste nach dem Laden (Signal „changed“), Änderungen in der Warteschlange. */
   CamelFolder         *camel_folder;
@@ -89,6 +101,10 @@ struct _RevolutionMailView
   gboolean             initial_done;
   /* #351: Abschnitt „Favoriten“ über den Konten (mail-favorites.c). */
   RevolutionMailAccount *favorites;
+  /* #362: Abschnitt „Auf diesem Rechner“ mit dem Postausgang, nur wenn er nicht leer ist
+   * (revolution_mail_view_set_outbox); local_section leer oder mit local. */
+  RevolutionMailAccount *local;
+  GListStore           *local_section;
   /* #357: Konversationen (GSettings „conversations“, beim Wählen des Ordners übernommen), Lesebereich
    * der Konversation, Suchordner aus Ordner und Gesendet zum Laden ihrer Nachrichten (mail-thread.c)
    * und Gelesen-Timer je angezeigter Nachricht (GSource). */
@@ -96,6 +112,12 @@ struct _RevolutionMailView
   RevolutionMailConversation *conversation_view;
   RevolutionMailFolder *thread_folder;
   GPtrArray           *member_seen;
+  /* #363: Ziele für Verschieben (Ordner des Kontos move_account), Aufträge für Rückgängig, Hinweis dazu. */
+  GtkMenuButton       *move_button;
+  GMenu               *move_menu;
+  char                *move_account;
+  GPtrArray           *undo;
+  AdwToast            *toast;
 };
 
 G_DEFINE_FINAL_TYPE (RevolutionMailView, revolution_mail_view, ADW_TYPE_BREAKPOINT_BIN)
@@ -128,11 +150,14 @@ static void on_context_menu (GSimpleAction *action, GVariant *parameter, gpointe
 static void start_folder_changes (RevolutionMailView *self);
 static void clear_member_seen (RevolutionMailView *self);
 static void on_message_selected (RevolutionMailView *self);
+static void on_folder_selected (RevolutionMailView *self);
+static void on_filter_change_state (GSimpleAction *action, GVariant *value, gpointer user_data);
 
 static const GActionEntry list_actions[] = {
   { "compose", on_compose, NULL, NULL, NULL, { 0 } },
   { "refresh", on_refresh, NULL, NULL, NULL, { 0 } },
   { "context-menu", on_context_menu, NULL, NULL, NULL, { 0 } },
+  { "filter", NULL, "s", "'all'", on_filter_change_state, { 0 } },
 };
 
 /* Fokus ins Suchfeld ohne alles zu markieren: sonst ersetzt beim Tippen in der
@@ -143,6 +168,75 @@ focus_search_entry (RevolutionMailView *self)
   GtkEditable *text = gtk_editable_get_delegate (GTK_EDITABLE (self->search_entry));
 
   gtk_text_grab_focus_without_selecting (GTK_TEXT (text));
+}
+
+/* #365: Leerzustand der Liste wie Evolution (message-list.c:6524-6531): während „Alle Ordner“ aufgebaut wird
+ * „Suche läuft …“ (dort „Generating message list…“, Suchordner im Aufbau, e-mail-shell-view.c:117-121, 188),
+ * mit Suche ohne Treffer „Keine Nachricht entspricht den Suchkriterien“, sonst „Keine Nachrichten“. */
+static void
+set_empty_page (RevolutionMailView *self,
+                gboolean            searching)
+{
+  adw_status_page_set_icon_name (self->empty_page, self->search != NULL ? "edit-find-symbolic" : "inbox-symbolic");
+  adw_status_page_set_title (self->empty_page, searching          ? _("Suche läuft …")
+                                               : self->search != NULL ? _("Keine Nachricht entspricht den Suchkriterien")
+                                                                      : _("Keine Nachrichten"));
+}
+
+/* #365: Suche aus Suchfeld, Suchbereich und Filter. Die Liste bleibt dieselbe: der gewählte Ordner wird neu
+ * geladen (on_folder_selected), mit dem Ausdruck im aktuellen Ordner bzw. aus dem Suchordner „Alle Ordner“
+ * (load_messages_thread). „Alle Ordner“ nur mit Suchtext, sonst der Ordner wie Evolution
+ * (e-mail-shell-view.c:1404-1410). Endet die Suche (Escape, Filter „Alle“), wählt die Liste die vorher
+ * gewählte Nachricht wieder. */
+static void
+update_search (RevolutionMailView *self)
+{
+  gboolean open = gtk_toggle_button_get_active (self->search_button);
+  g_autofree char *text = g_strstrip (g_strdup (gtk_editable_get_text (GTK_EDITABLE (self->search_entry))));
+  g_autofree char *search = revolution_mail_search_expression (open ? text : NULL, self->filter);
+  gboolean all = open && *text != '\0' && g_strcmp0 (adw_toggle_group_get_active_name (self->search_scope), "all") == 0;
+  g_autofree char *keep = NULL;
+
+  if (g_strcmp0 (search, self->search) == 0 && all == self->search_all)
+    return;
+
+  g_debug ("Suche: %s in %s", search != NULL ? search : "aus", all ? "allen Ordnern" : "Ordner");
+  if (self->search == NULL)
+    {
+      RevolutionMailMessage *selected = gtk_single_selection_get_selected_item (self->message_selection);
+
+      g_free (self->return_uid);
+      self->return_uid = selected != NULL ? g_strdup (revolution_mail_message_get_uid (selected)) : NULL;
+    }
+  g_free (self->search);
+  self->search = g_steal_pointer (&search);
+  self->search_all = all;
+  /* Während „Alle Ordner“ bleibt der Ordnerbaum gesperrt wie Evolution (e-mail-shell-view.c:1457): ein anderer
+   * Ordner hätte die ganze Suche neu gestartet. */
+  gtk_widget_set_sensitive (self->folder_list, !all);
+  set_empty_page (self, FALSE);
+  if (self->folder == NULL)
+    return;
+
+  /* on_folder_selected vergisst die Nachricht (Wechsel des Ordners), hier bleibt sie. */
+  keep = g_steal_pointer (&self->return_uid);
+  g_clear_object (&self->folder);
+  on_folder_selected (self);
+  self->return_uid = g_steal_pointer (&keep);
+  self->returning = self->search == NULL && self->return_uid != NULL;
+}
+
+static void
+on_filter_change_state (GSimpleAction *action,
+                        GVariant      *value,
+                        gpointer       user_data)
+{
+  RevolutionMailView *self = user_data;
+
+  g_simple_action_set_state (action, value);
+  g_free (self->filter);
+  self->filter = g_variant_dup_string (value, NULL);
+  update_search (self);
 }
 
 /* #399 Punkt 5: Suchknopf schaltet die Kopfleiste der Nachricht zwischen den
@@ -161,6 +255,14 @@ on_search_toggled (RevolutionMailView *self)
       gtk_editable_set_text (GTK_EDITABLE (self->search_entry), "");
       gtk_widget_grab_focus (GTK_WIDGET (self->search_button));
     }
+  update_search (self);
+}
+
+/* #365: GtkSearchEntry::search-changed (nach search-delay) und Wechsel des Suchbereichs. */
+static void
+on_search_changed (RevolutionMailView *self)
+{
+  update_search (self);
 }
 
 /* Tippen in der Listenspalte (GtkSearchEntry::search-started) öffnet die Suche. */
@@ -227,6 +329,9 @@ find_account (RevolutionMailView *self,
   /* #351: Favoriten für Erstauswahl und Zähler (select_initial_folder, revolution_mail_view_watch_folder). */
   if (self->favorites != NULL && g_strcmp0 (revolution_mail_account_get_uid (self->favorites), uid) == 0)
     return g_object_ref (self->favorites);
+  /* #362: Postausgang (Erstauswahl, Zähler). */
+  if (self->local != NULL && g_strcmp0 (revolution_mail_account_get_uid (self->local), uid) == 0)
+    return g_object_ref (self->local);
 
   return NULL;
 }
@@ -382,6 +487,10 @@ typedef struct
   /* #357: Konversationen statt einzelner Nachrichten; Gesendet des Kontos zum Mischen oder NULL. */
   gboolean      conversations;
   char         *sent_full_name;
+  /* #365: Suche (update_search), Fehler der Suche im aktuellen Ordner (send_messages). */
+  char         *search;
+  gboolean      search_all;
+  GError       *error;
 } LoadMessages;
 
 /* Mit Referenzzähler (g_atomic_rc_box): Blöcke, die nach einem Abbruch noch in der
@@ -394,6 +503,8 @@ load_messages_clear (LoadMessages *load)
   g_free (load->uid);
   g_free (load->full_name);
   g_free (load->sent_full_name);
+  g_free (load->search);
+  g_clear_error (&load->error);
   g_mutex_clear (&load->lock);
   g_cond_clear (&load->cond);
 }
@@ -664,7 +775,24 @@ select_message_from_env (RevolutionMailView *self)
   const char *wanted = g_getenv ("REVOLUTION_MESSAGE");
   GListModel *model = G_LIST_MODEL (self->messages);
 
-  if (wanted == NULL || gtk_single_selection_get_selected_item (self->message_selection) != NULL)
+  if (gtk_single_selection_get_selected_item (self->message_selection) != NULL)
+    return;
+
+  /* #365: nach dem Ende der Suche die vorher gewählte Nachricht, sobald ihr Block in der Liste steht. */
+  for (guint i = 0; self->returning && i < g_list_model_get_n_items (model); i++)
+    {
+      g_autoptr (RevolutionMailMessage) message = g_list_model_get_item (model, i);
+
+      if (g_strcmp0 (revolution_mail_message_get_uid (message), self->return_uid) == 0)
+        {
+          g_debug ("Suche: beendet, Auswahl %s wieder gewählt", self->return_uid);
+          self->returning = FALSE;
+          gtk_single_selection_set_selected (self->message_selection, i);
+          return;
+        }
+    }
+
+  if (wanted == NULL)
     return;
 
   for (guint i = 0; i < g_list_model_get_n_items (model); i++)
@@ -889,7 +1017,20 @@ send_messages (GTask       *task,
   merge = load->shown && g_str_equal (pass, "Server");
 
   camel_folder_summary_prepare_fetch_all (camel_folder_get_folder_summary (folder), NULL);
-  uids = camel_folder_get_uids (folder);
+  /* #365: Suche im aktuellen Ordner wie Evolution (message-list.c:6296-6300); „Alle Ordner“ hat sie schon der
+   * Suchordner gemacht (mail-search.c). */
+  if (load->search != NULL && !load->search_all)
+    {
+      g_autoptr (GCancellable) op = camel_operation_new_proxy (cancellable);
+
+      uids = camel_folder_search_by_expression (folder, load->search, op, &load->error);
+      if (uids == NULL && load->error == NULL)
+        g_set_error_literal (&load->error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID, _("Suche fehlgeschlagen"));
+      if (uids == NULL)
+        return FALSE;
+    }
+  else
+    uids = camel_folder_get_uids (folder);
   for (guint j = 0; j < uids->len; j++)
     {
       CamelMessageInfo *info = camel_folder_get_message_info (folder, uids->pdata[j]);
@@ -910,7 +1051,10 @@ send_messages (GTask       *task,
         unread++;
       g_ptr_array_add (infos, info);
     }
-  camel_folder_free_uids (folder, uids);
+  if (load->search != NULL && !load->search_all)
+    camel_folder_search_free (folder, uids);
+  else
+    camel_folder_free_uids (folder, uids);
   hash = hash * 31 + infos->len;
 
   /* Leerer Cache: nichts schicken, der Server-Durchgang folgt. */
@@ -1064,7 +1208,11 @@ load_messages_thread (GTask        *task,
 
   /* #357: Konversation aus Ordner und Gesendet: Liste, Flags und Live-Änderungen über den Suchordner
    * (mail-thread.c); abgeglichen wird weiter der Ordner selbst. #408: eigenes Cancellable je Vorgang. */
-  list = load->sent_full_name != NULL ? revolution_mail_thread_folder_sync (folder, load->sent_full_name, &sent,
+  /* #365: „Alle Ordner“ aus dem Suchordner (mail-search.c), sonst ohne Quellen wie Evolution beim Ende der Suche. */
+  if (!load->search_all)
+    revolution_mail_search_clear_sync (load->session);
+  list = load->search_all ? revolution_mail_search_folder_sync (load->session, load->search, load_op, &error)
+       : load->sent_full_name != NULL ? revolution_mail_thread_folder_sync (folder, load->sent_full_name, &sent,
                                                                             load_op, &error)
                                       : g_object_ref (folder);
   if (list == NULL)
@@ -1088,6 +1236,17 @@ load_messages_thread (GTask        *task,
    * Zählerstand des Stores (gemessen: 63 statt 100 ungelesen, auch nach Neustart; EDS
    * camel-imapx-server.c:6590-6600, camel-store-summary.c:1011-1050). Nach dem Wechsel läuft er
    * zu Ende, die Liste bekommt ihn nicht mehr (send_messages prüft cancellable). */
+  /* #365: Suche ohne Abgleich, ein Durchgang wie Evolution (mail_regen_list sucht nur, message-list.c:6296-6316). */
+  if (load->search != NULL)
+    {
+      if (send_messages (task, list, "Suche", &signature))
+        g_task_return_boolean (task, TRUE);
+      else if (load->error != NULL)
+        g_task_return_error (task, g_steal_pointer (&load->error));
+      else
+        g_task_return_error_if_cancelled (task);
+      return;
+    }
   if (!send_messages (task, list, "Cache", &signature))
     {
       g_task_return_error_if_cancelled (task);
@@ -1179,11 +1338,17 @@ typedef struct
   guint               generation;
   /* #357: Konversationen: ganze Liste neu threaden und abgleichen (folder_changes_thread). */
   gboolean            full;
+  /* #365: Suche im aktuellen Ordner: neu suchen, die gewählte Nachricht (keep) bleibt. */
+  gboolean            conversations;
+  char               *search;
+  char               *keep;
 } FolderChanges;
 
 static void
 folder_changes_free (FolderChanges *changes)
 {
+  g_free (changes->search);
+  g_free (changes->keep);
   g_object_unref (changes->self);
   g_object_unref (changes->folder);
   g_ptr_array_unref (changes->changed);
@@ -1341,25 +1506,55 @@ folder_changes_thread (GTask        *task,
   if (changes->full)
     {
       GPtrArray *uids;
+      gboolean kept = changes->keep == NULL;
 
       camel_folder_summary_prepare_fetch_all (camel_folder_get_folder_summary (changes->folder), NULL);
-      uids = camel_folder_get_uids (changes->folder);
+      /* #365: Suche im aktuellen Ordner: neu suchen wie Evolution (message_list_folder_changed → mail_regen_list,
+       * message-list.c:5178-5186, 6296-6300); die gewählte Nachricht bleibt, auch wenn sie nicht mehr passt
+       * (message_list_regen_tweak_search_results, message-list.c:6138-6197), sonst verschwände eine eben
+       * gelesene unter „Ungelesen“. Scheitert die Suche, bleibt die Liste (verworfen wie eine Änderung zur alten
+       * Liste, on_folder_changes_done). */
+      uids = changes->search != NULL ? camel_folder_search_by_expression (changes->folder, changes->search, NULL, NULL)
+                                     : camel_folder_get_uids (changes->folder);
+      if (uids == NULL)
+        {
+          g_debug ("Suche: Änderung nicht angewendet, Suche gescheitert");
+          changes->generation = G_MAXUINT;
+          g_task_return_boolean (task, TRUE);
+          return;
+        }
       for (guint i = 0; i < uids->len; i++)
         {
           CamelMessageInfo *info = camel_folder_get_message_info (changes->folder, uids->pdata[i]);
+
+          kept |= g_strcmp0 (uids->pdata[i], changes->keep) == 0;
+          if (info != NULL && (camel_message_info_get_flags (info) & hidden) == 0)
+            g_ptr_array_add (infos, info);
+          else
+            g_clear_object (&info);
+        }
+      if (!kept)
+        {
+          CamelMessageInfo *info = camel_folder_get_message_info (changes->folder, changes->keep);
 
           if (info != NULL && (camel_message_info_get_flags (info) & hidden) == 0)
             g_ptr_array_add (infos, info);
           else
             g_clear_object (&info);
         }
-      camel_folder_free_uids (changes->folder, uids);
-      changes->items = revolution_mail_thread_build (changes->folder, infos, now);
-      g_task_return_boolean (task, TRUE);
-      return;
+      if (changes->search != NULL)
+        camel_folder_search_free (changes->folder, uids);
+      else
+        camel_folder_free_uids (changes->folder, uids);
+      if (changes->conversations)
+        {
+          changes->items = revolution_mail_thread_build (changes->folder, infos, now);
+          g_task_return_boolean (task, TRUE);
+          return;
+        }
     }
 
-  for (guint i = 0; i < changes->changed->len; i++)
+  for (guint i = 0; !changes->full && i < changes->changed->len; i++)
     {
       const char *uid = changes->changed->pdata[i];
       CamelMessageInfo *info = camel_folder_get_message_info (changes->folder, uid);
@@ -1456,7 +1651,16 @@ start_folder_changes (RevolutionMailView *self)
   changes->changed = steal_uids (self->pending_changed);
   changes->removed = steal_uids (self->pending_removed);
   changes->generation = self->load_generation;
-  changes->full = self->conversations;
+  changes->conversations = self->conversations;
+  /* #365: „Alle Ordner“ prüft der Suchordner selbst (camel-vee-folder.c:367-540). */
+  if (self->search != NULL && !self->search_all)
+    {
+      RevolutionMailMessage *selected = gtk_single_selection_get_selected_item (self->message_selection);
+
+      changes->search = g_strdup (self->search);
+      changes->keep = selected != NULL ? g_strdup (revolution_mail_message_get_uid (selected)) : NULL;
+    }
+  changes->full = self->conversations || changes->search != NULL;
   self->changes_running = TRUE;
 
   task = g_task_new (self, NULL, on_folder_changes_done, NULL);
@@ -1548,8 +1752,14 @@ flags_location_free (FlagsLocation *location)
   g_free (location);
 }
 
+/* #363: Verschieben läuft in derselben Warteschlange wie die Flags (transfer_thread, on_transferred). */
+typedef struct _Transfer Transfer;
+static void transfer_release (Transfer *t);
+
 typedef struct _SetFlags
 {
+  /* #363: Verschieben statt Flags, sonst NULL. */
+  Transfer    *transfer;
   CamelFolder *folder;
   char        *uid;
   /* Vom Worker einmal gesetzt (g_atomic_pointer_set), danach unverändert; liest flags_deadline. */
@@ -1567,9 +1777,13 @@ set_flags_free (SetFlags *data)
   g_object_unref (data->folder);
   g_free (data->uid);
   g_clear_pointer (&data->location, flags_location_free);
+  g_clear_pointer (&data->transfer, transfer_release);
   g_free (data->loading);
   g_free (data);
 }
+
+static void transfer_thread (GTask *task, SetFlags *data);
+static void on_transferred (RevolutionMailView *self, SetFlags *data, GError *error);
 
 enum { FLAGS_SAVED, FLAGS_LOCAL };
 
@@ -1613,6 +1827,12 @@ set_flags_thread (GTask        *task,
   g_autoptr (CamelSession) session = NULL;
   GError *error = NULL;
 
+  if (data->transfer != NULL)
+    {
+      g_free (location);
+      transfer_thread (task, data);
+      return;
+    }
   location->folder = real_folder (data->folder, data->uid, &location->uid);
   if (location->folder == NULL)
     {
@@ -1779,7 +1999,9 @@ on_flags_set (GObject      *source_object,
    * #408: Synchronisieren ohne Cancellable (set_flags_thread); ein Abbruch von innen (microsoft365
    * beim Trennen) ist ein Fehler wie jeder andere. Die Änderung steht dann in der Summary und geht
    * beim nächsten Abgleich mit; offline genügt das Log. */
-  if (self->cancellable == NULL || g_cancellable_is_cancelled (self->cancellable))
+  if (data->transfer != NULL)
+    on_transferred (self, data, error);
+  else if (self->cancellable == NULL || g_cancellable_is_cancelled (self->cancellable))
     ;
   else if (error != NULL && self->session != NULL && !camel_session_get_online (self->session))
     g_debug ("Flags: %s %s %s lokal gespeichert (offline, Abgleich abgebrochen: %s)", data->loading, data->uid,
@@ -2067,6 +2289,11 @@ update_message_actions (RevolutionMailView *self)
     { "reply-all", message != NULL },
     { "forward", message != NULL },
     { "open", message != NULL },
+    { "delete", message != NULL },
+    { "archive", message != NULL },
+    { "junk", message != NULL },
+    { "move", message != NULL },
+    { "move-to", message != NULL },
   };
   GAction *star = g_action_map_lookup_action (self->message_actions, "star");
 
@@ -2074,6 +2301,7 @@ update_message_actions (RevolutionMailView *self)
     g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (self->message_actions, actions[i].name)),
                                  actions[i].enabled);
   g_simple_action_set_state (G_SIMPLE_ACTION (star), g_variant_new_boolean (starred));
+  gtk_widget_set_sensitive (GTK_WIDGET (self->move_button), message != NULL);
 }
 
 /* Gelesen nach Verzögerung wie Evolution (schedule_timeout_mark_seen, e-mail-reader.c:3747-3777,
@@ -2492,6 +2720,8 @@ on_messages_loaded (GObject      *source_object,
   if (load->generation != self->load_generation)
     return;
 
+  /* #365: „Alle Ordner“ fertig (auch nach Fehler): Leerzustand ohne „Suche läuft …“. */
+  set_empty_page (self, FALSE);
   n_items = g_list_model_get_n_items (G_LIST_MODEL (self->messages));
   if (n_items == 0)
     {
@@ -2521,7 +2751,8 @@ find_folder_type (GListModel *model,
       guint32 flags = revolution_mail_folder_get_flags (folder);
       RevolutionMailFolder *found;
 
-      if ((flags & CAMEL_FOLDER_TYPE_MASK) == type && (flags & CAMEL_FOLDER_NOSELECT) == 0)
+      /* #363: ohne die virtuellen Ordner von imapx (.#evolution/Trash, /Junk). */
+      if ((flags & CAMEL_FOLDER_TYPE_MASK) == type && (flags & (CAMEL_FOLDER_NOSELECT | CAMEL_FOLDER_VIRTUAL)) == 0)
         return g_steal_pointer (&folder);
 
       found = find_folder_type (revolution_mail_folder_get_children (folder), type);
@@ -2570,6 +2801,9 @@ on_folder_selected (RevolutionMailView *self)
   if (folder == self->folder)
     return;
   g_set_object (&self->folder, folder);
+  /* #365: anderer Ordner, die vor der Suche gewählte Nachricht gilt nicht mehr (update_search). */
+  g_clear_pointer (&self->return_uid, g_free);
+  self->returning = FALSE;
 
   g_cancellable_cancel (self->load_cancellable);
   g_clear_object (&self->load_cancellable);
@@ -2639,6 +2873,20 @@ on_folder_selected (RevolutionMailView *self)
         }
     }
 
+  /* #365: Suche (update_search); „Alle Ordner“ zeigt der Lesebereich aus dem Suchordner (mail-search.c). */
+  load->search = g_strdup (self->search);
+  load->search_all = self->search_all;
+  if (self->search_all)
+    {
+      g_clear_pointer (&load->sent_full_name, g_free);
+      g_clear_object (&self->thread_folder);
+      self->thread_folder = revolution_mail_folder_new (REVOLUTION_MAIL_SEARCH_NAME, _("Alle Ordner"), NULL,
+                                                        self->favorites);
+      gtk_label_set_label (self->list_title, _("Alle Ordner"));
+      set_empty_page (self, TRUE);
+      gtk_stack_set_visible_child_name (self->list_stack, "empty");
+    }
+
   g_free (self->loading);
   self->loading = g_strdup_printf ("%s %s", load->uid, load->full_name);
   self->load_started = g_get_monotonic_time ();
@@ -2700,7 +2948,9 @@ on_message_selected (RevolutionMailView *self)
   /* #351: In den Favoriten zeigt der Kopf den echten Ordner (Prototyp „Eingang — Privat“). */
   place = revolution_mail_view_find_place (self, message);
   gtk_stack_set_visible_child_name (self->message_stack, "content");
-  revolution_mail_reader_show (self->reader, self->session, self->folder, place, message);
+  /* #365: flach aus dem Suchordner „Alle Ordner“ (thread_folder, on_folder_selected). */
+  revolution_mail_reader_show (self->reader, self->session, self->thread_folder != NULL ? self->thread_folder : self->folder,
+                               place, message);
 }
 
 /* #351/#357: Ort einer Nachricht für den Kopf: der echte Ordner (Nachricht aus einem Suchordner, Favoriten
@@ -2726,6 +2976,626 @@ revolution_mail_view_find_place (RevolutionMailView    *self,
     }
 
   return self->folder != NULL ? g_object_ref (self->folder) : NULL;
+}
+
+/* #363: Löschen, Archivieren, Spam und Verschieben. Evolution markiert beim Löschen nur (DELETED|SEEN,
+ * e-mail-reader.c:573-594) und verschiebt erst beim Synchronisieren in einen echten Papierkorb, wenn die
+ * ESource use-real-trash-path setzt (camel-imapx-store.c:2241-2260); bei geops@ und Gmail ist das aus, die
+ * Mail bliebe am Server im Ordner. Hier wird daher wie Archivieren und Verschieben (mail_transfer_messages,
+ * mail-ops.c:1236-1270) sofort verschoben, mit Rückgängig wie Stamp (Hinweis mit „Rückgängig“,
+ * stamp-mail-view.c:266-281, stamp-conversation-list.c:3127-3145). Ziele: Ordner des Typs im Ordnerbaum
+ * des Kontos (#350; Papierkorb und Spam vom Server oder aus der Ersteinrichtung, mail-folder.c), denn
+ * camel_store_get_trash_folder_sync bzw. _junk_folder_sync liefern bei imapx ohne use-real-*-path die
+ * virtuellen Ordner (camel-imapx-store.c:2193-2290). Archiv wie Evolution der Archivordner des Kontos
+ * (e-mail-reader.c:1331-1437); ohne ihn (Gmail: ESource leer, kein \Archive, imapx verwirft die Typen des Servers
+ * wie \All, camel-imapx-store.c:327-331) wie Evolution ein Hinweis statt Archivieren (dort 1420-1428). microsoft365: Papierkorb nur über revolution_eds_store_get_trash_folder_sync,
+ * einmal je Store (#416, sie synchronisiert alle offenen Ordner), Verschieben nur über
+ * revolution_eds_folder_transfer_messages_to_sync. Spam setzt wie Evolution SEEN|JUNK|JUNK_LEARN
+ * (e-mail-reader.c:1030-1042) und verschiebt in den Spam-Ordner, damit Filter am Server lernen; nicht bei
+ * microsoft365, das JUNK nicht überträgt (PATCH nur isRead/importance/categories, camel-m365-utils.c:728-747).
+ * Rückgängig sucht die Nachrichten im Ziel über die Message-ID (microsoft365 meldet keine neuen UIDs,
+ * camel-m365-folder.c:1498-1562) und verschiebt sie zurück. Alles im Worker in der Warteschlange der Flags. */
+typedef enum { ACTION_DELETE, ACTION_ARCHIVE, ACTION_JUNK, ACTION_MOVE, ACTION_UNDO } TransferKind;
+
+static const struct { const char *log; const char *toast; guint32 type; } transfer_kinds[] = {
+  [ACTION_DELETE]  = { "gelöscht",   N_("Gelöscht"),          CAMEL_FOLDER_TYPE_TRASH },
+  [ACTION_ARCHIVE] = { "archiviert", N_("Archiviert"),        CAMEL_FOLDER_TYPE_ARCHIVE },
+  [ACTION_JUNK]    = { "Spam",       N_("Als Spam markiert"), CAMEL_FOLDER_TYPE_JUNK },
+  [ACTION_MOVE]    = { "verschoben", N_("Verschoben"),        0 },
+  [ACTION_UNDO]    = { "rückgängig", NULL,                    0 },
+};
+
+#define JUNK_MASK (CAMEL_MESSAGE_SEEN | CAMEL_MESSAGE_JUNK | CAMEL_MESSAGE_NOTJUNK | CAMEL_MESSAGE_JUNK_LEARN)
+
+struct _Transfer
+{
+  TransferKind kind;
+  CamelFolder *list_folder;
+  GPtrArray   *uids;
+  char        *target;
+  Transfer    *undo_of;
+  /* Im Worker gesetzt: echte Quelle und Ziel, Message-IDs und Flags vorher, UIDs im Ziel. */
+  CamelFolder *source;
+  CamelFolder *dest;
+  GArray      *ids;
+  GArray      *flags;
+  GPtrArray   *moved;
+};
+
+static void
+transfer_clear (Transfer *t)
+{
+  g_clear_object (&t->list_folder);
+  g_clear_pointer (&t->uids, g_ptr_array_unref);
+  g_free (t->target);
+  g_clear_pointer (&t->undo_of, transfer_release);
+  g_clear_object (&t->source);
+  g_clear_object (&t->dest);
+  g_clear_pointer (&t->ids, g_array_unref);
+  g_clear_pointer (&t->flags, g_array_unref);
+  g_clear_pointer (&t->moved, g_ptr_array_unref);
+}
+
+static void
+transfer_release (Transfer *t)
+{
+  g_atomic_rc_box_release_full (t, (GDestroyNotify) transfer_clear);
+}
+
+static gboolean
+is_m365 (CamelFolder *folder)
+{
+  CamelProvider *provider = camel_service_get_provider (CAMEL_SERVICE (camel_folder_get_parent_store (folder)));
+
+  return provider != NULL && g_strcmp0 (provider->protocol, "microsoft365") == 0;
+}
+
+/* microsoft365: Papierkorb einmal je Store holen (#416), danach aus dem Speicher. Im Worker. */
+static CamelFolder *
+cached_trash (CamelStore *store,
+              GError    **error)
+{
+  static GMutex lock;
+  CamelFolder *trash;
+
+  g_mutex_lock (&lock);
+  trash = g_object_get_data (G_OBJECT (store), "revolution-trash");
+  if (trash != NULL)
+    g_object_ref (trash);
+  else if ((trash = revolution_eds_store_get_trash_folder_sync (store, NULL, error)) != NULL)
+    g_object_set_data_full (G_OBJECT (store), "revolution-trash", g_object_ref (trash), g_object_unref);
+  g_mutex_unlock (&lock);
+
+  return trash;
+}
+
+/* UIDs im Ziel zu den Message-IDs; zuerst unter denen, die vorher nicht dort waren. Im Worker. */
+static GPtrArray *
+find_moved (CamelFolder *dest,
+            GArray      *ids,
+            GHashTable  *before)
+{
+  GPtrArray *uids = camel_folder_get_uids (dest);
+  GPtrArray *found = g_ptr_array_new_with_free_func (g_free);
+  g_autofree gboolean *done = g_new0 (gboolean, MAX (ids->len, 1));
+
+  for (int pass = 0; pass < 2 && found->len < ids->len; pass++)
+    for (guint i = 0; i < uids->len; i++)
+      {
+        g_autoptr (CamelMessageInfo) info = NULL;
+        guint64 id;
+
+        if (g_hash_table_contains (before, uids->pdata[i]) != (pass == 1) ||
+            (info = camel_folder_get_message_info (dest, uids->pdata[i])) == NULL)
+          continue;
+        id = camel_message_info_get_message_id (info);
+        for (guint j = 0; j < ids->len; j++)
+          if (!done[j] && id != 0 && g_array_index (ids, guint64, j) == id)
+            {
+              done[j] = TRUE;
+              g_ptr_array_add (found, g_strdup (uids->pdata[i]));
+              break;
+            }
+      }
+  camel_folder_free_uids (dest, uids);
+
+  return found;
+}
+
+static void
+transfer_thread (GTask    *task,
+                 SetFlags *data)
+{
+  Transfer *t = data->transfer;
+  Transfer *of = t->undo_of;
+  g_autoptr (GPtrArray) uids = g_ptr_array_new_with_free_func (g_free);
+  g_autoptr (GHashTable) before = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  GPtrArray *dest_uids;
+  GError *error = NULL;
+
+  if (of != NULL)
+    {
+      t->source = of->dest != NULL ? g_object_ref (of->dest) : NULL;
+      t->dest = of->source != NULL ? g_object_ref (of->source) : NULL;
+      for (guint i = 0; of->moved != NULL && i < of->moved->len; i++)
+        g_ptr_array_add (uids, g_strdup (of->moved->pdata[i]));
+    }
+  else
+    {
+      for (guint i = 0; i < t->uids->len; i++)
+        {
+          char *real_uid = NULL;
+          g_autoptr (CamelFolder) real = real_folder (t->list_folder, t->uids->pdata[i], &real_uid);
+
+          if (real != NULL && t->source == NULL)
+            t->source = g_object_ref (real);
+          if (real != NULL && real == t->source)
+            g_ptr_array_add (uids, real_uid);
+          else
+            g_free (real_uid);
+        }
+      if (t->source != NULL)
+        t->dest = t->kind == ACTION_DELETE && is_m365 (t->source)
+                    ? cached_trash (camel_folder_get_parent_store (t->source), &error)
+                    : camel_store_get_folder_sync (camel_folder_get_parent_store (t->source), t->target, 0, NULL, &error);
+    }
+  if (error == NULL && (t->source == NULL || t->dest == NULL || t->dest == t->source || uids->len == 0))
+    g_set_error (&error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID_UID, _("Nachricht %s nicht gefunden"), data->uid);
+  if (error != NULL)
+    {
+      g_task_return_error (task, error);
+      return;
+    }
+
+  t->ids = g_array_new (FALSE, TRUE, sizeof (guint64));
+  t->flags = g_array_new (FALSE, TRUE, sizeof (guint32));
+  for (guint i = 0; i < uids->len; i++)
+    {
+      g_autoptr (CamelMessageInfo) info = camel_folder_get_message_info (t->source, uids->pdata[i]);
+      guint64 id = info != NULL ? camel_message_info_get_message_id (info) : 0;
+      guint32 flags = info != NULL ? camel_message_info_get_flags (info) : 0;
+
+      g_array_append_val (t->ids, id);
+      g_array_append_val (t->flags, flags);
+    }
+
+  /* Spam: Flags wie Evolution unter der Sperre je Ordner (#409) und zum Server, bevor verschoben wird. */
+  if (t->kind == ACTION_JUNK && !is_m365 (t->source))
+    {
+      gboolean ok;
+
+      revolution_eds_folder_lock (t->source);
+      for (guint i = 0; i < uids->len; i++)
+        camel_folder_set_message_flags (t->source, uids->pdata[i], JUNK_MASK,
+                                        CAMEL_MESSAGE_SEEN | CAMEL_MESSAGE_JUNK | CAMEL_MESSAGE_JUNK_LEARN);
+      ok = camel_folder_synchronize_sync (t->source, FALSE, NULL, &error);
+      revolution_eds_folder_unlock (t->source);
+      if (!ok)
+        {
+          g_task_return_error (task, error);
+          return;
+        }
+    }
+
+  dest_uids = camel_folder_get_uids (t->dest);
+  for (guint i = 0; i < dest_uids->len; i++)
+    g_hash_table_add (before, g_strdup (dest_uids->pdata[i]));
+  camel_folder_free_uids (t->dest, dest_uids);
+
+  if (!revolution_eds_folder_transfer_messages_to_sync (t->source, uids, t->dest, TRUE, NULL, NULL, &error))
+    {
+      g_task_return_error (task, error);
+      return;
+    }
+  t->moved = find_moved (t->dest, t->ids, before);
+  if (t->moved->len < uids->len && revolution_eds_folder_refresh_info_sync (t->dest, NULL, NULL))
+    {
+      g_ptr_array_unref (t->moved);
+      t->moved = find_moved (t->dest, t->ids, before);
+    }
+
+  /* Rückgängig nach Spam: Flags von vorher. */
+  if (of != NULL && of->kind == ACTION_JUNK && !is_m365 (t->dest))
+    {
+      revolution_eds_folder_lock (t->dest);
+      for (guint i = 0; i < t->moved->len; i++)
+        {
+          g_autoptr (CamelMessageInfo) info = camel_folder_get_message_info (t->dest, t->moved->pdata[i]);
+
+          for (guint j = 0; info != NULL && j < of->ids->len; j++)
+            if (g_array_index (of->ids, guint64, j) == camel_message_info_get_message_id (info))
+              camel_folder_set_message_flags (t->dest, t->moved->pdata[i], JUNK_MASK,
+                                              g_array_index (of->flags, guint32, j) & JUNK_MASK);
+        }
+      if (!camel_folder_synchronize_sync (t->dest, FALSE, NULL, &error))
+        {
+          revolution_eds_folder_unlock (t->dest);
+          g_task_return_error (task, error);
+          return;
+        }
+      revolution_eds_folder_unlock (t->dest);
+    }
+
+  g_task_return_int (task, FLAGS_SAVED);
+}
+
+/* Im UI-Thread aus on_flags_set. Ein Fehler zeigt die Zeilen wieder (Liste neu aus der Summary). */
+static void
+on_transferred (RevolutionMailView *self,
+                SetFlags           *data,
+                GError             *error)
+{
+  Transfer *t = data->transfer;
+  g_autoptr (GString) moved = g_string_new (NULL);
+  g_autofree char *detail = NULL;
+
+  if (error == NULL)
+    {
+      for (guint i = 0; i < t->moved->len; i++)
+        g_string_append_printf (moved, " %s", (char *) t->moved->pdata[i]);
+      g_debug ("Aktion: %s %s %s → %s: %u von %u verschoben, im Ziel%s, nach %.0f ms", data->loading, data->what,
+               camel_folder_get_full_name (t->source), camel_folder_get_full_name (t->dest), t->moved->len,
+               t->ids->len, moved->str, (g_get_monotonic_time () - data->started) / 1000.0);
+      return;
+    }
+
+  g_warning ("Aktion %s %s: %s", data->loading, data->what, error->message);
+  if (self->cancellable == NULL || g_cancellable_is_cancelled (self->cancellable))
+    return;
+  detail = g_strdup_printf ("%s: %s", gtk_label_get_label (self->list_title), error->message);
+  revolution_mail_view_show_error (self, _("Nicht verschoben"), detail, FALSE);
+  for (guint i = 0; t->list_folder == self->camel_folder && i < t->uids->len; i++)
+    g_hash_table_add (self->pending_changed, g_strdup (t->uids->pdata[i]));
+}
+
+static void
+queue_transfer (RevolutionMailView *self,
+                Transfer           *t)
+{
+  SetFlags *data = g_new0 (SetFlags, 1);
+
+  data->transfer = t;
+  data->folder = g_object_ref (t->list_folder);
+  data->uid = g_strdup (t->uids->pdata[0]);
+  data->what = transfer_kinds[t->kind].log;
+  data->loading = g_strdup (self->loading);
+  data->started = g_get_monotonic_time ();
+  g_debug ("Aktion: %s %s %u Nachrichten%s%s", data->loading, data->what, t->uids->len, t->target ? " nach " : "",
+           t->target ? t->target : "");
+  g_queue_push_tail (&self->flag_jobs, data);
+  start_flags (self);
+}
+
+static void
+on_undo (RevolutionMailView *self)
+{
+  g_autoptr (GPtrArray) undo = g_steal_pointer (&self->undo);
+
+  for (guint i = 0; undo != NULL && i < undo->len; i++)
+    {
+      Transfer *of = undo->pdata[i];
+      Transfer *t = g_atomic_rc_box_new0 (Transfer);
+
+      t->kind = ACTION_UNDO;
+      t->undo_of = g_atomic_rc_box_acquire (of);
+      t->list_folder = g_object_ref (of->list_folder);
+      t->uids = g_ptr_array_ref (of->uids);
+      queue_transfer (self, t);
+    }
+  if (self->toast != NULL)
+    adw_toast_dismiss (self->toast);
+}
+
+/* Strg+Z wirkt auch nach dem Hinweis bis zur nächsten Aktion, wie „Widerrufen“ in Apple Mail. */
+static void
+on_toast_dismissed (RevolutionMailView *self,
+                    AdwToast           *toast)
+{
+  if (toast == self->toast)
+    g_clear_object (&self->toast);
+}
+
+/* Kurzer Hinweis ohne Knopf, statt still nichts zu tun (Ziel = Quelle, anderes Konto). */
+static void
+show_hint (RevolutionMailView *self,
+           const char         *title)
+{
+  AdwToastOverlay *overlay = ADW_TOAST_OVERLAY (gtk_widget_get_ancestor (GTK_WIDGET (self), ADW_TYPE_TOAST_OVERLAY));
+
+  g_debug ("Hinweis: %s", title);
+  if (overlay != NULL)
+    adw_toast_overlay_add_toast (overlay, adw_toast_new (title));
+}
+
+/* Nachricht bzw. Konversation verschieben (target: voller Name im Konto target_account, nur bei
+ * ACTION_MOVE). Konversation: ihre Nachrichten aus dem Ordner der Liste, nicht die aus Gesendet, wie ein
+ * zugeklappter Thread in Evolution (e_mail_reader_get_selected_uids_with_collapsed_threads,
+ * e-mail-reader.c:4357-4363; Evolution mischt keine Ordner) und Stamp (collect_uids_for_folder,
+ * stamp-conversation-list.c:2399-2417). Je Konto und Quellordner ein Auftrag. Die Zeile verschwindet
+ * sofort, gewählt wird die nächste, sonst die vorige wie Evolution (e_mail_reader_select_next_message,
+ * e-mail-reader-utils.c:3210-3229). TRUE, wenn etwas verschoben wird. */
+static gboolean
+transfer_message (RevolutionMailView    *self,
+                  RevolutionMailMessage *message,
+                  TransferKind           kind,
+                  const char            *target,
+                  const char            *target_account)
+{
+  GListModel *members = message != NULL ? revolution_mail_message_get_members (message) : NULL;
+  g_autoptr (GHashTable) groups = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, (GDestroyNotify) g_ptr_array_unref);
+  g_autoptr (GPtrArray) undo = g_ptr_array_new_with_free_func ((GDestroyNotify) transfer_release);
+  g_autoptr (RevolutionMailAccount) current = NULL;
+  g_autofree char *title = NULL;
+  const char *hint = NULL;
+  AdwToastOverlay *overlay;
+  GHashTableIter iter;
+  gpointer key, value;
+  guint position;
+
+  if (message == NULL || self->camel_folder == NULL || self->folder == NULL)
+    return FALSE;
+  g_object_get (self->folder, "account", &current, NULL);
+
+  for (guint i = 0; i < (members != NULL ? g_list_model_get_n_items (members) : 1); i++)
+    {
+      g_autoptr (RevolutionMailMessage) item = members != NULL ? g_list_model_get_item (members, i) : g_object_ref (message);
+      const char *uid = current != NULL ? revolution_mail_account_get_uid (current) : "";
+      const char *folder = revolution_mail_folder_get_full_name (self->folder);
+      const char *source_uid, *source_folder;
+      char *group;
+
+      if (revolution_mail_message_get_source (item, &source_uid, &source_folder))
+        {
+          if (self->thread_folder != NULL && g_strcmp0 (source_folder, folder) != 0)
+            continue;
+          uid = source_uid;
+          folder = source_folder;
+        }
+      group = g_strconcat (uid, "\n", folder, NULL);
+      if (!g_hash_table_contains (groups, group))
+        g_hash_table_insert (groups, g_strdup (group), g_ptr_array_new_with_free_func (g_free));
+      g_ptr_array_add (g_hash_table_lookup (groups, group), g_strdup (revolution_mail_message_get_uid (item)));
+      g_free (group);
+    }
+
+  g_hash_table_iter_init (&iter, groups);
+  while (g_hash_table_iter_next (&iter, &key, &value))
+    {
+      g_autofree char *uid = g_strndup (key, strchr (key, '\n') - (char *) key);
+      const char *source = strchr (key, '\n') + 1;
+      g_autoptr (RevolutionMailAccount) account = find_account (self, uid);
+      GListModel *tree = account != NULL ? gtk_tree_list_model_get_model (account_tree (account)) : NULL;
+      g_autoptr (RevolutionMailFolder) folder = NULL;
+      const char *name = target;
+      Transfer *t;
+
+      if (kind != ACTION_MOVE)
+        {
+          folder = find_folder_type (tree, transfer_kinds[kind].type);
+          name = folder != NULL ? revolution_mail_folder_get_full_name (folder) : NULL;
+        }
+      else if (g_strcmp0 (uid, target_account) != 0)
+        {
+          hint = _("Verschieben zwischen Konten ist nicht möglich");
+          continue;
+        }
+      if (name == NULL || g_strcmp0 (name, source) == 0)
+        {
+          hint = name != NULL ? _("Die Nachricht ist schon in diesem Ordner") : NULL;
+          g_debug ("Aktion: %s %s nicht möglich, Ziel %s", uid, transfer_kinds[kind].log, name ? "ist die Quelle" : "fehlt");
+          if (name == NULL)
+            {
+              g_autofree char *detail = g_strdup_printf ("%s: %s", uid, _(transfer_kinds[kind].toast));
+
+              revolution_mail_view_show_error (self, _("Kein Zielordner"), detail, FALSE);
+            }
+          continue;
+        }
+
+      t = g_atomic_rc_box_new0 (Transfer);
+      t->kind = kind;
+      t->list_folder = g_object_ref (self->camel_folder);
+      t->uids = g_ptr_array_ref (value);
+      t->target = g_strdup (name);
+      g_ptr_array_add (undo, g_atomic_rc_box_acquire (t));
+      queue_transfer (self, t);
+    }
+  if (undo->len == 0)
+    {
+      if (hint != NULL)
+        show_hint (self, hint);
+      return FALSE;
+    }
+
+  if (g_list_store_find (self->messages, message, &position))
+    {
+      gboolean selected = message == selected_message (self);
+      guint n_items;
+
+      g_list_store_remove (self->messages, position);
+      n_items = g_list_model_get_n_items (G_LIST_MODEL (self->messages));
+      set_list_counts (self);
+      if (selected && n_items > 0)
+        gtk_single_selection_set_selected (self->message_selection, MIN (position, n_items - 1));
+      g_debug ("Aktion: Zeile %u weg, gewählt %u von %u", position, gtk_single_selection_get_selected (self->message_selection),
+               n_items);
+    }
+
+  /* Hinweis mit Rückgängig (Strg+Z), ein neuer ersetzt den alten. */
+  if (self->toast != NULL)
+    adw_toast_dismiss (self->toast);
+  g_clear_object (&self->toast);
+  g_clear_pointer (&self->undo, g_ptr_array_unref);
+  overlay = ADW_TOAST_OVERLAY (gtk_widget_get_ancestor (GTK_WIDGET (self), ADW_TYPE_TOAST_OVERLAY));
+  if (overlay == NULL)
+    return TRUE;
+  title = kind == ACTION_MOVE ? g_strdup_printf (_("Verschoben nach „%s“"), strrchr (target, '/') ? strrchr (target, '/') + 1 : target)
+                              : g_strdup (_(transfer_kinds[kind].toast));
+  self->toast = g_object_ref (adw_toast_new (title));
+  adw_toast_set_button_label (self->toast, _("_Rückgängig"));
+  g_signal_connect_object (self->toast, "button-clicked", G_CALLBACK (on_undo), self, G_CONNECT_SWAPPED);
+  g_signal_connect_object (self->toast, "dismissed", G_CALLBACK (on_toast_dismissed), self, G_CONNECT_SWAPPED);
+  self->undo = g_steal_pointer (&undo);
+  adw_toast_overlay_add_toast (overlay, self->toast);
+
+  return TRUE;
+}
+
+/* Ordner des Kontos der gewählten Nachricht als Ziele (Kopfleiste und Kontextmenü), ohne den eigenen. */
+static void
+append_move_items (GMenu      *menu,
+                   GListModel *folders,
+                   const char *prefix,
+                   const char *exclude)
+{
+  for (guint i = 0; folders != NULL && i < g_list_model_get_n_items (folders); i++)
+    {
+      g_autoptr (RevolutionMailFolder) folder = g_list_model_get_item (folders, i);
+      const char *name = revolution_mail_folder_get_full_name (folder);
+      g_autofree char *display = NULL;
+      g_autofree char *label = NULL;
+
+      g_object_get (folder, "display-name", &display, NULL);
+      label = prefix != NULL ? g_strdup_printf ("%s/%s", prefix, display) : g_strdup (display);
+      if ((revolution_mail_folder_get_flags (folder) & (CAMEL_FOLDER_NOSELECT | CAMEL_FOLDER_VIRTUAL)) == 0 &&
+          g_strcmp0 (name, exclude) != 0)
+        {
+          g_autoptr (GMenuItem) item = g_menu_item_new (label, NULL);
+
+          g_menu_item_set_action_and_target (item, "message.move-to", "s", name);
+          g_debug ("Aktion: Ziel %s", name);
+          g_menu_append_item (menu, item);
+        }
+      append_move_items (menu, revolution_mail_folder_get_children (folder), label, exclude);
+    }
+}
+
+static void
+fill_move_menu (RevolutionMailView *self)
+{
+  RevolutionMailMessage *message = selected_message (self);
+  GListModel *members = message != NULL ? revolution_mail_message_get_members (message) : NULL;
+  g_autoptr (RevolutionMailMessage) first = members != NULL ? g_list_model_get_item (members, 0)
+                                                            : message != NULL ? g_object_ref (message) : NULL;
+  g_autoptr (RevolutionMailAccount) account = NULL;
+  const char *uid, *folder;
+
+  g_menu_remove_all (self->move_menu);
+  g_clear_pointer (&self->move_account, g_free);
+  if (first == NULL || self->folder == NULL)
+    return;
+  if (revolution_mail_message_get_source (first, &uid, &folder))
+    account = find_account (self, uid);
+  else
+    {
+      g_object_get (self->folder, "account", &account, NULL);
+      folder = revolution_mail_folder_get_full_name (self->folder);
+    }
+  if (account == NULL || account == self->favorites)
+    return;
+  self->move_account = g_strdup (revolution_mail_account_get_uid (account));
+  append_move_items (self->move_menu, gtk_tree_list_model_get_model (account_tree (account)), NULL, folder);
+}
+
+static void
+on_move_popup (GtkMenuButton *button G_GNUC_UNUSED,
+               gpointer       user_data)
+{
+  fill_move_menu (user_data);
+}
+
+static void
+on_transfer_action (GSimpleAction *action,
+                    GVariant      *parameter,
+                    gpointer       user_data)
+{
+  RevolutionMailView *self = user_data;
+  const char *name = g_action_get_name (G_ACTION (action));
+
+  if (g_str_equal (name, "move"))
+    gtk_menu_button_popup (self->move_button);
+  else if (g_str_equal (name, "undo"))
+    on_undo (self);
+  else if (g_str_equal (name, "move-to"))
+    {
+      transfer_message (self, selected_message (self), ACTION_MOVE, g_variant_get_string (parameter, NULL), self->move_account);
+      /* Das Menü ist zu, der Fokus läge sonst außerhalb der Ansicht (Kürzel wie Strg+Z wirkungslos, gemessen). */
+      gtk_widget_grab_focus (GTK_WIDGET (self->message_list));
+    }
+  else
+    transfer_message (self, selected_message (self),
+                      g_str_equal (name, "delete") ? ACTION_DELETE : g_str_equal (name, "archive") ? ACTION_ARCHIVE : ACTION_JUNK,
+                      NULL, NULL);
+}
+
+/* Ziehen einer Zeile (GtkDragSource, mail-view.blp) wie Stamp (stamp-conversation-list.c:1619-1645), als Inhalt
+ * aber Text „revolution-message:<UID>“ statt des Objekts: unter X11 trägt XDND nur MIME-Typen, ein reiner
+ * GType kommt nie an (gemessen mit GDK_DEBUG=dnd: „DND formats:“ leer, kein Ablegen). Schnelles waagerechtes
+ * Ziehen ist Wischen (#353, on_row_swipe): solange die Geschwindigkeit dafür spricht oder noch unbekannt ist,
+ * kein Ziehen (GTK fragt bei jeder Bewegung neu). */
+#define DRAG_PREFIX "revolution-message:"
+
+static GdkContentProvider *
+on_row_drag_prepare (GtkListItem   *item,
+                     double         x G_GNUC_UNUSED,
+                     double         y G_GNUC_UNUSED,
+                     GtkDragSource *source)
+{
+  g_autoptr (GListModel) controllers = gtk_widget_observe_controllers (gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (source)));
+  RevolutionMailMessage *message = gtk_list_item_get_item (item);
+  g_autofree char *text = NULL;
+  double vx = 0, vy = 0;
+
+  for (guint i = 0; i < g_list_model_get_n_items (controllers); i++)
+    {
+      g_autoptr (GObject) controller = g_list_model_get_item (controllers, i);
+
+      if (GTK_IS_GESTURE_SWIPE (controller) && !gtk_gesture_swipe_get_velocity (GTK_GESTURE_SWIPE (controller), &vx, &vy))
+        return NULL;
+    }
+  if (message == NULL || (ABS (vx) >= SWIPE_VELOCITY && ABS (vx) >= 2 * ABS (vy)))
+    return NULL;
+
+  text = g_strconcat (DRAG_PREFIX, revolution_mail_message_get_uid (message), NULL);
+
+  return gdk_content_provider_new_typed (G_TYPE_STRING, text);
+}
+
+/* Ablegen auf einem Ordner der Seitenleiste (GtkDropTarget, mail-view.blp), nur im selben Konto. */
+static gboolean
+on_folder_drop (GtkListItem   *item,
+                const GValue  *value,
+                double         x G_GNUC_UNUSED,
+                double         y G_GNUC_UNUSED,
+                GtkDropTarget *target)
+{
+  RevolutionMailView *self = view_for (GTK_EVENT_CONTROLLER (target));
+  GtkTreeListRow *row = gtk_list_item_get_item (item);
+  g_autoptr (RevolutionMailFolder) folder = row != NULL ? gtk_tree_list_row_get_item (row) : NULL;
+  g_autoptr (RevolutionMailAccount) account = NULL;
+  g_autoptr (RevolutionMailMessage) message = NULL;
+  const char *text = g_value_get_string (value);
+
+  for (guint i = 0; text != NULL && g_str_has_prefix (text, DRAG_PREFIX) && message == NULL &&
+                    i < g_list_model_get_n_items (G_LIST_MODEL (self->messages)); i++)
+    {
+      message = g_list_model_get_item (G_LIST_MODEL (self->messages), i);
+      if (g_strcmp0 (revolution_mail_message_get_uid (message), text + strlen (DRAG_PREFIX)) != 0)
+        g_clear_object (&message);
+    }
+  if (message == NULL || folder == NULL ||
+      (revolution_mail_folder_get_flags (folder) & (CAMEL_FOLDER_NOSELECT | CAMEL_FOLDER_VIRTUAL)) != 0)
+    return FALSE;
+  g_object_get (folder, "account", &account, NULL);
+  g_debug ("Aktion: Ziehen auf %s", revolution_mail_folder_get_full_name (folder));
+  if (account == NULL || account == self->favorites)
+    {
+      show_hint (self, _("Hierhin lässt sich nicht verschieben"));
+      return FALSE;
+    }
+
+  return transfer_message (self, message, ACTION_MOVE, revolution_mail_folder_get_full_name (folder),
+                           revolution_mail_account_get_uid (account));
 }
 
 /* #352: Nur für Testläufe (tests/nachrichtenliste.sh) wie REVOLUTION_THEME (main.c):
@@ -2846,10 +3716,18 @@ revolution_mail_view_dispose (GObject *object)
   g_clear_object (&self->registry);
   g_clear_object (&self->accounts);
   g_clear_object (&self->favorites);
+  g_clear_object (&self->local);
+  g_clear_object (&self->local_section);
   g_clear_object (&self->messages);
   g_clear_object (&self->folder);
   g_clear_object (&self->session);
   g_clear_pointer (&self->loading, g_free);
+  g_clear_pointer (&self->search, g_free);
+  g_clear_pointer (&self->filter, g_free);
+  g_clear_pointer (&self->return_uid, g_free);
+  g_clear_pointer (&self->move_account, g_free);
+  g_clear_pointer (&self->undo, g_ptr_array_unref);
+  g_clear_object (&self->toast);
 
   G_OBJECT_CLASS (revolution_mail_view_parent_class)->dispose (object);
 }
@@ -2919,6 +3797,9 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, header_stack);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, search_entry);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, search_button);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, search_scope);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, empty_page);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, folder_list);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, split);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, row_menu);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, message_stack);
@@ -2930,6 +3811,12 @@ revolution_mail_view_class_init (RevolutionMailViewClass *klass)
   gtk_widget_class_bind_template_callback (widget_class, on_search_started);
   gtk_widget_class_bind_template_callback (widget_class, on_search_stop);
   gtk_widget_class_bind_template_callback (widget_class, on_message_activate);
+  gtk_widget_class_bind_template_callback (widget_class, on_search_changed);
+  /* #363 */
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, move_button);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailView, move_menu);
+  gtk_widget_class_bind_template_callback (widget_class, on_row_drag_prepare);
+  gtk_widget_class_bind_template_callback (widget_class, on_folder_drop);
 }
 
 /* #353: Aktionen der gewählten Nachricht (update_message_actions); Kürzel in mail-view.blp. */
@@ -2943,6 +3830,13 @@ static const GActionEntry message_actions[] = {
   { "reply-all", on_reply_all, NULL, NULL, NULL, { 0 } },
   { "forward", on_forward, NULL, NULL, NULL, { 0 } },
   { "open", on_open, NULL, NULL, NULL, { 0 } },
+  /* #363 */
+  { "delete", on_transfer_action, NULL, NULL, NULL, { 0 } },
+  { "archive", on_transfer_action, NULL, NULL, NULL, { 0 } },
+  { "junk", on_transfer_action, NULL, NULL, NULL, { 0 } },
+  { "move", on_transfer_action, NULL, NULL, NULL, { 0 } },
+  { "move-to", on_transfer_action, "s", NULL, NULL, { 0 } },
+  { "undo", on_transfer_action, NULL, NULL, NULL, { 0 } },
 };
 
 static void
@@ -2958,6 +3852,8 @@ revolution_mail_view_init (RevolutionMailView *self)
   AdwStyleManager *style_manager = adw_style_manager_get_default ();
 
   gtk_widget_init_template (GTK_WIDGET (self));
+  /* #365: Suchbereich anfangs der gewählte Ordner: sucht nur dort, ohne alle Ordner aller Konten zu öffnen. */
+  adw_toggle_group_set_active_name (self->search_scope, "folder");
 
   /* CR #397: Ordnerbaum als GtkTreeListModel je Konto (#348), Konten als Abschnitte (#345). */
   self->accounts = g_list_store_new (REVOLUTION_TYPE_MAIL_ACCOUNT);
@@ -2969,6 +3865,23 @@ revolution_mail_view_init (RevolutionMailView *self)
   g_object_set_data (G_OBJECT (self->favorites), "folders-noted", GINT_TO_POINTER (TRUE));
   g_list_store_append (favorites, self->favorites);
   g_list_store_append (sections, favorites);
+  /* #362: Postausgang wie Evolution im lokalen Store „Auf diesem Rechner“ (e-mail-session.c:824-894,
+   * em-folder-tree-model.c:1534-1538), Name wie dort „Outbox“ mit eigenem Typ; erst sichtbar, wenn er
+   * Nachrichten hat (revolution_mail_view_set_outbox). */
+  self->local = revolution_mail_account_new (REVOLUTION_MAIL_LOCAL_UID, _("Auf diesem Rechner"));
+  {
+    CamelFolderInfo *fi = camel_folder_info_new ();
+
+    fi->full_name = g_strdup ("Outbox");
+    fi->display_name = g_strdup (_("Postausgang"));
+    fi->flags = CAMEL_FOLDER_TYPE_OUTBOX | CAMEL_FOLDER_NOCHILDREN;
+    revolution_mail_folder_append_tree (G_LIST_STORE (gtk_tree_list_model_get_model (account_tree (self->local))),
+                                        fi, self->local);
+    camel_folder_info_free (fi);
+  }
+  g_object_set_data (G_OBJECT (self->local), "folders-noted", GINT_TO_POINTER (TRUE));
+  self->local_section = g_list_store_new (REVOLUTION_TYPE_MAIL_ACCOUNT);
+  g_list_store_append (sections, self->local_section);
   g_list_store_append (sections, self->accounts);
   folders = gtk_flatten_list_model_new (G_LIST_MODEL (gtk_map_list_model_new (
     G_LIST_MODEL (gtk_flatten_list_model_new (G_LIST_MODEL (g_steal_pointer (&sections)))), account_folders, NULL, NULL)));
@@ -2999,6 +3912,7 @@ revolution_mail_view_init (RevolutionMailView *self)
   self->pending_removed = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
   g_action_map_add_action_entries (G_ACTION_MAP (message_group), message_actions, G_N_ELEMENTS (message_actions), self);
   self->message_actions = G_ACTION_MAP (message_group);
+  gtk_menu_button_set_create_popup_func (self->move_button, on_move_popup, self, NULL);
   gtk_widget_insert_action_group (GTK_WIDGET (self), "message", G_ACTION_GROUP (message_group));
   update_message_actions (self);
   g_signal_connect_object (self->reader, "shown", G_CALLBACK (on_reader_shown), self, G_CONNECT_SWAPPED);
@@ -3416,4 +4330,27 @@ revolution_mail_view_set_folders (RevolutionMailView *self,
   g_debug ("Ordner: %s %u geladen", uid, count);
   g_object_set_data (G_OBJECT (account), "folders-noted", GINT_TO_POINTER (TRUE));
   select_initial_folder (self);
+}
+
+/* #362: Aufruf aus main.c nach jedem Ablegen und Sendelauf, im UI-Thread: Postausgang in der
+ * Seitenleiste, solange er Nachrichten hat. Evolution zeigt ihn immer (lokaler Store); Revolution
+ * nur bei Bedarf (Task #362). */
+void
+revolution_mail_view_set_outbox (RevolutionMailView *self,
+                                 guint               count)
+{
+  gboolean shown;
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
+
+  if (self->local_section == NULL)
+    return;
+
+  shown = g_list_model_get_n_items (G_LIST_MODEL (self->local_section)) > 0;
+  if (count > 0 && !shown)
+    g_list_store_append (self->local_section, self->local);
+  else if (count == 0 && shown)
+    g_list_store_remove_all (self->local_section);
+  if ((count > 0) != shown)
+    g_debug ("Postausgang: %u Nachrichten, %s", count, count > 0 ? "sichtbar" : "ausgeblendet");
 }

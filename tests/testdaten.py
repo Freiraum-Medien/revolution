@@ -2398,12 +2398,87 @@ def aufraeumen(k, message_ids):
         zahl = {}
         for mid in ids:
             for rolle, gid, betreff in graph_suche(k, mid):
-                if not (betreff or '').startswith(PREFIX):
+                # #432: Antworten/Weiterleitungen tragen „Re:“/„Fwd:“ vor dem Präfix.
+                if PREFIX not in (betreff or ''):
                     continue
                 graph(k, 'POST', '/me/messages/%s/permanentDelete' % gid)
                 zahl[rolle] = zahl.get(rolle, 0) + 1
         for rolle in ('eingang', 'spam', 'gesendet'):
             print('AUFGERAEUMT %s %s %d' % (k.adresse, rolle, zahl.get(rolle, 0)))
+    return 0
+
+
+# #432: Originale für Antworten, Allen antworten, Weiterleiten aus dem Composer, je Lauf eigene Message-IDs,
+# ungelesen im Posteingang. Absender und Empfänger nur Testkonten: in geops@ von privat@ an geops@, Kopie outlook.com;
+# in outlook.com von geops@ an outlook.com, Kopie privat@.
+ORIGINAL_ARTEN = ('Antworten', 'Allen', 'Weiterleiten')
+
+
+def original_daten(k, lauf, art):
+    von, kopie = (('KONTO_IMAP_1@example.invalid', 'KONTO_M365@example.invalid') if k.adresse == 'KONTO_IMAP_2@example.invalid'
+                  else ('KONTO_IMAP_2@example.invalid', 'KONTO_IMAP_1@example.invalid'))
+    nur_testkonten([von, kopie, k.adresse])
+    return von, kopie, '%s 432 %s %s' % (PREFIX, lauf, art), msgid('original-432-%s-%s' % (lauf, art.lower()))
+
+
+def original(k, lauf, aktion):
+    """anlegen: drei Originale; flags: nur lesend Flags vom Server; aufraeumen: genau diese (UID EXPUNGE bzw.
+    permanentDelete der gefundenen IDs)."""
+    nur_testkonten([k.adresse])
+    imap = k.goa.get_mail().props.imap_supported
+    c = imap_verbinden(k) if imap else None
+    try:
+        for art in ORIGINAL_ARTEN:
+            von, kopie, betreff, mid = original_daten(k, lauf, art)
+            if imap:
+                c.select('INBOX', readonly=aktion == 'flags')
+                uids = imap_suche(c, 'INBOX', mid, nur_test=aktion != 'flags')
+            else:
+                uids = [g for r, g, b in graph_suche(k, mid) if PREFIX in (b or '')]
+            if aktion == 'anlegen' and not uids:
+                if imap:
+                    m = EmailMessage(policy=email.policy.SMTP)
+                    m.set_content('Original für #432 (%s).\n' % art)
+                    m['Subject'], m['From'], m['To'], m['Cc'] = betreff, von, k.adresse, kopie
+                    m['Date'] = email.utils.format_datetime(datetime.datetime.now(datetime.timezone.utc)
+                                                            - datetime.timedelta(minutes=1))
+                    m['Message-ID'] = mid
+                    print(c.append('INBOX', '()', None, m.as_bytes()))
+                    uids = imap_suche(c, 'INBOX', mid)
+                else:
+                    # PR_MESSAGE_FLAGS 0 (ungelesen, kein Entwurf) wie ort().
+                    uids = [graph(k, 'POST', '/me/mailFolders/inbox/messages', {
+                        'subject': betreff, 'internetMessageId': mid,
+                        'body': {'contentType': 'text', 'content': 'Original für #432 (%s).' % art},
+                        'from': {'emailAddress': {'address': von}},
+                        'toRecipients': [{'emailAddress': {'address': k.adresse}}],
+                        'ccRecipients': [{'emailAddress': {'address': kopie}}],
+                        'singleValueExtendedProperties': [{'id': 'Integer 0x0E07', 'value': '0'}]})['id']]
+                print('ORIGINAL %s %s %s %s' % (art, mid, uids[0].decode() if imap else uids[0], betreff))
+            elif aktion == 'flags':
+                for u in uids:
+                    if imap:
+                        print('FLAGS %s %s' % (art, re.search(r'FLAGS \((.*?)\)', c.uid('FETCH', u, '(FLAGS)')[1][0].decode()).group(1)))
+                    else:
+                        # PidTagLastVerbExecuted (0x1081): Exchange setzt es bei Antwort/Weiterleiten über seine API.
+                        m = graph(k, 'GET', "/me/messages/%s?$select=isRead&$expand=singleValueExtendedProperties"
+                                  "($filter=id%%20eq%%20'Integer%%200x1081')" % u)
+                        verb = [p['value'] for p in m.get('singleValueExtendedProperties', [])]
+                        print('FLAGS %s isRead=%s LastVerbExecuted=%s' % (art, m['isRead'], verb[0] if verb else '-'))
+                if not uids:
+                    print('FLAGS %s fehlt' % art)
+            elif aktion == 'aufraeumen' and uids:
+                if imap:
+                    menge = b','.join(uids).decode()
+                    print('BEFEHL UID STORE %s +FLAGS (\\Deleted) → %s' % (menge, c.uid('STORE', menge, '+FLAGS', '(\\Deleted)')[0]))
+                    print('BEFEHL UID EXPUNGE %s → %s (%s)' % (menge, c.uid('EXPUNGE', menge)[0], mid))
+                else:
+                    for g in uids:
+                        graph(k, 'POST', '/me/messages/%s/permanentDelete' % g)
+                        print('BEFEHL permanentDelete …%s (%s)' % (g[-16:], mid))
+    finally:
+        if c is not None:
+            c.logout()
     return 0
 
 
@@ -2458,6 +2533,8 @@ def main():
                     help='#357: Konversation (5 Mails) per APPEND in Posteingang und Gesendet (geops@, outlook.com)')
     ap.add_argument('--schwer', nargs=2, metavar=('KONTO', 'neu|papierkorb'),
                     help='#412: große Mail mit Start- und Zielmail im Posteingang (IMAP, nicht privat@)')
+    ap.add_argument('--original', nargs=3, metavar=('KONTO', 'LAUF', 'anlegen|flags|aufraeumen'),
+                    help='#432: Originale für Antworten/Allen/Weiterleiten im Posteingang (nur geops@, outlook.com)')
     ap.add_argument('--zustellung', nargs=2, metavar=('KONTO', 'MESSAGE-ID'),
                     help='#362: nur lesend Anzahl der Nachricht in Posteingang, Spam, Gesendet')
     ap.add_argument('--aufraeumen', nargs='+', metavar='KONTO MESSAGE-ID',
@@ -2467,6 +2544,12 @@ def main():
     ap.add_argument('--suche-zahlen', nargs=2, metavar=('KONTO', 'ORDNER'),
                     help='#365: nur lesend Treffer der Suche und der Filter je Ordner (ORDNER * = alle per LIST, nur Text)')
     args = ap.parse_args()
+    if args.original:
+        adresse = args.original[0].lower()
+        if adresse not in ('KONTO_IMAP_2@example.invalid', 'KONTO_M365@example.invalid') or \
+                args.original[2] not in ('anlegen', 'flags', 'aufraeumen'):
+            ap.error('--original KONTO_IMAP_2@example.invalid|KONTO_M365@example.invalid LAUF anlegen|flags|aufraeumen')
+        return original(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse], *args.original[1:])
     if args.zustellung or args.aufraeumen:
         adresse = (args.zustellung or args.aufraeumen)[0].lower()
         nur_testkonten([adresse])

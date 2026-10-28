@@ -9,9 +9,11 @@
  *
  * Ablauf: Ein Worker-GTask (Architektur 1) holt Absender (Identität des Kontos) und bei Antworten die
  * Originalnachricht (camel_folder_get_message_sync), berechnet Empfänger, Betreff und Kopfzeilen und
- * baut das Zitat; im UI-Thread füllt das Ergebnis Felder und Editor. Senden ist #362; bis dahin ist
- * composer.send aus, außer im Test (REVOLUTION_TEST_HOOKS=1 und REVOLUTION_TEST_MIME=<Datei>): dann
- * baut ein Worker die CamelMimeMessage und schreibt sie in die Datei, statt zu senden.
+ * baut das Zitat; im UI-Thread füllt das Ergebnis Felder und Editor. #432: Senden (Strg+Enter) baut die
+ * CamelMimeMessage im Worker und legt sie über revolution_mail_send_message (#362) in den Postausgang; das Fenster
+ * schließt erst danach. Nachbereitung (Entwurf löschen, Flags am Original über X-Evolution-Source-*) im
+ * Postausgang (mail-outbox.c) wie Evolution. Nur Test (REVOLUTION_TEST_HOOKS=1, REVOLUTION_TEST_MIME=<Datei>):
+ * die Nachricht zusätzlich in die Datei schreiben, gesendet wird sie dann nur mit REVOLUTION_TEST_SEND=1.
  *
  * Editor: WebKitGTK 6.0, editierbar (webkit_web_view_set_editable wie Stamp stamp-composer.c:2324).
  * Zitierte Mails sind fremdes HTML: JavaScript im Markup aus (enable-javascript-markup), Netz gesperrt
@@ -44,6 +46,7 @@
 #include "mail/mail-account.h"
 #include "mail/mail-attachment.h"
 #include "mail/mail-folder.h"
+#include "mail/mail-outbox.h"
 #include "mail/mail-reader.h"
 
 struct _RevolutionComposer
@@ -75,6 +78,7 @@ struct _RevolutionComposer
   char            *account_uid;
   char            *draft_folder_uri;
   char            *draft_uid;
+  CamelNameValueArray *source;        /* #432: X-Evolution-Source-* (Antwort, Weiterleiten) */
   guint            autosave_id;
   guint            changes;
   guint            saved_changes;
@@ -457,6 +461,7 @@ typedef struct
   char            *signature_uid;
   GPtrArray       *attachments;
   char            *draft_folder_uri;
+  CamelNameValueArray *source;
   GError          *error;
 } Prepare;
 
@@ -482,6 +487,7 @@ prepare_free (Prepare *prepare)
   g_free (prepare->signature_uid);
   g_clear_pointer (&prepare->attachments, g_ptr_array_unref);
   g_free (prepare->draft_folder_uri);
+  camel_name_value_array_free (prepare->source);
   g_clear_error (&prepare->error);
   g_free (prepare);
 }
@@ -758,6 +764,11 @@ prepare_forward (Prepare          *prepare,
   g_ptr_array_add (prepare->attachments, revolution_mail_attachment_new (part, cancellable));
 }
 
+/* #432: Kopfzeilen zum Original wie Evolution e_msg_composer_set_source_headers (e-msg-composer.c:6178-6222). */
+static const char * const SOURCE_HEADERS[] = {
+  "X-Evolution-Source-Folder", "X-Evolution-Source-Message", "X-Evolution-Source-Flags"
+};
+
 /* Ordner-URI wie Evolution e_mail_folder_uri_build (libemail-engine/e-mail-folder-utils.c:1807-1832). */
 static char *
 folder_uri_build (const char *store_uid,
@@ -806,6 +817,49 @@ prepare_draft (Prepare          *prepare,
       g_ptr_array_add (prepare->attachments,
                        revolution_mail_attachment_new (camel_multipart_get_part (CAMEL_MULTIPART (content), i), cancellable));
   prepare->draft_folder_uri = folder_uri_build (prepare->store_uid, prepare->folder_name);
+  /* #432: Original einer Antwort/Weiterleitung aus dem Entwurf (Kopfzeilen wie build_message). */
+  for (gsize i = 0; i < G_N_ELEMENTS (SOURCE_HEADERS); i++)
+    {
+      const char *value = camel_medium_get_header (CAMEL_MEDIUM (message), SOURCE_HEADERS[i]);
+
+      if (value == NULL)
+        break;
+      if (prepare->source == NULL)
+        prepare->source = camel_name_value_array_new ();
+      camel_name_value_array_append (prepare->source, SOURCE_HEADERS[i], value);
+    }
+}
+
+/* #432: Original für die Flags nach dem Senden wie Evolution emu_set_source_headers (em-composer-utils.c:2822-2848;
+ * im Suchordner der echte Ordner, em_utils_get_real_folder_uri_and_message_uid 2743-2755, camel_vee_folder_get_location
+ * wie mail-view.c real_folder). Flags: Antworten ANSWERED und SEEN (Vorgabe composer-mark-read-on-reply true,
+ * Evolution data/org.gnome.evolution.mail.gschema.xml.in:325-326; em-composer-utils.c:5148), Allen antworten dazu
+ * ANSWERED_ALL (5162-5163), Weiterleiten als Anhang FORWARDED (2861); Text wie e-msg-composer.c:6198-6214. */
+static void
+prepare_source (Prepare     *prepare,
+                CamelFolder *folder)
+{
+  g_autoptr (CamelMessageInfo) info = NULL;
+  g_autofree char *uid = NULL, *uri = NULL;
+  CamelFolder *real = folder;
+
+  if (CAMEL_IS_VEE_FOLDER (folder))
+    {
+      info = camel_folder_get_message_info (folder, prepare->message_uid);
+      real = info != NULL ? camel_vee_folder_get_location (CAMEL_VEE_FOLDER (folder), CAMEL_VEE_MESSAGE_INFO (info), &uid)
+                          : NULL;
+      if (real == NULL)
+        return;
+    }
+  uri = folder_uri_build (camel_service_get_uid (CAMEL_SERVICE (camel_folder_get_parent_store (real))),
+                          camel_folder_get_full_name (real));
+  prepare->source = camel_name_value_array_new ();
+  camel_name_value_array_append (prepare->source, SOURCE_HEADERS[0], uri);
+  camel_name_value_array_append (prepare->source, SOURCE_HEADERS[1], uid != NULL ? uid : prepare->message_uid);
+  camel_name_value_array_append (prepare->source, SOURCE_HEADERS[2],
+                                 prepare->type == REVOLUTION_COMPOSER_FORWARD ? "FORWARDED "
+                                 : prepare->type == REVOLUTION_COMPOSER_REPLY_ALL ? "ANSWERED ANSWERED_ALL SEEN "
+                                 : "ANSWERED SEEN ");
 }
 
 static void
@@ -838,6 +892,8 @@ prepare_thread (GTask        *task,
         prepare_draft (prepare, message, cancellable);
       else if (message != NULL)
         prepare_reply (prepare, message, cancellable);
+      if (message != NULL && prepare->type != REVOLUTION_COMPOSER_DRAFT)
+        prepare_source (prepare, folder);
     }
 
   /* Absender: Identität des Entwurfs, sonst die des Kontos; Signatur des Entwurfs, sonst die der Identität
@@ -1385,10 +1441,12 @@ typedef struct
   GPtrArray       *attachments;       /* CamelMimePart */
   char            *draft_folder_uri;
   char            *draft_uid;
+  CamelNameValueArray *source;
   guint            changes;
-  /* Ergebnis (Entwurf) */
+  /* Ergebnis: Entwurf bzw. Nachricht zum Senden */
   char            *saved_folder_uri;
   char            *saved_uid;
+  CamelMimeMessage *message;
 } Build;
 
 static void
@@ -1414,6 +1472,8 @@ build_free (Build *build)
   g_free (build->draft_uid);
   g_free (build->saved_folder_uri);
   g_free (build->saved_uid);
+  camel_name_value_array_free (build->source);
+  g_clear_object (&build->message);
   g_free (build);
 }
 
@@ -1433,7 +1493,8 @@ text_part (const char *text,
  * mit der Domain des Absenders): multipart/alternative aus text/plain und text/html, bei Text-Mail nur
  * text/plain; #360: mit Anhängen multipart/mixed aus diesem Teil und den Anhängen (Evolution
  * e-msg-composer.c build_message). X-Evolution-Identity wie Evolution (e-msg-composer.c:710-712), nach einem
- * Entwurf X-Evolution-Draft-Folder/-Message zum Löschen nach dem Senden (e-msg-composer.c:6148-6170). */
+ * Entwurf X-Evolution-Draft-Folder/-Message zum Löschen nach dem Senden (e-msg-composer.c:6148-6170), #432
+ * X-Evolution-Source-* (prepare_source); die Köpfe entfernt der Postausgang vor dem Versand (mail-outbox.c). */
 static CamelMimeMessage *
 build_message (Build *build)
 {
@@ -1471,6 +1532,14 @@ build_message (Build *build)
     {
       camel_medium_set_header (CAMEL_MEDIUM (message), "X-Evolution-Draft-Folder", build->draft_folder_uri);
       camel_medium_set_header (CAMEL_MEDIUM (message), "X-Evolution-Draft-Message", build->draft_uid);
+    }
+  /* #432: auch im Entwurf, wie Evolution (e_msg_composer_set_header, prepare_draft liest sie zurück). */
+  for (guint i = 0; build->source != NULL && i < camel_name_value_array_get_length (build->source); i++)
+    {
+      const char *name, *value;
+
+      if (camel_name_value_array_get (build->source, i, &name, &value))
+        camel_medium_set_header (CAMEL_MEDIUM (message), name, value);
     }
 
   if (build->is_html)
@@ -1514,81 +1583,6 @@ build_message (Build *build)
     }
 
   return message;
-}
-
-/* Übernommen aus Evolution libemail-engine/e-mail-session-utils.c:257-301 (e_mail_session_handle_draft_headers_sync)
- * mit e_mail_folder_uri_parse (e-mail-folder-utils.c:1862-1898, nur „folder://“): den Entwurf als gelöscht und
- * gelesen markieren. Abweichung: danach camel_folder_synchronize_sync statt _message_sync, damit der Server die
- * Markierung gleich erhält (Evolution gleicht sie später ab); kein Expunge (IMAP: \Deleted wie Evolution,
- * microsoft365 löscht beim Abgleich, camel-m365-folder.c:1376-1407). */
-static gboolean
-delete_draft_sync (CamelSession  *session,
-                   const char    *folder_uri,
-                   const char    *uid,
-                   GCancellable  *cancellable,
-                   GError       **error)
-{
-  g_autoptr (CamelURL) url = camel_url_new (folder_uri, error);
-  g_autofree char *store_uid = NULL, *folder_name = NULL;
-  g_autoptr (CamelService) service = NULL;
-  g_autoptr (CamelFolder) folder = NULL;
-  g_autoptr (CamelMessageInfo) info = NULL;
-  gboolean success;
-
-  if (url == NULL)
-    return FALSE;
-  if (g_strcmp0 (url->protocol, "folder") == 0 && url->host != NULL)
-    {
-      store_uid = url->user != NULL && *url->user != '\0' ? g_strconcat (url->user, "@", url->host, NULL)
-                                                          : g_strdup (url->host);
-      service = camel_session_ref_service (session, store_uid);
-    }
-  if (!CAMEL_IS_STORE (service) || url->path == NULL || *url->path != '/')
-    {
-      g_set_error (error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID, _("Ordner %s nicht verfügbar"), folder_uri);
-      return FALSE;
-    }
-
-  folder_name = camel_url_decode_path (url->path + 1);
-  folder = camel_store_get_folder_sync (CAMEL_STORE (service), folder_name, 0, cancellable, error);
-  if (folder == NULL)
-    return FALSE;
-
-  revolution_eds_folder_lock (folder);
-  info = camel_folder_get_message_info (folder, uid);
-  if (info == NULL && revolution_eds_folder_refresh_info_sync (folder, cancellable, NULL))
-    info = camel_folder_get_message_info (folder, uid);
-  if (info == NULL)
-    {
-      revolution_eds_folder_unlock (folder);
-      g_set_error (error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID_UID, _("Entwurf %s nicht in %s"), uid, folder_uri);
-      return FALSE;
-    }
-  camel_folder_set_message_flags (folder, uid, CAMEL_MESSAGE_DELETED | CAMEL_MESSAGE_SEEN,
-                                  CAMEL_MESSAGE_DELETED | CAMEL_MESSAGE_SEEN);
-  success = camel_folder_synchronize_sync (folder, FALSE, cancellable, error);
-  revolution_eds_folder_unlock (folder);
-  g_debug ("Entwurf: %s %s als gelöscht markiert (%s)", folder_uri, uid, success ? "abgeglichen" : "Fehler");
-
-  return success;
-}
-
-gboolean
-revolution_composer_handle_draft_headers_sync (CamelSession      *session,
-                                               CamelMimeMessage  *message,
-                                               GCancellable      *cancellable,
-                                               GError           **error)
-{
-  const char *folder_uri = camel_medium_get_header (CAMEL_MEDIUM (message), "X-Evolution-Draft-Folder");
-  const char *uid = camel_medium_get_header (CAMEL_MEDIUM (message), "X-Evolution-Draft-Message");
-
-  g_return_val_if_fail (CAMEL_IS_SESSION (session), FALSE);
-  g_return_val_if_fail (CAMEL_IS_MIME_MESSAGE (message), FALSE);
-
-  if (folder_uri == NULL || uid == NULL)
-    return TRUE;
-
-  return delete_draft_sync (session, folder_uri, uid, cancellable, error);
 }
 
 static const char *
@@ -1655,17 +1649,19 @@ save_draft_sync (Build             *build,
     {
       g_autoptr (GError) local_error = NULL;
 
-      if (!delete_draft_sync (build->session, build->draft_folder_uri, build->draft_uid, cancellable, &local_error))
+      if (revolution_mail_folder_uri_set_flags_sync (build->session, build->draft_folder_uri, build->draft_uid,
+                                                     CAMEL_MESSAGE_DELETED | CAMEL_MESSAGE_SEEN, cancellable, &local_error))
+        g_debug ("Entwurf: %s %s als gelöscht markiert (abgeglichen)", build->draft_folder_uri, build->draft_uid);
+      else
         g_warning ("Entwurf: vorige Fassung nicht gelöscht: %s", local_error->message);
     }
 
   return TRUE;
 }
 
-/* Im Worker: Entwurf speichern oder (bis #362) im Test die Nachricht in die Datei schreiben und danach wie nach dem
- * Senden den Entwurf löschen (revolution_composer_handle_draft_headers_sync; ein Fehler dabei nur als Warnung wie
- * Evolution mail-ops.c:843-852). Je Composer nacheinander: die Teile (angehängte Nachricht) teilen sich Composer und
- * Nachricht, Schreiben ist nicht reentrant (mail-attachment.c, decode_lock). */
+/* Im Worker: Entwurf speichern bzw. die Nachricht zum Senden bauen (Senden selbst über den Postausgang, on_built);
+ * im Test zusätzlich in die Datei schreiben. Je Composer nacheinander: die Teile (angehängte Nachricht) teilen sich
+ * Composer und Nachricht, Schreiben ist nicht reentrant (mail-attachment.c, decode_lock). */
 static void
 build_thread (GTask        *task,
               gpointer      source_object,
@@ -1674,31 +1670,23 @@ build_thread (GTask        *task,
 {
   GMutex *lock = &REVOLUTION_COMPOSER (source_object)->build_lock;
   Build *build = task_data;
-  g_autoptr (CamelMimeMessage) message = NULL;
   g_autoptr (GFileOutputStream) stream = NULL;
   GError *error = NULL;
-  gboolean success;
+  gboolean success = TRUE;
 
   g_mutex_lock (lock);
-  message = build_message (build);
+  build->message = build_message (build);
   if (build->draft)
-    success = save_draft_sync (build, message, cancellable, &error);
-  else
+    success = save_draft_sync (build, build->message, cancellable, &error);
+  else if (build->path != NULL)
     {
       g_autoptr (GFile) file = g_file_new_for_path (build->path);
 
       stream = g_file_replace (file, NULL, FALSE, G_FILE_CREATE_NONE, cancellable, &error);
       success = stream != NULL &&
-                camel_data_wrapper_write_to_output_stream_sync (CAMEL_DATA_WRAPPER (message), G_OUTPUT_STREAM (stream),
-                                                                cancellable, &error) >= 0 &&
+                camel_data_wrapper_write_to_output_stream_sync (CAMEL_DATA_WRAPPER (build->message),
+                                                                G_OUTPUT_STREAM (stream), cancellable, &error) >= 0 &&
                 g_output_stream_close (G_OUTPUT_STREAM (stream), cancellable, &error);
-      if (success && build->draft_uid != NULL)
-        {
-          g_autoptr (GError) local_error = NULL;
-
-          if (!revolution_composer_handle_draft_headers_sync (build->session, message, cancellable, &local_error))
-            g_warning ("Entwurf: nach dem Senden nicht gelöscht: %s", local_error->message);
-        }
     }
   g_mutex_unlock (lock);
 
@@ -1706,6 +1694,32 @@ build_thread (GTask        *task,
     g_task_return_error (task, error);
   else
     g_task_return_boolean (task, TRUE);
+}
+
+/* #432: Fenster erst schließen, wenn die Nachricht sicher im Postausgang liegt (Evolution schließt den Composer nach
+ * dem Ablegen, em-composer-utils.c:1501-1552 composer_save_to_outbox_completed); sonst Toast, Fenster bleibt offen,
+ * Senden wieder möglich (Architektur 3). */
+static void
+on_sent (GObject      *source G_GNUC_UNUSED,
+         GAsyncResult *result,
+         gpointer      user_data)
+{
+  g_autoptr (RevolutionComposer) self = user_data;
+  g_autoptr (GError) error = NULL;
+
+  if (!revolution_mail_send_message_finish (result, &error))
+    {
+      if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        return;
+      g_warning ("Composer: nicht im Postausgang abgelegt: %s", error->message);
+      show_toast (self, _("Nachricht konnte nicht gesendet werden"));
+      self->sending = FALSE;
+      update_send (self);
+      return;
+    }
+
+  g_debug ("Composer: im Postausgang abgelegt, Fenster schließt");
+  gtk_window_destroy (GTK_WINDOW (self));
 }
 
 static void
@@ -1721,7 +1735,7 @@ on_built (GObject      *source_object,
     {
       if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
         return;
-      g_warning ("Composer: %s: %s", build->draft ? "Entwurf nicht gespeichert" : "MIME nicht geschrieben", error->message);
+      g_warning ("Composer: %s: %s", build->draft ? "Entwurf nicht gespeichert" : "Nachricht nicht erstellt", error->message);
       show_toast (self, build->draft ? _("Entwurf konnte nicht gespeichert werden")
                                      : _("Nachricht konnte nicht erstellt werden"));
       if (build->draft)
@@ -1750,8 +1764,14 @@ on_built (GObject      *source_object,
       return;
     }
 
-  g_debug ("Composer: MIME geschrieben %s", build->path);
-  gtk_window_destroy (GTK_WINDOW (self));
+  if (build->path != NULL)
+    g_debug ("Composer: MIME geschrieben %s", build->path);
+  if (build->path != NULL && g_strcmp0 (g_getenv ("REVOLUTION_TEST_SEND"), "1") != 0)
+    {
+      gtk_window_destroy (GTK_WINDOW (self));
+      return;
+    }
+  revolution_mail_send_message (build->message, self->identity_uid, self->cancellable, on_sent, g_object_ref (self));
 }
 
 static void
@@ -1804,7 +1824,8 @@ on_content (RevolutionComposer *self,
   build->html = g_strconcat ("<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body>", body, "</body></html>",
                              NULL);
   build->plain = jsc_value_to_string (plain);
-  build->path = g_strdup (g_getenv ("REVOLUTION_TEST_MIME"));
+  if (g_strcmp0 (g_getenv ("REVOLUTION_TEST_HOOKS"), "1") == 0 && g_strcmp0 (g_getenv ("REVOLUTION_TEST_MIME"), "") > 0)
+    build->path = g_strdup (g_getenv ("REVOLUTION_TEST_MIME"));
   build->is_html = g_strcmp0 (g_variant_get_string (format, NULL), "html") == 0;
   build->attachments = g_ptr_array_new_with_free_func (g_object_unref);
   for (guint i = 0; i < g_list_model_get_n_items (G_LIST_MODEL (self->attachments)); i++)
@@ -1815,6 +1836,7 @@ on_content (RevolutionComposer *self,
     }
   build->draft_folder_uri = g_strdup (self->draft_folder_uri);
   build->draft_uid = g_strdup (self->draft_uid);
+  build->source = self->source != NULL ? camel_name_value_array_copy (self->source) : NULL;
   build->changes = self->changes;
 
   task = g_task_new (self, self->cancellable, on_built, NULL);
@@ -1843,7 +1865,7 @@ on_content_draft (GObject      *source G_GNUC_UNUSED,
   on_content (self, result, TRUE);
 }
 
-/* Senden folgt mit #362; bis dahin nur im Test (send_enabled): Nachricht in die Datei. */
+/* #432: Strg+Enter bzw. Knopf „Senden“ (composer.blp). */
 static void
 send_message (GSimpleAction *action G_GNUC_UNUSED,
               GVariant      *parameter G_GNUC_UNUSED,
@@ -1929,7 +1951,6 @@ on_prepared (GObject      *source_object,
   Prepare *prepare = g_task_get_task_data (G_TASK (result));
   static const char * const types[] = { "Neu", "Antworten", "Allen antworten", "Weiterleiten", "Entwurf" };
   g_autoptr (GString) names = g_string_new (NULL);
-  gboolean test_send;
 
   if (g_cancellable_is_cancelled (self->cancellable))
     return;
@@ -1969,6 +1990,7 @@ on_prepared (GObject      *source_object,
                            G_CONNECT_SWAPPED);
   for (guint i = 0; i < prepare->attachments->len; i++)
     g_list_store_append (self->attachments, g_ptr_array_index (prepare->attachments, i));
+  self->source = g_steal_pointer (&prepare->source);
   if (prepare->type == REVOLUTION_COMPOSER_DRAFT && prepare->error == NULL)
     {
       self->draft_folder_uri = g_steal_pointer (&prepare->draft_folder_uri);
@@ -1990,9 +2012,8 @@ on_prepared (GObject      *source_object,
     gtk_widget_grab_focus (self->to_entry);
   load_editor (self, prepare->body != NULL ? prepare->body : self->mailto_body);
 
-  /* Nur Test (#359 bis #362): Senden schreibt die Nachricht in REVOLUTION_TEST_MIME. */
-  test_send = g_strcmp0 (g_getenv ("REVOLUTION_TEST_HOOKS"), "1") == 0 && g_getenv ("REVOLUTION_TEST_MIME") != NULL;
-  self->can_send = test_send && self->from_address != NULL;
+  /* #432: Senden über die Identität (revolution_mail_send_message braucht ihre UID und die Session der App). */
+  self->can_send = self->identity_uid != NULL && self->session != NULL;
   update_send (self);
   g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (G_ACTION_MAP (self->actions), "save-draft")),
                                self->from_address != NULL && self->session != NULL);
@@ -2137,6 +2158,7 @@ revolution_composer_finalize (GObject *object)
   g_free (self->account_uid);
   g_free (self->draft_folder_uri);
   g_free (self->draft_uid);
+  camel_name_value_array_free (self->source);
   g_mutex_clear (&self->build_lock);
 
   G_OBJECT_CLASS (revolution_composer_parent_class)->finalize (object);

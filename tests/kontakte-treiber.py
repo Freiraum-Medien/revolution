@@ -1,0 +1,460 @@
+#!/usr/bin/env python3
+# kontakte-treiber.py – Treiber für tests/kontakte.sh (#368), läuft im Xvfb aus xvfb-run.
+#
+# Startet die App (BIN) mit REVOLUTION_BOOK=BUCH, wechselt mit Strg+3 zu den Kontakten und prüft über Log
+# (G_MESSAGES_DEBUG=revolution, „Adressbuch: …“, „Kontakte: …“, contacts-view.c) und Barrierefreiheitsbaum (AT-SPI):
+#   MODUS=alle    Seitenleiste = VERGLEICH (tests/testdaten.py --adressbuecher, eigener Prozess): je Buch UID, Konto,
+#                 Name, Reihenfolge der Kopfzeilen, „nur lesend“; je Buch Auswahl über die Liste „Adressbücher“
+#                 und Kontaktzahl = VERGLEICH; Alt+M springt (A–Z-Leiste). Danach wie live.
+#   MODUS=live    Testkontakt von außen (tests/testdaten.py --kontakt-live, eigener Prozess über EDS wie GNOME
+#                 Contacts) anlegen, suchen (Treffer, Nicht-Treffer, Escape), ändern, löschen; jede Änderung ohne
+#                 Neuladen in der Liste (Log + AT-SPI + Bild).
+#   GRAPH=1       zusätzlich Gegenprobe am Server (tests/testdaten.py --kontakt-graph, Graph ohne EDS): erscheint der
+#                 Kontakt ohne Refresh? sonst nach --kontakt-live refresh (e_book_client_refresh_sync).
+# Umgebung: BIN, OUT, NAME, BUCH, MODUS, VERGLEICH, KONTAKT (Datei für die UID), GRAPH_DATEI, TESTDATEN, TIMEOUT.
+# Ausgabe: „OK …“, „FEHLER …“, „WERT …“; Bilder OUT/NAME-<Schritt>.png.
+#
+# Copyright 2026 Arnd Messer
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+import os
+import re
+import subprocess
+import sys
+import time
+import traceback
+
+import gi
+gi.require_version('Atspi', '2.0')
+from gi.repository import Atspi  # noqa: E402
+from PIL import Image  # noqa: E402
+from Xlib import X, XK, display, protocol  # noqa: E402
+from Xlib.ext import xtest  # noqa: E402
+
+BIN, OUT, NAME, BUCH = os.environ['BIN'], os.environ['OUT'], os.environ['NAME'], os.environ['BUCH']
+MODUS = os.environ.get('MODUS', 'live')
+VERGLEICH, KONTAKT = os.environ['VERGLEICH'], os.environ['KONTAKT']
+GRAPH = os.environ.get('GRAPH') == '1'
+GRAPH_DATEI = os.environ.get('GRAPH_DATEI', '')
+TESTDATEN = os.environ['TESTDATEN']
+TIMEOUT = int(os.environ.get('TIMEOUT', '120'))
+GRAPH_WARTEN = int(os.environ.get('GRAPH_WARTEN', '60'))
+LOG = os.path.join(OUT, NAME + '.log')
+SUCHE = 'Revolution-Test 368'
+NICHT = 'Zqxjvwq'
+
+fehler = 0
+d = display.Display()
+app = None
+
+
+def ok(text):
+    print('OK      %s: %s' % (NAME, text), flush=True)
+
+
+def falsch(text):
+    global fehler
+    fehler += 1
+    print('FEHLER  %s: %s' % (NAME, text), flush=True)
+
+
+def wert(text):
+    print('WERT    %s: %s' % (NAME, text), flush=True)
+
+
+def log_text():
+    with open(LOG, encoding='utf-8', errors='replace') as f:
+        return f.read()
+
+
+def marke():
+    return len(log_text())
+
+
+def warte(muster, ab, zeit=TIMEOUT):
+    ende = time.monotonic() + zeit
+    while time.monotonic() < ende:
+        m = re.search(muster, log_text()[ab:], re.M)
+        if m:
+            return m
+        time.sleep(0.2)
+    return None
+
+
+def testdaten(*args):
+    """tests/testdaten.py in eigenem Prozess; Ausgabe zurück, Abbruch → FEHLER."""
+    r = subprocess.run([sys.executable, TESTDATEN] + list(args), capture_output=True, text=True, timeout=300)
+    for z in (r.stdout + r.stderr).splitlines():
+        print('        testdaten %s: %s' % (args[0], z), flush=True)
+    if r.returncode != 0:
+        raise RuntimeError('tests/testdaten.py %s: Exit %d' % (' '.join(args), r.returncode))
+    return r.stdout
+
+
+TASTEN = {' ': 'space', '-': 'minus'}
+
+
+def taste(*namen):
+    codes = [d.keysym_to_keycode(XK.string_to_keysym(n)) for n in namen]
+    for c in codes:
+        xtest.fake_input(d, X.KeyPress, c)
+    for c in reversed(codes):
+        xtest.fake_input(d, X.KeyRelease, c)
+    d.sync()
+    time.sleep(0.2)
+
+
+def tippe(text):
+    for ch in text:
+        if ch.isupper():
+            taste('Shift_L', ch.lower())
+        else:
+            taste(TASTEN.get(ch, ch))
+
+
+def bild(schritt):
+    root = d.screen().root
+    g = root.get_geometry()
+    pfad = os.path.join(OUT, '%s-%s.png' % (NAME, schritt))
+    Image.frombytes('RGB', (g.width, g.height), root.get_image(0, 0, g.width, g.height, X.ZPixmap,
+                                                               0xffffffff).data, 'raw', 'BGRX').save(pfad)
+    wert('Bild %s' % pfad)
+
+
+def fenster():
+    for _ in range(100):
+        for w in d.screen().root.query_tree().children:
+            try:
+                if w.get_wm_name() == 'Revolution' and w.get_attributes().map_state == X.IsViewable:
+                    return w
+            except Exception:
+                pass
+        time.sleep(0.2)
+    return None
+
+
+def schliessen(w):
+    w.send_event(protocol.event.ClientMessage(
+        window=w, client_type=d.intern_atom('WM_PROTOCOLS'),
+        data=(32, [d.intern_atom('WM_DELETE_WINDOW'), X.CurrentTime, 0, 0, 0])), event_mask=X.NoEventMask)
+    d.sync()
+    try:
+        return app.wait(30)
+    except subprocess.TimeoutExpired:
+        return None
+
+
+# ------------------------------------------------------------------ Barrierefreiheitsbaum (AT-SPI)
+
+def wurzel():
+    desktop = Atspi.get_desktop(0)
+    for i in range(desktop.get_child_count()):
+        a = desktop.get_child_at_index(i)
+        if a is not None and a.get_process_id() == app.pid:
+            return a
+    return None
+
+
+def finde(o, rolle, name):
+    if o is None:
+        return None
+    if o.get_role_name() == rolle and (name is None or o.get_name() == name):
+        return o
+    for i in range(o.get_child_count()):
+        k = o.get_child_at_index(i)
+        t = k and finde(k, rolle, name)
+        if t:
+            return t
+    return None
+
+
+def zeilen(liste):
+    """[(Rolle, Name)] der Kinder einer Liste (Kopfzeilen „row header“, Einträge „list item“)."""
+    return [(k.get_role_name(), k.get_name()) for i in range(liste.get_child_count())
+            for k in [liste.get_child_at_index(i)] if k is not None]
+
+
+def kontaktliste():
+    return finde(wurzel(), 'list', 'Kontakte')
+
+
+def fokus_liste():
+    """Tastaturfokus in die Kontaktliste wie ein Klick auf ihren Rand unten (Kürzel der Kontakte-Ansicht wirken
+    lokal, contacts-view.blp). AT-SPI grab_focus kann GTK 4 nicht (atspi_error); Wählen über AT-SPI gibt keinen
+    Fokus. Lage der Liste aus AT-SPI (Bildschirmkoordinaten im Xvfb ohne Fenstermanager)."""
+    liste = kontaktliste()
+    if liste is None:
+        falsch('Fokus: Liste „Kontakte“ nicht im Barrierefreiheitsbaum')
+        return
+    r = liste.get_component_iface().get_extents(Atspi.CoordType.SCREEN)
+    x, y = r.x + r.width // 2, r.y + r.height - 4
+    xtest.fake_input(d, X.MotionNotify, x=x, y=y)
+    xtest.fake_input(d, X.ButtonPress, 1)
+    xtest.fake_input(d, X.ButtonRelease, 1)
+    d.sync()
+    time.sleep(0.5)
+
+
+def warte_zeile(name, da=True, zeit=15):
+    """Zeile mit diesem Namen in der Liste „Kontakte“ (da) bzw. nicht mehr (not da)."""
+    ende = time.monotonic() + zeit
+    while time.monotonic() < ende:
+        liste = kontaktliste()
+        namen = [n for r, n in zeilen(liste)] if liste is not None else []
+        if (name in namen) == da:
+            return True
+        time.sleep(0.3)
+    return False
+
+
+# ------------------------------------------------------------------ Schritte
+
+def vergleich():
+    """{UID: (Konto / Name, nurlesend, kontakte|None)} aus tests/testdaten.py --adressbuecher."""
+    out = {}
+    for z in open(VERGLEICH):
+        m = re.match(r'^ADRESSBUCH (\S+) (.*) nurlesend (\d) initial (\d) kontakte (\S+) listen \S+$', z.strip())
+        if m:
+            out[m.group(1)] = (m.group(2), m.group(3) == '1', None if m.group(5) == '-' else int(m.group(5)))
+    return out
+
+
+def fertig(uid, ab, zeit=TIMEOUT):
+    m = warte(r'Kontakte: %s fertig, Liste (\d+), ' % re.escape(uid), ab, zeit)
+    return int(m.group(1)) if m else None
+
+
+def seitenleiste(soll):
+    log = [(int(m.group(1)), m.group(2), m.group(3)) for m in
+           re.finditer(r'Adressbuch: (\d+) (\S+) (.*)$', log_text(), re.M)]
+    n = len(soll)
+    log = log[-n:] if len(log) >= n else log
+    ist = {u: t for _, u, t in log}
+    (ok if ist == {u: v[0] for u, v in soll.items()} else falsch)(
+        'Seitenleiste: %d Adressbücher wie die Registry (unabhängig per Python-GI): %s'
+        % (len(ist), ', '.join('%s %s' % (u[:8], t) for _, u, t in log)))
+    liste = finde(wurzel(), 'list', 'Adressbücher')
+    if liste is None:
+        falsch('Seitenleiste: Liste „Adressbücher“ nicht im Barrierefreiheitsbaum')
+        return log
+    z = zeilen(liste)
+    titel = [n for r, n in z if r != 'row header']
+    koepfe = [n for r, n in z if r == 'row header']
+    soll_titel = [t.split(' / ', 1)[1] for _, _, t in log]
+    soll_koepfe = []
+    for _, _, t in log:
+        if not soll_koepfe or soll_koepfe[-1] != t.split(' / ', 1)[0]:
+            soll_koepfe.append(t.split(' / ', 1)[0])
+    (ok if titel == soll_titel else falsch)('Seitenleiste (AT-SPI): Einträge %s' % titel)
+    (ok if koepfe == soll_koepfe else falsch)('Seitenleiste (AT-SPI): Kopfzeilen je Konto %s' % koepfe)
+    for u, (t, nurlesend, _) in soll.items():
+        m = warte(r'Kontakte: %s verbunden, nur lesend (ja|nein)' % re.escape(u), 0, 60)
+        (ok if m and (m.group(1) == 'ja') == nurlesend else falsch)(
+            '%s: nur lesend %s (Python-GI %s)' % (t, m and m.group(1), 'ja' if nurlesend else 'nein'))
+    return log
+
+
+def buch_waehlen(position, uid):
+    liste = finde(wurzel(), 'list', 'Adressbücher')
+    ab = marke()
+    if liste is None or not liste.select_child(position):
+        falsch('Adressbuch %s (Zeile %d) nicht gewählt' % (uid, position))
+        return None
+    if not warte(r'Kontakte: Buch %s gewählt' % re.escape(uid), ab, 20):
+        falsch('Adressbuch %s: Auswahl nicht im Log' % uid)
+        return None
+    return ab
+
+
+def zaehlen(soll, log):
+    gezaehlt = {}
+    for position, uid, titel in log:
+        ab = buch_waehlen(position, uid)
+        if ab is None:
+            continue
+        erwartet = soll[uid][2]
+        if erwartet is None:
+            (ok if warte(r'Kontakte: %s ohne do-initial-query' % re.escape(uid), ab, 60) else falsch)(
+                '%s: ohne Gesamtliste, Hinweis „Suchen, um Kontakte anzuzeigen“' % titel)
+            continue
+        n = gezaehlt[uid] = fertig(uid, ab)
+        (ok if n == erwartet else falsch)('%s: %s Kontakte, Python-GI %s' % (titel, n, erwartet))
+        if n and n > 100:
+            time.sleep(1)
+            bild('liste-%s' % uid[:8])
+            fokus_liste()
+            ab = marke()
+            taste('Alt_L', 'm')
+            m = warte(r'Kontakte: Sprung M → Zeile (\d+)', ab, 10)
+            (ok if m else falsch)('Alt+M springt zu „M“ (Zeile %s)' % (m and m.group(1)))
+            time.sleep(1)
+            bild('sprung-m')
+    return gezaehlt
+
+
+def suchen(name, n0):
+    fokus_liste()
+    ab = marke()
+    taste('Control_L', 'f')
+    tippe(SUCHE)
+    sexp = re.escape('(contains "x-evolution-any-field" "%s")' % SUCHE)
+    m = warte(r'Kontakte: %s Ansicht „%s“' % (re.escape(BUCH), sexp), ab, 30)
+    if m is None:
+        falsch('Suche „%s“: keine Ansicht mit EBookQuery' % SUCHE)
+        return
+    n = fertig(BUCH, ab + m.end())
+    (ok if n == 1 else falsch)('Suche „%s“ (EBookQuery any-field contains): %s Treffer, erwartet 1' % (SUCHE, n))
+    (ok if warte_zeile(name) else falsch)('Suche: Testkontakt „%s“ in der Liste' % name)
+    bild('suche')
+    ab = marke()
+    taste('Control_L', 'a')
+    tippe(NICHT)
+    m = warte(r'Kontakte: %s Ansicht „%s“' % (re.escape(BUCH), re.escape('(contains "x-evolution-any-field" "%s")' % NICHT)), ab, 30)
+    n = fertig(BUCH, ab + m.end()) if m else None
+    (ok if n == 0 else falsch)('Suche „%s“: %s Treffer, erwartet 0' % (NICHT, n))
+    time.sleep(0.5)
+    (ok if finde(wurzel(), 'label', 'Keine Ergebnisse') is not None else falsch)('Nicht-Treffer: „Keine Ergebnisse“ sichtbar')
+    bild('keine-treffer')
+    ab = marke()
+    taste('Escape')
+    m = warte(r'Kontakte: %s Ansicht „%s“' % (re.escape(BUCH), re.escape('(contains "x-evolution-any-field" "")')), ab, 30)
+    n = fertig(BUCH, ab + m.end()) if m else None
+    (ok if n == n0 else falsch)('Escape: wieder alle Kontakte (%s, vorher %s)' % (n, n0))
+
+
+def live(n0):
+    t = time.monotonic()
+    ab = marke()
+    aus = testdaten('--kontakt-live', 'anlegen', BUCH, KONTAKT)
+    m = re.search(r'^ANGELEGT (\S+) (.*)$', aus, re.M)
+    uid, name = m.group(1), m.group(2)
+    m = warte(r'Kontakte: %s neu %s „%s“' % (re.escape(BUCH), re.escape(uid), re.escape(name)), ab, 60)
+    (ok if m else falsch)('Live anlegen (von außen, EDS): „%s“ ohne Neuladen nach %.1f s' % (name, time.monotonic() - t))
+    m = warte(r'Kontakte: %s neu 1, geändert 0, Liste (\d+) \(UI-Thread (ja|nein)\)' % re.escape(BUCH), ab, 10)
+    (ok if m and int(m.group(1)) == n0 + 1 and m.group(2) == 'ja' else falsch)(
+        'Live anlegen: Liste %s (vorher %d), Signal im UI-Thread %s' % (m and m.group(1), n0, m and m.group(2)))
+    (ok if warte_zeile(name) else falsch)('Live anlegen: Zeile „%s“ (AT-SPI)' % name)
+    bild('live-neu')
+    if MODUS == 'alle':
+        suchen(name, n0 + 1)
+    t = time.monotonic()
+    ab = marke()
+    aus = testdaten('--kontakt-live', 'aendern', BUCH, KONTAKT)
+    neu = re.search(r'^GEAENDERT \S+ (.*)$', aus, re.M).group(1)
+    m = warte(r'Kontakte: %s geändert %s „%s“' % (re.escape(BUCH), re.escape(uid), re.escape(neu)), ab, 60)
+    (ok if m else falsch)('Live ändern: „%s“ ohne Neuladen nach %.1f s' % (neu, time.monotonic() - t))
+    (ok if warte_zeile(neu) and warte_zeile(name, False) else falsch)('Live ändern: Zeile heißt jetzt „%s“ (AT-SPI)' % neu)
+    bild('live-geaendert')
+    t = time.monotonic()
+    ab = marke()
+    testdaten('--kontakt-live', 'loeschen', BUCH, KONTAKT)
+    m = warte(r'Kontakte: %s entfernt %s$' % (re.escape(BUCH), re.escape(uid)), ab, 60)
+    (ok if m else falsch)('Live löschen: ohne Neuladen nach %.1f s' % (time.monotonic() - t))
+    m = warte(r'Kontakte: %s entfernt 1, Liste (\d+)' % re.escape(BUCH), ab, 10)
+    (ok if m and int(m.group(1)) == n0 else falsch)('Live löschen: Liste %s (vorher %d)' % (m and m.group(1), n0))
+    (ok if warte_zeile(neu, False) else falsch)('Live löschen: Zeile „%s“ weg (AT-SPI)' % neu)
+    bild('live-geloescht')
+
+
+def graph_probe():
+    """Änderung am Server ohne EDS: kommt sie ohne Refresh? Sonst nach e_book_client_refresh_sync."""
+    t = time.monotonic()
+    ab = marke()
+    aus = testdaten('--kontakt-graph', 'anlegen', GRAPH_DATEI)
+    name = re.search(r'^ANGELEGT \S+ (.*)$', aus, re.M).group(1)
+    muster = r'Kontakte: %s neu (\S+) „%s“' % (re.escape(BUCH), re.escape(name))
+    m = warte(muster, ab, GRAPH_WARTEN)
+    if m:
+        wert('Graph anlegen: „%s“ ohne Refresh nach %.1f s' % (name, time.monotonic() - t))
+    else:
+        wert('Graph anlegen: „%s“ nach %d s ohne Refresh nicht in der Liste (Grenze des Unterbaus)' % (name, GRAPH_WARTEN))
+        t = time.monotonic()
+        testdaten('--kontakt-live', 'refresh', BUCH, KONTAKT)
+        m = warte(muster, ab, 60)
+        (ok if m else falsch)('Graph anlegen: nach e_book_client_refresh live in der Liste nach %.1f s' % (time.monotonic() - t))
+    if m:
+        (ok if warte_zeile(name) else falsch)('Graph anlegen: Zeile „%s“ (AT-SPI)' % name)
+        bild('graph-neu')
+    uid = m.group(1) if m else None
+    t = time.monotonic()
+    ab = marke()
+    testdaten('--kontakt-graph', 'loeschen', GRAPH_DATEI)
+    if uid is None:
+        return
+    muster = r'Kontakte: %s entfernt %s$' % (re.escape(BUCH), re.escape(uid))
+    m = warte(muster, ab, GRAPH_WARTEN)
+    if m:
+        wert('Graph löschen: ohne Refresh nach %.1f s aus der Liste' % (time.monotonic() - t))
+    else:
+        wert('Graph löschen: nach %d s ohne Refresh noch in der Liste (Grenze des Unterbaus)' % GRAPH_WARTEN)
+        t = time.monotonic()
+        testdaten('--kontakt-live', 'refresh', BUCH, KONTAKT)
+        m = warte(muster, ab, 60)
+        (ok if m else falsch)('Graph löschen: nach e_book_client_refresh live entfernt nach %.1f s' % (time.monotonic() - t))
+    (ok if warte_zeile(name, False) else falsch)('Graph löschen: Zeile „%s“ weg (AT-SPI)' % name)
+
+
+def pruefen():
+    soll = vergleich()
+    ab = 0
+    if not fenster():
+        falsch('kein Fenster')
+        return
+    # Zeiger ins Fenster: ohne Fenstermanager hat das Fenster unter dem Zeiger den Tastaturfokus.
+    xtest.fake_input(d, X.MotionNotify, x=900, y=500)
+    d.sync()
+    time.sleep(2)
+    taste('Control_L', '3')
+    n0 = fertig(BUCH, ab)
+    if n0 is None:
+        falsch('Buch %s nicht geladen in %d s' % (BUCH, TIMEOUT))
+        return
+    wert('Buch %s: %d Kontakte beim Start' % (BUCH, n0))
+    m = re.search(r'Kontakte: %s neu \d+, geändert \d+, Liste \d+ \(UI-Thread (ja|nein)\)' % re.escape(BUCH), log_text())
+    (ok if m is None or m.group(1) == 'ja' else falsch)('Signale der EBookClientView im UI-Thread (%s)' % (m and m.group(1)))
+    time.sleep(1)
+    bild('start')
+    if MODUS == 'alle':
+        log = seitenleiste(soll)
+        gezaehlt = zaehlen(soll, log)
+        pos = [p for p, u, _ in log if u == BUCH]
+        if log and log[-1][1] == BUCH:
+            n0 = gezaehlt.get(BUCH)  # zuletzt gezählt, noch gewählt
+        else:
+            ab = buch_waehlen(pos[0], BUCH) if pos else None
+            n0 = fertig(BUCH, ab) if ab is not None else None
+        if n0 is None:
+            falsch('zurück zu %s: nicht geladen' % BUCH)
+            return
+    live(n0)
+    if GRAPH:
+        graph_probe()
+    andere = [z for z in log_text().splitlines() if z.startswith('(revolution:') and 'revolution-DEBUG' not in z]
+    (ok if not andere else falsch)('keine Warnungen/Criticals im Log%s' % ('' if not andere else ': %s' % andere[:3]))
+
+
+def main():
+    global app
+    log = open(LOG, 'w')
+    app = subprocess.Popen([BIN], stdout=log, stderr=subprocess.STDOUT)
+    try:
+        pruefen()
+        w = fenster()
+        rc = schliessen(w) if w else None
+        (ok if rc == 0 else falsch)('Beenden: Exit %s' % rc)
+    finally:
+        if app.poll() is None:
+            app.kill()
+            app.wait()
+        log.close()
+    return 1 if fehler else 0
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except Exception:
+        traceback.print_exc()
+        falsch('Abbruch: %s' % traceback.format_exc().strip().splitlines()[-1])
+        sys.exit(1)

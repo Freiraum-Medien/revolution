@@ -38,6 +38,7 @@ struct _RevolutionContactsView
   GtkSingleSelection     *contact_selection;
   GtkSortListModel       *contact_sorted;
   GtkListView            *contact_list;
+  GtkListView            *book_list;
   GtkStack               *contact_stack;
   GtkLabel               *title_label;
   GtkLabel               *subtitle_label;
@@ -65,6 +66,7 @@ struct _RevolutionContactsView
   gboolean                complete;
   gboolean                search_hint;  /* Buch ohne „do-initial-query“: Kontakte erst nach Suche */
   gboolean                connect_all;  /* ab der ersten Anzeige alle Bücher verbinden */
+  guint                   jump_target;  /* Zeile für contacts.jump nach dem Layout */
   gboolean                syncing;      /* sync_books ersetzt die Liste, Auswahl folgt danach */
 };
 
@@ -164,10 +166,13 @@ add_contacts (RevolutionContactsView *self,
         }
       if (item != NULL)
         {
-          /* Gleicher Eintrag, neue Daten; Ersetzen an derselben Stelle sortiert ihn neu ein. */
+          /* Gleicher Eintrag, neue Daten; Ersetzen an derselben Stelle sortiert ihn neu ein (eigene
+           * Referenz, weil splice den Eintrag zuerst entfernt). */
+          g_autoptr (RevolutionContactsContact) keep = g_object_ref (item);
+
           revolution_contacts_contact_set_contact (item, l->data);
           if (g_list_store_find (self->contacts, item, &position))
-            g_list_store_splice (self->contacts, position, 1, (gpointer *) &item, 1);
+            g_list_store_splice (self->contacts, position, 1, (gpointer *) &keep, 1);
           (*modified)++;
           continue;
         }
@@ -444,9 +449,14 @@ connect_thread (GTask        *task,
                                                 cancellable, &error);
 
   if (client == NULL)
-    g_task_return_error (task, error);
-  else
-    g_task_return_pointer (task, client, g_object_unref);
+    {
+      g_task_return_error (task, error);
+      return;
+    }
+  /* Fähigkeiten hier einmal lesen: danach liegen sie im EClient, e_client_check_capability im UI-Thread
+   * liest nur noch die Liste (EDS e-client.c:916-931, 991-1015). */
+  e_client_check_capability (client, "do-initial-query");
+  g_task_return_pointer (task, client, g_object_unref);
 }
 
 static void
@@ -570,7 +580,13 @@ on_map (RevolutionContactsView *self,
         gpointer                user_data G_GNUC_UNUSED)
 {
   GListModel *books = G_LIST_MODEL (self->books);
+  GtkWidget *focus = gtk_root_get_focus (gtk_widget_get_root (GTK_WIDGET (self)));
 
+  /* Nach Strg+3 liegt der Fokus noch in der verborgenen Mail-Ansicht oder nirgends; die Kürzel der
+   * Kontakte (Strg+F, Alt+Buchstabe, contacts-view.blp) wirken nur mit Fokus hier. */
+  if (focus == NULL || !gtk_widget_is_ancestor (focus, GTK_WIDGET (self)))
+    if (!gtk_widget_grab_focus (GTK_WIDGET (self->contact_list)))
+      gtk_widget_grab_focus (GTK_WIDGET (self->book_list));
   if (self->connect_all)
     return;
   self->connect_all = TRUE;
@@ -619,6 +635,16 @@ on_search_changed (RevolutionContactsView *self)
     open_view (self);
 }
 
+static gboolean
+jump_idle (gpointer user_data)
+{
+  RevolutionContactsView *self = user_data;
+
+  if (self->jump_target < g_list_model_get_n_items (G_LIST_MODEL (self->contact_sorted)))
+    gtk_list_view_scroll_to (self->contact_list, self->jump_target, GTK_LIST_SCROLL_FOCUS, NULL);
+  return G_SOURCE_REMOVE;
+}
+
 /* contacts.jump: erster Kontakt, dessen Anfangsbuchstabe nicht vor dem gewählten liegt (A–Z-Leiste, Alt+Buchstabe). */
 static void
 on_jump (GSimpleAction *action G_GNUC_UNUSED,
@@ -642,7 +668,11 @@ on_jump (GSimpleAction *action G_GNUC_UNUSED,
   if (i == n)
     i = n - 1;
   g_debug ("Kontakte: Sprung %s → Zeile %u", letter, i);
-  gtk_list_view_scroll_to (self->contact_list, i, GTK_LIST_SCROLL_FOCUS, NULL);
+  /* scroll_to bringt die Zeile nur ins Bild (unten, wenn sie darunter lag); erst ans Ende, nach dem Layout
+   * zurück auf die Zeile: dann steht der Buchstabe oben wie in einem Register. */
+  gtk_list_view_scroll_to (self->contact_list, n - 1, GTK_LIST_SCROLL_NONE, NULL);
+  self->jump_target = i;
+  g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, jump_idle, g_object_ref (self), g_object_unref);
 }
 
 /* Fokus ins Suchfeld ohne alles zu markieren (wie mail-view.c). */
@@ -803,6 +833,7 @@ revolution_contacts_view_class_init (RevolutionContactsViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, contact_selection);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, contact_sorted);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, contact_list);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, book_list);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, contact_stack);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, title_label);
   gtk_widget_class_bind_template_child (widget_class, RevolutionContactsView, subtitle_label);

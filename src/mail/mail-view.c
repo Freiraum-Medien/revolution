@@ -3261,6 +3261,18 @@ on_toast_dismissed (RevolutionMailView *self,
     g_clear_object (&self->toast);
 }
 
+/* Kurzer Hinweis ohne Knopf, statt still nichts zu tun (Ziel = Quelle, anderes Konto). */
+static void
+show_hint (RevolutionMailView *self,
+           const char         *title)
+{
+  AdwToastOverlay *overlay = ADW_TOAST_OVERLAY (gtk_widget_get_ancestor (GTK_WIDGET (self), ADW_TYPE_TOAST_OVERLAY));
+
+  g_debug ("Hinweis: %s", title);
+  if (overlay != NULL)
+    adw_toast_overlay_add_toast (overlay, adw_toast_new (title));
+}
+
 /* Nachricht bzw. Konversation verschieben (target: voller Name im Konto target_account, nur bei
  * ACTION_MOVE). Konversation: ihre Nachrichten aus dem Ordner der Liste, nicht die aus Gesendet, wie ein
  * zugeklappter Thread in Evolution (e_mail_reader_get_selected_uids_with_collapsed_threads,
@@ -3280,6 +3292,7 @@ transfer_message (RevolutionMailView    *self,
   g_autoptr (GPtrArray) undo = g_ptr_array_new_with_free_func ((GDestroyNotify) transfer_release);
   g_autoptr (RevolutionMailAccount) current = NULL;
   g_autofree char *title = NULL;
+  const char *hint = NULL;
   AdwToastOverlay *overlay;
   GHashTableIter iter;
   gpointer key, value;
@@ -3328,9 +3341,13 @@ transfer_message (RevolutionMailView    *self,
           name = folder != NULL ? revolution_mail_folder_get_full_name (folder) : NULL;
         }
       else if (g_strcmp0 (uid, target_account) != 0)
-        continue;
+        {
+          hint = _("Verschieben zwischen Konten ist nicht möglich");
+          continue;
+        }
       if (name == NULL || g_strcmp0 (name, source) == 0)
         {
+          hint = name != NULL ? _("Die Nachricht ist schon in diesem Ordner") : NULL;
           g_debug ("Aktion: %s %s nicht möglich, Ziel %s", uid, transfer_kinds[kind].log, name ? "ist die Quelle" : "fehlt");
           if (name == NULL)
             {
@@ -3350,7 +3367,11 @@ transfer_message (RevolutionMailView    *self,
       queue_transfer (self, t);
     }
   if (undo->len == 0)
-    return FALSE;
+    {
+      if (hint != NULL)
+        show_hint (self, hint);
+      return FALSE;
+    }
 
   if (g_list_store_find (self->messages, message, &position))
     {
@@ -3533,9 +3554,13 @@ on_folder_drop (GtkListItem   *item,
     return FALSE;
   g_object_get (folder, "account", &account, NULL);
   g_debug ("Aktion: Ziehen auf %s", revolution_mail_folder_get_full_name (folder));
+  if (account == NULL || account == self->favorites)
+    {
+      show_hint (self, _("Hierhin lässt sich nicht verschieben"));
+      return FALSE;
+    }
 
-  return account != NULL && account != self->favorites &&
-         transfer_message (self, message, ACTION_MOVE, revolution_mail_folder_get_full_name (folder),
+  return transfer_message (self, message, ACTION_MOVE, revolution_mail_folder_get_full_name (folder),
                            revolution_mail_account_get_uid (account));
 }
 

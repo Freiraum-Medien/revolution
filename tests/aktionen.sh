@@ -21,6 +21,8 @@
 # lesend freigegebenen). microsoft365: M365_DEBUG=1, im Log nur „[graph] METHODE Pfad“; geprüft: kein
 # PATCH. Gmail-Lauf dunkel (Screenshot des Hinweises hell und dunkel). Am Ende jedes Laufs
 # --ort … zurueck (Mail wieder im Ausgangsordner, falls ein Schritt scheiterte).
+# Bekannte Grenze EDS imapx (Geisterzeilen nach schnellem Verschieben/Rückgängig, README „#363“) meldet der
+# Treiber als „WERT … BEKANNT …“, nicht als FEHLER und nicht stillschweigend.
 # Eine Zeile je Prüfung „OK …“ bzw. „FEHLER …“; Exit 0 ohne Fehler (#411: Abbruch = FEHLER).
 #
 # Copyright 2026 Arnd Messer

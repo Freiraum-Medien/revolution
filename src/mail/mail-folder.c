@@ -717,6 +717,28 @@ revolution_mail_folder_mark_special (CamelStore      *store,
 
   apply_special (store, info, special, G_N_ELEMENTS (special));
 
+  /* #363: Den virtuellen Papierkorb bzw. Spam-Ordner fügt Camel nur ohne echten Ordner ein (CAMEL_STORE_VTRASH/
+   * VJUNK, camel-store.c:1727-1760), imapx setzt die Flags nach use-real-trash-/junk-path der ESource
+   * (camel-imapx-store.c:158-169); Evolution zeigt dann nur den echten (em-folder-tree-model.c übernimmt die
+   * Ordnerliste ohne eigene Auswahl). Revolution typisiert den echten Ordner nur im Speicher (oben), daher den
+   * virtuellen gleichen Typs hier weglassen. Camel hängt ihn nie an den Anfang der Liste (add_special_info,
+   * camel-store.c:1037-1063). */
+  for (CamelFolderInfo *prev = info, *fi = info != NULL ? info->next : NULL; fi != NULL; fi = prev->next)
+    {
+      guint32 type = fi->flags & CAMEL_FOLDER_TYPE_MASK;
+
+      if ((fi->flags & CAMEL_FOLDER_VIRTUAL) != 0 && (type == CAMEL_FOLDER_TYPE_TRASH || type == CAMEL_FOLDER_TYPE_JUNK) &&
+          tree_has_type (info, type))
+        {
+          g_debug ("Spezialordner: %s virtueller Ordner %s ausgeblendet", uid, fi->full_name);
+          prev->next = fi->next;
+          fi->next = NULL;
+          camel_folder_info_free (fi);
+        }
+      else
+        prev = fi;
+    }
+
   for (gsize i = 0; i < G_N_ELEMENTS (special); i++)
     g_free (special[i].name);
 }

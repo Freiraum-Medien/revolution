@@ -86,10 +86,12 @@ template $RevolutionMailView: Adw.BreakpointBin {
       action: "action(list.conversations)";
     }
 
-    // #363: Löschen mit Entf wie Evolution (e-mail-reader.c:3574-3575) und ⌫ wie Apple Mail, Archivieren
-    // Strg+Alt+A wie Evolution (e-mail-reader.c:2911-2916), Spam Umschalt+Strg+J und Verschieben
-    // Umschalt+Strg+M (Entscheidung PM, #363; Evolution: Strg+J, Umschalt+Strg+V, e-mail-reader.c:3151-3156,
-    // 3256-3261), Rückgängig Strg+Z (HIG Keyboard, Standardkürzel).
+    // #363: Löschen mit Entf wie Evolution (e-mail-reader.c:3574-3575), dazu ⌫ (Entscheidung PM, #363), Archivieren
+    // Strg+Alt+A wie Evolution (e-mail-reader.c:2911-2916). Spam Umschalt+Strg+J wie Apple Mail ⇧⌘J („Move the
+    // selected emails to the Junk mailbox“, support.apple.com/guide/mail/mlhlb94f262b) und Dokument #12
+    // („Strg+Umschalt+J“); Konflikt: in Evolution ist Umschalt+Strg+J „Kein Spam“ (e-mail-reader.c:3165-3168), Spam
+    // dort Strg+J (3151-3156). Verschieben Umschalt+Strg+M (Entscheidung PM; Evolution Umschalt+Strg+V,
+    // 3256-3261, Apple Mail ⌃⌘M „predicted mailbox“). Rückgängig Strg+Z (HIG Keyboard, Standardkürzel).
     Shortcut {
       trigger: "Delete|KP_Delete|BackSpace";
       action: "action(message.delete)";

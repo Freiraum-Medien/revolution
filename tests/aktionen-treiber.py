@@ -343,6 +343,15 @@ def main():
     rest = [z for z in zeilen if not z.startswith(('(revolution:', 'libEGL warning:', '[graph] '))
             or (z.startswith('(revolution:') and 'revolution-DEBUG' not in z)]
     rest = [z for z in rest if not re.match(r'^\(process:\d+\): revolution-DEBUG: ', z)]
+    # Bekannte Grenze EDS imapx (Prüf-Lauf #363 R1, README „#363“): Untagged EXPUNGE außerhalb von COPY/MOVE/IDLE
+    # verwirft imapx (camel-imapx-server.c:789-829), neue Nachrichten aus dem NOTIFY-Rückstand einer zweiten
+    # Verbindung trägt es ein (1336-1481); schon wegverschobene UIDs erscheinen dann als Geisterzeilen, eine
+    # gewählte meldet „Empty cache file“. Ausdrücklich als BEKANNT ausgewiesen, nur bei imapx, nur diese Meldung.
+    bekannt = [z for z in rest if not M365 and 'Nachricht nicht geladen' in z and 'Empty cache file' in z]
+    rest = [z for z in rest if z not in bekannt]
+    geister = [t for t in log_zeilen() if re.search(r'^Nachrichten: %s Änderung .*Liste [2-9]' % re.escape(LOGKEY), t)]
+    for z in bekannt + geister:
+        wert('BEKANNT Grenze EDS imapx, Geisterzeile (camel-imapx-server.c:789-829, 1336-1481): %s' % z.strip()[:200])
     (falsch if rest else ok)('Log: %s' % ('%d unerwartete Zeilen: %s' % (len(rest), rest[:3]) if rest else 'nur DEBUG-Zeilen'))
     if M365:
         graph = [z for z in zeilen if z.startswith('[graph] ')]

@@ -39,6 +39,10 @@
  *   Senden einer Nachricht               mail-ops.c:572-920 (mail_send_message)
  *   Senden des Postausgangs              mail-ops.c:965-1126 (send_queue_exec)
  *   X-Evolution-Köpfe entfernen/zurück   mail-tools.c:217-273
+ *   #432 Entwurf löschen, Flags am       e-mail-session-utils.c:257-301, 363-445 (e_mail_session_handle_
+ *        Original (Antwort, Weiterl.)    draft_headers_sync, _source_headers_sync), Ordner aus „folder://“
+ *                                        e-mail-session.c:2742-2775, e-mail-folder-utils.c:1862-1898;
+ *                                        Aufruf nach dem Senden wie mail-ops.c:842-866
  * Geändert gegenüber der Vorlage:
  *   - Nur der Ordner „Outbox“ im lokalen Store (dort Inbox, Drafts, Outbox, Sent, Templates). Store
  *     mit eigener UID REVOLUTION_MAIL_LOCAL_UID ohne ESource unter ~/.local/share/revolution/mail/local
@@ -57,9 +61,9 @@
  *   - Versanddienst nur aus X-Evolution-Identity (Revolution setzt nur diesen Kopf); ohne Rückfall auf
  *     X-Evolution-Transport und die Standard-Identität (e-mail-session-utils.c:1579-1641).
  *   - Ohne Filter für ausgehende Nachrichten (Revolution hat keine, mail-session.c
- *     get_filter_driver), ohne X-Evolution-PostTo, Entwurf- und Quellkopf-Nachbereitung (kommen mit
- *     #360), ohne e_mail_session_mark_service_used_sync (in Revolution sendet nur ein Lauf zur Zeit,
- *     main.c), ohne Gruppen-Adressen (em_utils_expand_groups), ohne Statusmeldungen.
+ *     get_filter_driver), ohne X-Evolution-PostTo, ohne e_mail_session_mark_service_used_sync (in
+ *     Revolution sendet nur ein Lauf zur Zeit, main.c), ohne Gruppen-Adressen (em_utils_expand_groups),
+ *     ohne Statusmeldungen.
  *   - #362 „höchstens einmal“: Vor dem Senden bekommt die Nachricht im Postausgang die Marke
  *     „revolution-sending“, nach dem Senden „revolution-sent“, jeweils sofort gespeichert. Endet das
  *     Programm dazwischen (Absturz, SIGKILL), ist unklar, ob der Server sie angenommen hat. Ein
@@ -75,6 +79,7 @@
 #include <glib/gi18n.h>
 #include <libedataserver/libedataserver.h>
 
+#include "eds-compat.h"
 #include "mail-folder.h"
 #include "mail-outbox.h"
 #include "mail-session.h"
@@ -213,6 +218,142 @@ mail_tool_restore_xevolution_headers (CamelMimeMessage *message,
 
 		camel_medium_add_header (medium, header_name, header_value);
 	}
+}
+
+/* #432: Ordner aus „folder://STORE-UID/PFAD“ (e-mail-session.c:2742-2775, e-mail-folder-utils.c:1862-1898) und Flags
+ * an der Nachricht setzen (e-mail-session-utils.c:290-298, 431-439). Abweichungen wie zuvor composer.c (#360):
+ * camel_folder_synchronize_sync statt _message_sync, damit der Server die Änderung gleich erhält; fehlt die Nachricht
+ * in der Summary, erst abgleichen (revolution_eds_folder_refresh_info_sync, Echo-Schutz #415); Setzen und Speichern
+ * unter revolution_eds_folder_lock (#409) wie mail-view.c set_flags_thread. Kein Expunge (Entwurf: IMAP \Deleted wie
+ * Evolution, microsoft365 löscht beim Abgleich, camel-m365-folder.c:1376-1407). Im Worker. */
+gboolean
+revolution_mail_folder_uri_set_flags_sync (CamelSession *session,
+                                           const gchar *folder_uri,
+                                           const gchar *uid,
+                                           guint32 flags,
+                                           GCancellable *cancellable,
+                                           GError **error)
+{
+	CamelURL *url;
+	CamelService *service = NULL;
+	CamelFolder *folder = NULL;
+	CamelMessageInfo *info;
+	gboolean success = FALSE;
+
+	url = camel_url_new (folder_uri, error);
+	if (url == NULL)
+		return FALSE;
+	if (g_strcmp0 (url->protocol, "folder") == 0 && url->host != NULL) {
+		gchar *store_uid = url->user != NULL && *url->user != '\0' ?
+			g_strconcat (url->user, "@", url->host, NULL) : g_strdup (url->host);
+
+		service = camel_session_ref_service (session, store_uid);
+		g_free (store_uid);
+	}
+	if (CAMEL_IS_STORE (service) && url->path != NULL && *url->path == '/') {
+		gchar *folder_name = camel_url_decode_path (url->path + 1);
+
+		folder = camel_store_get_folder_sync (CAMEL_STORE (service), folder_name, 0, cancellable, error);
+		g_free (folder_name);
+	} else {
+		g_set_error (error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID, _("Ordner %s nicht verfügbar"),
+		             folder_uri);
+	}
+	g_clear_object (&service);
+	camel_url_free (url);
+	if (folder == NULL)
+		return FALSE;
+
+	revolution_eds_folder_lock (folder);
+	info = camel_folder_get_message_info (folder, uid);
+	if (info == NULL && revolution_eds_folder_refresh_info_sync (folder, cancellable, NULL))
+		info = camel_folder_get_message_info (folder, uid);
+	if (info == NULL) {
+		g_set_error (error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID_UID, _("Nachricht %s nicht in %s"),
+		             uid, folder_uri);
+	} else {
+		camel_folder_set_message_flags (folder, uid, flags, flags);
+		success = camel_folder_synchronize_sync (folder, FALSE, cancellable, error);
+		g_debug ("Flags: %s %s 0x%x gesetzt, jetzt 0x%x (%s)", folder_uri, uid, flags,
+			 camel_message_info_get_flags (info), success ? "abgeglichen" : "Fehler");
+		g_object_unref (info);
+	}
+	revolution_eds_folder_unlock (folder);
+	g_object_unref (folder);
+
+	return success;
+}
+
+/* e-mail-session-utils.c:257-301 (e_mail_session_handle_draft_headers_sync) */
+static gboolean
+outbox_handle_draft_headers_sync (CamelSession *session,
+                                  CamelMimeMessage *message,
+                                  GCancellable *cancellable,
+                                  GError **error)
+{
+	const gchar *folder_uri = camel_medium_get_header (CAMEL_MEDIUM (message), "X-Evolution-Draft-Folder");
+	const gchar *message_uid = camel_medium_get_header (CAMEL_MEDIUM (message), "X-Evolution-Draft-Message");
+
+	/* Don't report errors about missing X-Evolution-Draft
+	 * headers.  These headers are optional, so their absence
+	 * is handled by doing nothing. */
+	if (folder_uri == NULL || message_uid == NULL)
+		return TRUE;
+
+	if (!revolution_mail_folder_uri_set_flags_sync (session, folder_uri, message_uid,
+	                                                CAMEL_MESSAGE_DELETED | CAMEL_MESSAGE_SEEN, cancellable, error))
+		return FALSE;
+	g_debug ("Entwurf: %s %s als gelöscht markiert (abgeglichen)", folder_uri, message_uid);
+
+	return TRUE;
+}
+
+/* e-mail-session-utils.c:363-445 (e_mail_session_handle_source_headers_sync) */
+static gboolean
+outbox_handle_source_headers_sync (CamelSession *session,
+                                   CamelMimeMessage *message,
+                                   GCancellable *cancellable,
+                                   GError **error)
+{
+	CamelMedium *medium = CAMEL_MEDIUM (message);
+	CamelMessageFlags flags = 0;
+	const gchar *folder_uri = camel_medium_get_header (medium, "X-Evolution-Source-Folder");
+	const gchar *message_uid = camel_medium_get_header (medium, "X-Evolution-Source-Message");
+	const gchar *flag_string = camel_medium_get_header (medium, "X-Evolution-Source-Flags");
+	gchar **tokens;
+	gchar *string;
+	gboolean success;
+
+	/* Don't report errors about missing X-Evolution-Source
+	 * headers.  These headers are optional, so their absence
+	 * is handled by doing nothing. */
+	if (folder_uri == NULL || message_uid == NULL || flag_string == NULL)
+		return TRUE;
+
+	/* Convert the flag string to CamelMessageFlags. */
+	string = g_strstrip (g_strdup (flag_string));
+	tokens = g_strsplit (string, " ", 0);
+
+	for (guint ii = 0; tokens != NULL && tokens[ii] != NULL; ii++) {
+		if (g_strcmp0 (tokens[ii], "ANSWERED") == 0)
+			flags |= CAMEL_MESSAGE_ANSWERED;
+		else if (g_strcmp0 (tokens[ii], "ANSWERED_ALL") == 0)
+			flags |= CAMEL_MESSAGE_ANSWERED_ALL;
+		else if (g_strcmp0 (tokens[ii], "FORWARDED") == 0)
+			flags |= CAMEL_MESSAGE_FORWARDED;
+		else if (g_strcmp0 (tokens[ii], "SEEN") == 0)
+			flags |= CAMEL_MESSAGE_SEEN;
+		else if (*tokens[ii] != '\0')
+			g_warning ("Unknown flag '%s' in X-Evolution-Source-Flags", tokens[ii]);
+	}
+	g_strfreev (tokens);
+
+	success = revolution_mail_folder_uri_set_flags_sync (session, folder_uri, message_uid, flags, cancellable, error);
+	if (success)
+		g_debug ("Senden: Original %s %s: %s gesetzt", folder_uri, message_uid, string);
+	g_free (string);
+
+	return success;
 }
 
 static ESourceRegistry *
@@ -673,6 +814,23 @@ mail_send_message (CamelSession *session,
 			goto exit;
 		}
 	}
+
+	/* #432, mail-ops.c:842-866 (cleanup), nach Versand und Kopie; die X-Evolution-Köpfe sind seit „post process“
+	 * wieder da. Fehler nur als Warnung, die Nachricht ist gesendet. */
+	/* Mark the draft message for deletion, if present. */
+	if (!outbox_handle_draft_headers_sync (session, message, cancellable, &local_error)) {
+		g_warning ("Senden: %s Entwurf nicht gelöscht: %s", message_id, local_error->message);
+		g_clear_error (&local_error);
+	}
+
+	/* Set flags on the original source message, if present.
+	 * Source message refers to the message being forwarded
+	 * or replied to. */
+	if (!outbox_handle_source_headers_sync (session, message, cancellable, &local_error) &&
+	    !g_error_matches (local_error, CAMEL_FOLDER_ERROR, CAMEL_FOLDER_ERROR_INVALID_UID) &&
+	    !g_error_matches (local_error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+		g_warning ("Senden: %s Flags am Original nicht gesetzt: %s", message_id, local_error->message);
+	g_clear_error (&local_error);
 
 	camel_folder_set_message_flags (
 		queue, uid, CAMEL_MESSAGE_DELETED |

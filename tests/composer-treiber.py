@@ -22,6 +22,7 @@ import sys
 import threading
 import time
 import traceback
+import urllib.parse
 
 import gi
 gi.require_version('Atspi', '2.0')
@@ -34,6 +35,8 @@ from Xlib.ext import xtest  # noqa: E402
 
 BIN, OUT, NAME, ORDNER, KOPF = (os.environ[k] for k in ('BIN', 'OUT', 'NAME', 'ORDNER', 'KOPF'))
 MIME = os.environ['REVOLUTION_TEST_MIME']
+# #432: mit REVOLUTION_TEST_SEND=1 sendet die App wirklich (Postausgang), die MIME-Datei ist dann eine Kopie.
+SENDEN = os.environ.get('REVOLUTION_TEST_SEND') == '1'
 KONTO = 'KONTO_IMAP_2@example.invalid'
 LOGKEY = ORDNER.replace('/', ' ', 1)
 # Zeiger über dem Hauptfenster rechts (Lesebereich), außerhalb des Composers (960×720 bei 0,0).
@@ -352,9 +355,15 @@ def senden(schritt, w):
     zeiger(COMPOSER)
     taste('Control_L+Return')
     pruefe(warte(r'^Composer: MIME geschrieben ', ab, 30) is not None, '%s: Strg+Enter schreibt MIME' % schritt)
+    if SENDEN:
+        pruefe(warte(r'^Composer: im Postausgang abgelegt, Fenster schließt$', ab, 60) is not None and
+               warte(r'^Postausgang: \S+ abgelegt', ab, 1) is not None,
+               '%s: Fenster schließt erst nach „im Postausgang abgelegt“' % schritt)
     pruefe(fenster(weg=True), '%s: Composer nach dem Senden geschlossen' % schritt)
     if os.path.exists(MIME):
         shutil.copy(MIME, os.path.join(OUT, '%s-%s.eml' % (NAME, schritt)))
+        if SENDEN:
+            versand(schritt, ab)
         return True
     falsch('%s: %s fehlt' % (schritt, MIME))
     return False
@@ -541,10 +550,15 @@ def td(*argumente):
     return r.stdout
 
 
-def entwuerfe(konto, soll, schritt):
+def entwuerfe(konto, soll, schritt, betreff=None):
     """Sichtbare Entwürfe dieses Laufs am Server (tests/testdaten.py --entwurf, Betreff des Kontos)."""
-    aus = td('--entwurf', konto, ENTWURF + (' IMAP' if konto == KONTO else ' Graph'))
-    m = re.search(r'^ENTWUERFE (\d+) (\d+)$', aus, re.M)
+    # #432: Graph-Listen folgen einem Verschieben verzögert (gemessen: Entwurf nach 3 s noch sichtbar, danach weg).
+    for _ in range(6):
+        aus = td('--entwurf', konto, betreff or ENTWURF + (' IMAP' if konto == KONTO else ' Graph'))
+        m = re.search(r'^ENTWUERFE (\d+) (\d+)$', aus, re.M)
+        if m is None or int(m.group(1)) == soll or konto == KONTO:
+            break
+        time.sleep(5)
     wert('%s: Server %s: %s' % (schritt, konto, ' | '.join(z for z in aus.splitlines() if z.startswith('ENTWURF'))))
     pruefe(m is not None and int(m.group(1)) == soll,
            '%s: %s zeigt %s sichtbare Entwürfe (erwartet %d)' % (schritt, konto, m and m.group(1), soll))
@@ -776,6 +790,144 @@ def entwurf_oeffnen(konto, art, vorher):
     entwuerfe(konto, 0, 'öffnen')
 
 
+# ------------------------------------------------------------------ #432 Senden über den Postausgang
+
+# Alle Testkonten sind eigene Identitäten: Strg+R auf ihre Mail wird Allen antworten ohne eigene Adressen wie Evolution
+# (em-composer-utils.c:5126-5130, #359), daher auch dort ANSWERED_ALL (5162-5163) und keine Kopie.
+QUELLE = {'antworten': ('Control_L+r', 'Allen antworten', 'ANSWERED ANSWERED_ALL SEEN'),
+          'allen': ('Control_L+Shift_L+r', 'Allen antworten', 'ANSWERED ANSWERED_ALL SEEN'),
+          'weiterleiten': ('Control_L+Alt_L+f', 'Weiterleiten', 'FORWARDED')}
+
+
+def versand(schritt, ab):
+    """Gesendet und aus dem Postausgang entfernt; Message-ID, Absender, Empfänger nach OUT/gesendet.txt für
+    tests/composer.sh (Zustellung je 1×, Aufräumen)."""
+    m = email.message_from_bytes(open(os.path.join(OUT, '%s-%s.eml' % (NAME, schritt)), 'rb').read(),
+                                 policy=email.policy.default)
+    mid = str(m['Message-ID']).strip()
+    pruefe(warte(r'^Senden: %s aus dem Postausgang entfernt$' % re.escape(mid.strip('<>')), ab, 180) is not None,
+           '%s: %s gesendet und aus dem Postausgang entfernt' % (schritt, mid))
+    empf = adressen(m['To']) + adressen(m['Cc']) + adressen(m['Bcc'])
+    with open(os.path.join(OUT, 'gesendet.txt'), 'a', encoding='utf-8') as f:
+        f.write('%s %s %s %s\n' % (NAME, mid, adressen(m['From'])[0], ' '.join(empf)))
+
+
+def neu_mit_entwurf(konto, an):
+    """Strg+N, Strg+S (Entwurf am Server), Strg+Enter: gesendet, danach ist der Entwurf gelöscht."""
+    betreff = ENTWURF + ' 432 ' + ('IMAP' if konto == KONTO else 'Graph')
+    ab = marke()
+    zeiger(HAUPT)
+    taste('Control_L+n')
+    pruefe(warte(r'^Composer: Neu vorbereitet, Von %s$' % re.escape(konto), ab, 60) is not None,
+           'neu: Strg+N öffnet den Composer, Von %s' % konto)
+    w = fenster()
+    if w is None:
+        falsch('neu: kein Composer-Fenster')
+        return
+    time.sleep(2)
+    zeiger(COMPOSER)
+    entwurf_tippen(w, an, betreff, 'Neu mit Entwurf')
+    taste('Control_L+s', 0.5)
+    pruefe(warte(r'^Entwurf: gespeichert folder://', ab, 60) is not None, 'neu: Strg+S speichert den Entwurf')
+    time.sleep(1)
+    entwuerfe(konto, 1, 'neu', betreff)
+    s = marke()
+    if not senden('neu', w):
+        return
+    pruefe(warte(r'^Entwurf: folder://\S+ \S+ als gelöscht markiert \(abgeglichen\)$', s, 60) is not None,
+           'neu: nach dem Senden markiert der Postausgang den Entwurf als gelöscht')
+    entwuerfe(konto, 0, 'neu', betreff)
+
+
+def senden_432(art):
+    """Antworten/Allen antworten/Weiterleiten auf das Original des Laufs (REVOLUTION_MESSAGE), wirklich gesendet:
+    X-Evolution-Source-*, Flags am Original nach dem Senden (Log), Empfänger nur Testkonten; bei „antworten“ dazu
+    Neu mit Entwurf. Graph: genau 1 PATCH (am Original), kein Echo-PATCH (#416)."""
+    konto = KONTO if NAME.endswith('-imap') else 'KONTO_M365@example.invalid'
+    andere = 'KONTO_IMAP_1@example.invalid' if konto == KONTO else KONTO
+    kombi, typ, soll = QUELLE[art]
+    roh = roh_zeilen()
+    ab = marke()
+    zeiger(HAUPT)
+    taste(kombi)
+    pruefe(warte(r'^Composer: %s vorbereitet, Von %s$' % (typ, re.escape(konto)), ab, 60) is not None,
+           '%s: %s öffnet den Composer, Von %s' % (art, kombi, konto))
+    w = fenster()
+    if w is None:
+        falsch('%s: kein Composer-Fenster' % art)
+        return
+    time.sleep(3)
+    if art == 'weiterleiten':
+        tippe(andere)
+    bild(art, w)
+    if not senden(art, w):
+        return
+    m = email.message_from_bytes(open(os.path.join(OUT, '%s-%s.eml' % (NAME, art)), 'rb').read(),
+                                 policy=email.policy.default)
+    an, cc = adressen(m['To']), adressen(m['Cc'])
+    pruefe(an == [andere] and cc == [], '%s: To %s Cc %s (ohne eigene Adressen)' % (art, an, cc))
+    pruefe(' '.join(str(m['X-Evolution-Source-Flags']).split()) == soll and
+           str(m['X-Evolution-Source-Folder']).startswith('folder://') and m['X-Evolution-Source-Message'] is not None,
+           '%s: X-Evolution-Source-Flags „%s“, -Folder %s, -Message %s' % (art, m['X-Evolution-Source-Flags'],
+                                                                         m['X-Evolution-Source-Folder'],
+                                                                         m['X-Evolution-Source-Message']))
+    z = warte(r'^Senden: Original folder://\S+ \S+: %s gesetzt$' % re.escape(soll), ab, 60)
+    pruefe(z is not None, '%s: nach dem Senden %s am Original gesetzt' % (art, soll))
+    lokal = [x for x in log_zeilen()[ab:] if x.startswith('Flags: ')]
+    wert('%s: %s' % (art, lokal))
+    if art == 'antworten':
+        neu_mit_entwurf(konto, andere)
+    if konto != KONTO:
+        time.sleep(5)
+        gid = [z.split()[3] for z in open(os.environ['ORIGINALE'], encoding='utf-8')
+               if z.startswith('ORIGINAL %s ' % art.capitalize())]
+        patch = [urllib.parse.unquote(z) for z in graph_schreibend(roh) if z.startswith('[graph] PATCH')]
+        wert('%s: schreibende Graph-Anfragen %s' % (art, graph_schreibend(roh)))
+        pruefe(len(patch) == 1 and gid and patch[0].endswith('/' + gid[0]),
+               '%s: genau 1 PATCH, am Original (Flags), kein Echo-PATCH (#416): %d PATCH' % (art, len(patch)))
+
+
+def fehlerfall():
+    """Postausgang nicht nutzbar (tests/composer.sh: Datei statt Ordner .Outbox): Toast, Fenster bleibt offen,
+    Senden wieder möglich (zweiter Versuch); Escape sichert dann als Entwurf (#360)."""
+    betreff = ENTWURF + ' 432 Fehler'
+    ab = marke()
+    zeiger(HAUPT)
+    taste('Control_L+n')
+    pruefe(warte(r'^Composer: Neu vorbereitet, Von %s$' % re.escape(KONTO), ab, 60) is not None, 'fehler: Strg+N')
+    w = fenster()
+    if w is None:
+        falsch('fehler: kein Composer-Fenster')
+        return
+    time.sleep(2)
+    zeiger(COMPOSER)
+    entwurf_tippen(w, 'KONTO_IMAP_1@example.invalid', betreff, 'Fehlerfall')
+    for n in (1, 2):
+        s, roh = marke(), roh_zeilen()
+        taste('Control_L+Return', 1)
+        ende = time.monotonic() + 60
+        while time.monotonic() < ende and not [z for z in open(LOG, encoding='utf-8', errors='replace').readlines()[roh:]
+                                               if 'WARNING **' in z and 'Composer: nicht im Postausgang abgelegt: ' in z]:
+            time.sleep(0.2)
+        pruefe(warte(r'^Composer: MIME geschrieben ', s, 1) is not None and time.monotonic() < ende,
+               'fehler: Versuch %d: Ablegen im Postausgang scheitert (Warnung im Log)' % n)
+        time.sleep(1)
+        pruefe(fenster() is not None, 'fehler: Versuch %d: Fenster bleibt offen, Senden wieder möglich' % n)
+        if n == 1:
+            bild('fehler-toast', w)
+    z = marke()
+    zeiger(COMPOSER)
+    taste('Escape', 1)
+    if warte(r'^Entwurf: vor dem Schließen speichern$', z, 5) is None:
+        # Gemessen (m5-432-probe2): mit sichtbarem Toast schloss Escape den Composer nicht.
+        wert('fehler: erstes Escape ohne Schließen (Toast sichtbar), zweites nach Ablauf des Toasts')
+        time.sleep(5)
+        taste('Escape', 1)
+    pruefe(warte(r'^Entwurf: gespeichert folder://', z, 60) is not None and fenster(weg=True, zeit=60),
+           'fehler: Escape sichert die Nachricht als Entwurf und schließt')
+    entwuerfe(KONTO, 1, 'fehler', betreff)
+
+
 # ------------------------------------------------------------------ #361 Adressvervollständigung
 
 KONTAKT = 'Revolution-Test Kontakt 361 <HILFS_KONTAKT361@example.invalid>'
@@ -942,7 +1094,11 @@ def main():
             return 1
         ok('Testmail angezeigt: %s' % ORDNER)
         time.sleep(1)
-        if '-weiterleiten-' in NAME:
+        if NAME == 'm5-432-fehler':
+            fehlerfall()
+        elif NAME.startswith('m5-432-'):
+            senden_432(NAME.split('-')[2])
+        elif '-weiterleiten-' in NAME:
             weiterleiten()
         elif '-adressen-' in NAME:
             vervollstaendigen()
@@ -986,7 +1142,9 @@ def main():
         log.close()
     rest = [z.strip() for z in open(LOG, encoding='utf-8', errors='replace')
             if z.strip() and not (z.startswith('(revolution:') and 'revolution-DEBUG' in z)
-            and not z.startswith('libEGL warning:') and not z.startswith('[graph] ')]
+            and not z.startswith('libEGL warning:') and not z.startswith('[graph] ')
+            # #432: im Fehlerlauf erwartet (Postausgang nicht nutzbar).
+            and not (NAME == 'm5-432-fehler' and re.search(r'WARNING \*\*: [\d:.]+: (Postausgang: |Composer: nicht im Postausgang)', z))]
     pruefe(not rest, 'Log: %s' % ('%d unerwartete Zeilen: %s' % (len(rest), rest[:3]) if rest else 'nur DEBUG-Zeilen'))
     return 1 if fehler else 0
 

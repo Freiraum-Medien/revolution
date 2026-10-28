@@ -39,7 +39,7 @@ template $RevolutionContactsDetail: Adw.Bin {
             orientation: vertical;
             spacing: 18;
 
-            // Kopf: großer Avatar und Name mittig (Dokument #5), darunter Position · Firma.
+            // Kopf: großer Avatar und Name mittig (Dokument #5, Prototyp kontakte-hell.png).
             Box {
               orientation: vertical;
               spacing: 12;
@@ -63,13 +63,6 @@ template $RevolutionContactsDetail: Adw.Bin {
                   "title-1",
                   "contact-name",
                 ]
-              }
-
-              Label org_label {
-                visible: false;
-                wrap: true;
-                wrap-mode: word_char;
-                justify: center;
               }
 
               // Schnellaktion: nur „Mail schreiben“ in M6 (Dokument #19 „Nicht in M6“: Anrufen,

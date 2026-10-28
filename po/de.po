@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: revolution\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-28 23:36+0100\n"
+"POT-Creation-Date: 2026-10-29 00:12+0100\n"
 "PO-Revision-Date: 2026-10-28 22:20+0100\n"
 "Last-Translator: Arnd Messer\n"
 "Language-Team: German\n"
@@ -1308,79 +1308,126 @@ msgstr "Unbenannter Kontakt"
 msgid "No Contact Selected"
 msgstr "Kein Kontakt ausgewählt"
 
-#: src/contacts/contacts-detail.blp:83 src/contacts/contacts-detail.blp:87
+#: src/contacts/contacts-detail.blp:76 src/contacts/contacts-detail.blp:79
 msgid "Send Email"
 msgstr "Mail schreiben"
 
-#: src/contacts/contacts-detail.blp:108
+#: src/contacts/contacts-detail.blp:100
 msgid "Email Addresses"
 msgstr "E-Mail-Adressen"
 
-#: src/contacts/contacts-detail.blp:121
+#: src/contacts/contacts-detail.blp:113
 msgid "Phone Numbers"
 msgstr "Telefonnummern"
 
-#: src/contacts/contacts-detail.blp:134
+#: src/contacts/contacts-detail.blp:126
 msgid "Addresses"
 msgstr "Adressen"
 
-#: src/contacts/contacts-detail.blp:147
+#: src/contacts/contacts-detail.blp:139
 msgid "Organization"
 msgstr "Organisation"
 
-#: src/contacts/contacts-detail.blp:160 src/contacts/contacts-detail.c:279
+#: src/contacts/contacts-detail.blp:152 src/contacts/contacts-detail.c:305
 msgid "Notes"
 msgstr "Notizen"
 
-#: src/contacts/contacts-detail.c:94 src/contacts/contacts-detail.c:150
-#: src/contacts/contacts-detail.c:273
+#: src/contacts/contacts-detail.c:94 src/contacts/contacts-detail.c:182
+#: src/contacts/contacts-detail.c:186 src/contacts/contacts-detail.c:299
 msgid "Work"
 msgstr "Arbeit"
 
-#: src/contacts/contacts-detail.c:96 src/contacts/contacts-detail.c:152
-#: src/contacts/contacts-detail.c:274
+#: src/contacts/contacts-detail.c:96 src/contacts/contacts-detail.c:182
+#: src/contacts/contacts-detail.c:186 src/contacts/contacts-detail.c:300
 msgid "Home"
 msgstr "Privat"
 
-#: src/contacts/contacts-detail.c:98 src/contacts/contacts-detail.c:275
-msgid "Other"
-msgstr "Weitere"
-
-#: src/contacts/contacts-detail.c:99
+#: src/contacts/contacts-detail.c:97
 msgid "Email"
 msgstr "E-Mail"
 
 #. Aktion je Zeile: Papierflieger (Dokument #5, Prototyp sent-symbolic).
-#: src/contacts/contacts-detail.c:121
+#: src/contacts/contacts-detail.c:119
 #, c-format
 msgid "Send Email to %s"
 msgstr "Mail an %s schreiben"
 
-#: src/contacts/contacts-detail.c:144
+#: src/contacts/contacts-detail.c:152
+msgid "Assistant Phone"
+msgstr "Telefon des Assistenten"
+
+#: src/contacts/contacts-detail.c:153
+msgid "Callback Phone"
+msgstr "Rückruf-Telefon"
+
+#: src/contacts/contacts-detail.c:154
+msgid "Car Phone"
+msgstr "Autotelefon"
+
+#: src/contacts/contacts-detail.c:155
+msgid "Company Phone"
+msgstr "Firmentelefon"
+
+#: src/contacts/contacts-detail.c:156
+msgid "ISDN"
+msgstr "ISDN"
+
+#: src/contacts/contacts-detail.c:157
 msgid "Mobile"
 msgstr "Mobil"
 
-#: src/contacts/contacts-detail.c:146
+#: src/contacts/contacts-detail.c:158
 msgid "Fax"
 msgstr "Fax"
 
-#: src/contacts/contacts-detail.c:148
+#: src/contacts/contacts-detail.c:159
 msgid "Pager"
 msgstr "Pager"
 
-#: src/contacts/contacts-detail.c:153
+#: src/contacts/contacts-detail.c:160
+msgid "Radio"
+msgstr "Funk"
+
+#: src/contacts/contacts-detail.c:161
+msgid "Telex"
+msgstr "Telex"
+
+#: src/contacts/contacts-detail.c:162
+msgid "TTY/TDD"
+msgstr "TTY/TDD"
+
+#: src/contacts/contacts-detail.c:180
+msgid "Primary Phone"
+msgstr "Telefon, primär"
+
+#: src/contacts/contacts-detail.c:182
 msgid "Phone"
 msgstr "Telefon"
 
-#: src/contacts/contacts-detail.c:276
+#: src/contacts/contacts-detail.c:184
+msgid "Other Fax"
+msgstr "Weiteres Fax"
+
+#. TRANSLATORS: phone type and place, e.g. “Fax (Work)”
+#: src/contacts/contacts-detail.c:186
+#, c-format
+msgctxt "phone"
+msgid "%s (%s)"
+msgstr "%s (%s)"
+
+#: src/contacts/contacts-detail.c:301
+msgid "Other"
+msgstr "Weitere"
+
+#: src/contacts/contacts-detail.c:302
 msgid "Company"
 msgstr "Firma"
 
-#: src/contacts/contacts-detail.c:277
+#: src/contacts/contacts-detail.c:303
 msgid "Department"
 msgstr "Abteilung"
 
-#: src/contacts/contacts-detail.c:278
+#: src/contacts/contacts-detail.c:304
 msgid "Position"
 msgstr "Position"
 
@@ -1448,12 +1495,12 @@ msgstr[1] "%u Kontakte"
 msgid "Address Book Incomplete"
 msgstr "Adressbuch unvollständig"
 
-#: src/contacts/contacts-view.c:346 src/contacts/contacts-view.c:385
-#: src/contacts/contacts-view.c:487
+#: src/contacts/contacts-view.c:350 src/contacts/contacts-view.c:392
+#: src/contacts/contacts-view.c:517
 msgid "Address Book Unavailable"
 msgstr "Adressbuch nicht verfügbar"
 
-#: src/contacts/contacts-view.c:886
+#: src/contacts/contacts-view.c:959
 #, c-format
 msgid "Jump to “%s”"
 msgstr "Zu „%s“ springen"

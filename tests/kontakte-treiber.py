@@ -419,7 +419,25 @@ def graph_probe():
 # ------------------------------------------------------------------ Detailansicht (#369)
 
 EMAIL_TYP = (('WORK', 'Arbeit'), ('HOME', 'Privat'))
-TELEFON_TYP = (('CELL', 'Mobil'), ('FAX', 'Fax'), ('PAGER', 'Pager'), ('WORK', 'Arbeit'), ('HOME', 'Privat'))
+# Wie Evolution get_phone_location: genau ein Sondertyp → sein Name (Ort Arbeit/Privat in Klammern), Fax ohne Ort
+# → „Weiteres Fax“, PREF allein → „Telefon, primär“, sonst nur der Ort bzw. „Telefon“ (#369 Runde 2).
+TELEFON_SONDER = (('X-EVOLUTION-ASSISTANT', 'Telefon des Assistenten'), ('X-EVOLUTION-CALLBACK', 'Rückruf-Telefon'),
+                  ('CAR', 'Autotelefon'), ('X-EVOLUTION-COMPANY', 'Firmentelefon'), ('ISDN', 'ISDN'), ('CELL', 'Mobil'),
+                  ('FAX', 'Fax'), ('PAGER', 'Pager'), ('X-EVOLUTION-RADIO', 'Funk'), ('X-EVOLUTION-TELEX', 'Telex'),
+                  ('X-EVOLUTION-TTYTDD', 'TTY/TDD'))
+
+
+def telefon_typ(typen):
+    arbeit, privat = 'WORK' in typen, 'HOME' in typen
+    ort = 'Arbeit' if arbeit and not privat else 'Privat' if privat and not arbeit else None
+    sonder = [(t, n) for t, n in TELEFON_SONDER if t in typen]
+    if not sonder and 'PREF' in typen:
+        return 'Telefon, primär'
+    if len(sonder) != 1:
+        return ort or 'Telefon'
+    if ort is None:
+        return 'Weiteres Fax' if sonder[0][0] == 'FAX' else sonder[0][1]
+    return '%s (%s)' % (sonder[0][1], ort)
 ADRESSE_TYP = (('work', 'Arbeit'), ('home', 'Privat'), ('other', 'Weitere'))
 
 
@@ -441,7 +459,7 @@ def adresse_text(a):
 def detail_soll(f):
     """{Liste (Barrierefreiheits-Name): [(Typ, Wert)]} wie die Detailansicht sie zeigen muss (leere fehlen)."""
     soll = {'E-Mail-Adressen': [(typ_name(e['typen'], EMAIL_TYP, 'E-Mail'), e['wert'].strip()) for e in f['emails']],
-            'Telefonnummern': [(typ_name(t['typen'], TELEFON_TYP, 'Telefon'), t['wert'].strip()) for t in f['telefone']],
+            'Telefonnummern': [(telefon_typ(t['typen']), t['wert'].strip()) for t in f['telefone']],
             'Adressen': [(name, adresse_text(f['adressen'][art])) for art, name in ADRESSE_TYP
                          if art in f['adressen'] and adresse_text(f['adressen'][art])],
             'Organisation': [(n, f[k]) for k, n in (('firma', 'Firma'), ('abteilung', 'Abteilung'),
@@ -477,11 +495,8 @@ def detail_vergleichen(f, schritt):
     """Jeder Wert und Typ im Detail (AT-SPI) gleich dem unabhängig gelesenen (Python-GI)."""
     w = wurzel()
     name = f['name']
-    unter = ' · '.join(x for x in (f.get('position'), f.get('firma')) if x)
     labels = [k.get_name() for k in knoten(w) if k.get_role_name() == 'label']
     (ok if labels.count(name) >= 2 else falsch)('%s: Name „%s“ im Kopf (und in der Liste), AT-SPI' % (schritt, name))
-    if unter:
-        (ok if unter in labels else falsch)('%s: unter dem Namen „%s“' % (schritt, unter))
     soll = detail_soll(f)
     for liste_name in ('E-Mail-Adressen', 'Telefonnummern', 'Adressen', 'Organisation', 'Notizen'):
         liste = finde(w, 'list', liste_name)

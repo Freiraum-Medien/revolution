@@ -1,0 +1,95 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GcalMonthCell: Widget {
+  accessibility {
+    labelled-by: day_label;
+    has-popup: true;
+    selected: false;
+  }
+
+  accessible-role: grid_cell;
+  receives-default: true;
+  focusable: true;
+
+  Adw.BreakpointBin breakpoint_bin {
+    width-request: 50;
+    height-request: 50;
+
+    Adw.Breakpoint breakpoint_narrow {
+      condition ("max-width: 120sp")
+
+      setters {
+        weather_icon.halign: end;
+        weather_icon.hexpand: true;
+        weather_icon.margin-start: 6;
+        temp_label.visible: false;
+      }
+    }
+
+    child: Overlay overlay {
+      [overlay]
+      Box header_box {
+        valign: start;
+        spacing: 6;
+        margin-top: 6;
+        margin-bottom: 6;
+        margin-start: 6;
+        margin-end: 6;
+
+        Label day_label {
+          styles [
+            "day-label",
+            "numeric",
+          ]
+        }
+
+        Image weather_icon {
+          pixel-size: 16;
+          margin-start: 12;
+          accessible-role: presentation;
+
+          styles [
+            "dimmed",
+          ]
+        }
+
+        Label temp_label {
+          styles [
+            "dimmed",
+            "temp-label",
+          ]
+        }
+      }
+
+      [overlay]
+      Button overflow_button {
+        accessible-role: toggle_button;
+        valign: end;
+        sensitive: false;
+        clicked => $overflow_button_clicked_cb(template) not-swapped;
+        tooltip-text: _("All Events");
+        margin-top: 1;
+        margin-start: 1;
+        margin-bottom: 2;
+        margin-end: 2;
+
+        accessibility {
+          has-popup: true;
+          labelled-by: overflow_inscription;
+        }
+
+        styles [
+          "flat",
+          "overflow",
+        ]
+
+        Box {
+          Inscription overflow_inscription {
+            text-overflow: ellipsize_end;
+          }
+        }
+      }
+    };
+  }
+}

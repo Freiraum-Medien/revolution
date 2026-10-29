@@ -4,7 +4,9 @@ blueprints = []
 foreach blp : ['window.blp', 'mail/mail-view.blp', 'mail/mail-reader.blp', 'mail/mail-conversation.blp', 'mail/mail-attachment.blp', 'composer/composer.blp', 'contacts/contacts-view.blp', 'contacts/contacts-detail.blp', 'contacts/contacts-editor.blp', 'calendar/calendar-view.blp',
             # #373: gnome-calendar 50.0 (src/calendar/gcal)
             'calendar/gcal/gcal-event-widget.blp', 'calendar/gcal/gcal-month-cell.blp',
-            'calendar/gcal/gcal-month-popover.blp', 'calendar/gcal/gcal-month-view.blp']
+            'calendar/gcal/gcal-month-popover.blp', 'calendar/gcal/gcal-month-view.blp',
+            # #374
+            'calendar/gcal/gcal-week-header.blp', 'calendar/gcal/gcal-week-view.blp']
   blueprints += custom_target(
     input: blp,
     output: '@BASENAME@.ui',

@@ -1,5 +1,5 @@
 // Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-week-view.blp:1-108 (ff4d7f7d, GPL-3.0-or-later).
-// Revolution #374: REVISION
+// Revolution #374: Bild auf/ab lösen calendar.previous/next aus (calendar-view.c) statt win.previous-date/next-date.
 using Gtk 4.0;
 
 template $GcalWeekView: Box {
@@ -71,12 +71,12 @@ template $GcalWeekView: Box {
 
       Shortcut {
         trigger: "Page_Up";
-        action: "action(win.previous-date)";
+        action: "action(calendar.previous)";
       }
 
       Shortcut {
         trigger: "Page_Down";
-        action: "action(win.next-date)";
+        action: "action(calendar.next)";
       }
     }
 

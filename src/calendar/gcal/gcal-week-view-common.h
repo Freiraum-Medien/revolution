@@ -1,5 +1,5 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-week-view-common.h:1-33 (ff4d7f7d, GPL-3.0-or-later).
- * Revolution #374: REVISION */
+ * Revolution #374: Spaltenzahl n_days, Beginn und Ende des Bereichs (Tagesansicht). */
 /* gcal-week-view-common.h
  *
  * Copyright 2022 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>
@@ -30,6 +30,14 @@ void                 gcal_week_view_common_snapshot_hour_lines   (GtkWidget     
                                                                   GtkSnapshot        *snapshot,
                                                                   GtkOrientation      orientation,
                                                                   gint                width,
-                                                                  gint                height);
+                                                                  gint                height,
+                                                                  gint                n_days);
+
+/* Revolution #374: Tagesansicht */
+GDateTime*           gcal_week_view_common_get_start             (GDateTime          *date,
+                                                                  gint                n_days);
+
+GDateTime*           gcal_week_view_common_get_end               (GDateTime          *date,
+                                                                  gint                n_days);
 
 G_END_DECLS

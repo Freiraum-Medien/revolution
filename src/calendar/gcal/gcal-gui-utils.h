@@ -1,5 +1,5 @@
 /* Übernommen aus gnome-calendar 50.0 src/utils/gcal-gui-utils.h:1-32 (ff4d7f7d, GPL-3.0-or-later).
- * Revolution #374: REVISION */
+ * Unverändert. */
 /*
  * gcal-gui-utils.h
  *

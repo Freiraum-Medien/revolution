@@ -1,5 +1,6 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-week-view.c:1-689 (ff4d7f7d, GPL-3.0-or-later).
- * Revolution #374: REVISION */
+ * Revolution #374: Eigenschaft n-days (Tagesansicht = Woche mit 1 Spalte), Bereich über
+ * gcal_week_view_common_get_start/_end, vor/zurück um n_days Tage. */
 /* gcal-week-view.c
  *
  * Copyright (C) 2015 - Erick Pérez Castellanos
@@ -30,6 +31,7 @@
 #include "gcal-week-hour-bar.h"
 #include "gcal-week-grid.h"
 #include "gcal-week-view.h"
+#include "gcal-week-view-common.h"
 
 #include <adwaita.h>
 #include <glib/gi18n.h>
@@ -62,6 +64,8 @@ struct _GcalWeekView
 
   gdouble             initial_zoom_level;
   gdouble             zoom_level;
+
+  gint                n_days; /* Revolution #374 */
 };
 
 static void          stack_visible_child_changed_cb              (AdwViewStack       *stack,
@@ -78,6 +82,7 @@ enum
   PROP_DATE,
   PROP_CONTEXT,
   PROP_TIME_DIRECTION,
+  PROP_N_DAYS,
   NUM_PROPS
 };
 
@@ -126,8 +131,8 @@ update_grid_scroll_position (GcalWeekView *self)
     }
 
   now = g_date_time_new_now_local ();
-  week_start = gcal_date_time_get_start_of_week (self->date);
-  week_end = gcal_date_time_get_end_of_week (self->date);
+  week_start = gcal_week_view_common_get_start (self->date, self->n_days);
+  week_end = gcal_week_view_common_get_end (self->date, self->n_days);
 
   /* Don't animate when not today */
   if (gcal_date_time_compare_date (now, week_start) < 0 || gcal_date_time_compare_date (now, week_end) >= 0)
@@ -459,7 +464,7 @@ gcal_week_view_get_next_date (GcalView *view)
   GcalWeekView *self = GCAL_WEEK_VIEW (view);
 
   g_assert (self->date != NULL);
-  return g_date_time_add_weeks (self->date, 1);
+  return g_date_time_add_days (self->date, self->n_days);
 }
 
 
@@ -469,7 +474,7 @@ gcal_week_view_get_previous_date (GcalView *view)
   GcalWeekView *self = GCAL_WEEK_VIEW (view);
 
   g_assert (self->date != NULL);
-  return g_date_time_add_weeks (self->date, -1);
+  return g_date_time_add_days (self->date, -self->n_days);
 }
 
 static void
@@ -493,8 +498,8 @@ gcal_week_view_get_range (GcalTimelineSubscriber *subscriber)
 {
   GcalWeekView *self = GCAL_WEEK_VIEW (subscriber);
 
-  return gcal_range_new_take (gcal_date_time_get_start_of_week (self->date),
-                              gcal_date_time_get_end_of_week (self->date),
+  return gcal_range_new_take (gcal_week_view_common_get_start (self->date, self->n_days),
+                              gcal_week_view_common_get_end (self->date, self->n_days),
                               GCAL_RANGE_DEFAULT);
 }
 
@@ -601,6 +606,12 @@ gcal_week_view_set_property (GObject       *object,
       restore_zoom_level (self);
       break;
 
+    case PROP_N_DAYS:
+      self->n_days = g_value_get_int (value);
+      gcal_week_grid_set_n_days (GCAL_WEEK_GRID (self->week_grid), self->n_days);
+      gcal_week_header_set_n_days (GCAL_WEEK_HEADER (self->header), self->n_days);
+      break;
+
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
@@ -632,6 +643,10 @@ gcal_week_view_get_property (GObject       *object,
       g_value_set_enum (value, GTK_ORIENTATION_HORIZONTAL);
       break;
 
+    case PROP_N_DAYS:
+      g_value_set_int (value, self->n_days);
+      break;
+
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
@@ -655,6 +670,11 @@ gcal_week_view_class_init (GcalWeekViewClass *klass)
   g_object_class_override_property (object_class, PROP_DATE, "active-date");
   g_object_class_override_property (object_class, PROP_CONTEXT, "context");
   g_object_class_override_property (object_class, PROP_TIME_DIRECTION, "time-direction");
+
+  /* Revolution #374: Tagesansicht = Woche mit 1 Spalte (gnome-calendar 50.0 hat keine, gcal-enums.h:43-49). */
+  g_object_class_install_property (object_class, PROP_N_DAYS,
+                                   g_param_spec_int ("n-days", NULL, NULL, 1, N_WEEKDAYS, N_WEEKDAYS,
+                                                     G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
 
   gtk_widget_class_set_template_from_resource (widget_class, "/org/gnome/calendar/ui/views/gcal-week-view.ui");
 

@@ -1,5 +1,5 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-week-header.h:1-61 (ff4d7f7d, GPL-3.0-or-later).
- * Revolution #374: REVISION */
+ * Revolution #374: ohne Wetter-Includes, gcal_week_header_set_n_days (Tagesansicht). */
 /* gcal-week-header.h
  *
  * Copyright (C) 2016 Vamsi Krishna Gollapudi <pandu.sonu@yahoo.com>
@@ -23,8 +23,6 @@
 
 #include "gcal-context.h"
 #include "gcal-event-widget.h"
-#include "gcal-weather-service.h"
-#include "gcal-weather-info.h"
 
 #include <gtk/gtk.h>
 
@@ -57,6 +55,10 @@ gboolean             gcal_week_header_get_can_expand             (GcalWeekHeader
 gboolean             gcal_week_header_get_expanded               (GcalWeekHeader     *self);
 void                 gcal_week_header_set_expanded               (GcalWeekHeader     *self,
                                                                   gboolean            expanded);
+
+/* Revolution #374 */
+void                 gcal_week_header_set_n_days                 (GcalWeekHeader     *self,
+                                                                  gint                n_days);
 
 G_END_DECLS
 

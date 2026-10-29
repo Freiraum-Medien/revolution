@@ -1,5 +1,5 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-week-hour-bar.c:1-131 (ff4d7f7d, GPL-3.0-or-later).
- * Revolution #374: REVISION */
+ * Revolution #374: Aufruf mit Spaltenzahl (gcal-week-view-common.c). */
 /* gcal-week-hour-bar.c
  *
  * Copyright 2022 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>
@@ -22,6 +22,7 @@
 
 #include "gcal-week-hour-bar.h"
 #include "gcal-week-view-common.h"
+#include "gcal-utils.h"
 
 #include <glib/gi18n.h>
 
@@ -71,7 +72,8 @@ gcal_week_hour_bar_snapshot (GtkWidget   *widget,
                                              snapshot,
                                              GTK_ORIENTATION_VERTICAL,
                                              gtk_widget_get_width (widget),
-                                             gtk_widget_get_height (widget));
+                                             gtk_widget_get_height (widget),
+                                             N_WEEKDAYS);
 
   for (GtkWidget *child = gtk_widget_get_first_child (widget);
        child;

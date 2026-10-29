@@ -1,6 +1,6 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/gcal-event-widget.c:1-1191 (ff4d7f7d, GPL-3.0-or-later).
  * Revolution #373: ohne Termin-Popover (gcal_event_widget_show_preview, folgt mit #375), SOUP_HTTP_URI_FLAGS
- * ausgeschrieben (ohne libsoup). */
+ * ausgeschrieben (ohne libsoup). #374: Titel als Name für Barrierefreiheit. */
 /* gcal-event-widget.c
  *
  * Copyright (C) 2015 Erick Pérez Castellanos <erickpc@gnome.org>
@@ -523,6 +523,9 @@ gcal_event_widget_set_event_internal (GcalEventWidget *self,
                           self->summary_label,
                           "label",
                           G_BINDING_DEFAULT | G_BINDING_SYNC_CREATE);
+
+  /* Revolution #374: Name für Barrierefreiheit = Titel (Woche/Tag: Lage per AT-SPI, tests/kalender-treiber.py). */
+  gtk_accessible_update_property (GTK_ACCESSIBLE (self), GTK_ACCESSIBLE_PROPERTY_LABEL, gcal_event_get_summary (event), -1);
 
   g_object_bind_property_full (gcal_event_get_calendar (event),
                                "read-only",

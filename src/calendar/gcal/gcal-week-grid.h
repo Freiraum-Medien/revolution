@@ -1,5 +1,5 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-week-grid.h:1-56 (ff4d7f7d, GPL-3.0-or-later).
- * Revolution #374: REVISION */
+ * Revolution #374: gcal_week_grid_set_n_days (Tagesansicht). */
 /* gcal-week-grid.h
  *
  * Copyright (C) 2016 Vamsi Krishna Gollapudi <pandu.sonu@yahoo.com>
@@ -52,6 +52,10 @@ void                 gcal_week_grid_clear_marks                  (GcalWeekGrid  
 
 void                 gcal_week_grid_set_date                     (GcalWeekGrid       *self,
                                                                   GDateTime          *date);
+
+/* Revolution #374 */
+void                 gcal_week_grid_set_n_days                   (GcalWeekGrid       *self,
+                                                                  gint                n_days);
 
 G_END_DECLS
 

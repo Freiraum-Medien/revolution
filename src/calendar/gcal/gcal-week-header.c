@@ -1,5 +1,7 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-week-header.c:1-1853 (ff4d7f7d, GPL-3.0-or-later).
- * Revolution #374: REVISION */
+ * Revolution #374: ohne Wetter (WeatherInfoDay, gcal_context_get_weather_service) und ohne Ablegen per Ziehen
+ * (Drop-Ziel, move_event_to_cell; Schreiben folgt mit #375); Tagesansicht: Spaltenzahl n_days (1 oder 7),
+ * Beginn und Ende über gcal_week_view_common_get_start/_end. */
 /* gcal-week-header.c
  *
  * Copyright (C) 2016-2020 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>
@@ -23,7 +25,6 @@
 
 #define G_LOG_DOMAIN "GcalWeekHeader"
 
-#include "gcal-application.h"
 #include "gcal-context.h"
 #include "gcal-clock.h"
 #include "gcal-debug.h"
@@ -39,36 +40,11 @@
 #include <string.h>
 #include <math.h>
 
-/* WeatherInfoDay:
- * @winfo: (nullable): Holds weather information for this week-day. All other fields are only valid if this one is not %NULL.
- * @icon_buf: (nullable): Buffered weather icon.
- * @x: X-position of weather indicators.
- * @y: Y-positon of weather indicators.
- * @width: Width of weather indicators.
- * @height: Height of weather indicators.
- *
- * Structure represents a weather indicator for a single day.
- *
- * Location information are stored for mouse-over events.
- */
-typedef struct
-{
-  GcalWeatherInfo    *winfo;    /* owned */
-  GtkIconPaintable   *icon_buf; /* owned */
-} WeatherInfoDay;
-
 typedef struct
 {
   GtkWidget          *day_number_label;
   GtkWidget          *weekday_name_label;
 } WeekdayHeader;
-
-typedef struct
-{
-  GcalWeekHeader     *self;
-  GcalEvent          *event;
-  gint                drop_cell;
-} DropData;
 
 struct _GcalWeekHeader
 {
@@ -113,8 +89,7 @@ struct _GcalWeekHeader
     GtkWidget        *widget;
   } dnd;
 
-  /* Array of nullable weather infos for each day, starting with Sunday. */
-  WeatherInfoDay      weather_infos[N_WEEKDAYS];
+  gint                n_days; /* Revolution #374 */
 };
 
 typedef enum
@@ -141,94 +116,6 @@ static guint signals[LAST_SIGNAL] = { 0, };
 static GParamSpec *properties [N_PROPS];
 
 G_DEFINE_TYPE (GcalWeekHeader, gcal_week_header, GTK_TYPE_WIDGET);
-
-
-/* WeatherInfoDay methods */
-
-/* wid_clear:
- *
- * Drops all internal references and resets
- * geometric information.
- */
-static inline void
-wid_clear (WeatherInfoDay *wid)
-{
-   g_return_if_fail (wid != NULL);
-
-  g_clear_object (&wid->winfo);
-  g_clear_object (&wid->icon_buf);
-}
-
-static gint
-add_weather_infos (GcalWeekHeader *self,
-                   GPtrArray      *weather_infos)
-{
-  g_autoptr (GDateTime) week_start_dt = NULL;
-  GDate week_start;
-  gint consumed = 0;
-  guint i;
-
-  if (!self->active_date)
-    return 0;
-
-  week_start_dt = gcal_date_time_get_start_of_week (self->active_date);
-  g_date_set_dmy (&week_start,
-                  g_date_time_get_day_of_month (week_start_dt),
-                  g_date_time_get_month (week_start_dt),
-                  g_date_time_get_year (week_start_dt));
-
-  for (i = 0; weather_infos && i < weather_infos->len; i++)
-    {
-      GcalWeatherInfo *gwi; /* unowned */
-      GDate gwi_date;
-      gint day_diff;
-
-      gwi = g_ptr_array_index (weather_infos, i);
-
-      gcal_weather_info_get_date (gwi, &gwi_date);
-
-      day_diff = g_date_days_between (&week_start, &gwi_date);
-      if (day_diff >= 0 && day_diff < G_N_ELEMENTS (self->weather_infos))
-        {
-          wid_clear (&self->weather_infos[day_diff]);
-          self->weather_infos[day_diff].winfo = g_object_ref (gwi);
-          consumed++;
-        }
-    }
-
-  if (consumed > 0)
-    gtk_widget_queue_draw (GTK_WIDGET (self));
-
-  return consumed;
-}
-
-static void
-clear_weather_infos (GcalWeekHeader *self)
-{
-  g_return_if_fail (GCAL_IS_WEEK_HEADER (self));
-
-  for (gint i = 0; i < G_N_ELEMENTS (self->weather_infos); i++)
-    wid_clear (&self->weather_infos[i]);
-
-  gtk_widget_queue_draw (GTK_WIDGET (self));
-}
-
-static void
-update_weather_infos (GcalWeekHeader *self)
-{
-  GPtrArray *weather_infos;
-  GcalWeatherService *service;
-
-  g_return_if_fail (GCAL_IS_WEEK_HEADER (self));
-
-  clear_weather_infos (self);
-
-  g_assert (self->context);
-  service = gcal_context_get_weather_service (self->context);
-
-  weather_infos = gcal_weather_service_get_weather_infos (service);
-  add_weather_infos (self, weather_infos);
-}
 
 
 /* Event activation methods */
@@ -270,8 +157,8 @@ on_button_pressed (GtkGestureClick *click_gesture,
 
   ltr = gtk_widget_get_direction (GTK_WIDGET (self)) != GTK_TEXT_DIR_RTL;
   width = gtk_widget_get_width (self->scrolledwindow);
-  column_width = width / (float) N_WEEKDAYS;
-  column = ltr ? (x / column_width) : (N_WEEKDAYS - x / column_width);
+  column_width = width / (float) self->n_days;
+  column = ltr ? (x / column_width) : (self->n_days - x / column_width);
 
   self->selection.start = column;
   self->selection.end = column;
@@ -295,8 +182,8 @@ on_motion_notify (GtkEventControllerMotion *motion_event,
 
   ltr = gtk_widget_get_direction (GTK_WIDGET (self)) != GTK_TEXT_DIR_RTL;
   width = gtk_widget_get_width (self->scrolledwindow);
-  column_width = width / (float) N_WEEKDAYS;
-  column = ltr ? (x / column_width) : (N_WEEKDAYS - x / column_width);
+  column_width = width / (float) self->n_days;
+  column = ltr ? (x / column_width) : (self->n_days - x / column_width);
 
   self->selection.end = column;
 
@@ -326,8 +213,8 @@ on_button_released (GtkGestureClick *click_gesture,
 
   ltr = gtk_widget_get_direction (GTK_WIDGET (self)) != GTK_TEXT_DIR_RTL;
   width = gtk_widget_get_width (self->scrolledwindow);
-  column_width = width / (float) N_WEEKDAYS;
-  column = ltr ? (x / column_width) : (N_WEEKDAYS - x / column_width);
+  column_width = width / (float) self->n_days;
+  column = ltr ? (x / column_width) : (self->n_days - x / column_width);
 
   self->selection.end = column;
   gtk_widget_queue_allocate (GTK_WIDGET (self));
@@ -345,7 +232,7 @@ on_button_released (GtkGestureClick *click_gesture,
       start = start - end;
     }
 
-  week_start = gcal_date_time_get_start_of_week (self->active_date);
+  week_start = gcal_week_view_common_get_start (self->active_date, self->n_days);
   selection_start = g_date_time_add_days (week_start, start);
   selection_end = end == start ? g_date_time_ref (selection_start) : g_date_time_add_days (week_start, end + 1);
 
@@ -361,16 +248,6 @@ on_button_released (GtkGestureClick *click_gesture,
   gcal_view_create_event (GCAL_VIEW (weekview), range, out.x, out.y);
 
   gtk_event_controller_set_propagation_phase (self->motion_controller, GTK_PHASE_NONE);
-}
-
-static void
-on_weather_update (GcalWeatherService *weather_service,
-                   GcalWeekHeader     *self)
-{
-  g_assert (GCAL_IS_WEATHER_SERVICE (weather_service));
-  g_assert (GCAL_IS_WEEK_HEADER (self));
-
-  update_weather_infos (self);
 }
 
 static GcalEvent*
@@ -401,11 +278,11 @@ get_today_column (GcalWeekHeader *self)
   gint days_diff;
 
   today = g_date_time_new_now_local ();
-  week_start = gcal_date_time_get_start_of_week (self->active_date);
+  week_start = gcal_week_view_common_get_start (self->active_date, self->n_days);
   days_diff = g_date_time_difference (today, week_start) / G_TIME_SPAN_DAY;
 
   /* Today is out of range */
-  if (g_date_time_compare (today, week_start) < 0 || days_diff > N_WEEKDAYS)
+  if (g_date_time_compare (today, week_start) < 0 || days_diff >= self->n_days)
     return -1;
 
   return days_diff;
@@ -643,7 +520,7 @@ split_event_widget_at_column (GcalWeekHeader *self,
   gint new_width;
   gint old_width;
 
-  week_start = gcal_date_time_get_start_of_week (self->active_date);
+  week_start = gcal_week_view_common_get_start (self->active_date, self->n_days);
   column_date = g_date_time_add_days (week_start, column);
   end_column_date = g_date_time_add_days (column_date, 1);
 
@@ -828,8 +705,8 @@ add_event_to_grid (GcalWeekHeader *self,
   if (!gcal_event_is_multiday (event))
     return;
 
-  week_start = gcal_date_time_get_start_of_week (self->active_date);
-  week_end = gcal_date_time_get_end_of_week (self->active_date);
+  week_start = gcal_week_view_common_get_start (self->active_date, self->n_days);
+  week_end = gcal_week_view_common_get_end (self->active_date, self->n_days);
 
   gcal_event_widget_set_date_start (GCAL_EVENT_WIDGET (widget), week_start);
   gcal_event_widget_set_date_end (GCAL_EVENT_WIDGET (widget), week_end);
@@ -910,14 +787,14 @@ update_unchanged_events (GcalWeekHeader *self,
 
   events_to_update = NULL;
 
-  new_week_start = gcal_date_time_get_start_of_week (new_date);
-  new_week_end = gcal_date_time_get_end_of_week (new_date);
+  new_week_start = gcal_week_view_common_get_start (new_date, self->n_days);
+  new_week_end = gcal_week_view_common_get_end (new_date, self->n_days);
 
   utc_week_start = g_date_time_new_utc (g_date_time_get_year (new_week_start),
                                         g_date_time_get_month (new_week_start),
                                         g_date_time_get_day_of_month (new_week_start),
                                         0, 0, 0);
-  utc_week_end = g_date_time_add_days (utc_week_start, N_WEEKDAYS);
+  utc_week_end = g_date_time_add_days (utc_week_start, self->n_days);
 
   for (weekday = 0; weekday < N_WEEKDAYS; weekday++)
     {
@@ -985,7 +862,7 @@ update_title (GcalWeekHeader *self)
   if(!self->active_date)
     return;
 
-  week_start = gcal_date_time_get_start_of_week (self->active_date);
+  week_start = gcal_week_view_common_get_start (self->active_date, self->n_days);
   today_column = get_today_column (self);
 
   for (gint i = 0; i < N_WEEKDAYS; i++)
@@ -1122,182 +999,6 @@ on_expand_action_activated (GcalWeekHeader *self,
     header_expand (self);
 }
 
-static gint
-get_dnd_cell (GcalWeekHeader *self,
-              gint            x,
-              gint            y)
-{
-  gdouble column_width;
-
-  column_width = gtk_widget_get_width (GTK_WIDGET (self)) / (float) N_WEEKDAYS;
-
-  return x / column_width;
-}
-
-static void
-move_event_to_cell (GcalWeekHeader        *self,
-                    GcalEvent             *event,
-                    guint                  cell,
-                    GcalRecurrenceModType  mod_type)
-{
-  g_autoptr (GDateTime) week_start = NULL;
-  g_autoptr (GDateTime) dnd_date = NULL;
-  g_autoptr (GDateTime) new_end = NULL;
-  g_autoptr (GDateTime) tmp_dt = NULL;
-  g_autoptr (GcalEvent) changed_event = NULL;
-  GDateTime *start_date;
-  GDateTime *end_date;
-  GTimeSpan difference;
-
-  GCAL_ENTRY;
-
-  /* RTL languages swap the drop cell column */
-  if (gtk_widget_get_direction (GTK_WIDGET (self)) == GTK_TEXT_DIR_RTL)
-    cell = N_WEEKDAYS - 1 - cell;
-
-  changed_event = gcal_event_new_from_event (event);
-  start_date = gcal_event_get_date_start (changed_event);
-  end_date = gcal_event_get_date_end (changed_event);
-  week_start = gcal_date_time_get_start_of_week (self->active_date);
-
-  if (!gcal_event_get_all_day (changed_event))
-    {
-      /*
-       * The only case where we don't touch the timezone is for
-       * timed, multiday events.
-       */
-      tmp_dt = g_date_time_new (g_date_time_get_timezone (start_date),
-                                g_date_time_get_year (week_start),
-                                g_date_time_get_month (week_start),
-                                g_date_time_get_day_of_month (week_start),
-                                g_date_time_get_hour (start_date),
-                                g_date_time_get_minute (start_date),
-                                0);
-    }
-  else
-    {
-      tmp_dt = g_date_time_new_utc (g_date_time_get_year (week_start),
-                                    g_date_time_get_month (week_start),
-                                    g_date_time_get_day_of_month (week_start),
-                                    0, 0, 0);
-    }
-  dnd_date = g_date_time_add_days (tmp_dt, cell);
-
-  /* End date */
-  difference = g_date_time_difference (end_date, start_date) / G_TIME_SPAN_MINUTE;
-
-  new_end = g_date_time_add_minutes (dnd_date, difference);
-  gcal_event_set_date_end (changed_event, new_end);
-
-  /*
-   * Set the start date ~after~ the end date, so we can compare
-   * the event's start and end dates above
-   */
-  gcal_event_set_date_start (changed_event, dnd_date);
-
-  /* Commit the changes */
-  gcal_manager_update_event (gcal_context_get_manager (self->context), changed_event, mod_type);
-}
-
-static void
-on_ask_recurrence_response_cb (GcalEvent             *event,
-                               GcalRecurrenceModType  mod_type,
-                               gpointer               user_data)
-{
-  DropData *data = user_data;
-
-  if (mod_type != GCAL_RECURRENCE_MOD_NONE)
-    move_event_to_cell (data->self, data->event, data->drop_cell, mod_type);
-
-  g_clear_object (&data->event);
-  g_clear_pointer (&data, g_free);
-}
-
-static gboolean
-on_drop_target_drop_cb (GtkDropTarget  *drop_target,
-                        const GValue   *value,
-                        gdouble         x,
-                        gdouble         y,
-                        GcalWeekHeader *self)
-{
-  GcalEventWidget *event_widget;
-  GcalEvent *event;
-  gint cell;
-
-  GCAL_ENTRY;
-
-  if (!G_VALUE_HOLDS (value, GCAL_TYPE_EVENT_WIDGET))
-    GCAL_RETURN (FALSE);
-
-  cell = get_dnd_cell (self, x, y);
-  event_widget = g_value_get_object (value);
-  event = gcal_event_widget_get_event (event_widget);
-
-  if (gcal_event_has_recurrence (event))
-    {
-      DropData *data;
-
-      data = g_new0 (DropData, 1);
-      data->self = self;
-      data->event = g_object_ref (event);
-      data->drop_cell = cell;
-
-      gcal_utils_ask_recurrence_modification_type (GTK_WIDGET (self),
-                                                   event,
-                                                   FALSE,
-                                                   on_ask_recurrence_response_cb,
-                                                   data);
-    }
-  else
-    {
-      move_event_to_cell (self, event, cell, GCAL_RECURRENCE_MOD_THIS_ONLY);
-    }
-
-  GCAL_RETURN (TRUE);
-}
-
-static GdkDragAction
-on_drop_target_enter_cb (GtkDropTarget  *drop_target,
-                         gdouble         x,
-                         gdouble         y,
-                         GcalWeekHeader *self)
-{
-
-  GCAL_ENTRY;
-
-  self->dnd.cell = get_dnd_cell (self, x, y);
-  gtk_widget_set_visible (self->dnd.widget, self->dnd.cell != -1);
-
-  GCAL_RETURN (self->dnd.cell != -1 ? GDK_ACTION_COPY : 0);
-}
-
-static void
-on_drop_target_leave_cb (GtkDropTarget  *drop_target,
-                         GcalWeekHeader *self)
-{
-  GCAL_ENTRY;
-
-  self->dnd.cell = -1;
-  gtk_widget_set_visible (self->dnd.widget, FALSE);
-
-  GCAL_EXIT;
-}
-
-static GdkDragAction
-on_drop_target_motion_cb (GtkDropTarget  *drop_target,
-                          gdouble         x,
-                          gdouble         y,
-                          GcalWeekHeader *self)
-{
-  GCAL_ENTRY;
-
-  self->dnd.cell = get_dnd_cell (self, x, y);
-  gtk_widget_set_visible (self->dnd.widget, self->dnd.cell != -1);
-  gtk_widget_queue_allocate (GTK_WIDGET (self));
-
-  GCAL_RETURN (self->dnd.cell != -1 ? GDK_ACTION_COPY : 0);
-}
-
 /* Drawing area content and size */
 
 static void
@@ -1336,7 +1037,7 @@ gcal_week_header_size_allocate (GtkWidget *widget,
   gtk_widget_allocate (self->main_box, width, height, baseline, NULL);
 
   ltr = gtk_widget_get_direction (widget) != GTK_TEXT_DIR_RTL;
-  cell_width = width / (float) N_WEEKDAYS;
+  cell_width = width / (float) self->n_days;
 
   if (gtk_widget_should_layout (self->selection.widget))
     {
@@ -1404,7 +1105,7 @@ gcal_week_header_snapshot (GtkWidget   *widget,
 
   gtk_snapshot_save (snapshot);
   gtk_snapshot_translate (snapshot, &GRAPHENE_POINT_INIT (x, 0));
-  gcal_week_view_common_snapshot_hour_lines (widget, snapshot, GTK_ORIENTATION_HORIZONTAL, width, height);
+  gcal_week_view_common_snapshot_hour_lines (widget, snapshot, GTK_ORIENTATION_HORIZONTAL, width, height, self->n_days);
   gtk_snapshot_restore (snapshot);
 
   gtk_widget_snapshot_child (widget, self->selection.widget, snapshot);
@@ -1442,9 +1143,6 @@ gcal_week_header_finalize (GObject *object)
 
   for (i = 0; i < N_WEEKDAYS; i++)
     g_list_free (self->events[i]);
-
-  for (i = 0; i < G_N_ELEMENTS (self->weather_infos); i++)
-    wid_clear (&self->weather_infos[i]);
 
   G_OBJECT_CLASS (gcal_week_header_parent_class)->finalize (object);
 }
@@ -1544,7 +1242,6 @@ gcal_week_header_class_init (GcalWeekHeaderClass *kclass)
 static void
 gcal_week_header_init (GcalWeekHeader *self)
 {
-  GtkDropTarget *drop_target;
   gint i;
 
   self->expanded = FALSE;
@@ -1561,6 +1258,7 @@ gcal_week_header_init (GcalWeekHeader *self)
   gtk_widget_set_parent (self->dnd.widget, GTK_WIDGET (self));
 
   self->first_weekday = get_first_weekday ();
+  self->n_days = N_WEEKDAYS;
 
   gtk_widget_init_template (GTK_WIDGET (self));
 
@@ -1591,13 +1289,6 @@ gcal_week_header_init (GcalWeekHeader *self)
       /* Add N_WEEKDAYS empty widget to the grid to ensure proper spacing */
       gtk_grid_attach (self->grid, gtk_box_new (GTK_ORIENTATION_VERTICAL, 0), i, 0, 1, 1);
     }
-
-  drop_target = gtk_drop_target_new (GCAL_TYPE_EVENT_WIDGET, GDK_ACTION_COPY);
-  g_signal_connect (drop_target, "drop", G_CALLBACK (on_drop_target_drop_cb), self);
-  g_signal_connect (drop_target, "enter", G_CALLBACK (on_drop_target_enter_cb), self);
-  g_signal_connect (drop_target, "leave", G_CALLBACK (on_drop_target_leave_cb), self);
-  g_signal_connect (drop_target, "motion", G_CALLBACK (on_drop_target_motion_cb), self);
-  gtk_widget_add_controller (GTK_WIDGET (self), GTK_EVENT_CONTROLLER (drop_target));
 }
 
 void
@@ -1613,14 +1304,6 @@ gcal_week_header_set_context (GcalWeekHeader *self,
                            G_CALLBACK (gtk_widget_queue_draw),
                            self,
                            G_CONNECT_SWAPPED);
-
-  g_signal_connect_object (gcal_context_get_weather_service (self->context),
-                           "weather-changed",
-                           G_CALLBACK (on_weather_update),
-                           self,
-                           0);
-
-  update_weather_infos (self);
 }
 
 void
@@ -1637,8 +1320,8 @@ gcal_week_header_add_event (GcalWeekHeader *self,
   g_return_if_fail (GCAL_IS_WEEK_HEADER (self));
 
   all_day = gcal_event_get_all_day (event);
-  week_start = gcal_date_time_get_start_of_week (self->active_date);
-  week_end = gcal_date_time_get_end_of_week (self->active_date);
+  week_start = gcal_week_view_common_get_start (self->active_date, self->n_days);
+  week_end = gcal_week_view_common_get_end (self->active_date, self->n_days);
 
   /* Retrieve the real start and end dates */
   if (all_day)
@@ -1686,10 +1369,10 @@ gcal_week_header_add_event (GcalWeekHeader *self,
   if (g_date_time_compare (event_end, week_end) < 0)
     end = floor (g_date_time_difference (event_end, week_start) / G_TIME_SPAN_DAY) - all_day;
   else
-    end = N_WEEKDAYS - 1;
+    end = self->n_days - 1;
 
   /* Sanity checks */
-  if (start > end || start > N_WEEKDAYS - 1 || end < 0)
+  if (start > end || start > self->n_days - 1 || end < 0)
     {
       g_warning ("Error adding event '%s' to the week header", gcal_event_get_summary (event));
       return;
@@ -1803,7 +1486,8 @@ gcal_week_header_set_date (GcalWeekHeader *self,
    */
   if (self->active_date && date &&
       g_date_time_get_year (self->active_date) == g_date_time_get_year (date) &&
-      g_date_time_get_week_of_year (self->active_date) == g_date_time_get_week_of_year (date))
+      g_date_time_get_week_of_year (self->active_date) == g_date_time_get_week_of_year (date) &&
+      (self->n_days == N_WEEKDAYS || g_date_time_get_day_of_year (self->active_date) == g_date_time_get_day_of_year (date)))
     {
       return;
     }
@@ -1817,8 +1501,6 @@ gcal_week_header_set_date (GcalWeekHeader *self,
 
   if (had_date)
     update_unchanged_events (self, self->active_date);
-
-  update_weather_infos (self);
 }
 
 gboolean
@@ -1852,4 +1534,20 @@ gcal_week_header_set_expanded (GcalWeekHeader *self,
     header_collapse (self);
 
   g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_EXPANDED]);
+}
+
+/* Revolution #374: Tagesansicht (1 Spalte); Spalten ab n_days ausgeblendet. */
+void
+gcal_week_header_set_n_days (GcalWeekHeader *self,
+                             gint            n_days)
+{
+  g_return_if_fail (GCAL_IS_WEEK_HEADER (self));
+
+  self->n_days = n_days;
+
+  for (gint i = 0; i < N_WEEKDAYS; i++)
+    {
+      gtk_widget_set_visible (gtk_widget_get_parent (self->weekday_header[i].day_number_label), i < n_days);
+      gtk_widget_set_visible (gtk_grid_get_child_at (self->grid, i, 0), i < n_days);
+    }
 }

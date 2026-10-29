@@ -1,5 +1,5 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-week-hour-bar.h:1-35 (ff4d7f7d, GPL-3.0-or-later).
- * Revolution #374: REVISION */
+ * Unverändert. */
 /* gcal-week-hour-bar.h
  *
  * Copyright 2022 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

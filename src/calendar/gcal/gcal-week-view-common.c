@@ -1,5 +1,5 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-week-view-common.c:1-90 (ff4d7f7d, GPL-3.0-or-later).
- * Revolution #374: REVISION */
+ * Revolution #374: Spaltenzahl n_days statt N_WEEKDAYS, Beginn und Ende des Bereichs (Tagesansicht). */
 /* gcal-week-view-common.c
  *
  * Copyright 2022 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>
@@ -28,7 +28,8 @@ gcal_week_view_common_snapshot_hour_lines (GtkWidget      *widget,
                                            GtkSnapshot    *snapshot,
                                            GtkOrientation  orientation,
                                            gint            width,
-                                           gint            height)
+                                           gint            height,
+                                           gint            n_days)
 {
   GdkRGBA color;
   gboolean ltr;
@@ -42,12 +43,12 @@ gcal_week_view_common_snapshot_hour_lines (GtkWidget      *widget,
   color.alpha = 0.15;
   gtk_snapshot_restore (snapshot);
 
-  column_width = width / (float) N_WEEKDAYS;
+  column_width = width / (float) n_days;
 
   switch (orientation)
     {
     case GTK_ORIENTATION_HORIZONTAL:
-      for (i = 0; i < N_WEEKDAYS; i++)
+      for (i = 0; i < n_days; i++)
         {
           gdouble x;
 
@@ -89,4 +90,28 @@ gcal_week_view_common_snapshot_hour_lines (GtkWidget      *widget,
         }
       break;
     }
+}
+
+/* Revolution #374: Beginn (einschließlich) und Ende (ausschließlich) des Bereichs, den die Woche bzw. der Tag
+ * (n_days 1) zeigt, 0:00 Ortszeit wie gcal_date_time_get_start_of_week. */
+GDateTime*
+gcal_week_view_common_get_start (GDateTime *date,
+                                 gint       n_days)
+{
+  if (n_days == N_WEEKDAYS)
+    return gcal_date_time_get_start_of_week (date);
+
+  return g_date_time_new_local (g_date_time_get_year (date),
+                                g_date_time_get_month (date),
+                                g_date_time_get_day_of_month (date),
+                                0, 0, 0);
+}
+
+GDateTime*
+gcal_week_view_common_get_end (GDateTime *date,
+                               gint       n_days)
+{
+  g_autoptr (GDateTime) start = gcal_week_view_common_get_start (date, n_days);
+
+  return g_date_time_add_days (start, n_days);
 }

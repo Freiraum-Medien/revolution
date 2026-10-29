@@ -1,5 +1,5 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-week-view.h:1-33 (ff4d7f7d, GPL-3.0-or-later).
- * Revolution #374: REVISION */
+ * Unverändert. */
 /* gcal-week-view.h
  *
  * Copyright (C) 2012 - Erick Pérez Castellanos

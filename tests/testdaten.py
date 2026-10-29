@@ -156,6 +156,11 @@
 #                                 Google, e-book-backend-carddav.c:1530) mit dem GOA-Token, microsoft365 Graph GET
 #                                 /me/contacts/<UID>; Zeilen „SERVER 200 <JSON>“ (Name, E-Mails, Telefone, Notiz, Firma …)
 #                                 oder „SERVER 404“; lokales Buch „SERVER lokal“
+#   tests/testdaten.py --kontakt-server-aendern BUCH DATEI
+#                                 #370, nur Google-CardDAV, nur der gespeicherte Testkontakt (Nachname „Revolution-Test…“
+#                                 am Server geprüft): GET <Sammlung>/<UID> mit ETag, NOTE um „Server-Änderung <Zeit>“
+#                                 ergänzt, PUT mit If-Match (ohne EDS, ändert das ETag am Server für den Konflikt-Test);
+#                                 Zeilen „SCHREIBVORGANG <BUCH>“, „SERVER-GEAENDERT <UID> <ETag alt> <Notiz-Zeile>“
 #   tests/testdaten.py --kontakt-graph anlegen|loeschen DATEI
 #                                 #368, Gegenprobe am Server ohne EDS (Graph, nur KONTO_M365 /me/contacts): anlegen
 #                                 POST mit Nachname „Revolution-Test 368 Graph <Zeit>“, ID nach DATEI („GRAPH <ID> <Name>“);
@@ -2104,6 +2109,58 @@ def kontakt_server(registry, buch, datei):
     return 0
 
 
+def kontakt_server_aendern(registry, buch, datei):
+    """#370: siehe Kopf (--kontakt-server-aendern)."""
+    if buch != KONTAKT_SCHREIBBAR[0]:
+        sys.exit('ABBRUCH: --kontakt-server-aendern nur im Google-Buch')
+    zeile = open(datei).read().split(None, 3)
+    if len(zeile) < 3 or zeile[0] != 'KONTAKT' or zeile[1] != buch:
+        sys.exit('ABBRUCH: %s enthält keinen Testkontakt aus %s' % (datei, buch))
+    uid = zeile[2]
+    g = registry.ref_source(buch).get_extension(EDataServer.SOURCE_EXTENSION_WEBDAV_BACKEND).dup_uri()
+    token = konten_finden(registry)[KONTO_GOOGLE].goa.get_oauth2_based().call_get_access_token_sync(None)[0]
+    vcard = None
+    for endung in ('', '.vcf'):  # wie --kontakt-server: von EDS angelegte Kontakte liegen unter <UID>.vcf
+        url = 'https://%s%s/%s%s' % (g.get_host(), g.get_path().rstrip('/'), urllib.parse.quote(uid), endung)
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers={'Authorization': 'Bearer ' + token}),
+                                        timeout=TIMEOUT) as r:
+                etag, vcard = r.headers.get('ETag'), r.read().decode()
+            break
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+    if vcard is None:
+        sys.exit('ABBRUCH: Kontakt %s am Server nicht gefunden' % uid)
+    _, EBookContacts = ebook()
+    x = EBookContacts.Contact.new_from_vcard(vcard)
+    if not (x.get_property('name') and (x.get_property('name').family or '').startswith(KONTAKT_PREFIX)):
+        sys.exit('ABBRUCH: Kontakt %s hat keinen Nachnamen %s…' % (uid, KONTAKT_PREFIX))
+    zusatz = 'Server-Änderung %s' % datetime.datetime.now().strftime('%H%M%S')
+    zeilen = []
+    for z in vcard.replace('\r\n', '\n').split('\n'):  # Faltung (RFC 6350 3.2) auflösen
+        if z.startswith((' ', '\t')) and zeilen:
+            zeilen[-1] += z[1:]
+        else:
+            zeilen.append(z)
+    neu, drin = [], False
+    for z in zeilen:
+        if z.startswith('NOTE'):
+            z = z + '\\n' + zusatz
+            drin = True
+        if z == 'END:VCARD' and not drin:
+            neu.append('NOTE:' + zusatz)
+        neu.append(z)
+    req = urllib.request.Request(url, method='PUT', data='\r\n'.join(neu).encode(),
+                                 headers={'Authorization': 'Bearer ' + token, 'If-Match': etag,
+                                          'Content-Type': 'text/vcard; charset=utf-8'})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        status = r.status
+    print('SCHREIBVORGANG %s' % buch)
+    print('SERVER-GEAENDERT %s %s HTTP %d %s' % (uid, etag, status, zusatz), flush=True)
+    return 0
+
+
 def kontakt_graph(k, aktion, datei):
     """#368: siehe Kopf (--kontakt-graph); nur KONTO_M365, nur die gespeicherte ID."""
     nur_testkonten([k.adresse])
@@ -2849,6 +2906,8 @@ def main():
     ap.add_argument('--adressbuecher', action='store_true', help='#368: nur lesend Adressbücher und Kontaktzahl')
     ap.add_argument('--kontakt-live', nargs=3, metavar=('anlegen|aendern|loeschen|pruefen|refresh|detail|lesen|feld', 'BUCH', 'DATEI'),
                     help='#368: Testkontakt von außen über EDS')
+    ap.add_argument('--kontakt-server-aendern', nargs=2, metavar=('BUCH', 'DATEI'),
+                    help='#370: Testkontakt am Google-Server direkt ändern (CardDAV PUT, Konflikt-Test)')
     ap.add_argument('--kontakt-server', nargs=2, metavar=('BUCH', 'DATEI'),
                     help='#370: Testkontakt am Server ohne EDS (CardDAV bzw. Graph)')
     ap.add_argument('--kontakt-graph', nargs=2, metavar=('anlegen|loeschen', 'DATEI'),
@@ -2933,6 +2992,8 @@ def main():
                                         'extra'):
             ap.error('--kontakt-live anlegen|aendern|loeschen|pruefen|refresh|detail|lesen|feld|extra BUCH DATEI')
         return kontakt_live(EDataServer.SourceRegistry.new_sync(None), *args.kontakt_live)
+    if args.kontakt_server_aendern:
+        return kontakt_server_aendern(EDataServer.SourceRegistry.new_sync(None), *args.kontakt_server_aendern)
     if args.kontakt_server:
         return kontakt_server(EDataServer.SourceRegistry.new_sync(None), *args.kontakt_server)
     if args.kontakt_graph:

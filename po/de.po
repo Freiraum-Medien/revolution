@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: revolution\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-29 00:23+0100\n"
+"POT-Creation-Date: 2026-10-29 01:19+0100\n"
 "PO-Revision-Date: 2026-10-28 22:20+0100\n"
 "Last-Translator: Arnd Messer\n"
 "Language-Team: German\n"
@@ -374,7 +374,7 @@ msgstr "Kein Zielordner"
 msgid "Moved to “%s”"
 msgstr "Verschoben nach „%s“"
 
-#: src/mail/mail-view.c:3543 src/contacts/contacts-view.c:1371
+#: src/mail/mail-view.c:3543 src/contacts/contacts-view.c:1409
 msgid "_Undo"
 msgstr "_Rückgängig"
 
@@ -777,7 +777,7 @@ msgstr "Kalender"
 
 #: src/window.blp:64 src/contacts/contacts-view.blp:252
 #: src/contacts/contacts-view.blp:358 src/contacts/contacts-view.blp:659
-#: src/contacts/contacts-view.c:134
+#: src/contacts/contacts-view.c:135
 msgid "Contacts"
 msgstr "Kontakte"
 
@@ -1503,27 +1503,28 @@ msgstr "Adresstyp"
 msgid "Address"
 msgstr "Adresse"
 
+#. AdwExpanderRow reiht Suffixe von rechts nach links: Löschen zuerst, damit Typ | Löschen wie bei E-Mail/Telefon.
 #: src/contacts/contacts-editor.c:330
 msgid "Remove Address"
 msgstr "Adresse entfernen"
 
-#: src/contacts/contacts-editor.c:331
+#: src/contacts/contacts-editor.c:332
 msgid "Street"
 msgstr "Straße"
 
-#: src/contacts/contacts-editor.c:332
+#: src/contacts/contacts-editor.c:333
 msgid "Postal Code"
 msgstr "Postleitzahl"
 
-#: src/contacts/contacts-editor.c:333
+#: src/contacts/contacts-editor.c:334
 msgid "City"
 msgstr "Stadt"
 
-#: src/contacts/contacts-editor.c:334
+#: src/contacts/contacts-editor.c:335
 msgid "State/Province"
 msgstr "Bundesstaat/Provinz"
 
-#: src/contacts/contacts-editor.c:335
+#: src/contacts/contacts-editor.c:336
 msgid "Country"
 msgstr "Land"
 
@@ -1537,7 +1538,7 @@ msgstr "Schreibgeschützt"
 
 #: src/contacts/contacts-view.blp:237 src/contacts/contacts-view.blp:241
 #: src/contacts/contacts-view.blp:480 src/contacts/contacts-view.blp:484
-#: src/contacts/contacts-view.c:1036
+#: src/contacts/contacts-view.c:1054
 msgid "New Contact"
 msgstr "Neuer Kontakt"
 
@@ -1570,7 +1571,7 @@ msgid "Delete Contact"
 msgstr "Kontakt löschen"
 
 #: src/contacts/contacts-view.blp:511 src/contacts/contacts-view.blp:515
-#: src/contacts/contacts-view.c:1036
+#: src/contacts/contacts-view.c:1054
 msgid "Edit Contact"
 msgstr "Kontakt bearbeiten"
 
@@ -1586,55 +1587,59 @@ msgstr "Kontakt"
 msgid "_New Contact"
 msgstr "_Neuer Kontakt"
 
-#: src/contacts/contacts-view.c:130
+#: src/contacts/contacts-view.c:131
 #, c-format
 msgid "%u contact"
 msgid_plural "%u contacts"
 msgstr[0] "%u Kontakt"
 msgstr[1] "%u Kontakte"
 
-#: src/contacts/contacts-view.c:333
+#: src/contacts/contacts-view.c:334
 msgid "Address Book Incomplete"
 msgstr "Adressbuch unvollständig"
 
-#: src/contacts/contacts-view.c:388 src/contacts/contacts-view.c:430
-#: src/contacts/contacts-view.c:556
+#: src/contacts/contacts-view.c:389 src/contacts/contacts-view.c:431
+#: src/contacts/contacts-view.c:557
 msgid "Address Book Unavailable"
 msgstr "Adressbuch nicht verfügbar"
 
-#: src/contacts/contacts-view.c:1037
+#: src/contacts/contacts-view.c:1055
 msgid "_Add"
 msgstr "_Hinzufügen"
 
-#: src/contacts/contacts-view.c:1037
+#: src/contacts/contacts-view.c:1055
 msgid "_Done"
 msgstr "_Fertig"
 
-#: src/contacts/contacts-view.c:1085
+#: src/contacts/contacts-view.c:1104
 msgid "No Writable Address Book"
 msgstr "Kein schreibbares Adressbuch"
 
-#: src/contacts/contacts-view.c:1085
+#: src/contacts/contacts-view.c:1104
 msgid "All address books are read-only."
 msgstr "Alle Adressbücher sind schreibgeschützt."
 
-#: src/contacts/contacts-view.c:1190
+#: src/contacts/contacts-view.c:1209 src/contacts/contacts-view.c:1245
 msgid "Could Not Save Contact"
 msgstr "Kontakt konnte nicht gespeichert werden"
 
-#: src/contacts/contacts-view.c:1284
+#: src/contacts/contacts-view.c:1245
+msgid "No address book selected."
+msgstr "Kein Adressbuch gewählt."
+
+#: src/contacts/contacts-view.c:1311
 msgid "Could Not Delete Contact"
 msgstr "Kontakt konnte nicht gelöscht werden"
 
-#: src/contacts/contacts-view.c:1370
+#: src/contacts/contacts-view.c:1408
 msgid "Contact deleted"
 msgstr "Kontakt gelöscht"
 
-#: src/contacts/contacts-view.c:1415
+#: src/contacts/contacts-view.c:1468
 msgid "Contact already exists"
 msgstr "Kontakt ist schon vorhanden"
 
-#: src/contacts/contacts-view.c:1643
+#: src/contacts/contacts-view.c:1700
 #, c-format
 msgid "Jump to “%s”"
 msgstr "Zu „%s“ springen"

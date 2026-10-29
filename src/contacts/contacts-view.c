@@ -987,6 +987,19 @@ book_readonly (RevolutionContactsBook *book)
   return readonly;
 }
 
+/* Schreibbar nur, wenn der Client verbunden ist und nicht „nur lesend“ meldet; vor dem Verbinden ist die
+ * Eigenschaft „readonly“ des Eintrags noch FALSE (contacts-book.c), das Buch gilt dann nicht als schreibbar. */
+static gboolean
+book_writable (RevolutionContactsView *self,
+               RevolutionContactsBook *book)
+{
+  EClient *client = book != NULL && self->clients != NULL
+                    ? g_hash_table_lookup (self->clients, e_source_get_uid (revolution_contacts_book_get_source (book)))
+                    : NULL;
+
+  return client != NULL && !e_client_is_readonly (client);
+}
+
 static void
 set_enabled (RevolutionContactsView *self,
              const char             *name,
@@ -1013,7 +1026,7 @@ update_actions (RevolutionContactsView *self)
     {
       g_autoptr (RevolutionContactsBook) book = g_list_model_get_item (books, i);
 
-      any_writable = !book_readonly (book);
+      any_writable = book_writable (self, book);
     }
   set_enabled (self, "new", !self->editing && any_writable);
   set_enabled (self, "edit", !self->editing && writable && connected && selected);
@@ -1056,7 +1069,8 @@ show_editor (RevolutionContactsView *self,
     }
 }
 
-/* Anlegen: schreibbare Bücher wie Evolutions Quellen-Auswahl (Bücher, die nicht als nur lesend bekannt sind);
+/* Anlegen: schreibbare Bücher wie Evolutions Quellen-Auswahl (nur verbundene, die nicht „nur lesend“ melden,
+ * book_writable; Evolution prüft beim Speichern, e-contact-editor.c save_contact);
  * Vorgabe das Buch target (sonst das gewählte, sonst das erste). template: Vorbelegung oder NULL. */
 static void
 open_new (RevolutionContactsView *self,
@@ -1075,7 +1089,7 @@ open_new (RevolutionContactsView *self,
       g_autoptr (RevolutionContactsBook) book = g_list_model_get_item (sorted, i);
       g_autofree char *label = NULL;
 
-      if (book_readonly (book))
+      if (!book_writable (self, book))
         continue;
       if (book == (target != NULL ? target : self->book))
         selected = self->edit_books->len;
@@ -1219,13 +1233,20 @@ on_save (GSimpleAction *action G_GNUC_UNUSED,
   RevolutionContactsView *self = user_data;
   g_autoptr (EContact) contact = revolution_contacts_editor_build (self->editor);
   gboolean is_new = self->edit_book == NULL;
-  RevolutionContactsBook *book = is_new ? g_ptr_array_index (self->edit_books,
-                                                            MIN (revolution_contacts_editor_get_book (self->editor),
-                                                                 self->edit_books->len - 1))
-                                        : self->edit_book;
+  guint index = revolution_contacts_editor_get_book (self->editor);
+  RevolutionContactsBook *book = self->edit_book;
 
   if (!revolution_contacts_editor_is_valid (self->editor) || self->saving)
     return;
+  /* Ohne gewähltes Buch (GTK_INVALID_LIST_POSITION) nicht still in ein anderes schreiben. */
+  if (is_new && (self->edit_books == NULL || index >= self->edit_books->len))
+    {
+      g_debug ("Kontakt-Formular: kein Buch gewählt, nichts geschrieben");
+      show_error (self, _("Could Not Save Contact"), _("No address book selected."));
+      return;
+    }
+  if (is_new)
+    book = g_ptr_array_index (self->edit_books, index);
   self->saving = TRUE;
   update_actions (self);
   run_job (self, job_new (self, is_new ? JOB_ADD : JOB_MODIFY, book, contact), on_saved);
@@ -1422,6 +1443,21 @@ on_sender_found (GObject      *source_object,
     return;
   if (!g_task_propagate_boolean (G_TASK (result), &error))
     g_debug ("Kontakt: Absender suchen %s Fehler: %s", e_source_get_uid (job->source), error->message);
+  /* Der Worker hat das Buch verbunden, falls die Ansicht es noch nicht war: Client übernehmen, „nur lesend“ ist
+   * jetzt bekannt (wie on_book_connected). */
+  if (job->client != NULL && !g_hash_table_contains (self->clients, e_source_get_uid (job->source)))
+    {
+      g_hash_table_insert (self->clients, g_strdup (e_source_get_uid (job->source)), g_object_ref (job->client));
+      revolution_contacts_book_set_readonly (book, e_client_is_readonly (E_CLIENT (job->client)));
+      g_signal_connect_object (job->client, "notify::readonly", G_CALLBACK (on_readonly_changed), self, G_CONNECT_DEFAULT);
+      update_actions (self);
+    }
+  if (!book_writable (self, book))
+    {
+      g_debug ("Kontakt: Absender: Buch %s nicht schreibbar", e_source_get_uid (job->source));
+      open_new (self, template, NULL);
+      return;
+    }
   if (job->contact != NULL)
     {
       GtkWidget *overlay = gtk_widget_get_ancestor (GTK_WIDGET (self), ADW_TYPE_TOAST_OVERLAY);
@@ -1471,16 +1507,20 @@ revolution_contacts_view_add_sender (RevolutionContactsView *self,
     e_contact_set (template, E_CONTACT_FULL_NAME, clean);
   e_contact_set (template, E_CONTACT_EMAIL_1, address);
 
+  /* Gewähltes Buch, wenn schreibbar, sonst das erste schreibbare; ist noch keins verbunden (Kontakte nie
+   * angezeigt), das gewählte, sofern nicht als nur lesend bekannt: der Worker verbindet es (on_sender_found). */
   sorted = G_LIST_MODEL (self->book_sorted);
-  if (self->book != NULL && !book_readonly (self->book))
+  if (book_writable (self, self->book))
     target = self->book;
   for (guint i = 0; target == NULL && i < g_list_model_get_n_items (sorted); i++)
     {
       g_autoptr (RevolutionContactsBook) book = g_list_model_get_item (sorted, i);
 
-      if (!book_readonly (book))
+      if (book_writable (self, book))
         target = book;
     }
+  if (target == NULL && self->book != NULL && !book_readonly (self->book))
+    target = self->book;
   g_debug ("Kontakt: Absender übernehmen „%s“ <%s>, Buch %s", clean != NULL ? clean : "", address,
            target != NULL ? e_source_get_uid (revolution_contacts_book_get_source (target)) : "-");
   if (target == NULL)

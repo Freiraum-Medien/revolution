@@ -1010,18 +1010,31 @@ def neu_formular(ziel, datei, voll, bildname=None, vorgabe=BUCH):
     return uid, s
 
 
+def sperre(buch, uid, schritt):
+    """Vor jedem Schreiben aus dem Formular: das zuletzt geöffnete Formular bearbeitet genau den gespeicherten
+    Testkontakt im Zielbuch, und das Detail zeigt ihn; sonst Escape, FEHLER, nichts schreiben."""
+    formulare = re.findall(r'Kontakt-Formular: bearbeiten (\S+) (\S+)$', log_text(), re.M)
+    if formulare and formulare[-1] == (buch, uid) and buch == ZIEL and detail_uid() == uid:
+        return True
+    falsch('%s: Sperre – Formular %s, Detail %s statt %s %s; abgebrochen, nichts geschrieben'
+           % (schritt, formulare[-1:] or None, detail_uid(), buch[:8], uid))
+    taste('Escape')
+    return False
+
+
 def aendern(buch, datei, s, extra):
     """Escape bricht ab (nichts geschrieben); dann Telefon und Notiz ändern, „Fertig“; Unbekanntes bleibt."""
     uid = open(datei).read().split()[2]
     if extra:
         ab = marke()
         testdaten('--kontakt-live', 'extra', buch, datei)
-        print('SCHREIBVORGANG %s' % buch, flush=True)
         warte(r'Kontakte: %s geändert %s ' % (re.escape(buch), re.escape(uid)), ab, 60)
     ab = marke()
     knopf('Kontakt bearbeiten')
     (ok if warte(r'Kontakt-Formular: bearbeiten %s %s' % (re.escape(buch), re.escape(uid)), ab, 10) else falsch)(
         'Bearbeiten: Formular mit dem Kontakt')
+    if not sperre(buch, uid, 'Bearbeiten'):
+        return s
     (ok if text_von('Vorname') == s['given'] and text_von('Nachname') == s['family'] else falsch)(
         'Bearbeiten: Formular zeigt Vorname/Nachname (%s %s)' % (text_von('Vorname'), text_von('Nachname')))
     feld('Vorname', 'Verworfen')
@@ -1031,6 +1044,8 @@ def aendern(buch, datei, s, extra):
     ab = marke()
     knopf('Kontakt bearbeiten')
     warte(r'Kontakt-Formular: bearbeiten ', ab, 10)
+    if not sperre(buch, uid, 'Ändern'):
+        return s
     s = dict(s)
     s['notiz'] = s['notiz'] + '\nGeändert in Revolution'
     # Zeile mit der Mobilnummer (microsoft365 liefert die Telefone in eigener Reihenfolge).
@@ -1052,6 +1067,8 @@ def aendern(buch, datei, s, extra):
     taste('Tab')
     taste('Shift_L', 'Tab')
     bild('formular-bearbeiten', os.path.join(OUT, '%sformular-bearbeiten.png' % BILD_PREFIX))
+    if not sperre(buch, uid, 'Ändern vor „Fertig“'):
+        return s
     ab = marke()
     if tab_bis('Fertig', 'button'):
         taste('Return')
@@ -1063,6 +1080,48 @@ def aendern(buch, datei, s, extra):
     (ok if warte(r'Kontakte: %s geändert %s ' % (re.escape(buch), re.escape(uid)), ab, 60) else falsch)(
         'Ändern: Änderung kommt über die Live-Ansicht')
     return s
+
+
+def konflikt(buch, datei):
+    """SOLLTE 3 (PM): Formular des eigenen Testkontakts offen, derselbe Kontakt wird am Server direkt geändert
+    (CardDAV PUT, neues ETag); dann „Fertig“. Belegt, wie EDS den Konflikt auflöst."""
+    uid = open(datei).read().split()[2]
+    ab = marke()
+    knopf('Kontakt bearbeiten')
+    warte(r'Kontakt-Formular: bearbeiten ', ab, 10)
+    if not sperre(buch, uid, 'Konflikt'):
+        return
+    feld('Position', 'Testerin (App)')
+    aus = testdaten('--kontakt-server-aendern', buch, datei)
+    zusatz = re.search(r'^SERVER-GEAENDERT \S+ \S+ HTTP (\d+) (.*)$', aus, re.M)
+    wert('Konflikt: Server direkt geändert (HTTP %s, NOTE + „%s“), Formular noch offen' % (zusatz.group(1), zusatz.group(2)))
+    time.sleep(1)
+    if not sperre(buch, uid, 'Konflikt vor „Fertig“'):
+        return
+    ab = marke()
+    if tab_bis('Fertig', 'button'):
+        taste('Return')
+    m = warte(r'Kontakt: ändern \S+ \S+ (fertig|Fehler: .*)$', ab, 60)
+    if m is None:
+        falsch('Konflikt: keine Antwort auf „Fertig“')
+        return
+    if m.group(1).startswith('Fehler'):
+        time.sleep(1)
+        offen = warte(r'Kontakt-Formular: abgebrochen', ab, 1) is None
+        banner = finde(wurzel(), 'label', 'Kontakt konnte nicht gespeichert werden') is not None
+        (ok if offen and banner else falsch)('Konflikt: %s → Banner %s, Formular offen %s' % (m.group(1), banner, offen))
+        bild('konflikt-banner', os.path.join(OUT, 'm6-370-konflikt-banner.png'))
+        taste('Escape')
+        return
+    print('SCHREIBVORGANG %s' % buch, flush=True)
+    status, x = server(buch, datei)
+    server_notiz = (x or {}).get('notiz') or ''
+    wert('Konflikt: EDS schreibt ohne Fehler (E_BOOK_OPERATION_FLAG_NONE = CONFLICT_KEEP_LOCAL, '
+         'e-book-contacts-enums.h:143-147; Evolution e-contact-editor.c real_save_contact ebenso NONE): '
+         'Server Position %s, Server-Änderung in NOTE %s' % ((x or {}).get('position'),
+                                                             'erhalten' if zusatz.group(2) in server_notiz else 'überschrieben'))
+    (ok if (x or {}).get('position') == 'Testerin (App)' else falsch)(
+        'Konflikt: App-Stand am Server (Position „%s“), lokale Fassung gewinnt' % (x or {}).get('position'))
 
 
 def detail_uid():
@@ -1148,6 +1207,8 @@ def schreiben():
         (ok if f2.get('spitzname') == 'Revolution-370-Spitzname' else falsch)(
             'Ändern: Feld außerhalb des Formulars (NICKNAME) erhalten: %s' % f2.get('spitzname'))
     vergleiche_server(ZIEL, KONTAKT, s, 'Ändern')
+    if not m365:
+        konflikt(ZIEL, KONTAKT)
     loeschen(ZIEL, KONTAKT, name, True)
     loeschen(ZIEL, KONTAKT, name, False, per_knopf=True)
     bild('geloescht')
@@ -1228,10 +1289,22 @@ def absender():
     taste('Control_L', '1')
     time.sleep(1)
     ab = absender_menue()
-    if ab is None or not warte(r'Kontakt-Formular: neu[ ,]', ab, 30):
+    m = warte(r'Kontakt-Formular: neu, Bücher(?: \S+)+, Vorgabe (\S+)$', ab, 30) if ab is not None else None
+    if m is None:
         falsch('Absender: Formular beim zweiten Mal nicht geöffnet')
         return
     time.sleep(1)
+    # Sperre vor dem Speichern: Vorgabe und angezeigte Buch-Auswahl = Google-Buch (wie neu_formular).
+    google = '518e93226d14866ae0d8074ec0128a43c0c0c257'
+    konto, buchname = vergleich()[google][0].split(' / ', 1)
+    combo = finde(wurzel(), 'combo box', 'Adressbuch')
+    texte = [k.get_name() for k in knoten(combo)] if combo is not None else []
+    if m.group(1) != google or '%s (%s)' % (buchname, konto) not in texte:
+        falsch('Absender: Buch-Vorgabe %s (Anzeige %s) ist nicht das Google-Buch; abgebrochen, nichts geschrieben'
+               % (m.group(1), texte))
+        taste('Escape')
+        return
+    ok('Absender: Buch-Vorgabe Google-Buch (Log und AT-SPI)')
     familie = 'Revolution-Test Absender %s' % time.strftime('%H%M%S')
     feld('Nachname', familie)
     ab = marke()

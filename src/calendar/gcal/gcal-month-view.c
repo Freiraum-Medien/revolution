@@ -23,6 +23,7 @@
 
 #include "config.h"
 #include "gcal-context.h"
+#include "gcal-core-macros.h"
 #include "gcal-debug.h"
 #include "gcal-month-cell.h"
 #include "gcal-month-popover.h"
@@ -1282,6 +1283,23 @@ gcal_month_view_get_range (GcalTimelineSubscriber *subscriber)
   return gcal_range_union (first_row_range, last_row_range);
 }
 
+/* Revolution #373: jeder Termin der Monatsansicht im Log (Domäne revolution, G_MESSAGES_DEBUG) für
+ * tests/kalender-treiber.py: Kalender-UID, Termin-UID (gcal_event_get_uid), Beginn und Ende in UTC. */
+static void
+revolution_log_event (const gchar *what,
+                      GcalEvent   *event)
+{
+  g_autoptr (GDateTime) start = g_date_time_to_utc (gcal_event_get_date_start (event));
+  GDateTime *date_end = gcal_event_get_date_end (event);
+  g_autoptr (GDateTime) end = g_date_time_to_utc (date_end ? date_end : gcal_event_get_date_start (event));
+  g_autofree gchar *start_str = g_date_time_format_iso8601 (start);
+  g_autofree gchar *end_str = g_date_time_format_iso8601 (end);
+
+  g_log ("revolution", G_LOG_LEVEL_DEBUG, "Termin: %s %s %s %s %s ganztags %d UI-Thread %s", what,
+         gcal_calendar_get_id (gcal_event_get_calendar (event)), gcal_event_get_uid (event),
+         start_str, end_str, gcal_event_get_all_day (event), GCAL_IS_MAIN_THREAD () ? "ja" : "nein");
+}
+
 static void
 gcal_month_view_add_event (GcalTimelineSubscriber *subscriber,
                            GcalEvent              *event)
@@ -1293,6 +1311,7 @@ gcal_month_view_add_event (GcalTimelineSubscriber *subscriber,
   g_assert (event != NULL);
 
   self = GCAL_MONTH_VIEW (subscriber);
+  revolution_log_event ("+", event);
 
   if (!g_hash_table_add (self->events, g_object_ref (event)))
     {
@@ -1340,6 +1359,7 @@ gcal_month_view_remove_event (GcalTimelineSubscriber *subscriber,
 
   /* Keep event alive while removing it */
   owned_event = g_object_ref (event);
+  revolution_log_event ("-", event);
 
   if (!g_hash_table_remove (self->events, event))
     {

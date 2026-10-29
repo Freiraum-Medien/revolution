@@ -25,4 +25,12 @@
     <file>icons/scalable/actions/share-nodes-symbolic.svg</file>
     <file>icons/scalable/actions/sort-order-symbolic.svg</file>
   </gresource>
+  <!-- #373: Pfade der Vorlage gnome-calendar 50.0 (src/gui/views/views.gresource.xml,
+       src/gui/gui.gresource.xml), damit set_template_from_resource unverändert bleibt. -->
+  <gresource prefix="/org/gnome/calendar/ui">
+    <file alias="gui/gcal-event-widget.ui" compressed="true">gcal-event-widget.ui</file>
+    <file alias="views/gcal-month-cell.ui" compressed="true">gcal-month-cell.ui</file>
+    <file alias="views/gcal-month-popover.ui" compressed="true">gcal-month-popover.ui</file>
+    <file alias="views/gcal-month-view.ui" compressed="true">gcal-month-view.ui</file>
+  </gresource>
 </gresources>

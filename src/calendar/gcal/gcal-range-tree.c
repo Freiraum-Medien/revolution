@@ -19,7 +19,7 @@
 #define G_LOG_DOMAIN "GcalRangeTree"
 
 #include "gcal-range-tree.h"
-#include "utils/gcal-date-time-utils.h"
+#include "gcal-date-time-utils.h" /* Revolution #373: flache Ablage */
 
 /**
  * SECTION:gcal-range-tree

@@ -57,3 +57,12 @@ kontakt361b = HILFS_KONTAKT361B@example.invalid
 # Domain für Message-IDs, Content-IDs und Kalender-UIDs der Testmails (gleich lassen, sonst findet
 # tests/testdaten.py vorhandene Testmails nicht wieder)
 msgid_domain = example.invalid
+
+[kalender]
+# #373: ESource-UIDs der Kalender, in die Tests Testtermine schreiben dürfen (alle anderen nur lesend);
+# UIDs zeigt tests/testdaten.py --kalender
+schreibbar_m365 = UID_KALENDER_M365
+schreibbar_google = UID_KALENDER_GOOGLE
+schreibbar_lokal = system-calendar
+# fremde Kalender (nur lesend) für den Anzahl-Vergleich App = Python-GI, durch Leerzeichen getrennt
+lesend_vergleich = UID_1 UID_2

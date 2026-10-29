@@ -39,37 +39,7 @@ GList*               gcal_manager_get_calendars                  (GcalManager   
 
 GListModel*          gcal_manager_get_calendars_model            (GcalManager        *self);
 
-GcalCalendar*        gcal_manager_get_default_calendar           (GcalManager        *self);
-
-void                 gcal_manager_set_default_calendar           (GcalManager        *self,
-                                                                  GcalCalendar       *calendar);
-
 GcalTimeline*        gcal_manager_get_timeline                   (GcalManager        *self);
-
-void                 gcal_manager_refresh                        (GcalManager        *self);
-
-void                 gcal_manager_create_event                   (GcalManager        *self,
-                                                                  GcalEvent          *event);
-
-void                 gcal_manager_update_event                   (GcalManager           *self,
-                                                                  GcalEvent             *event,
-                                                                  GcalRecurrenceModType  mod);
-
-void                 gcal_manager_remove_event                   (GcalManager           *self,
-                                                                  GcalEvent             *event,
-                                                                  GcalRecurrenceModType  mod);
-
-void                 gcal_manager_move_event_to_source           (GcalManager        *self,
-                                                                  GcalEvent          *event,
-                                                                  ESource            *dest);
-
-gchar*               gcal_manager_add_source                     (GcalManager        *self,
-                                                                  const gchar        *name,
-                                                                  const gchar        *backend,
-                                                                  const gchar        *color);
-
-void                 gcal_manager_save_source                    (GcalManager        *self,
-                                                                  ESource            *source);
 
 GPtrArray*           gcal_manager_get_events                     (GcalManager        *self,
                                                                   GDateTime          *range_start,
@@ -77,7 +47,8 @@ GPtrArray*           gcal_manager_get_events                     (GcalManager   
 
 gboolean             gcal_manager_get_synchronizing              (GcalManager        *self);
 
-void                 gcal_manager_startup                        (GcalManager        *self);
+void                 gcal_manager_startup                        (GcalManager        *self,
+                                                                  ESourceRegistry    *registry);
 
 G_END_DECLS
 

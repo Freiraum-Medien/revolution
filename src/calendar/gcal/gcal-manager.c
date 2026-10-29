@@ -18,15 +18,12 @@
 
 #define G_LOG_DOMAIN "GcalManager"
 
-#include "gcal-application.h"
 #include "gcal-context.h"
 #include "gcal-debug.h"
 #include "gcal-manager.h"
 #include "gcal-timeline.h"
 #include "gcal-timeline-subscriber.h"
 #include "gcal-utils.h"
-
-#include <libedataserverui4/libedataserverui4.h>
 
 /**
  * SECTION:gcal-manager
@@ -38,21 +35,6 @@
  * up, connects to the Online Accounts daemon, and manages the events
  * and calendars.
  */
-
-typedef struct
-{
-  GcalEvent          *event;
-  GcalManager        *manager;
-} AsyncOpsData;
-
-typedef struct
-{
-  gchar              *event_uid;
-  GcalCalendar       *calendar;
-  GcalCalendar       *new_calendar;
-  ECalComponent      *new_component;
-  GcalManager        *manager;
-} MoveEventData;
 
 struct _GcalManager
 {
@@ -67,9 +49,6 @@ struct _GcalManager
   GListStore         *calendars_model;
 
   ESourceRegistry    *source_registry;
-  ECredentialsPrompter *credentials_prompter;
-
-  GCancellable       *async_ops;
 
   gint                clients_synchronizing;
 
@@ -84,7 +63,6 @@ enum
 {
   PROP_0,
   PROP_CONTEXT,
-  PROP_DEFAULT_CALENDAR,
   PROP_SYNCHRONIZING,
   NUM_PROPS
 };
@@ -99,13 +77,6 @@ enum
 
 static guint       signals[NUM_SIGNALS] = { 0, };
 static GParamSpec *properties[NUM_PROPS] = { NULL, };
-
-static void
-free_async_ops_data (AsyncOpsData *data)
-{
-  g_object_unref (data->event);
-  g_free (data);
-}
 
 static void
 remove_source (GcalManager  *self,
@@ -155,31 +126,6 @@ source_changed (GcalManager *self,
     GCAL_RETURN ();
 
   g_signal_emit (self, signals[CALENDAR_CHANGED], 0, calendar);
-
-  GCAL_EXIT;
-}
-
-static void
-on_collection_source_refreshed (GObject      *source_object,
-                                GAsyncResult *result,
-                                gpointer      user_data)
-{
-  GcalManager *self = GCAL_MANAGER (user_data);
-  GError *error = NULL;
-
-  GCAL_ENTRY;
-
-  if (!e_source_registry_refresh_backend_finish (E_SOURCE_REGISTRY (source_object), result, &error))
-    {
-      /* FIXME: do something when there was some error */
-      if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-        g_warning ("Error refreshing collection source backend: %s", error->message);
-      g_clear_error (&error);
-    }
-
-  self->clients_synchronizing--;
-  if (self->clients_synchronizing == 0)
-    g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_SYNCHRONIZING]);
 
   GCAL_EXIT;
 }
@@ -242,15 +188,38 @@ on_calendar_name_changed_cb (GcalCalendar *calendar,
   g_list_store_sort (self->calendars_model, sort_calendar_by_name_cb, NULL);
 }
 
+/* Revolution #373: Sichtbarkeit in den Einstellungen der App (Schlüssel „hidden-calendars“),
+ * nie in der ESource (GNOME Calendar schreibt „selected“ der ESource, gcal-calendar.c:98). */
+static void
+on_calendar_visible_changed_cb (GcalCalendar *calendar,
+                                GParamSpec   *pspec,
+                                GcalManager  *self)
+{
+  GSettings *settings = gcal_context_get_settings (self->context);
+  g_auto (GStrv) hidden = g_settings_get_strv (settings, "hidden-calendars");
+  g_autoptr (GStrvBuilder) builder = g_strv_builder_new ();
+  g_auto (GStrv) result = NULL;
+  const gchar *id = gcal_calendar_get_id (calendar);
+
+  for (gsize i = 0; hidden[i] != NULL; i++)
+    {
+      if (g_strcmp0 (hidden[i], id) != 0)
+        g_strv_builder_add (builder, hidden[i]);
+    }
+
+  if (!gcal_calendar_get_visible (calendar))
+    g_strv_builder_add (builder, id);
+
+  result = g_strv_builder_end (builder);
+  g_settings_set_strv (settings, "hidden-calendars", (const gchar * const *) result);
+}
+
 static void
 on_calendar_created_cb (GObject      *source_object,
                         GAsyncResult *result,
                         gpointer      user_data)
 {
-  g_autoptr (ESource) default_source = NULL;
   g_autoptr (GError) error = NULL;
-  ESourceRefresh *refresh_extension;
-  ESourceOffline *offline_extension;
   GcalCalendar *calendar;
   GcalManager *self;
   ECalClient *client;
@@ -274,6 +243,13 @@ on_calendar_created_cb (GObject      *source_object,
            gcal_calendar_get_name (calendar),
            gcal_calendar_get_id (calendar));
 
+  {
+    g_auto (GStrv) hidden = g_settings_get_strv (gcal_context_get_settings (self->context), "hidden-calendars");
+
+    gcal_calendar_set_visible (calendar, !g_strv_contains ((const gchar * const *) hidden, gcal_calendar_get_id (calendar)));
+    g_signal_connect (calendar, "notify::visible", G_CALLBACK (on_calendar_visible_changed_cb), self);
+  }
+
   visible = gcal_calendar_get_visible (calendar);
   client = gcal_calendar_get_client (calendar);
   source = gcal_calendar_get_source (calendar);
@@ -293,26 +269,7 @@ on_calendar_created_cb (GObject      *source_object,
       g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_SYNCHRONIZING]);
     }
 
-  /* Cache all the online calendars, so the user can see them offline */
-  offline_extension = e_source_get_extension (source, E_SOURCE_EXTENSION_OFFLINE);
-  e_source_offline_set_stay_synchronized (offline_extension, TRUE);
-
-  /* And also make sure the source is periodically updated */
-  refresh_extension = e_source_get_extension (source, E_SOURCE_EXTENSION_REFRESH);
-  e_source_refresh_set_enabled (refresh_extension, TRUE);
-  e_source_refresh_set_interval_minutes (refresh_extension, 30);
-
-  e_source_registry_commit_source (self->source_registry,
-                                   source,
-                                   NULL,
-                                   NULL,
-                                   NULL);
-
   g_signal_emit (self, signals[CALENDAR_ADDED], 0, calendar);
-
-  default_source = e_source_registry_ref_default_calendar (self->source_registry);
-  if (default_source == source)
-    g_object_notify (G_OBJECT (self->source_registry), "default-calendar");
 }
 
 static void
@@ -333,275 +290,7 @@ load_source (GcalManager *self,
 
   parent = e_source_registry_ref_source (self->source_registry, e_source_get_parent (source));
 
-  gcal_calendar_new (source, parent, self->async_ops, on_calendar_created_cb, self);
-
-  GCAL_EXIT;
-}
-
-static gboolean
-transform_e_source_to_gcal_calendar_cb (GBinding     *binding,
-                                        const GValue *from_value,
-                                        GValue       *to_value,
-                                        gpointer      user_data)
-{
-  GcalCalendar *calendar;
-  GcalManager *self;
-  ESource *source;
-
-  self = GCAL_MANAGER (user_data);
-  source = g_value_get_object (from_value);
-
-  calendar = g_hash_table_lookup (self->clients, source);
-  g_value_set_object (to_value, calendar);
-
-  return TRUE;
-}
-
-static void
-on_event_created (GObject      *source_object,
-                  GAsyncResult *result,
-                  gpointer      user_data)
-{
-  AsyncOpsData *data;
-  ECalClient *client;
-  gchar *new_uid;
-  GError *error;
-
-  GCAL_ENTRY;
-
-  data = (AsyncOpsData*) user_data;
-  client = E_CAL_CLIENT (source_object);
-  new_uid = NULL;
-  error = NULL;
-
-  if (!e_cal_client_create_object_finish (client, result, &new_uid, &error))
-    {
-      /* Some error */
-      g_warning ("Error creating object: %s", error->message);
-      g_error_free (error);
-    }
-  else
-    {
-      g_object_ref (data->event);
-      gcal_manager_set_default_calendar (data->manager, gcal_event_get_calendar (data->event));
-      g_debug ("Event: %s created successfully", new_uid);
-    }
-
-  g_free (new_uid);
-  free_async_ops_data (data);
-
-  GCAL_EXIT;
-}
-
-/**
- * on_component_updated:
- * @source_object: #ECalClient source
- * @result: result of the operation
- * @user_data: manager instance
- *
- * Called when an component is modified. Currently, it only checks for
- * error, but a more sophisticated implementation will come in no time.
- *
- **/
-static void
-on_event_updated (GObject      *source_object,
-                  GAsyncResult *result,
-                  gpointer      user_data)
-{
-  GError *error = NULL;
-
-  GCAL_ENTRY;
-
-  if (! e_cal_client_modify_object_finish (E_CAL_CLIENT (source_object),
-                                           result,
-                                           &error))
-    {
-      g_warning ("Error updating component: %s", error->message);
-      g_error_free (error);
-    }
-  g_object_unref (E_CAL_COMPONENT (user_data));
-
-  GCAL_EXIT;
-}
-
-/**
- * on_event_removed:
- * @source_object: #ECalClient source
- * @result: result of the operation
- * @user_data: an #ECalComponent
- *
- * Called when an component is removed. Currently, it only checks for
- * error, but a more sophisticated implementation will come in no time.*
- *
- **/
-static void
-on_event_removed (GObject      *source_object,
-                  GAsyncResult *result,
-                  gpointer      user_data)
-{
-  ECalClient *client;
-  GcalEvent *event;
-  GError *error;
-
-  GCAL_ENTRY;
-
-  client = E_CAL_CLIENT (source_object);
-  event = user_data;
-  error = NULL;
-
-  e_cal_client_remove_object_finish (client, result, &error);
-
-  if (error)
-    {
-      /* FIXME: Notify the user somehow */
-      g_warning ("Error removing event: %s", error->message);
-      g_error_free (error);
-      GCAL_RETURN ();
-    }
-
-  g_object_unref (event);
-
-  GCAL_EXIT;
-}
-
-static void
-show_source_error (const gchar  *where,
-                   const gchar  *what,
-                   ESource      *source,
-                   const GError *error)
-{
-  if (!error || g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-    return;
-
-  /* TODO Show the error in UI, somehow */
-  g_warning ("%s: %s '%s': %s", where, what, e_source_get_display_name (source), error->message);
-}
-
-static void
-source_invoke_authenticate_cb (GObject      *source_object,
-                               GAsyncResult *result,
-                               gpointer      user_data)
-{
-  ESource *source = E_SOURCE (source_object);
-  GError *error = NULL;
-
-  GCAL_ENTRY;
-
-  if (!e_source_invoke_authenticate_finish (source, result, &error) &&
-      !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-    {
-      show_source_error (G_STRFUNC, "Failed to invoke authenticate", source, error);
-    }
-
-  g_clear_error (&error);
-
-  GCAL_EXIT;
-}
-
-static void
-source_trust_prompt_done_cb (GObject      *source_object,
-                             GAsyncResult *result,
-                             gpointer      user_data)
-{
-  ETrustPromptResponse response = E_TRUST_PROMPT_RESPONSE_UNKNOWN;
-  ESource *source = E_SOURCE (source_object);
-  GError *error = NULL;
-
-  GCAL_ENTRY;
-
-  if (!e_trust_prompt_run_for_source_finish (source, result, &response, &error))
-    {
-      show_source_error (G_STRFUNC, "Failed to prompt for trust for", source, error);
-    }
-  else if (response == E_TRUST_PROMPT_RESPONSE_ACCEPT ||
-           response == E_TRUST_PROMPT_RESPONSE_ACCEPT_TEMPORARILY)
-    {
-      /* Use NULL credentials to reuse those from the last time. */
-      e_source_invoke_authenticate (source, NULL, NULL /* cancellable */, source_invoke_authenticate_cb, NULL);
-    }
-
-  g_clear_error (&error);
-
-  GCAL_EXIT;
-}
-
-static void
-source_credentials_required_cb (ESourceRegistry         *registry,
-                                ESource                 *source,
-                                ESourceCredentialsReason reason,
-                                const gchar             *certificate_pem,
-                                GTlsCertificateFlags     certificate_errors,
-                                const GError            *op_error,
-                                GcalManager             *self)
-{
-  ECredentialsPrompter *credentials_prompter;
-
-  GCAL_ENTRY;
-
-  g_return_if_fail (GCAL_IS_MANAGER (self));
-
-  credentials_prompter = self->credentials_prompter;
-
-  if (e_credentials_prompter_get_auto_prompt_disabled_for (credentials_prompter, source))
-    return;
-
-  if (reason == E_SOURCE_CREDENTIALS_REASON_SSL_FAILED)
-    {
-      e_trust_prompt_run_for_source (e_credentials_prompter_get_dialog_parent (credentials_prompter),
-                                     source,
-                                     certificate_pem,
-                                     certificate_errors,
-                                     op_error ? op_error->message : NULL,
-                                     TRUE /* allow_source_save */,
-                                     NULL /* cancellable */,
-                                     source_trust_prompt_done_cb,
-                                     NULL);
-    }
-  else if (reason == E_SOURCE_CREDENTIALS_REASON_ERROR && op_error)
-    {
-      show_source_error (G_STRFUNC, "Failed to authenticate", source, op_error);
-    }
-
-  GCAL_EXIT;
-}
-
-static void
-source_get_last_credentials_required_arguments_cb (GObject      *source_object,
-                                                   GAsyncResult *result,
-                                                   gpointer      user_data)
-{
-  GcalManager *self = user_data;
-  ESource *source;
-  ESourceCredentialsReason reason = E_SOURCE_CREDENTIALS_REASON_UNKNOWN;
-  gchar *certificate_pem = NULL;
-  GTlsCertificateFlags certificate_errors = 0;
-  GError *op_error = NULL;
-  GError *error = NULL;
-
-  GCAL_ENTRY;
-
-  g_return_if_fail (E_IS_SOURCE (source_object));
-
-  source = E_SOURCE (source_object);
-
-  if (!e_source_get_last_credentials_required_arguments_finish (source, result, &reason,
-          &certificate_pem, &certificate_errors, &op_error, &error))
-    {
-      /* Can be cancelled only if the manager is disposing/disposed */
-      if (error && !g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-        show_source_error (G_STRFUNC, "Failed to get last credentials required arguments for", source, error);
-
-      g_clear_error (&error);
-      return;
-    }
-
-  g_return_if_fail (GCAL_IS_MANAGER (self));
-
-  if (reason != E_SOURCE_CREDENTIALS_REASON_UNKNOWN)
-    source_credentials_required_cb (NULL, source, reason, certificate_pem, certificate_errors, op_error, self);
-
-  g_free (certificate_pem);
-  g_clear_error (&op_error);
+  gcal_calendar_new (source, parent, NULL, on_calendar_created_cb, self);
 
   GCAL_EXIT;
 }
@@ -623,6 +312,7 @@ gcal_manager_finalize (GObject *object)
 
   g_clear_object (&self->calendars_model);
   g_clear_pointer (&self->clients, g_hash_table_destroy);
+  g_clear_object (&self->source_registry);
 
   G_OBJECT_CLASS (gcal_manager_parent_class)->finalize (object);
 
@@ -645,10 +335,6 @@ gcal_manager_set_property (GObject      *object,
       g_assert (self->context == NULL);
       self->context = g_value_get_object (value);
       g_object_add_weak_pointer (G_OBJECT (self->context), (gpointer *)&self->context);
-      break;
-
-    case PROP_DEFAULT_CALENDAR:
-      gcal_manager_set_default_calendar (self, g_value_get_object (value));
       break;
 
     case PROP_SYNCHRONIZING:
@@ -676,10 +362,6 @@ gcal_manager_get_property (GObject    *object,
     {
     case PROP_CONTEXT:
       g_value_set_object (value, self->context);
-      break;
-
-    case PROP_DEFAULT_CALENDAR:
-      g_value_set_object (value, gcal_manager_get_default_calendar (self));
       break;
 
     case PROP_SYNCHRONIZING:
@@ -712,17 +394,6 @@ gcal_manager_class_init (GcalManagerClass *klass)
                                                   "Data context",
                                                   GCAL_TYPE_CONTEXT,
                                                   G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
-
-  /**
-   * GcalManager:default-calendar:
-   *
-   * The default calendar.
-   */
-  properties[PROP_DEFAULT_CALENDAR] = g_param_spec_object ("default-calendar",
-                                                           "Default calendar",
-                                                           "The default calendar",
-                                                           GCAL_TYPE_CALENDAR,
-                                                           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
   /**
    * GcalManager:refreshing:
@@ -832,43 +503,6 @@ gcal_manager_get_calendars_model (GcalManager *self)
 }
 
 /**
- * gcal_manager_get_default_calendar:
- * @self: a #GcalManager
- *
- * Returns: (transfer none): a #GcalCalendar.
- */
-GcalCalendar*
-gcal_manager_get_default_calendar (GcalManager *self)
-{
-  g_autoptr (ESource) default_source = NULL;
-
-  g_return_val_if_fail (GCAL_IS_MANAGER (self), NULL);
-
-  default_source = e_source_registry_ref_default_calendar (self->source_registry);
-  return g_hash_table_lookup (self->clients, default_source);
-}
-
-/**
- * gcal_manager_set_default_calendar:
- * @self: a #GcalManager
- * @calendar: the new default calendar.
- *
- * Sets the default calendar.
- */
-void
-gcal_manager_set_default_calendar (GcalManager  *self,
-                                   GcalCalendar *calendar)
-{
-  g_return_if_fail (GCAL_IS_MANAGER (self));
-
-  if (calendar == gcal_manager_get_default_calendar (self))
-    return;
-
-  e_source_registry_set_default_calendar (self->source_registry,
-                                          gcal_calendar_get_source (calendar));
-}
-
-/**
  * gcal_manager_get_timeline:
  * @self: a #GcalManager
  *
@@ -882,358 +516,6 @@ gcal_manager_get_timeline (GcalManager *self)
   g_return_val_if_fail (GCAL_IS_MANAGER (self), NULL);
 
   return self->timeline;
-}
-
-/**
- * gcal_manager_add_source:
- * @self: a #GcalManager
- * @base_uri: URI defining the ESourceGroup the client will belongs
- * @relative_uri: URI, relative to the base URI
- * @color: a string representing a color parseable for gdk_rgba_parse
- *
- * Add a new calendar by its URI.
- * The calendar is enabled by default
- *
- * Returns: (nullable)(transfer full): unique identifier of calendar's source, or
- * %NULL.
- */
-gchar*
-gcal_manager_add_source (GcalManager *self,
-                         const gchar *name,
-                         const gchar *backend,
-                         const gchar *color)
-{
-  ESource *source;
-  ESourceCalendar *extension;
-  GError *error;
-
-  GCAL_ENTRY;
-
-  g_return_val_if_fail (GCAL_IS_MANAGER (self), NULL);
-
-  source = e_source_new (NULL, NULL, NULL);
-  extension = E_SOURCE_CALENDAR (e_source_get_extension (source, E_SOURCE_EXTENSION_CALENDAR));
-
-  g_object_set (extension,
-                "backend-name", backend,
-                "color", color,
-                NULL);
-
-  e_source_set_display_name (source, name);
-
-  error = NULL;
-  e_source_registry_commit_source_sync (self->source_registry,
-                                        source,
-                                        NULL,
-                                        &error);
-  if (error)
-    {
-      g_warning ("Failed to store calendar configuration: %s", error->message);
-      g_object_unref (source);
-      g_clear_error (&error);
-
-      GCAL_RETURN (NULL);
-    }
-
-  load_source (self, source);
-
-  GCAL_RETURN (e_source_dup_uid (source));
-}
-
-/**
- * gcal_manager_save_source:
- * @self: a #GcalManager
- * @source: the target ESource
- *
- * Commit the given ESource.
- */
-void
-gcal_manager_save_source (GcalManager *self,
-                          ESource     *source)
-{
-  GError *error = NULL;
-
-  GCAL_ENTRY;
-
-  g_return_if_fail (GCAL_IS_MANAGER (self));
-  g_return_if_fail (E_IS_SOURCE (source));
-
-  e_source_registry_commit_source_sync (self->source_registry, source, NULL, &error);
-
-  if (error)
-    {
-      /* FIXME: Notify the user somehow */
-      g_warning ("Error saving source: %s", error->message);
-      g_error_free (error);
-    }
-
-  GCAL_EXIT;
-}
-
-/**
- * gcal_manager_refresh:
- * @self: a #GcalManager
- *
- * Forces a full refresh and synchronization of all available
- * calendars.
- */
-void
-gcal_manager_refresh (GcalManager *self)
-{
-  g_autolist(ESource) collections = NULL;
-  g_autoptr(GList) clients = NULL;
-
-  GCAL_ENTRY;
-
-  g_return_if_fail (GCAL_IS_MANAGER (self));
-
-  /* First, refresh collection sources to get latest calendar list */
-  collections = e_source_registry_list_sources (self->source_registry, E_SOURCE_EXTENSION_COLLECTION);
-  for (GList *l = collections; l != NULL; l = l->next)
-    {
-      ESource *source = E_SOURCE (l->data);
-
-      if (!e_source_registry_check_enabled (self->source_registry, source))
-        continue;
-
-      self->clients_synchronizing++;
-
-      e_source_registry_refresh_backend (self->source_registry,
-                                         e_source_get_uid (source),
-                                         NULL,
-                                         on_collection_source_refreshed,
-                                         self);
-    }
-
-  clients = g_hash_table_get_values (self->clients);
-
-  /* refresh clients */
-  for (GList *l = clients; l != NULL; l = l->next)
-    {
-      GcalCalendar *calendar = l->data;
-      EClient *client;
-
-      client = E_CLIENT (gcal_calendar_get_client (calendar));
-
-      if (!e_client_check_refresh_supported (client))
-        continue;
-
-      self->clients_synchronizing++;
-
-      e_client_refresh (client,
-                        NULL,
-                        on_client_refreshed,
-                        self);
-    }
-
-  g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_SYNCHRONIZING]);
-
-  GCAL_EXIT;
-}
-
-/**
- * gcal_manager_create_event:
- * @self: a #GcalManager
- * @event: a #GcalEvent
- *
- * Creates @event.
- */
-void
-gcal_manager_create_event (GcalManager *self,
-                           GcalEvent   *event)
-{
-  ICalComponent *new_event_icalcomp;
-  ECalComponent *component;
-  GcalCalendar *calendar;
-  AsyncOpsData *data;
-
-  GCAL_ENTRY;
-
-  g_return_if_fail (GCAL_IS_MANAGER (self));
-  g_return_if_fail (GCAL_IS_EVENT (event));
-
-  component = gcal_event_get_component (event);
-  calendar = gcal_event_get_calendar (event);
-
-  new_event_icalcomp = e_cal_component_get_icalcomponent (component);
-
-  data = g_new0 (AsyncOpsData, 1);
-  data->event = g_object_ref (event);
-  data->manager = self;
-
-  e_cal_client_create_object (gcal_calendar_get_client (calendar),
-                              new_event_icalcomp,
-                              E_CAL_OPERATION_FLAG_NONE,
-                              self->async_ops,
-                              on_event_created,
-                              data);
-
-  GCAL_EXIT;
-}
-
-/**
- * gcal_manager_update_event:
- * @self: a #GcalManager
- * @event: a #GcalEvent
- * @mod: an #GcalRecurrenceModType
- *
- * Saves all changes made to @event persistently.
- */
-void
-gcal_manager_update_event (GcalManager           *self,
-                           GcalEvent             *event,
-                           GcalRecurrenceModType  mod)
-{
-  ECalComponent *component;
-  GcalCalendar *calendar;
-
-  GCAL_ENTRY;
-
-  g_return_if_fail (GCAL_IS_MANAGER (self));
-  g_return_if_fail (GCAL_IS_EVENT (event));
-
-  calendar = gcal_event_get_calendar (event);
-  component = gcal_event_get_component (event);
-
-  e_cal_client_modify_object (gcal_calendar_get_client (calendar),
-                              e_cal_component_get_icalcomponent (component),
-                              (ECalObjModType) mod,
-                              E_CAL_OPERATION_FLAG_NONE,
-                              NULL,
-                              on_event_updated,
-                              g_object_ref (component));
-
-  GCAL_EXIT;
-}
-
-/**
- * gcal_manager_remove_event:
- * @self: a #GcalManager
- * @event: a #GcalEvent
- * @mod: an #GcalRecurrenceModType
- *
- * Deletes @event.
- */
-void
-gcal_manager_remove_event (GcalManager           *self,
-                           GcalEvent             *event,
-                           GcalRecurrenceModType  mod)
-{
-  ECalComponent *component;
-  GcalCalendar *calendar;
-  gchar *rid;
-  const gchar *uid;
-
-  GCAL_ENTRY;
-
-  g_return_if_fail (GCAL_IS_MANAGER (self));
-  g_return_if_fail (GCAL_IS_EVENT (event));
-
-  component = gcal_event_get_component (event);
-  calendar = gcal_event_get_calendar (event);
-  rid = NULL;
-
-  uid = e_cal_component_get_uid (component);
-
-  if (gcal_event_has_recurrence (event))
-    rid = e_cal_component_get_recurid_as_string (component);
-
-  e_cal_client_remove_object (gcal_calendar_get_client (calendar),
-                              uid,
-                              mod == GCAL_RECURRENCE_MOD_ALL ? NULL : rid,
-                              (ECalObjModType) mod,
-                              E_CAL_OPERATION_FLAG_NONE,
-                              self->async_ops,
-                              on_event_removed,
-                              g_object_ref (event));
-
-  g_free (rid);
-
-  GCAL_EXIT;
-}
-
-/**
- * gcal_manager_move_event_to_source:
- * @self: a #GcalManager
- * @event: a #GcalEvent
- * @dest: the destination calendar
- *
- * Moves @event to @dest calendar. This is a fail-safe operation:
- * worst case, the user will have two duplicated events, and we
- * guarantee to never loose any data.
- */
-void
-gcal_manager_move_event_to_source (GcalManager *self,
-                                   GcalEvent   *event,
-                                   ESource     *dest)
-{
-  ECalComponent *ecomponent;
-  ECalComponent *clone;
-  ICalComponent *comp;
-  GcalCalendar *calendar;
-  ECalComponentId *id;
-  GError *error;
-
-  GCAL_ENTRY;
-
-  g_return_if_fail (GCAL_IS_MANAGER (self));
-  g_return_if_fail (GCAL_IS_EVENT (event));
-  g_return_if_fail (E_IS_SOURCE (dest));
-
-  error = NULL;
-
-  /* First, try to create the component on the destination source */
-  calendar = g_hash_table_lookup (self->clients, dest);
-
-  ecomponent = gcal_event_get_component (event);
-  clone = e_cal_component_clone (ecomponent);
-  comp = e_cal_component_get_icalcomponent (clone);
-
-  g_assert (clone != NULL);
-
-  e_cal_client_create_object_sync (gcal_calendar_get_client (calendar),
-                                   comp,
-                                   E_CAL_OPERATION_FLAG_NONE,
-                                   NULL,
-                                   NULL,
-                                   &error);
-
-  if (error)
-    {
-      g_warning ("Error moving source: %s", error->message);
-      g_clear_error (&error);
-      GCAL_EXIT;
-      return;
-    }
-
-  /*
-   * After we carefully confirm that a clone of the component was
-   * created, try to remove the old component. Data loss it the last
-   * thing we want to happen here.
-   */
-  calendar = gcal_event_get_calendar (event);
-
-  id = e_cal_component_get_id (ecomponent);
-
-  e_cal_client_remove_object_sync (gcal_calendar_get_client (calendar),
-                                   e_cal_component_id_get_uid (id),
-                                   e_cal_component_id_get_rid (id),
-                                   E_CAL_OBJ_MOD_THIS,
-                                   E_CAL_OPERATION_FLAG_NONE,
-                                   self->async_ops,
-                                   &error);
-
-  if (error)
-    {
-      g_warning ("Error moving source: %s", error->message);
-      g_clear_error (&error);
-      GCAL_EXIT;
-      return;
-    }
-
-  e_cal_component_id_free (id);
-
-  GCAL_EXIT;
 }
 
 /**
@@ -1281,11 +563,10 @@ gcal_manager_get_synchronizing (GcalManager *self)
 }
 
 void
-gcal_manager_startup (GcalManager *self)
+gcal_manager_startup (GcalManager     *self,
+                      ESourceRegistry *registry)
 {
-  ESourceCredentialsProvider *credentials_provider;
   GList *sources, *l;
-  GError *error = NULL;
 
   GCAL_ENTRY;
 
@@ -1295,89 +576,9 @@ gcal_manager_startup (GcalManager *self)
                                          g_object_unref,
                                          g_object_unref);
 
-  /* reading sources and schedule its connecting */
-  self->source_registry = e_source_registry_new_sync (NULL, &error);
-
-  if (!self->source_registry)
-    {
-      g_warning ("Failed to access calendar configuration: %s", error->message);
-      g_error_free (error);
-      return;
-    }
-
-  g_object_bind_property_full (self->source_registry,
-                               "default-calendar",
-                               self,
-                               "default-calendar",
-                               G_BINDING_DEFAULT,
-                               transform_e_source_to_gcal_calendar_cb,
-                               NULL,
-                               self,
-                               NULL);
-
-  self->credentials_prompter = e_credentials_prompter_new (self->source_registry);
-
-  /* First disable credentials prompt for all but calendar sources... */
-  sources = e_source_registry_list_sources (self->source_registry, NULL);
-
-  for (l = sources; l != NULL; l = g_list_next (l))
-    {
-      ESource *source = E_SOURCE (l->data);
-
-      /* Mark for skip also currently disabled sources */
-      if (!e_source_has_extension (source, E_SOURCE_EXTENSION_CALENDAR) &&
-          !e_source_has_extension (source, E_SOURCE_EXTENSION_COLLECTION))
-        {
-          e_credentials_prompter_set_auto_prompt_disabled_for (self->credentials_prompter, source, TRUE);
-        }
-      else
-        {
-          e_source_get_last_credentials_required_arguments (source,
-                                                            NULL,
-                                                            source_get_last_credentials_required_arguments_cb,
-                                                            self);
-        }
-    }
-
-  g_list_free_full (sources, g_object_unref);
-
-  credentials_provider = e_credentials_prompter_get_provider (self->credentials_prompter);
-
-  /* ...then enable credentials prompt for credential source of the calendar sources,
-     which can be a collection source.  */
-  sources = e_source_registry_list_sources (self->source_registry, E_SOURCE_EXTENSION_CALENDAR);
-
-  for (l = sources; l != NULL; l = g_list_next (l))
-    {
-      ESource *source, *cred_source;
-
-      source = l->data;
-      cred_source = e_source_credentials_provider_ref_credentials_source (credentials_provider, source);
-
-      if (cred_source && !e_source_equal (source, cred_source))
-	{
-          e_credentials_prompter_set_auto_prompt_disabled_for (self->credentials_prompter, cred_source, FALSE);
-
-          /* Only consider SSL errors */
-          if (e_source_get_connection_status (cred_source) != E_SOURCE_CONNECTION_STATUS_SSL_FAILED)
-            continue;
-
-          e_source_get_last_credentials_required_arguments (cred_source,
-                                                            NULL,
-                                                            source_get_last_credentials_required_arguments_cb,
-                                                            self);
-        }
-
-      g_clear_object (&cred_source);
-    }
-
-  g_list_free_full (sources, g_object_unref);
-
-  /* The eds_credentials_prompter responses to REQUIRED and REJECTED reasons,
-     the SSL_FAILED should be handled elsewhere. */
-  g_signal_connect_object (self->source_registry, "credentials-required", G_CALLBACK (source_credentials_required_cb), self, 0);
-
-  e_credentials_prompter_process_awaiting_credentials (self->credentials_prompter);
+  /* Revolution #373: die Registry der Anwendung (main.c, im Worker geladen) statt
+   * e_source_registry_new_sync im UI-Thread; ohne Credential-Prompter (Anmeldung über GOA). */
+  self->source_registry = g_object_ref (registry);
 
   g_signal_connect_object (self->source_registry, "source-added", G_CALLBACK (load_source), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (self->source_registry, "source-removed", G_CALLBACK (remove_source), self, G_CONNECT_SWAPPED);
@@ -1388,7 +589,7 @@ gcal_manager_startup (GcalManager *self)
   for (l = sources; l != NULL; l = l->next)
     load_source (self, l->data);
 
-  g_list_free (sources);
+  g_list_free_full (sources, g_object_unref);
 
   GCAL_EXIT;
 }

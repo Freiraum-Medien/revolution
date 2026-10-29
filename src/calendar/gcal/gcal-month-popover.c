@@ -263,7 +263,7 @@ new_event_button_clicked_cb (GtkWidget        *button,
   GCAL_ENTRY;
 
   gcal_month_popover_popdown (self);
-  gtk_widget_activate_action (GTK_WIDGET (self),  "win.new-event",  NULL);
+  gtk_widget_activate_action (GTK_WIDGET (self),  "calendar.new-event",  NULL); /* Revolution #373: statt win.new-event */
 
   GCAL_EXIT;
 }

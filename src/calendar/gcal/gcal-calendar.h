@@ -62,15 +62,9 @@ ECalClient*          gcal_calendar_get_client                    (GcalCalendar  
 
 const GdkRGBA*       gcal_calendar_get_color                     (GcalCalendar       *self);
 
-void                 gcal_calendar_set_color                     (GcalCalendar       *self,
-                                                                  const GdkRGBA      *color);
-
 const gchar*         gcal_calendar_get_id                        (GcalCalendar       *self);
 
 const gchar*         gcal_calendar_get_name                      (GcalCalendar       *self);
-
-void                 gcal_calendar_set_name                      (GcalCalendar       *self,
-                                                                  const gchar        *name);
 
 ESource*             gcal_calendar_get_parent_source             (GcalCalendar       *self);
 

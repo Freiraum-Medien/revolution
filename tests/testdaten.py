@@ -243,7 +243,7 @@ from gi.repository import GLib, Gio, Camel, EDataServer, Goa
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from testkonten import (KONTO_IMAP_1, KONTO_IMAP_2, KONTO_M365, KONTO_GOOGLE,  # noqa: E402
                         NUR_LESEND_1, NUR_LESEND_2, NUR_LESEND_3, HILFS_JANA, HILFS_LENA, HILFS_TOM,
-                        HILFS_KONTAKT361, MSGID_DOMAIN)  # noqa: E402
+                        HILFS_KONTAKT361, MSGID_DOMAIN, KALENDER)  # noqa: E402
 
 PREFIX = '[Revolution-Test]'
 TESTKONTEN = (KONTO_IMAP_1, KONTO_IMAP_2,
@@ -2190,6 +2190,258 @@ def kontakt_graph(k, aktion, datei):
     return 0
 
 
+# ---------------------------------------------------------------- Kalender (#373)
+
+TERMIN_PREFIX = 'Revolution-Test'
+TERMIN_FRUEHESTENS = datetime.date(2026, 10, 1)  # Briefing Zusatz M7: nie vor dem 1.10.2026, nie > 90 Tage voraus
+
+
+def ecal():
+    gi.require_version('ECal', '2.0')
+    gi.require_version('ICalGLib', '3.0')
+    from gi.repository import ECal, ICalGLib
+    return ECal, ICalGLib
+
+
+def kalender_schreibbar():
+    """Freigegebene Kalender aus ~/.config/revolution/testkonten.ini [kalender] (nicht im Repo)."""
+    try:
+        return tuple(KALENDER['schreibbar_' + k] for k in ('m365', 'google', 'lokal'))
+    except KeyError:
+        sys.exit('ABBRUCH: Abschnitt [kalender] mit schreibbar_m365/_google/_lokal fehlt in testkonten.ini')
+
+
+def kalender_verbinden(registry, uid):
+    ECal, _ = ecal()
+    quelle = registry.ref_source(uid)
+    if quelle is None or not quelle.has_extension(EDataServer.SOURCE_EXTENSION_CALENDAR):
+        sys.exit('ABBRUCH: Kalender %s fehlt' % uid)
+    return ECal.Client.connect_sync(quelle, ECal.ClientSourceType.EVENTS, 30, cancellable())
+
+
+def kalender(registry):
+    """#373: siehe Kopf (--kalender), nur lesend."""
+    for q in sorted(registry.list_enabled(EDataServer.SOURCE_EXTENSION_CALENDAR), key=lambda s: s.get_uid()):
+        eltern = registry.ref_source(q.get_parent()) if q.get_parent() else None
+        c = kalender_verbinden(registry, q.get_uid())
+        print('KALENDER %s %s / %s farbe %s nurlesend %d'
+              % (q.get_uid(), (eltern or q).get_display_name(), q.get_display_name(),
+                 q.get_extension(EDataServer.SOURCE_EXTENSION_CALENDAR).get_color(), c.is_readonly()), flush=True)
+    return 0
+
+
+def monat_grenzen(monat):
+    """Anfang und Ende (exklusiv) des Monats JJJJ-MM in Ortszeit als datetime mit Zeitzone."""
+    j, m = (int(x) for x in monat.split('-'))
+    anfang = datetime.datetime(j, m, 1).astimezone()
+    ende = datetime.datetime(j + (m == 12), m % 12 + 1, 1).astimezone()
+    return anfang, ende
+
+
+def ical_zeit(t):
+    """ICalTime → 'JJJJ-MM-TT' (ganztags) bzw. UTC 'JJJJ-MM-TTTHH:MM:SSZ' (wie das App-Log, gcal-month-view.c)."""
+    if t.is_date():
+        return '%04d-%02d-%02d' % (t.get_year(), t.get_month(), t.get_day())
+    z = t.get_timezone()
+    if t.is_utc() or (z is not None and z.get_location() == 'UTC'):
+        s = t.as_timet()
+    elif z is not None:
+        s = t.as_timet_with_zone(z)
+    else:  # schwebende Zeit = Ortszeit wie GNOME Calendar (gcal-event.c get_timezone_from_ical)
+        s = datetime.datetime(t.get_year(), t.get_month(), t.get_day(), t.get_hour(), t.get_minute(),
+                              t.get_second()).timestamp()
+    return datetime.datetime.fromtimestamp(s, datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def kalender_termine(registry, uid, monat):
+    """#373: siehe Kopf (--kalender-termine), nur lesend: Vorkommen im Monat (e_cal_client_generate_instances_sync)."""
+    c = kalender_verbinden(registry, uid)
+    anfang, ende = monat_grenzen(monat)
+    out = []
+
+    def vorkommen(icomp, start, end, *rest):
+        out.append((icomp.get_uid(), ical_zeit(start), ical_zeit(end), int(start.is_date())))
+        return True
+
+    c.generate_instances_sync(int(anfang.timestamp()), int(ende.timestamp()), cancellable(), vorkommen)
+    for t in sorted(out):
+        print('TERMIN %s %s %s ganztags %d' % t)
+    print('TERMINE %s %s %d' % (uid, monat, len(out)), flush=True)
+    return 0
+
+
+def kalender_hash(registry, uids):
+    """#373: siehe Kopf (--kalender-hash), nur lesend: Prüfsumme über (UID, RECURRENCE-ID, LAST-MODIFIED)."""
+    for uid in uids:
+        c = kalender_verbinden(registry, uid)
+        teile = []
+        for comp in c.get_object_list_as_comps_sync('#t', cancellable())[1]:
+            ical = comp.get_icalcomponent()
+            lm = ical.get_first_property(ICalGLib_Prop().LASTMODIFIED_PROPERTY)
+            rid = comp.get_recurid_as_string() or ''
+            teile.append('%s|%s|%s' % (comp.get_uid(), rid, lm.get_value_as_string() if lm else ''))
+        teile.sort()
+        print('KALENDERHASH %s %d %s' % (uid, len(teile), hashlib.sha1('\n'.join(teile).encode()).hexdigest()[:16]),
+              flush=True)
+    return 0
+
+
+def ICalGLib_Prop():
+    _, ICalGLib = ecal()
+    return ICalGLib.PropertyKind
+
+
+def termin_datum(text):
+    """JJJJ-MM-TTTHH:MM (Ortszeit) im erlaubten Zeitfenster (Zusatz M7)."""
+    t = datetime.datetime.strptime(text, '%Y-%m-%dT%H:%M').astimezone()
+    if not TERMIN_FRUEHESTENS <= t.date() <= datetime.date.today() + datetime.timedelta(days=90):
+        sys.exit('ABBRUCH: Testtermin %s außerhalb 2026-10-01 … heute + 90 Tage' % text)
+    return t
+
+
+def termin_live(registry, aktion, kal, datei, wann=None):
+    """#373: siehe Kopf (--termin-live). Ändern/Löschen nur über die gespeicherte UID, nie per Suche."""
+    ECal, ICalGLib = ecal()
+    if aktion != 'pruefen' and kal not in kalender_schreibbar():
+        sys.exit('ABBRUCH: Kalender %s ist nicht zum Schreiben freigegeben' % kal)
+    c = kalender_verbinden(registry, kal)
+    if aktion in ('anlegen', 'woechentlich'):
+        if not wann:
+            sys.exit('ABBRUCH: --termin-live %s braucht ZEIT (JJJJ-MM-TTTHH:MM)' % aktion)
+        start = termin_datum(wann).astimezone(datetime.timezone.utc)
+        if aktion == 'woechentlich' and not (start + datetime.timedelta(weeks=4)).date() <= \
+                datetime.date.today() + datetime.timedelta(days=90):
+            sys.exit('ABBRUCH: letzte Wiederholung außerhalb des Zeitfensters')
+        name = '%s 373 %s %s' % (TERMIN_PREFIX, aktion, datetime.datetime.now().strftime('%H%M%S'))
+        ics = ['BEGIN:VEVENT', 'UID:revolution-test-373-%s@%s' % (datetime.datetime.now().strftime('%Y%m%d%H%M%S%f'),
+                                                                  MSGID_DOMAIN),
+               'DTSTAMP:' + datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ'),
+               'DTSTART:' + start.strftime('%Y%m%dT%H%M%SZ'),
+               'DTEND:' + (start + datetime.timedelta(hours=1)).strftime('%Y%m%dT%H%M%SZ'),
+               'SUMMARY:' + name]
+        if aktion == 'woechentlich':
+            ics.append('RRULE:FREQ=WEEKLY;COUNT=5')
+        ics.append('END:VEVENT')
+        comp = ICalGLib.Component.new_from_string('\r\n'.join(ics))
+        uid = c.create_object_sync(comp, ECal.OperationFlags.NONE, cancellable())[1]
+        with open(datei, 'w') as f:
+            f.write('TERMIN %s %s %s\n' % (kal, uid, name))
+        print('SCHREIBVORGANG %s' % kal)
+        print('ANGELEGT %s %s %s' % (uid, ical_zeit(comp.get_dtstart()), name), flush=True)
+        return 0
+    zeile = open(datei).read().split(None, 3)
+    if len(zeile) < 3 or zeile[0] != 'TERMIN' or zeile[1] != kal:
+        sys.exit('ABBRUCH: %s enthält keinen Testtermin aus %s' % (datei, kal))
+    uid = zeile[2]
+    try:
+        comp = c.get_object_sync(uid, None, cancellable())[1]
+    except GLib.Error as e:
+        if aktion == 'pruefen' and ('not found' in e.message.lower() or 'nicht gefunden' in e.message.lower()):
+            print('VORHANDEN 0 %s' % uid, flush=True)
+            return 0
+        raise
+    if aktion == 'pruefen':
+        print('VORHANDEN 1 %s %s %s' % (uid, ical_zeit(comp.get_dtstart()), comp.get_summary()), flush=True)
+        return 0
+    if not (comp.get_summary() or '').startswith(TERMIN_PREFIX):
+        sys.exit('ABBRUCH: Termin %s hat keine SUMMARY %s…' % (uid, TERMIN_PREFIX))
+    if aktion == 'aendern':
+        # Eine Stunde später und neuer Titel (im App-Log als „-“ alt und „+“ neu sichtbar).
+        start, ende = comp.get_dtstart(), comp.get_dtend()
+        start.adjust(0, 1, 0, 0)
+        ende.adjust(0, 1, 0, 0)
+        comp.set_dtstart(start)
+        comp.set_dtend(ende)
+        comp.set_summary(comp.get_summary() + ' geändert')
+        c.modify_object_sync(comp, ECal.ObjModType.ALL, ECal.OperationFlags.NONE, cancellable())
+        print('SCHREIBVORGANG %s' % kal)
+        print('GEAENDERT %s %s %s' % (uid, ical_zeit(start), comp.get_summary()), flush=True)
+    elif aktion == 'loeschen':
+        c.remove_object_sync(uid, None, ECal.ObjModType.ALL, ECal.OperationFlags.NONE, cancellable())
+        print('SCHREIBVORGANG %s' % kal)
+        print('GELOESCHT %s %s' % (uid, comp.get_summary()), flush=True)
+    else:
+        sys.exit('ABBRUCH: unbekannte Aktion %s' % aktion)
+    return 0
+
+
+def kalender_server(registry, kal, monat):
+    """#373: siehe Kopf (--kalender-server), nur lesend, am Server ohne EDS."""
+    _, ICalGLib = ecal()
+    anfang, ende = monat_grenzen(monat)
+    utc = datetime.timezone.utc
+    quelle = registry.ref_source(kal)
+    if quelle is None:
+        sys.exit('ABBRUCH: Kalender %s fehlt' % kal)
+    backend = quelle.get_extension(EDataServer.SOURCE_EXTENSION_CALENDAR).get_backend_name()
+    out = []
+    if backend == 'local':
+        print('SERVER lokal', flush=True)
+        return 0
+    konten = konten_finden(registry)
+    if backend == 'microsoft365':
+        # Ordner-ID aus der ESource (Abschnitt [Microsoft365 Folder], evolution-ews e-source-m365-folder.c)
+        kf = GLib.KeyFile()
+        daten = quelle.to_string()[0]
+        kf.load_from_data(daten, len(daten.encode()), GLib.KeyFileFlags.NONE)
+        ordner = kf.get_string('Microsoft365 Folder', 'Id')
+        pfad = ('/me/calendars/%s/calendarView?startDateTime=%s&endDateTime=%s&$top=100'
+                '&$select=id,iCalUId,subject,start,end,isAllDay' % (
+                    urllib.parse.quote(ordner, safe=''), anfang.astimezone(utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    ende.astimezone(utc).strftime('%Y-%m-%dT%H:%M:%SZ')))
+        k = konten[KONTO_M365] if kal in kalender_schreibbar() else None
+        if k is None:
+            sys.exit('ABBRUCH: --kalender-server nur für die freigegebenen Kalender')
+        while pfad:
+            token = k.goa.get_oauth2_based().call_get_access_token_sync(None)[0]
+            req = urllib.request.Request(pfad if pfad.startswith('http') else GRAPH + pfad,
+                                         headers={'Authorization': 'Bearer ' + token,
+                                                  'Prefer': 'outlook.timezone="UTC"'})
+            with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+                antwort = json.loads(r.read())
+            for e in antwort['value']:
+                if e['isAllDay']:
+                    s, en = e['start']['dateTime'][:10], e['end']['dateTime'][:10]
+                else:
+                    s, en = (datetime.datetime.fromisoformat(e[x]['dateTime'][:19]).strftime('%Y-%m-%dT%H:%M:%SZ')
+                             for x in ('start', 'end'))
+                out.append((e['id'], s, en, int(e['isAllDay'])))
+            pfad = antwort.get('@odata.nextLink')
+    elif backend == 'caldav':
+        if kal not in kalender_schreibbar():
+            sys.exit('ABBRUCH: --kalender-server nur für die freigegebenen Kalender')
+        g = quelle.get_extension(EDataServer.SOURCE_EXTENSION_WEBDAV_BACKEND).dup_uri()
+        url = 'https://%s%s' % (g.get_host(), g.get_path())
+        von, bis = (x.astimezone(utc).strftime('%Y%m%dT%H%M%SZ') for x in (anfang, ende))
+        # CalDAV calendar-query (RFC 4791 7.8) mit Zeitraum und serverseitiger Expansion (expand, 9.6.5).
+        body = ('<?xml version="1.0" encoding="utf-8"?>'
+                '<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">'
+                '<D:prop><C:calendar-data><C:expand start="%s" end="%s"/></C:calendar-data></D:prop>'
+                '<C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT">'
+                '<C:time-range start="%s" end="%s"/></C:comp-filter></C:comp-filter></C:filter>'
+                '</C:calendar-query>' % (von, bis, von, bis))
+        token = konten[KONTO_GOOGLE].goa.get_oauth2_based().call_get_access_token_sync(None)[0]
+        req = urllib.request.Request(url, data=body.encode(), method='REPORT',
+                                     headers={'Authorization': 'Bearer ' + token, 'Depth': '1',
+                                              'Content-Type': 'application/xml; charset=utf-8'})
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            xml = r.read().decode()
+        import xml.etree.ElementTree as ET
+        for daten in ET.fromstring(xml).iter('{urn:ietf:params:xml:ns:caldav}calendar-data'):
+            vcal = ICalGLib.Component.new_from_string(daten.text)
+            ev = vcal.get_first_component(ICalGLib.ComponentKind.VEVENT_COMPONENT)
+            while ev is not None:
+                s, en = ev.get_dtstart(), ev.get_dtend()
+                out.append((ev.get_uid(), ical_zeit(s), ical_zeit(en), int(s.is_date())))
+                ev = vcal.get_next_component(ICalGLib.ComponentKind.VEVENT_COMPONENT)
+    else:
+        sys.exit('ABBRUCH: Backend %s nicht unterstützt' % backend)
+    for t in sorted(out):
+        print('SERVER-TERMIN %s %s %s ganztags %d' % t)
+    print('SERVER-TERMINE %s %s %d' % (kal, monat, len(out)), flush=True)
+    return 0
+
+
 def entwurf(k, betreff, weg):
     """#360: Entwürfe mit genau diesem Betreff (je Lauf eindeutig) am Server zählen; weg = Message-IDs aus dem
     App-Log („Entwurf: gespeichert …“), nur diese Entwürfe endgültig löschen (eigene Testdaten)."""
@@ -2912,6 +3164,15 @@ def main():
                     help='#370: Testkontakt am Server ohne EDS (CardDAV bzw. Graph)')
     ap.add_argument('--kontakt-graph', nargs=2, metavar=('anlegen|loeschen', 'DATEI'),
                     help='#368: Testkontakt in %s direkt über Graph' % KONTO_M365)
+    ap.add_argument('--kalender', action='store_true', help='#373: nur lesend alle Kalender (UID, Konto, Name, Farbe)')
+    ap.add_argument('--kalender-termine', nargs=2, metavar=('KALENDER', 'JJJJ-MM'),
+                    help='#373: nur lesend Vorkommen eines Monats über EDS (Python-GI ECal.Client)')
+    ap.add_argument('--kalender-hash', nargs='+', metavar='KALENDER',
+                    help='#373: nur lesend Prüfsumme (UID, RECURRENCE-ID, LAST-MODIFIED) je Kalender')
+    ap.add_argument('--kalender-server', nargs=2, metavar=('KALENDER', 'JJJJ-MM'),
+                    help='#373: nur lesend Termine eines Monats am Server ohne EDS (Graph bzw. CalDAV REPORT)')
+    ap.add_argument('--termin-live', nargs='+', metavar='anlegen|woechentlich|aendern|loeschen|pruefen KALENDER DATEI [ZEIT]',
+                    help='#373: Testtermin von außen über EDS (nur freigegebene Kalender)')
     ap.add_argument('--live-flags', metavar='KONTO', help='#351: nur lesend Flags der Live-Mails im Posteingang')
     ap.add_argument('--antwort', action='store_true',
                     help='#359: Testmail für Antworten per APPEND in den Posteingang von %s' % ANTWORT_KONTO)
@@ -2987,6 +3248,18 @@ def main():
 
     if args.adressbuecher:
         return adressbuecher(EDataServer.SourceRegistry.new_sync(None))
+    if args.kalender:
+        return kalender(EDataServer.SourceRegistry.new_sync(None))
+    if args.kalender_termine:
+        return kalender_termine(EDataServer.SourceRegistry.new_sync(None), *args.kalender_termine)
+    if args.kalender_hash:
+        return kalender_hash(EDataServer.SourceRegistry.new_sync(None), args.kalender_hash)
+    if args.kalender_server:
+        return kalender_server(EDataServer.SourceRegistry.new_sync(None), *args.kalender_server)
+    if args.termin_live:
+        if len(args.termin_live) not in (3, 4):
+            ap.error('--termin-live AKTION KALENDER DATEI [ZEIT]')
+        return termin_live(EDataServer.SourceRegistry.new_sync(None), *args.termin_live)
     if args.kontakt_live:
         if args.kontakt_live[0] not in ('anlegen', 'aendern', 'loeschen', 'pruefen', 'refresh', 'detail', 'lesen', 'feld',
                                         'extra'):

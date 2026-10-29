@@ -131,29 +131,19 @@ gcal_time_zone_monitor_class_init (GcalTimeZoneMonitorClass *klass)
   g_object_class_install_properties (object_class, N_PROPS, properties);
 }
 
+/* Revolution #373: Proxy asynchron statt g_bus_get_sync/g_dbus_proxy_new_sync im UI-Thread
+ * (Vorlage gcal-time-zone-monitor.c:134-174), wie gcal-clock.c:261 den logind-Proxy holt. */
 static void
-gcal_time_zone_monitor_init (GcalTimeZoneMonitor *self)
+on_timedate1_proxy_ready_cb (GObject      *source_object,
+                             GAsyncResult *result,
+                             gpointer      user_data)
 {
-  g_autoptr (GDBusConnection) connection = NULL;
+  g_autoptr (GcalTimeZoneMonitor) self = user_data;
   g_autoptr (GDBusProxy) proxy = NULL;
 
   GCAL_ENTRY;
 
-  self->timezone = g_time_zone_new_local ();
-
-  connection = g_bus_get_sync (G_BUS_TYPE_SYSTEM, NULL, NULL);
-
-  if (!connection)
-    GCAL_RETURN ();
-
-  proxy = g_dbus_proxy_new_sync (connection,
-                                 G_DBUS_PROXY_FLAGS_GET_INVALIDATED_PROPERTIES,
-                                 NULL,
-                                 "org.freedesktop.timedate1",
-                                 "/org/freedesktop/timedate1",
-                                 "org.freedesktop.timedate1",
-                                 NULL,
-                                 NULL);
+  proxy = g_dbus_proxy_new_for_bus_finish (result, NULL);
 
   if (!proxy)
     GCAL_RETURN ();
@@ -171,6 +161,22 @@ gcal_time_zone_monitor_init (GcalTimeZoneMonitor *self)
   on_timedate1_proxy_properties_changed_cb (self, NULL, NULL, self->timedate1_proxy);
 
   GCAL_EXIT;
+}
+
+static void
+gcal_time_zone_monitor_init (GcalTimeZoneMonitor *self)
+{
+  self->timezone = g_time_zone_new_local ();
+
+  g_dbus_proxy_new_for_bus (G_BUS_TYPE_SYSTEM,
+                            G_DBUS_PROXY_FLAGS_GET_INVALIDATED_PROPERTIES,
+                            NULL,
+                            "org.freedesktop.timedate1",
+                            "/org/freedesktop/timedate1",
+                            "org.freedesktop.timedate1",
+                            NULL,
+                            on_timedate1_proxy_ready_cb,
+                            g_object_ref (self));
 }
 
 GcalTimeZoneMonitor*

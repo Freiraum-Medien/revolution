@@ -16,17 +16,6 @@ template $GcalMonthCell: Widget {
     width-request: 50;
     height-request: 50;
 
-    Adw.Breakpoint breakpoint_narrow {
-      condition ("max-width: 120sp")
-
-      setters {
-        weather_icon.halign: end;
-        weather_icon.hexpand: true;
-        weather_icon.margin-start: 6;
-        temp_label.visible: false;
-      }
-    }
-
     child: Overlay overlay {
       [overlay]
       Box header_box {
@@ -41,23 +30,6 @@ template $GcalMonthCell: Widget {
           styles [
             "day-label",
             "numeric",
-          ]
-        }
-
-        Image weather_icon {
-          pixel-size: 16;
-          margin-start: 12;
-          accessible-role: presentation;
-
-          styles [
-            "dimmed",
-          ]
-        }
-
-        Label temp_label {
-          styles [
-            "dimmed",
-            "temp-label",
           ]
         }
       }

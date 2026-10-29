@@ -27,14 +27,10 @@ struct _GcalContext
 {
   GObject             parent;
 
-  GDBusProxy         *settings_portal;
-
   GcalClock          *clock;
   GcalManager        *manager;
-  GcalSearchEngine   *search_engine;
   GSettings          *settings;
   GcalTimeFormat      time_format;
-  GcalWeatherService *weather_service;
 
   GcalTimeZoneMonitor   *timezone_monitor;
 };
@@ -46,11 +42,9 @@ enum
   PROP_0,
   PROP_CLOCK,
   PROP_MANAGER,
-  PROP_SEARCH_ENGINE,
   PROP_SETTINGS,
   PROP_TIME_FORMAT,
   PROP_TIMEZONE,
-  PROP_WEATHER_SERVICE,
   N_PROPS
 };
 
@@ -58,90 +52,8 @@ static GParamSpec *properties [N_PROPS];
 
 
 /*
- * Auxiliary methods
- */
-
-static void
-set_time_format_from_variant (GcalContext *self,
-                              GVariant    *variant)
-{
-  g_autofree gchar *enum_format = NULL;
-  GcalTimeFormat  time_format;
-
-  g_assert (g_variant_type_equal (g_variant_get_type (variant), "s"));
-
-  if (g_strcmp0 (g_variant_get_string (variant, NULL), "12h") == 0)
-    time_format = GCAL_TIME_FORMAT_12H;
-  else
-    time_format = GCAL_TIME_FORMAT_24H;
-
-  if (self->time_format == time_format)
-    return;
-
-  self->time_format = time_format;
-
-  enum_format = g_enum_to_string (GCAL_TYPE_TIME_FORMAT, self->time_format);
-  g_debug ("Setting time format to %s", enum_format);
-
-  g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_TIME_FORMAT]);
-}
-
-static gboolean
-read_time_format (GcalContext *self)
-{
-  g_autoptr (GVariant) other_child = NULL;
-  g_autoptr (GVariant) child = NULL;
-  g_autoptr (GVariant) ret = NULL;
-  g_autoptr (GError) error = NULL;
-
-  ret = g_dbus_proxy_call_sync (self->settings_portal,
-                                "Read",
-                                g_variant_new ("(ss)", "org.gnome.desktop.interface", "clock-format"),
-                                G_DBUS_CALL_FLAGS_NONE,
-                                G_MAXINT,
-                                NULL,
-                                &error);
-
-  if (error)
-    {
-      return FALSE;
-    }
-
-  g_variant_get (ret, "(v)", &child);
-  g_variant_get (child, "v", &other_child);
-
-  set_time_format_from_variant (self, other_child);
-
-  return TRUE;
-}
-
-
-/*
  * Callbacks
  */
-
-static void
-on_portal_proxy_signal_cb (GDBusProxy  *proxy,
-                           const gchar *sender_name,
-                           const gchar *signal_name,
-                           GVariant    *parameters,
-                           GcalContext *self)
-{
-  g_autoptr (GVariant) value = NULL;
-  const char *namespace;
-  const char *name;
-
-  if (g_strcmp0 (signal_name, "SettingChanged") != 0)
-    return;
-
-  g_variant_get (parameters, "(&s&sv)", &namespace, &name, &value);
-
-  if (g_strcmp0 (namespace, "org.gnome.desktop.interface") == 0 &&
-      g_strcmp0 (name, "clock-format") == 0)
-    {
-      set_time_format_from_variant (self, value);
-    }
-}
 
 static void
 on_timezone_changed_cb (GcalTimeZoneMonitor *timezone_monitor,
@@ -164,7 +76,6 @@ gcal_context_constructed (GObject *object)
   G_OBJECT_CLASS (gcal_context_parent_class)->constructed (object);
 
   self->manager = gcal_manager_new (self);
-  self->search_engine = gcal_search_engine_new (self);
 }
 
 static void
@@ -172,13 +83,10 @@ gcal_context_finalize (GObject *object)
 {
   GcalContext *self = (GcalContext *)object;
 
-  gcal_weather_service_stop (self->weather_service);
-
   g_clear_object (&self->clock);
-  g_clear_object (&self->settings_portal);
+  g_clear_object (&self->settings);
   g_clear_object (&self->manager);
   g_clear_object (&self->timezone_monitor);
-  g_clear_object (&self->weather_service);
 
   G_OBJECT_CLASS (gcal_context_parent_class)->finalize (object);
 }
@@ -201,10 +109,6 @@ gcal_context_get_property (GObject    *object,
       g_value_set_object (value, self->manager);
       break;
 
-    case PROP_SEARCH_ENGINE:
-      g_value_set_object (value, self->search_engine);
-      break;
-
     case PROP_SETTINGS:
       g_value_set_object (value, self->settings);
       break;
@@ -215,10 +119,6 @@ gcal_context_get_property (GObject    *object,
 
     case PROP_TIMEZONE:
       g_value_set_boxed (value, gcal_time_zone_monitor_get_timezone (self->timezone_monitor));
-      break;
-
-    case PROP_WEATHER_SERVICE:
-      g_value_set_object (value, self->weather_service);
       break;
 
     default:
@@ -236,11 +136,9 @@ gcal_context_set_property (GObject      *object,
     {
     case PROP_CLOCK:
     case PROP_MANAGER:
-    case PROP_SEARCH_ENGINE:
     case PROP_SETTINGS:
     case PROP_TIME_FORMAT:
     case PROP_TIMEZONE:
-    case PROP_WEATHER_SERVICE:
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -268,15 +166,9 @@ gcal_context_class_init (GcalContextClass *klass)
                                                   GCAL_TYPE_MANAGER,
                                                   G_PARAM_READABLE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
 
-  properties[PROP_SEARCH_ENGINE] = g_param_spec_object ("search-engine",
-                                                        "Search engine",
-                                                        "Search engine",
-                                                        GCAL_TYPE_SEARCH_ENGINE,
-                                                        G_PARAM_READABLE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
-
   properties[PROP_SETTINGS] = g_param_spec_object ("settings",
-                                                   "GNOME Calendar settings",
-                                                   "GNOME Calendar settings",
+                                                   "Revolution settings",
+                                                   "Revolution settings",
                                                    G_TYPE_SETTINGS,
                                                    G_PARAM_READABLE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
 
@@ -293,23 +185,17 @@ gcal_context_class_init (GcalContextClass *klass)
                                                   G_TYPE_TIME_ZONE,
                                                   G_PARAM_READABLE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
 
-  properties[PROP_WEATHER_SERVICE] = g_param_spec_object ("weather-service",
-                                                          "Weather service",
-                                                          "Weather service",
-                                                          GCAL_TYPE_WEATHER_SERVICE,
-                                                          G_PARAM_READABLE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
-
   g_object_class_install_properties (object_class, N_PROPS, properties);
 }
 
 static void
 gcal_context_init (GcalContext *self)
 {
-  g_autoptr (GError) error = NULL;
-
   self->clock = gcal_clock_new ();
-  self->settings = g_settings_new ("org.gnome.calendar");
-  self->weather_service = gcal_weather_service_new ();
+  /* Revolution #373: eigenes Schema statt org.gnome.calendar (Sichtbarkeit der Kalender,
+   * gcal-manager.c). Zeitformat fest 24 Stunden wie die Mail-Liste (mail-message.c „%H:%M“),
+   * ohne Abfrage des Settings-Portals. */
+  self->settings = g_settings_new ("de.freiraum_medien.Revolution");
   self->time_format = GCAL_TIME_FORMAT_24H;
 
   self->timezone_monitor = gcal_time_zone_monitor_new ();
@@ -319,18 +205,6 @@ gcal_context_init (GcalContext *self)
                            self,
                            0);
 
-  /* Time format */
-  self->settings_portal = g_dbus_proxy_new_for_bus_sync (G_BUS_TYPE_SESSION,
-                                                         G_DBUS_PROXY_FLAGS_NONE,
-                                                         NULL,
-                                                         "org.freedesktop.portal.Desktop",
-                                                         "/org/freedesktop/portal/desktop",
-                                                         "org.freedesktop.portal.Settings",
-                                                         NULL,
-                                                         &error);
-
-  if (error)
-    g_error ("Failed to load portals: %s. Aborting...", error->message);
 }
 
 /**
@@ -378,21 +252,6 @@ gcal_context_get_manager (GcalContext *self)
 }
 
 /**
- * gcal_context_get_search_engine:
- *
- * Retrieves the #GcalSearchEngine from @self.
- *
- * Returns: (transfer none): a #GcalSearchEngine
- */
-GcalSearchEngine*
-gcal_context_get_search_engine (GcalContext *self)
-{
-  g_return_val_if_fail (GCAL_IS_CONTEXT (self), NULL);
-
-  return self->search_engine;
-}
-
-/**
  * gcal_context_get_settings:
  *
  * Retrieves the #GSettings from @self.
@@ -437,33 +296,11 @@ gcal_context_get_timezone (GcalContext *self)
   return gcal_time_zone_monitor_get_timezone (self->timezone_monitor);
 }
 
-/**
- * gcal_context_get_weather_service:
- *
- * Retrieves the #GcalWeatherService from @self.
- *
- * Returns: (transfer none): a #GcalWeatherService
- */
-GcalWeatherService*
-gcal_context_get_weather_service (GcalContext *self)
-{
-  g_return_val_if_fail (GCAL_IS_CONTEXT (self), NULL);
-
-  return self->weather_service;
-}
-
 void
-gcal_context_startup (GcalContext *self)
+gcal_context_startup (GcalContext     *self,
+                      ESourceRegistry *registry)
 {
   g_return_if_fail (GCAL_IS_CONTEXT (self));
 
-  if (read_time_format (self))
-    {
-      g_signal_connect (self->settings_portal,
-                        "g-signal",
-                        G_CALLBACK (on_portal_proxy_signal_cb),
-                        self);
-    }
-
-  gcal_manager_startup (self->manager);
+  gcal_manager_startup (self->manager, registry);
 }

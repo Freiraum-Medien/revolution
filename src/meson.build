@@ -1,5 +1,10 @@
+subdir('calendar/gcal')
+
 blueprints = []
-foreach blp : ['window.blp', 'mail/mail-view.blp', 'mail/mail-reader.blp', 'mail/mail-conversation.blp', 'mail/mail-attachment.blp', 'composer/composer.blp', 'contacts/contacts-view.blp', 'contacts/contacts-detail.blp', 'contacts/contacts-editor.blp', 'calendar/calendar-view.blp']
+foreach blp : ['window.blp', 'mail/mail-view.blp', 'mail/mail-reader.blp', 'mail/mail-conversation.blp', 'mail/mail-attachment.blp', 'composer/composer.blp', 'contacts/contacts-view.blp', 'contacts/contacts-detail.blp', 'contacts/contacts-editor.blp', 'calendar/calendar-view.blp',
+            # #373: gnome-calendar 50.0 (src/calendar/gcal)
+            'calendar/gcal/gcal-event-widget.blp', 'calendar/gcal/gcal-month-cell.blp',
+            'calendar/gcal/gcal-month-popover.blp', 'calendar/gcal/gcal-month-view.blp']
   blueprints += custom_target(
     input: blp,
     output: '@BASENAME@.ui',
@@ -41,7 +46,6 @@ executable('revolution',
   'contacts/contacts-detail.c',
   'contacts/contacts-editor.c',
   'contacts/contacts-view.c',
-  'calendar/calendar-sample.c',
   'calendar/calendar-view.c',
   resources,
   dependencies: [
@@ -52,6 +56,7 @@ executable('revolution',
     dependency('libedataserver-1.2', version: '>= 3.56'),
     dependency('libebook-1.2', version: '>= 3.56'), # #361 Adressvervollständigung
     dependency('webkitgtk-6.0', version: '>= 2.52'),
+    gcal_dep, # #373 Kalender (libecal-2.0, fribidi)
   ],
   include_directories: include_directories('..'),
   install: true,

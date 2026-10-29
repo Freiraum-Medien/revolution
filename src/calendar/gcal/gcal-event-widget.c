@@ -23,11 +23,9 @@
 #include <string.h>
 
 #include "gcal-fading-label.h"
-#include "gcal-application.h"
 #include "gcal-context.h"
 #include "gcal-clock.h"
 #include "gcal-debug.h"
-#include "gcal-event-popover.h"
 #include "gcal-event-widget.h"
 #include "gcal-overflow-bin.h"
 #include "gcal-view.h"
@@ -37,13 +35,6 @@
 #define DESC_MAX_CHAR    200
 #define INTENSITY(c)     ((c->red) * 0.30 + (c->green) * 0.59 + (c->blue) * 0.11)
 #define ICON_SIZE        16
-
-typedef struct
-{
-  GcalEventWidget *event_widget;
-  GcalEventPreviewCallback callback;
-  gpointer user_data;
-} PreviewData;
 
 struct _GcalEventWidget
 {
@@ -61,7 +52,6 @@ struct _GcalEventWidget
   GtkWidget          *summary_label;
   GtkWidget          *vertical_box;
   GtkEventController *drag_source;
-  GtkWidget          *preview_popover;
 
   /* internal data */
   gchar              *css_class;
@@ -376,7 +366,9 @@ gcal_event_widget_set_event_tooltip (GcalEventWidget *self,
       g_autoptr (GError) error = NULL;
 
       string = g_string_new (NULL);
-      guri = g_uri_parse (location, SOUP_HTTP_URI_FLAGS | G_URI_FLAGS_PARSE_RELAXED, &error);
+      guri = g_uri_parse (location, G_URI_FLAGS_HAS_PASSWORD | G_URI_FLAGS_ENCODED_PATH | G_URI_FLAGS_ENCODED_QUERY |
+                                       G_URI_FLAGS_ENCODED_FRAGMENT | G_URI_FLAGS_SCHEME_NORMALIZE | /* = SOUP_HTTP_URI_FLAGS */
+                                       G_URI_FLAGS_PARSE_RELAXED, &error);
 
       if (error == NULL)
         {
@@ -543,25 +535,6 @@ gcal_event_widget_set_event_internal (GcalEventWidget *self,
   gcal_event_widget_update_timestamp (self);
 }
 
-static void
-reply_preview_callback (GtkWidget              *event_popover,
-                        PreviewData            *data,
-                        GcalEventPreviewAction  action)
-{
-  if (data->callback)
-    data->callback (data->event_widget, action, data->user_data);
-
-  g_signal_handlers_disconnect_by_data (event_popover, data);
-
-  gtk_popover_popdown (GTK_POPOVER (event_popover));
-  gtk_widget_unparent (event_popover);
-  gtk_accessible_update_state (GTK_ACCESSIBLE (data->event_widget),
-                               GTK_ACCESSIBLE_STATE_PRESSED, FALSE,
-                               -1);
-
-  g_clear_pointer (&data, g_free);
-}
-
 
 /*
  * Callbacks
@@ -584,24 +557,9 @@ on_click_gesture_release_cb (GtkGestureClick *click_gesture,
                              gdouble          y,
                              GcalEventWidget *self)
 {
-  GdkRectangle rect;
-  gboolean not_inside_list_box;
-
+  /* Revolution #373: ohne Termin-Popover (folgt in #375), nur das Signal. */
   gtk_gesture_set_state (GTK_GESTURE (click_gesture), GTK_EVENT_SEQUENCE_CLAIMED);
   g_signal_emit (self, signals[ACTIVATE], 0);
-
-  g_assert (GCAL_IS_EVENT_POPOVER (self->preview_popover));
-
-  not_inside_list_box = !gtk_widget_get_ancestor (GTK_WIDGET (self), GTK_TYPE_LIST_BOX);
-  if (not_inside_list_box && gcal_event_is_multiday (self->event))
-    {
-      rect.x = x;
-      rect.y = 0;
-      rect.width = 1;
-      rect.height = 1;
-
-      gtk_popover_set_pointing_to (GTK_POPOVER (self->preview_popover), &rect);
-    }
 }
 
 static void
@@ -622,20 +580,6 @@ on_drag_source_prepare_cb (GtkDragSource   *source,
                            GcalEventWidget *self)
 {
   return gdk_content_provider_new_typed (GCAL_TYPE_EVENT_WIDGET, self);
-}
-
-static void
-on_event_popover_closed_cb (GtkWidget   *event_popover,
-                            PreviewData *data)
-{
-  reply_preview_callback (event_popover, data, GCAL_EVENT_PREVIEW_ACTION_NONE);
-}
-
-static void
-on_event_popover_edit_cb (GtkWidget   *event_popover,
-                               PreviewData *data)
-{
-  reply_preview_callback (event_popover, data, GCAL_EVENT_PREVIEW_ACTION_EDIT);
 }
 
 static gboolean
@@ -739,7 +683,6 @@ gcal_event_widget_dispose (GObject *object)
 {
   GcalEventWidget *self = GCAL_EVENT_WIDGET (object);
 
-  g_clear_pointer (&self->preview_popover, gtk_widget_unparent);
   g_clear_pointer (&self->overflow_bin, gtk_widget_unparent);
   g_clear_pointer (&self->edge, gtk_widget_unparent);
 
@@ -1038,46 +981,6 @@ gcal_event_widget_set_timestamp_policy (GcalEventWidget     *self,
 
       g_object_notify (G_OBJECT (self), "timestamp-policy");
     }
-}
-
-/**
- * gcal_event_widget_show_preview:
- * @self: a #GcalEventWidget
- * @callback: (nullable): callback for the event preview
- * @user_data: (nullable): user data for @callback
- *
- * Shows an event preview popover for this event widget, and
- * calls @callback when the popover is either dismissed, or
- * the edit button is clicked.
- */
-void
-gcal_event_widget_show_preview (GcalEventWidget          *self,
-                                GcalEventPreviewCallback  callback,
-                                gpointer                  user_data)
-{
-  PreviewData *data;
-
-  GCAL_ENTRY;
-
-  g_clear_pointer (&self->preview_popover, gtk_widget_unparent);
-
-  data = g_new0 (PreviewData, 1);
-  data->event_widget = self;
-  data->callback = callback;
-  data->user_data = user_data;
-
-  self->preview_popover = gcal_event_popover_new (self->context, self->event);
-  g_object_add_weak_pointer (G_OBJECT (self->preview_popover), (gpointer *) &self->preview_popover);
-
-  gtk_widget_set_parent (self->preview_popover, GTK_WIDGET (self));
-  g_signal_connect (self->preview_popover, "closed", G_CALLBACK (on_event_popover_closed_cb), data);
-  g_signal_connect (self->preview_popover, "edit", G_CALLBACK (on_event_popover_edit_cb), data);
-  gtk_popover_popup (GTK_POPOVER (self->preview_popover));
-  gtk_accessible_update_state (GTK_ACCESSIBLE (self),
-                               GTK_ACCESSIBLE_STATE_PRESSED, TRUE,
-                               -1);
-
-  GCAL_EXIT;
 }
 
 /**

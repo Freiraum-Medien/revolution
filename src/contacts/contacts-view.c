@@ -74,6 +74,7 @@ struct _RevolutionContactsView
   GtkWidget              *edit_button;
   GtkWidget              *delete_button;
   GActionMap             *contact_actions;
+  GActionMap             *view_actions;     /* contacts.search ist bei offenem Formular aus (update_actions) */
 
   ESourceRegistry        *registry;
   GListStore             *books;        /* RevolutionContactsBook */
@@ -815,6 +816,9 @@ focus_search_entry (RevolutionContactsView *self)
 static void
 on_search_toggled (RevolutionContactsView *self)
 {
+  /* Bei offenem Formular bleibt die Kopfleiste „edit“ (Fertig/Abbrechen); show_editor stellt danach her. */
+  if (self->editing)
+    return;
   if (gtk_toggle_button_get_active (self->search_button))
     {
       gtk_stack_set_visible_child_name (self->header_stack, "search");
@@ -832,6 +836,8 @@ on_search_toggled (RevolutionContactsView *self)
 static void
 on_search_started (RevolutionContactsView *self)
 {
+  if (self->editing)
+    return;
   gtk_toggle_button_set_active (self->search_button, TRUE);
 }
 
@@ -850,6 +856,8 @@ on_search (GSimpleAction *action G_GNUC_UNUSED,
 {
   RevolutionContactsView *self = user_data;
 
+  if (self->editing)
+    return;
   if (gtk_toggle_button_get_active (self->search_button))
     focus_search_entry (self);
   else
@@ -1033,6 +1041,10 @@ update_actions (RevolutionContactsView *self)
   set_enabled (self, "delete", !self->editing && writable && connected && selected);
   set_enabled (self, "save", self->editing && !self->saving && revolution_contacts_editor_is_valid (self->editor));
   set_enabled (self, "cancel", self->editing && !self->saving);
+  /* #371 M1: Strg+F und Menü „Suchen“ wirken bei offenem Formular nicht. */
+  if (self->view_actions != NULL)
+    g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (self->view_actions, "search")),
+                                 !self->editing);
   gtk_widget_set_visible (self->edit_button, writable);
   gtk_widget_set_visible (self->delete_button, writable);
 }
@@ -1053,7 +1065,9 @@ show_editor (RevolutionContactsView *self,
   self->editing = editing;
   gtk_label_set_label (self->edit_title, is_new ? _("New Contact") : _("Edit Contact"));
   gtk_button_set_label (self->done_button, is_new ? _("_Add") : _("_Done"));
-  gtk_stack_set_visible_child_name (self->header_stack, editing ? "edit" : "actions");
+  /* Zurück zur Suche, wenn sie vor dem Formular offen war (Strg+N bei aktiver Suche). */
+  gtk_stack_set_visible_child_name (self->header_stack, editing ? "edit"
+                                    : gtk_toggle_button_get_active (self->search_button) ? "search" : "actions");
   gtk_stack_set_visible_child_name (self->pane_stack, editing ? "editor" : "detail");
   gtk_widget_set_visible (GTK_WIDGET (self->search_button), !editing);
   gtk_widget_set_sensitive (GTK_WIDGET (self->contact_list), !editing);
@@ -1408,6 +1422,9 @@ on_delete (GSimpleAction *action G_GNUC_UNUSED,
   pending->toast = adw_toast_new (_("Contact deleted"));
   adw_toast_set_button_label (pending->toast, _("_Undo"));
   adw_toast_set_timeout (pending->toast, DELETE_SECONDS);
+  /* Sofort zeigen, auch wenn ein anderer Toast steht: HIGH „will be displayed immediately, pushing the previous
+   * toast into the queue“ (Adw-1.gir ToastPriority, adw-toast.c:18); der Zeitgeber unten läuft ab jetzt. */
+  adw_toast_set_priority (pending->toast, ADW_TOAST_PRIORITY_HIGH);
   g_signal_connect_object (pending->toast, "button-clicked", G_CALLBACK (on_undo), self, G_CONNECT_SWAPPED);
   pending->timeout_id = g_timeout_add_seconds (DELETE_SECONDS, on_delete_timeout, self);
   self->pending = pending;
@@ -1608,6 +1625,7 @@ revolution_contacts_view_dispose (GObject *object)
   g_clear_pointer (&self->edit_books, g_ptr_array_unref);
   g_clear_pointer (&self->select_uid, g_free);
   self->contact_actions = NULL;
+  self->view_actions = NULL;
   gtk_widget_dispose_template (GTK_WIDGET (self), REVOLUTION_TYPE_CONTACTS_VIEW);
   g_clear_object (&self->stack);
   g_clear_object (&self->book);
@@ -1723,6 +1741,7 @@ revolution_contacts_view_init (RevolutionContactsView *self)
   g_action_map_add_action_entries (G_ACTION_MAP (contact_group), contact_actions, G_N_ELEMENTS (contact_actions), self);
   gtk_widget_insert_action_group (GTK_WIDGET (self), "contact", G_ACTION_GROUP (contact_group));
   self->contact_actions = G_ACTION_MAP (contact_group);
+  self->view_actions = G_ACTION_MAP (contacts_group);
   g_signal_connect_object (self->editor, "notify::valid", G_CALLBACK (on_editor_valid), self, G_CONNECT_SWAPPED);
 
   gtk_widget_add_controller (GTK_WIDGET (self), shortcuts);

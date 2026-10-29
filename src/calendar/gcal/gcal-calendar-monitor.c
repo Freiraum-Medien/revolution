@@ -460,52 +460,9 @@ on_client_view_objects_modified_cb (ECalClientView      *view,
 
   g_assert (GCAL_IS_THREAD (self->thread));
 
-  /*
-   * Revolution #373: Die Vorlage verwarf hier (Zeilen 470-474) alle bis „complete“ gesammelten Termine, sobald
-   * während des ersten Ladens eine Änderung kam (z. B. aus dem e_client_refresh beim Verbinden,
-   * gcal-manager.c); der Kalender blieb dann bis zum nächsten Bereichswechsel leer (gemessen 29.10.2026:
-   * microsoft365 „Calendar“ nach 240 s ohne Termine). Stattdessen die alte Fassung aus der Sammlung nehmen
-   * und die neue wie ein Hinzufügen sammeln (bei einer Serie alle ihre Vorkommen, sie werden neu erzeugt).
-   */
-  if (!self->monitor_thread.populated)
+  if (!self->monitor_thread.populated && self->monitor_thread.events_to_add)
     {
-      for (l = objects; l && self->monitor_thread.events_to_add; l = l->next)
-        {
-          g_autofree gchar *id = NULL;
-          ICalComponent *icomponent = l->data;
-          gboolean instance;
-          gsize id_len;
-
-          if (!icomponent || !i_cal_component_get_uid (icomponent))
-            continue;
-
-          instance = e_cal_util_component_is_instance (icomponent);
-          if (instance)
-            {
-              ICalTime *rid = i_cal_component_get_recurrenceid (icomponent);
-              g_autofree gchar *rid_str = i_cal_time_as_ical_string (rid);
-
-              g_clear_object (&rid);
-
-              id = g_strdup_printf ("%s:%s:%s", gcal_calendar_get_id (self->calendar),
-                                    i_cal_component_get_uid (icomponent), rid_str);
-            }
-          else
-            {
-              id = g_strdup_printf ("%s:%s", gcal_calendar_get_id (self->calendar), i_cal_component_get_uid (icomponent));
-            }
-          id_len = strlen (id);
-
-          for (guint i = self->monitor_thread.events_to_add->len; i > 0; i--)
-            {
-              const gchar *event_id = gcal_event_get_uid (g_ptr_array_index (self->monitor_thread.events_to_add, i - 1));
-
-              if (g_str_equal (event_id, id) || (!instance && g_str_has_prefix (event_id, id) && event_id[id_len] == ':'))
-                g_ptr_array_remove_index (self->monitor_thread.events_to_add, i - 1);
-            }
-        }
-
-      on_client_view_objects_added_cb (view, objects, self);
+      g_clear_pointer (&self->monitor_thread.events_to_add, g_ptr_array_unref);
       return;
     }
 

@@ -6,6 +6,10 @@ src/eds-compat.c
 src/mail/mail-folder.c
 src/mail/mail-message.c
 src/mail/mail-view.c
+src/mail/mail-list.c
+src/mail/mail-queue.c
+src/mail/mail-actions.c
+src/mail/mail-folder-actions.c
 src/mail/mail-reader.c
 src/mail/mail-attachment.c
 src/mail/mail-favorites.c

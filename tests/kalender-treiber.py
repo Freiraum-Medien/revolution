@@ -206,9 +206,14 @@ def eintraege(liste):
     return out
 
 
+# GTK 4.22 liefert unter Xvfb ohne Fenstermanager für SCREEN nur 0,0; WINDOW-Koordinaten sind gegen das Bild um den
+# Rand der Fensterdekoration verschoben (gemessen 29.10.2026: Knopf „Termin hinzufügen“ WINDOW 1339,839 ↔ Bild 1354,854).
+VERSATZ = int(os.environ.get('VERSATZ', '15'))
+
+
 def mitte(o):
-    r = o.get_component_iface().get_extents(Atspi.CoordType.SCREEN)
-    return r.x + r.width // 2, r.y + r.height // 2
+    r = o.get_component_iface().get_extents(Atspi.CoordType.WINDOW)
+    return r.x + r.width // 2 + VERSATZ, r.y + r.height // 2 + VERSATZ
 
 
 # ------------------------------------------------------------------ Log der Termine
@@ -305,6 +310,8 @@ def seitenleiste(soll):
                                     'nur lesend)%s' % (len(log), len(soll), '' if log == soll else ': fehlt %s, anders %s' % (
                                         sorted(set(soll) - set(log)),
                                         sorted(u for u in log if u in soll and log[u] != soll[u]))))
+    if MODUS == 'bild':
+        return  # schmal: Seitenleiste eingeklappt (≤ 1000 sp, calendar-view.blp)
     liste = kalenderliste()
     if liste is None:
         falsch('Seitenleiste: Liste „Kalender“ nicht im Barrierefreiheitsbaum')
@@ -334,8 +341,8 @@ def tastatur():
     heute = datetime.date.today()
     jetzt = '%s %d' % (MONATE[heute.month - 1], heute.year)
     (ok if titel_ist(jetzt) else falsch)('Strg+2: Kalender mit Titel „%s“' % jetzt)
-    for name in ('Zurück', 'Vor', 'Zu heute springen', 'Termin hinzufügen', 'Seitenleiste ein-/ausblenden', 'Monat',
-                 'Datum wählen', 'Kalender', 'Hauptmenü'):
+    for name in ('Zurück', 'Vor', 'Heute', 'Termin hinzufügen', 'Seitenleiste ein-/ausblenden', 'Monat', 'Woche',
+                 'Kalender', 'Hauptmenü'):
         o = finde(wurzel(), 'button', name) or finde(wurzel(), 'toggle button', name) or finde(wurzel(), None, name)
         (ok if o is not None else falsch)('a11y: Bedienelement „%s“' % name)
     nm = heute.replace(day=1) + datetime.timedelta(days=32)
@@ -461,6 +468,7 @@ def aus_an(soll, an):
         return
     ab = marke()
     klick(*mitte(box))
+    wert('Ein/Aus: Klick auf „%s“ bei %s' % (name, mitte(box)))
     m = warte(r'Kalender: %s sichtbar %d$' % (re.escape(AUS_KALENDER), int(an)), ab, 10)
     (ok if m else falsch)('Ein/Aus: „%s“ %s (Log)' % (name, 'an' if an else 'aus'))
     ende = time.monotonic() + 30

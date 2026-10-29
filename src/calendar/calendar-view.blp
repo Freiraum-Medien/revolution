@@ -462,12 +462,6 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
         Button {
           action-name: "calendar.today";
           tooltip-text: _("Go to Today");
-
-          // #373: a11y-Name wie der Tooltip (Briefing Architektur 8).
-          accessibility {
-            label: _("Go to Today");
-          }
-
           child: Adw.ButtonContent {
             label: _("_Today");
             use-underline: true;

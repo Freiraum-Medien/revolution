@@ -105,6 +105,7 @@ struct _RevolutionContactsView
 G_DEFINE_FINAL_TYPE (RevolutionContactsView, revolution_contacts_view, ADW_TYPE_BREAKPOINT_BIN)
 
 static void open_view (RevolutionContactsView *self);
+static gboolean on_close_request (RevolutionContactsView *self);
 static void update_actions (RevolutionContactsView *self);
 static void select_pending (RevolutionContactsView *self);
 
@@ -689,6 +690,10 @@ on_map (RevolutionContactsView *self,
   if (self->connect_all)
     return;
   self->connect_all = TRUE;
+  /* #370: Schließen des Fensters beendet die Anwendung, ohne dass die Ansicht zerstört wird (gemessen:
+   * build-devel/m6-370/beenden.txt); vorgemerktes Löschen daher schon hier ausführen. */
+  g_signal_connect_object (gtk_widget_get_root (GTK_WIDGET (self)), "close-request", G_CALLBACK (on_close_request), self,
+                           G_CONNECT_SWAPPED);
   for (guint i = 0; i < g_list_model_get_n_items (books); i++)
     {
       g_autoptr (RevolutionContactsBook) book = g_list_model_get_item (books, i);
@@ -1229,7 +1234,8 @@ on_save (GSimpleAction *action G_GNUC_UNUSED,
 /* Löschen wie GNOME Contacts (contacts-main-window.vala delete_contacts, contacts-operation-list.vala
  * execute_with_timeout): Kontakt sofort aus der Liste, Toast mit Rückgängig, gelöscht wird erst nach Ablauf
  * der Toast-Zeit; Rückgängig davor schreibt nichts. Beim Beenden sofort (contacts-app.vala quit_action:
- * operations.flush), hier beim Zerstören der Ansicht; das Beenden wartet darauf (g_application_hold). */
+ * operations.flush), hier beim Schließen des Fensters (on_close_request) und beim Zerstören der Ansicht; das Beenden
+ * wartet darauf (g_application_hold). */
 #define DELETE_SECONDS 5
 
 static void
@@ -1324,6 +1330,17 @@ execute_pending (RevolutionContactsView *self,
   g_object_set_data_full (G_OBJECT (task), "item", g_object_ref (pending->item), g_object_unref);
   g_task_run_in_thread (task, job_thread);
   pending_free (pending);
+}
+
+/* Fenster schließen wie Beenden (GNOME Contacts close_request → quit → flush): sofort löschen, die Anwendung
+ * hält sich, bis der Auftrag fertig ist (execute_pending). FALSE: Schließen geht weiter. */
+static gboolean
+on_close_request (RevolutionContactsView *self)
+{
+  if (self->pending != NULL)
+    g_debug ("Kontakt: Fenster geschlossen, vorgemerktes Löschen jetzt");
+  execute_pending (self, FALSE);
+  return FALSE;
 }
 
 static gboolean

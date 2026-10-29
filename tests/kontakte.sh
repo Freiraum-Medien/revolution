@@ -21,7 +21,8 @@
 # #370 (kontakte-treiber.py MODUS schreiben/absender): schreiben-google (hell, Start in „Persönlich“, Kontakt mit allen
 # Feldern über das Formular im Google-Buch, ändern, Rückgängig, löschen; Nur-lesend-Buch; „Persönlich“ anlegen/löschen),
 # schreiben-outlook (dunkel, dasselbe in microsoft365 „Kontakte“, höchstens 3 Schreibvorgänge), absender (Testmail im
-# Posteingang des zweiten IMAP-Testkontos, Formular vorausgefüllt, Escape). Gegenprobe Python-GI und am Server ohne EDS
+# Posteingang des zweiten IMAP-Testkontos, Formular vorausgefüllt, Escape; speichern, zweites Mal: vorhandener Kontakt,
+# löschen), beenden (Löschen vorgemerkt, Fenster sofort schließen: gelöscht vor dem Ende, Server 404). Gegenprobe Python-GI und am Server ohne EDS
 # (tests/testdaten.py --kontakt-server). Danach UID-Prüfsumme je Buch wie vorher.
 #   TEILE  Läufe, Standard „google outlook google-dunkel schreiben-google schreiben-outlook absender“ (zum Eingrenzen, z. B. TEILE=google-dunkel)
 # Schreiben nur in diese beiden Bücher und (#370) „Persönlich“ (Briefing Zusatz M6), nur Testkontakte „Revolution-Test …“ über die
@@ -145,7 +146,7 @@ print(uid, ",".join(sorted(s.get_uid() for s in r.list_sources(EDataServer.SOURC
   "$APP_DIR" "$KONTO_IMAP_2")
 ALLE_MAILKONTEN="$MAIL_UID,$ANDERE_MAILKONTEN"
 LAUF_ENV=()
-TEILE="${TEILE:-google outlook google-dunkel schreiben-google schreiben-outlook absender}"
+TEILE="${TEILE:-google outlook google-dunkel schreiben-google schreiben-outlook absender beenden}"
 for t in $TEILE; do
   LAUF_ENV=()
   case "$t" in
@@ -157,6 +158,9 @@ for t in $TEILE; do
       LAUF_ENV=(ZIEL="$OUTLOOK_BUCH" BILD_PREFIX=m6-370-dunkel-
                 REVOLUTION_TEST_HOOKS=1 REVOLUTION_SKIP_ACCOUNTS="$ALLE_MAILKONTEN")
       teil schreiben-outlook "$GOOGLE_BUCH" schreiben prefer-dark 0 "" m6-370 ;;
+    beenden)
+      LAUF_ENV=(REVOLUTION_TEST_HOOKS=1 REVOLUTION_SKIP_ACCOUNTS="$ALLE_MAILKONTEN")
+      teil beenden "$GOOGLE_BUCH" beenden prefer-light 0 "" m6-370 ;;
     absender)
       # Nur das Konto der Testmail laden (Gelesen-Markierung schreibt; nur lesende Konten ausgeschlossen).
       LAUF_ENV=(REVOLUTION_FOLDER="$MAIL_UID/INBOX" REVOLUTION_MESSAGE="Anhänge PDF, Bild, ZIP"

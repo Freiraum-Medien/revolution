@@ -1265,6 +1265,40 @@ def absender():
     loeschen(buch, KONTAKT, '%s %s' % (ist[0], familie), False, per_knopf=True)
 
 
+def beenden_vorbereiten():
+    """#370: Testkontakt von außen, in der App löschen (vorgemerkt), Fenster sofort schließen (main)."""
+    aus = testdaten('--kontakt-live', 'anlegen', BUCH, KONTAKT)
+    uid, name = re.search(r'^ANGELEGT (\S+) (.*)$', aus, re.M).groups()
+    if not warte_zeile(name, True, 60):
+        falsch('Beenden: Testkontakt nicht in der Liste')
+        return
+    liste = kontaktliste()
+    eintraege = [n for r, n in zeilen(liste) if r != 'row header']
+    liste.select_child(eintraege.index(name))
+    time.sleep(1)
+    if detail_uid() != uid:
+        falsch('Beenden: Auswahl ist nicht der Testkontakt, nichts gelöscht')
+        return
+    ab = marke()
+    knopf('Kontakt löschen')
+    (ok if warte(r'Kontakt: Löschen vorgemerkt \S+ %s' % re.escape(uid), ab, 5) else falsch)(
+        'Beenden: Löschen vorgemerkt, Fenster wird sofort geschlossen')
+
+
+def beenden_pruefen():
+    """Nach dem Schließen: gelöscht (Log, Python-GI, Server 404), nicht erst nach Ablauf des Toasts."""
+    uid = open(KONTAKT).read().split()[2]
+    txt = log_text()
+    (ok if re.search(r'Kontakt: Fenster geschlossen, vorgemerktes Löschen jetzt', txt) and
+     re.search(r'Kontakt: löschen \S+ %s fertig' % re.escape(uid), txt) else falsch)(
+        'Beenden: vorgemerktes Löschen beim Schließen sofort ausgeführt, App wartet darauf (GNOME Contacts quit: flush)')
+    if re.search(r'Kontakt: löschen \S+ %s fertig' % re.escape(uid), txt):
+        print('SCHREIBVORGANG %s' % BUCH, flush=True)
+    (ok if not vorhanden(BUCH, KONTAKT) else falsch)('Beenden: Kontakt nicht mehr im Buch (Python-GI)')
+    status, _ = server(BUCH, KONTAKT)
+    (ok if status == '404' else falsch)('Beenden: am Server ohne EDS HTTP %s (erwartet 404)' % status)
+
+
 def pruefen():
     soll = vergleich()
     ab = 0
@@ -1307,6 +1341,8 @@ def pruefen():
             return
     if MODUS == 'schreiben':
         schreiben()
+    elif MODUS == 'beenden':
+        beenden_vorbereiten()
     elif MODUS != 'detail':
         live(n0)
     if GRAPH:
@@ -1326,6 +1362,8 @@ def main():
         w = fenster()
         rc = schliessen(w) if w else None
         (ok if rc == 0 else falsch)('Beenden: Exit %s' % rc)
+        if MODUS == 'beenden' and os.path.exists(KONTAKT):
+            beenden_pruefen()
     finally:
         if app.poll() is None:
             app.kill()

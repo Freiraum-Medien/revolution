@@ -26,6 +26,7 @@ struct _RevolutionMailMessage
   GObject   parent_instance;
   char     *uid;
   char     *sender;
+  char     *from;     /* #370: Absender roh („Name <Adresse>“) für „Absender als Kontakt übernehmen“ */
   char     *subject;
   char     *preview;
   char     *date;
@@ -106,6 +107,7 @@ revolution_mail_message_finalize (GObject *object)
 
   g_free (self->uid);
   g_free (self->sender);
+  g_free (self->from);
   g_free (self->subject);
   g_free (self->preview);
   g_free (self->date);
@@ -303,6 +305,7 @@ revolution_mail_message_new (CamelMessageInfo *info,
   camel_message_info_property_lock (info);
   self->uid = g_strdup (camel_message_info_get_uid (info));
   self->sender = sender_for (camel_message_info_get_from (info));
+  self->from = g_strdup (camel_message_info_get_from (info));
   subject = camel_message_info_get_subject (info);
   self->subject = g_strdup (subject != NULL && *subject != '\0' ? subject : _("(No Subject)"));
   self->preview = preview_for (camel_message_info_get_preview (info));
@@ -402,6 +405,11 @@ revolution_mail_message_update (RevolutionMailMessage *self,
       changed = TRUE;
     }
   changed |= update_string (self, &self->sender, from->sender, PROP_SENDER);
+  if (g_strcmp0 (self->from, from->from) != 0)
+    {
+      g_free (self->from);
+      self->from = g_strdup (from->from);
+    }
   changed |= update_string (self, &self->subject, from->subject, PROP_SUBJECT);
   changed |= update_string (self, &self->preview, from->preview, PROP_PREVIEW);
   changed |= update_boolean (self, &self->unread, from->unread, PROP_UNREAD);
@@ -457,6 +465,14 @@ revolution_mail_message_get_unread (RevolutionMailMessage *self)
 }
 
 /* #353: Zustand für die Aktionen (mail-view.c, update_message_actions). */
+const char *
+revolution_mail_message_get_from (RevolutionMailMessage *self)
+{
+  g_return_val_if_fail (REVOLUTION_IS_MAIL_MESSAGE (self), NULL);
+
+  return self->from;
+}
+
 gboolean
 revolution_mail_message_get_starred (RevolutionMailMessage *self)
 {

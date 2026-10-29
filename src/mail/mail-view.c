@@ -23,6 +23,7 @@
 #include <glib/gi18n.h>
 
 #include "composer/composer.h"
+#include "contacts/contacts-view.h"
 #include "eds-compat.h"
 #include "mail-account.h"
 #include "mail-conversation.h"
@@ -2336,6 +2337,40 @@ on_star_change_state (GSimpleAction *action G_GNUC_UNUSED,
   mark_starred (user_data, selected_message (user_data), starred, starred ? "markiert" : "nicht markiert");
 }
 
+/* #370: message.add-sender wie Evolution „Absender zum Adressbuch hinzufügen“ (mail-add-sender,
+ * e-mail-reader.c:163-220, Menü Nachricht): Absender der gewählten Nachricht, in einer Konversation der
+ * neuesten (wie open_reply); wechselt zu den Kontakten mit vorausgefülltem Formular (contacts-view.c). */
+static const char *
+selected_from (RevolutionMailView *self)
+{
+  RevolutionMailMessage *message = self->camel_folder != NULL ? selected_message (self) : NULL;
+  GListModel *members = message != NULL ? revolution_mail_message_get_members (message) : NULL;
+  g_autoptr (RevolutionMailMessage) member = NULL;
+
+  if (members != NULL && g_list_model_get_n_items (members) > 0)
+    {
+      member = g_list_model_get_item (members, g_list_model_get_n_items (members) - 1);
+      return revolution_mail_message_get_from (member);
+    }
+  return message != NULL ? revolution_mail_message_get_from (message) : NULL;
+}
+
+static void
+on_add_sender (GSimpleAction *action G_GNUC_UNUSED,
+               GVariant      *parameter G_GNUC_UNUSED,
+               gpointer       user_data)
+{
+  RevolutionMailView *self = user_data;
+  g_autofree char *from = g_strdup (selected_from (self));
+  gpointer contacts = g_object_get_data (G_OBJECT (gtk_widget_get_root (GTK_WIDGET (self))), "contacts-view");
+
+  if (from == NULL || *from == '\0' || contacts == NULL)
+    return;
+  g_debug ("Mail: Absender als Kontakt %s", from);
+  adw_view_stack_set_visible_child_name (self->stack, "contacts");
+  revolution_contacts_view_add_sender (contacts, from);
+}
+
 /* Nur die passenden Aktionen sind aktiv wie Evolution (Gelesen nur bei ungelesener Auswahl,
  * e-mail-reader.c mail_reader_update_actions); Menüeinträge mit hidden-when blenden die
  * übrigen aus. */
@@ -2360,6 +2395,7 @@ update_message_actions (RevolutionMailView *self)
     { "junk", message != NULL },
     { "move", message != NULL },
     { "move-to", message != NULL },
+    { "add-sender", message != NULL && selected_from (self) != NULL && *selected_from (self) != '\0' },
   };
   GAction *star = g_action_map_lookup_action (self->message_actions, "star");
 
@@ -4188,6 +4224,8 @@ static const GActionEntry message_actions[] = {
   { "move", on_transfer_action, NULL, NULL, NULL, { 0 } },
   { "move-to", on_transfer_action, "s", NULL, NULL, { 0 } },
   { "undo", on_transfer_action, NULL, NULL, NULL, { 0 } },
+  /* #370 */
+  { "add-sender", on_add_sender, NULL, NULL, NULL, { 0 } },
 };
 
 static void

@@ -24,6 +24,7 @@ void                   revolution_mail_message_set_flags   (RevolutionMailMessag
                                                             gboolean               starred);
 gboolean               revolution_mail_message_get_unread  (RevolutionMailMessage *self);
 gboolean               revolution_mail_message_get_starred (RevolutionMailMessage *self);
+const char            *revolution_mail_message_get_from    (RevolutionMailMessage *self);
 gint64                 revolution_mail_message_get_timestamp (RevolutionMailMessage *self);
 gboolean               revolution_mail_message_has_preview (RevolutionMailMessage *self);
 gboolean               revolution_mail_message_get_source  (RevolutionMailMessage  *self,

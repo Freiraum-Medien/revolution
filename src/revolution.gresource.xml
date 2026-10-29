@@ -9,6 +9,7 @@
     <file>composer.ui</file>
     <file>contacts-view.ui</file>
     <file>contacts-detail.ui</file>
+    <file>contacts-editor.ui</file>
     <file>calendar-view.ui</file>
     <file alias="style.css">mail/style.css</file>
     <file>icons/scalable/actions/archive-symbolic.svg</file>

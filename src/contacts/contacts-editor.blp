@@ -1,0 +1,143 @@
+// Bearbeitungsformular eines Kontakts (#370), Inhalt und Zeilen in contacts-editor.c.
+// Standard-libadwaita: je Feldgruppe eine AdwPreferencesGroup mit AdwEntryRow; mehrere E-Mails, Telefone und
+// Adressen als Zeilen mit Typ-Auswahl, „+“ im Kopf der Gruppe fügt eine Zeile an. Felder wie Evolution
+// e-contact-editor.c (Name, E-Mail, Telefon, Adressen, Firma/Abteilung/Position, Notiz) ohne Foto;
+// Maße wie die Detailansicht (contacts-detail.blp), Bearbeiten im Detailbereich wie GNOME Contacts.
+using Gtk 4.0;
+using Adw 1;
+
+template $RevolutionContactsEditor: Adw.Bin {
+  child: ScrolledWindow scroller {
+    hscrollbar-policy: never;
+
+    child: Adw.Clamp {
+      maximum-size: 620;
+      tightening-threshold: 480;
+      margin-start: 12;
+      margin-end: 12;
+      margin-top: 18;
+      margin-bottom: 24;
+
+      child: Box {
+        orientation: vertical;
+        spacing: 24;
+
+        // Nur beim Anlegen: schreibbare Adressbücher wie Evolutions Quellen-Auswahl
+        // (e-contact-editor.c „client-combo-box“, e-contact-quick-add.c:497-509).
+        Adw.PreferencesGroup book_group {
+          Adw.ComboRow book_row {
+            title: _("Address Book");
+          }
+        }
+
+        Adw.PreferencesGroup {
+          title: _("Name");
+
+          Adw.EntryRow given_row {
+            title: _("First Name");
+            changed => $on_changed() swapped;
+          }
+
+          Adw.EntryRow family_row {
+            title: _("Last Name");
+            changed => $on_changed() swapped;
+          }
+        }
+
+        Adw.PreferencesGroup email_group {
+          title: _("Email");
+
+          header-suffix: Button {
+            icon-name: "list-add-symbolic";
+            tooltip-text: _("Add Email");
+            clicked => $on_add_email() swapped;
+
+            accessibility {
+              label: _("Add Email");
+            }
+
+            styles [
+              "flat",
+            ]
+          };
+        }
+
+        Adw.PreferencesGroup phone_group {
+          title: _("Phone");
+
+          header-suffix: Button {
+            icon-name: "list-add-symbolic";
+            tooltip-text: _("Add Phone Number");
+            clicked => $on_add_phone() swapped;
+
+            accessibility {
+              label: _("Add Phone Number");
+            }
+
+            styles [
+              "flat",
+            ]
+          };
+        }
+
+        Adw.PreferencesGroup address_group {
+          title: _("Addresses");
+
+          header-suffix: Button add_address_button {
+            icon-name: "list-add-symbolic";
+            tooltip-text: _("Add Address");
+            clicked => $on_add_address() swapped;
+
+            accessibility {
+              label: _("Add Address");
+            }
+
+            styles [
+              "flat",
+            ]
+          };
+        }
+
+        Adw.PreferencesGroup {
+          title: _("Organization");
+
+          Adw.EntryRow org_row {
+            title: _("Company");
+          }
+
+          Adw.EntryRow unit_row {
+            title: _("Department");
+          }
+
+          Adw.EntryRow title_row {
+            title: _("Position");
+          }
+        }
+
+        Adw.PreferencesGroup {
+          title: _("Notes");
+
+          // Mehrzeilig wie Evolution (Notiz als GtkTextView, contact-editor.ui „text-comments“).
+          // Tab wechselt das Feld (Tastatur vollständig bedienbar), statt ein Tabzeichen einzufügen.
+          TextView note_view {
+            wrap-mode: word_char;
+            accepts-tab: false;
+            top-margin: 12;
+            bottom-margin: 12;
+            left-margin: 12;
+            right-margin: 12;
+            height-request: 96;
+
+            accessibility {
+              label: _("Notes");
+            }
+
+            styles [
+              "card",
+            ]
+          }
+        }
+      };
+    };
+  };
+}

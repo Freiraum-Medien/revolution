@@ -29,6 +29,13 @@ template $RevolutionContactsView: Adw.BreakpointBin {
       action: "action(contact.new)";
     }
 
+    // #370: Escape bricht das Formular ab (GNOME Contacts contacts-main-window.vala „cancel“ bei
+    // CREATING/UPDATING); ohne Formular ist die Aktion aus und Escape geht weiter (Suche, Composer).
+    Shortcut {
+      trigger: "Escape";
+      action: "action(contact.cancel)";
+    }
+
     Shortcut {
       trigger: "<primary>comma";
       action: "action(contacts.preferences)";
@@ -335,6 +342,14 @@ template $RevolutionContactsView: Adw.BreakpointBin {
               child: ListView contact_list {
                   tab-behavior: item;
 
+                  // #370: Entf löscht den gewählten Kontakt (Rückgängig im Toast, contacts-view.c).
+                  ShortcutController {
+                    Shortcut {
+                      trigger: "Delete";
+                      action: "action(contact.delete)";
+                    }
+                  }
+
                   styles [
                     "contact-list",
                   ]
@@ -480,7 +495,18 @@ template $RevolutionContactsView: Adw.BreakpointBin {
                   hexpand: true;
                 }
 
-                Button {
+                // #370: nur bei schreibbarem Buch sichtbar (contacts-view.c update_actions).
+                Button delete_button {
+                  icon-name: "user-trash-symbolic";
+                  tooltip-text: _("Delete Contact");
+                  action-name: "contact.delete";
+
+                  accessibility {
+                    label: _("Delete Contact");
+                  }
+                }
+
+                Button edit_button {
                   icon-name: "document-edit-symbolic";
                   tooltip-text: _("Edit Contact");
                   action-name: "contact.edit";
@@ -489,6 +515,37 @@ template $RevolutionContactsView: Adw.BreakpointBin {
                     label: _("Edit Contact");
                   }
                 }
+              };
+            }
+
+            // #370: Formular offen wie GNOME Contacts (Abbrechen links, Titel, Fertig bzw. Hinzufügen
+            // als Akzentknopf rechts; contacts-main-window.ui, done_button).
+            StackPage {
+              name: "edit";
+
+              child: CenterBox {
+                start-widget: Button {
+                  label: _("_Cancel");
+                  use-underline: true;
+                  action-name: "contact.cancel";
+                };
+
+                center-widget: Label edit_title {
+                  ellipsize: end;
+
+                  styles [
+                    "heading",
+                  ]
+                };
+
+                end-widget: Button done_button {
+                  use-underline: true;
+                  action-name: "contact.save";
+
+                  styles [
+                    "suggested-action",
+                  ]
+                };
               };
             }
 
@@ -529,7 +586,18 @@ template $RevolutionContactsView: Adw.BreakpointBin {
 
       // #369: Detail der Auswahl (contacts-detail.blp), ohne Auswahl Leerzustand. Reiter
       // Verlauf | Firma des Prototyps sind nicht in M6 (Dokument #19).
-      content: $RevolutionContactsDetail detail {};
+      // #370: Formular im Detailbereich wie GNOME Contacts (Bearbeiten im selben Bereich).
+      content: Stack pane_stack {
+        StackPage {
+          name: "detail";
+          child: $RevolutionContactsDetail detail {};
+        }
+
+        StackPage {
+          name: "editor";
+          child: $RevolutionContactsEditor editor {};
+        }
+      };
     }
 
 

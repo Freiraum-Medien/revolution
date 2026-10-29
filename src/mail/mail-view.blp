@@ -1122,6 +1122,14 @@ menu message_menu {
       accel: "<primary>p";
     }
   }
+
+  // #370: wie Evolution „A_dd Sender to Address Book“ (e-mail-reader.c:2904-2909, ohne Kürzel).
+  section {
+    item {
+      label: _("A_dd Sender to Contacts");
+      action: "message.add-sender";
+    }
+  }
 }
 
 // #353: Kontextmenü einer Zeile der Nachrichtenliste (mail-view.c, show_row_menu). Nur die

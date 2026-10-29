@@ -398,6 +398,179 @@ calendar.date-chooser {
   background-color: var(--shade-color);
 }
 
+/* #373: Monatsansicht und Termine. Übernommen aus gnome-calendar 50.0 src/theme/events.css:1-48 und
+ * src/theme/style.css:3-20, 267-397 (GcalEventWidget „event“, GcalMonthCell „monthcell“, GcalMonthView
+ * „calendar-view“, GcalMonthPopover „monthpopover“), angepasst an das Design (kalender-monat-hell.png,
+ * Dokument #5: Termine schlank, schmaler Farbstreifen, Uhrzeit dezent; alles flach): Streifen 3px statt 6px,
+ * Tönung 18 % statt 25 %, Monatsanfang und heute nur halbfett bzw. in Akzentfarbe statt Pille, ohne Schatten
+ * unter der Kopfzeile. --event-bg-color je Kalender setzt calendar-view.c. */
+:root {
+  --event-border-radius: 6px;
+  --focus-ring-transition:
+    outline-color 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    outline-width 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    outline-offset 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --focus-ring-color: rgb(from var(--accent-color) r g b / var(--dim-opacity));
+}
+
+event {
+  background-color: color-mix(in srgb, var(--event-bg-color) 18%, var(--window-bg-color));
+  border-radius: var(--event-border-radius);
+  color: var(--view-fg-color);
+  font-size: 0.9rem;
+  margin: 1px;
+  outline: 0 solid transparent;
+  outline-offset: 5px;
+  transition: var(--focus-ring-transition);
+}
+
+event:focus:focus-visible {
+  outline-color: rgb(from var(--accent-color) r g b / var(--dim-opacity));
+  outline-offset: 0;
+  outline-width: 2px;
+}
+
+event.slanted {
+  border-radius: 0 0 0 0;
+}
+
+event.slanted-start,
+event.slanted-end:dir(rtl) {
+  border-radius: 0 var(--event-border-radius) var(--event-border-radius) 0;
+}
+
+event.slanted-end,
+event.slanted-start:dir(rtl) {
+  border-radius: var(--event-border-radius) 0 0 var(--event-border-radius);
+}
+
+event widget.content {
+  margin: 2px 4px;
+}
+
+event widget.edge {
+  background-color: var(--event-bg-color);
+  min-width: 3px;
+}
+
+event.slanted widget.edge,
+event.slanted-start widget.edge {
+  background-color: transparent;
+}
+
+calendar-view {
+  font-size: 10pt;
+}
+
+/* Wochentage wie die Kontozeilen der Seitenleiste (caption-heading, dimmed). */
+calendar-view.month-view > box.month-header label {
+  font-size: 9pt;
+  font-weight: 700;
+  opacity: var(--dim-opacity);
+}
+
+calendar-view.month-view > box.month-header {
+  padding-bottom: 6px;
+  background: none;
+  box-shadow: 0 1px var(--border-color);
+}
+
+monthcell {
+  --bg-color: rgb(from var(--window-fg-color) r g b / 0);
+  --separator-color: rgb(from var(--border-color) r g b / calc(alpha + 7.5%));
+
+  box-shadow:
+    0 -1px var(--border-color),
+    var(--offset) 0 var(--border-color);
+  transition:
+    background-color 200ms,
+    var(--focus-ring-transition);
+  background-color: var(--bg-color);
+  outline: 0 solid transparent;
+  outline-offset: 4px;
+}
+
+.dark monthcell {
+  --border-color: var(--shade-color);
+}
+
+monthcell .overflow {
+  border-radius: 6px;
+}
+
+monthcell .day-label {
+  border-radius: 6px;
+  padding: 0px 6px 0px 6px;
+}
+
+monthcell label.first-day {
+  font-weight: 600;
+}
+
+monthcell.today label.day-label {
+  font-weight: 600;
+  color: var(--accent-color);
+}
+
+monthcell:hover {
+  background-color: rgb(from var(--bg-color) r g b / calc(alpha + 3.75%));
+}
+
+monthcell:focus:focus-visible {
+  outline-color: var(--focus-ring-color);
+  outline-width: 2px;
+  outline-offset: -2px;
+}
+
+monthcell:selected {
+  background-color:
+    color-mix(in srgb-linear, var(--bg-color) 82.5%, var(--accent-bg-color));
+}
+
+monthcell:hover:selected {
+  background-color:
+    color-mix(in srgb-linear, var(--bg-color) 77.5%, var(--accent-bg-color));
+}
+
+monthcell:selected label.day-label {
+  font-weight: 600;
+}
+
+monthcell button {
+  font-weight: normal;
+  padding: 0 4px;
+  border-radius: 0;
+  border-bottom: none;
+  border-right: none;
+}
+
+monthcell:dir(ltr) {
+  --offset: -1px;
+}
+
+monthcell:dir(rtl) {
+  --offset: 1px;
+}
+
+monthcell.separator-top {
+  box-shadow:
+    0 -1px rgb(from var(--separator-color) r g b / calc(alpha * 2)),
+    var(--offset) 0 var(--border-color);
+}
+
+monthcell.separator-top.separator-side {
+  box-shadow:
+    0 -1px var(--separator-color),
+    var(--offset) 0 var(--separator-color),
+    var(--offset) -1px var(--separator-color);
+}
+
+monthpopover > box {
+  margin: 4px;
+  padding: 12px;
+  background-color: var(--popover-bg-color);
+}
+
 /* Flach, ohne Verläufe (#336) – Arnd 22.10.2026: „alles flach“, Form unverändert.
  * Einziger sichtbarer Verlauf in der App: AdwAvatar. libadwaita 1.9.1 setzt
  * avatar.color1 … color14 { background-image: linear-gradient(hell, dunkel) }

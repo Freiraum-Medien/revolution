@@ -1,9 +1,7 @@
-// Kalender-Ansicht (Prototyp #339). Raster ab heute, Termine und Kalender folgen in M7.
-// Aufbau nach quelltext/gnome-calendar/src/gui/gcal-window.blp:135-348 (GNOME Calendar 50.0,
-// Briefing 1.5); Seitenleiste und Umschalter wie mail/mail-view.blp.
-// Monatsraster, Wochenkopf und Wochenraster sind in GNOME Calendar eigene C-Widgets
-// (GcalMonthView, GcalWeekHeader, GcalWeekGrid); hier leere Gtk.Grid, die calendar-view.c
-// mit Standard-Widgets füllt.
+// Kalender-Ansicht (Prototyp #339, #373). Aufbau nach quelltext/gnome-calendar/src/gui/gcal-window.blp:135-348
+// (GNOME Calendar 50.0, Briefing 1.5); Seitenleiste und Umschalter wie mail/mail-view.blp.
+// #373: Monat = GcalMonthView aus gnome-calendar 50.0 (src/calendar/gcal). Woche bleibt bis #374 der
+// Prototyp: Wochenkopf und Wochenraster als leere Gtk.Grid, die calendar-view.c mit Standard-Widgets füllt.
 using Gtk 4.0;
 using Adw 1;
 
@@ -20,6 +18,12 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
 
     Shortcut {
       trigger: "Home";
+      action: "action(calendar.today)";
+    }
+
+    // #373: wie gcal-window.blp:17-20.
+    Shortcut {
+      trigger: "<Alt>Down";
       action: "action(calendar.today)";
     }
 
@@ -164,6 +168,8 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
             // #402: ohne eigenen Rahmen auf der Seitenleisten-Fläche (style.css .date-chooser).
             // Ohne year/month/day zeigt Gtk.Calendar den heutigen Tag.
             Calendar date_chooser {
+              // #373: Auswahl eines Tages blättert die Monatsansicht dorthin (gcal-window.blp:161).
+              day-selected => $on_day_selected() swapped;
               margin-start: 12;
               margin-end: 12;
               margin-top: 2;
@@ -179,7 +185,8 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
             }
 
             // Kalenderliste (gcal-calendar-list.blp:14-23), je Konto ein Abschnitt wie die
-            // Ordnerliste in mail-view.blp. Farbe und Ein/Aus im Ankreuzfeld.
+            // Adressbücher in contacts-view.blp (lokal zuerst, calendar_section in calendar-view.c),
+            // darin nach Name. Farbe und Ein/Aus im Ankreuzfeld. #373: Kalender des GcalManager.
             ListView calendar_list {
               tab-behavior: item;
 
@@ -193,12 +200,22 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
                 label: _("Calendar");
               }
 
-              model: NoSelection calendar_model {};
+              model: NoSelection {
+                model: SortListModel calendar_sorted {
+                  section-sorter: StringSorter {
+                    expression: expr $calendar_section(item as <$GcalCalendar>.parent-source) as <string>;
+                  };
+
+                  sorter: StringSorter {
+                    expression: expr item as <$GcalCalendar>.name;
+                  };
+                };
+              };
 
               header-factory: BuilderListItemFactory {
                 template ListHeader {
                   child: Label {
-                    label: bind template.item as <$RevolutionSampleCalendar>.group;
+                    label: bind template.item as <$GcalCalendar>.parent-source as <$ESource>.display-name;
                     xalign: 0;
                     margin-start: 14;
                     margin-end: 14;
@@ -217,12 +234,16 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
               factory: BuilderListItemFactory {
                 template ListItem {
                   activatable: false;
+                  accessible-label: bind template.item as <$GcalCalendar>.name;
 
+                  // #373: Ein/Aus setzt GcalCalendar:visible (on_calendar_toggled), gespeichert in den
+                  // Einstellungen der App (gcal-manager.c), nie in der ESource. Farbe über den
+                  // Widget-Namen (calendar_color_name, CSS in calendar-view.c).
                   child: CheckButton {
-                    label: bind template.item as <$RevolutionSampleCalendar>.title;
-                    // Anfangszustand aus den Beispieldaten; Umschalten ändert nur das Ankreuzfeld.
-                    active: bind template.item as <$RevolutionSampleCalendar>.visible;
-                    css-classes: bind template.item as <$RevolutionSampleCalendar>.css-classes;
+                    label: bind template.item as <$GcalCalendar>.name;
+                    active: bind template.item as <$GcalCalendar>.visible;
+                    name: bind $calendar_color_name(template.item as <$GcalCalendar>.color) as <string>;
+                    toggled => $on_calendar_toggled(template);
                     tooltip-text: _("Show or Hide Calendar");
                   };
                 }
@@ -340,114 +361,14 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
           use-underline: true;
           icon-name: "calendar-month-symbolic";
 
-          child: Box {
-            orientation: vertical;
-            // Wochentage (gcal-month-view.blp:40-92). #402: leicht wie die Kontozeilen
-            // der Mail-Seitenleiste (caption-heading, dimmed; mail-view.blp:163-166, #345).
-            // #340: oben 9px statt 6px, Wochentage auf der Linie 63px (style.css „Eine Linie“).
-            Box {
-              homogeneous: true;
-              margin-top: 9;
-              margin-bottom: 6;
+          // #373: GcalMonthView (gnome-calendar 50.0) mit Wochentagen, flüssigem Scrollen und
+          // „+N“-Popover; Kontext und Timeline setzt calendar-view.c.
+          child: $GcalMonthView month_view {
+            hexpand: true;
+            vexpand: true;
 
-              Label {
-                label: _("MO");
-                xalign: 0;
-                margin-start: 12;
-
-                styles [
-                  "caption-heading",
-                  "dimmed",
-                ]
-              }
-
-              Label {
-                label: _("TU");
-                xalign: 0;
-                margin-start: 12;
-
-                styles [
-                  "caption-heading",
-                  "dimmed",
-                ]
-              }
-
-              Label {
-                label: _("WE");
-                xalign: 0;
-                margin-start: 12;
-
-                styles [
-                  "caption-heading",
-                  "dimmed",
-                ]
-              }
-
-              Label {
-                label: _("TH");
-                xalign: 0;
-                margin-start: 12;
-
-                styles [
-                  "caption-heading",
-                  "dimmed",
-                ]
-              }
-
-              Label {
-                label: _("FR");
-                xalign: 0;
-                margin-start: 12;
-
-                styles [
-                  "caption-heading",
-                  "dimmed",
-                ]
-              }
-
-              Label {
-                label: _("SA");
-                xalign: 0;
-                margin-start: 12;
-
-                styles [
-                  "caption-heading",
-                  "dimmed",
-                ]
-              }
-
-              Label {
-                label: _("SU");
-                xalign: 0;
-                margin-start: 12;
-
-                styles [
-                  "caption-heading",
-                  "dimmed",
-                ]
-              }
-            }
-
-            Separator {}
-
-            // 5 Wochen × 7 Tage (gcal-month-view.c:39), je Woche ein Gtk.Grid aus
-            // calendar-view.c; homogeneous: alle Wochen gleich hoch. Bei wenig Platz
-            // abgeschnitten statt Mindestgröße zu erzwingen (GcalMonthView: overflow hidden,
-            // gcal-month-view.blp:4).
-            ScrolledWindow {
-              hscrollbar-policy: external;
-              vscrollbar-policy: external;
-              vexpand: true;
-
-              child: Box month_weeks {
-                orientation: vertical;
-                homogeneous: true;
-                accessible-role: group;
-
-                accessibility {
-                  label: _("Month");
-                }
-              };
+            accessibility {
+              label: _("Month");
             }
           };
         }
@@ -541,7 +462,6 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
         Button {
           action-name: "calendar.today";
           tooltip-text: _("Go to Today");
-
           child: Adw.ButtonContent {
             label: _("_Today");
             use-underline: true;

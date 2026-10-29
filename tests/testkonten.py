@@ -44,6 +44,9 @@ HILFS_KONTAKT361 = _werte['HILFS_KONTAKT361']
 HILFS_KONTAKT361B = _werte['HILFS_KONTAKT361B']
 MSGID_DOMAIN = _werte['HILFS_MSGID_DOMAIN']
 
+# #373: Kalender-UIDs (Abschnitt [kalender]); nur die Kalender-Tests brauchen ihn, sie brechen ohne ihn ab.
+KALENDER = dict(_ini['kalender']) if _ini.has_section('kalender') else {}
+
 if __name__ == '__main__':
     if sys.argv[1:] != ['--shell']:
         sys.exit('Aufruf: tests/testkonten.py --shell')

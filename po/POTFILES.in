@@ -36,3 +36,7 @@ src/contacts/contacts-editor.c
 src/contacts/contacts-view.blp
 src/contacts/contacts-view.c
 src/calendar/calendar-view.blp
+src/calendar/gcal/gcal-event-widget.c
+src/calendar/gcal/gcal-month-cell.blp
+src/calendar/gcal/gcal-month-popover.blp
+src/calendar/gcal/gcal-utils.c

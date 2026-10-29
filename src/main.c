@@ -1290,6 +1290,9 @@ on_registry_loaded (GObject      *source_object,
       /* #368: Adressbücher der Kontakte-Ansicht aus derselben Registry. */
       revolution_contacts_view_set_registry (g_object_get_data (G_OBJECT (gtk_widget_get_root (GTK_WIDGET (mail_view))),
                                                                 "contacts-view"), registry);
+      /* #373: Kalender der Kalender-Ansicht aus derselben Registry. */
+      revolution_calendar_view_set_registry (g_object_get_data (G_OBJECT (gtk_widget_get_root (GTK_WIDGET (mail_view))),
+                                                                "calendar-view"), registry);
 
       task = g_task_new (source_object, NULL, on_session_loaded, g_object_ref (mail_view));
       g_task_set_source_tag (task, on_registry_loaded);
@@ -1347,6 +1350,7 @@ on_activate (GtkApplication *app,
       mail_view = REVOLUTION_MAIL_VIEW (gtk_builder_get_object (builder, "mail_view"));
       g_object_set_data (G_OBJECT (window), "mail-view", mail_view);
       g_object_set_data (G_OBJECT (window), "contacts-view", gtk_builder_get_object (builder, "contacts_view"));
+      g_object_set_data (G_OBJECT (window), "calendar-view", gtk_builder_get_object (builder, "calendar_view"));
       create_user_dirs (mail_view);
 
       /* Beim Beenden abbrechen; der Task hält den GCancellable bis zum Rückruf. */

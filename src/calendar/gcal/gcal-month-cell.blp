@@ -1,0 +1,69 @@
+// Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-month-cell.blp:1-95 (ff4d7f7d, GPL-3.0-or-later).
+// Revolution #373: ohne Wetter-Symbol und Temperatur (Breakpoint).
+using Gtk 4.0;
+using Adw 1;
+
+template $GcalMonthCell: Widget {
+  accessibility {
+    labelled-by: day_label;
+    has-popup: true;
+    selected: false;
+  }
+
+  accessible-role: grid_cell;
+  receives-default: true;
+  focusable: true;
+
+  Adw.BreakpointBin breakpoint_bin {
+    width-request: 50;
+    height-request: 50;
+
+    child: Overlay overlay {
+      [overlay]
+      Box header_box {
+        valign: start;
+        spacing: 6;
+        margin-top: 6;
+        margin-bottom: 6;
+        margin-start: 6;
+        margin-end: 6;
+
+        Label day_label {
+          styles [
+            "day-label",
+            "numeric",
+          ]
+        }
+      }
+
+      [overlay]
+      Button overflow_button {
+        accessible-role: toggle_button;
+        valign: end;
+        sensitive: false;
+        clicked => $overflow_button_clicked_cb(template) not-swapped;
+        tooltip-text: _("All Events");
+        margin-top: 1;
+        margin-start: 1;
+        margin-bottom: 2;
+        margin-end: 2;
+
+        accessibility {
+          has-popup: true;
+          labelled-by: overflow_inscription;
+        }
+
+        styles [
+          "flat",
+          "overflow",
+        ]
+
+        Box {
+          Inscription overflow_inscription {
+            text-overflow: ellipsize_end;
+          }
+        }
+      }
+    };
+  }
+}

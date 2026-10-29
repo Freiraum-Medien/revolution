@@ -59,5 +59,12 @@
       <summary>Run in background</summary>
       <description>Closing only hides the window; Revolution keeps running and reports new mail until “Quit” is chosen.</description>
     </key>
+    <!-- #373: Sichtbarkeit der Kalender in der App statt in der ESource („selected“, wie GNOME Calendar
+         gcal-calendar.c:785-798 sie schreibt), Nutzer src/calendar/gcal/gcal-manager.c. -->
+    <key name="hidden-calendars" type="as">
+      <default>[]</default>
+      <summary>Hidden calendars</summary>
+      <description>UIDs of the calendars whose events are hidden in the calendar view.</description>
+    </key>
   </schema>
 </schemalist>

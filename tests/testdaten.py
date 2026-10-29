@@ -2338,7 +2338,7 @@ def termin_live(registry, aktion, kal, datei, wann=None):
         # #374: TERMIN_TASK (Umgebung) im Namen, Standard 373; ganztags: ein Tag (DATE), mehrtaegig: ZEIT bis
         # zwei Tage und zwei Stunden später (drei Tage, Kopfleiste der Woche).
         task = os.environ.get('TERMIN_TASK', '373')
-        name = '%s %s %s %s' % (TERMIN_PREFIX, task, aktion, datetime.datetime.now().strftime('%H%M%S'))
+        name = '%s %s %s %s' % (TERMIN_PREFIX, task, aktion, datetime.datetime.now().strftime('%H%M%S%f')[:9])
         tag = termin_datum(wann).date()
         if aktion == 'ganztags':
             zeiten = ['DTSTART;VALUE=DATE:' + tag.strftime('%Y%m%d'),

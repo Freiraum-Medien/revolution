@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Kalenderquellen und Monatsansicht (#373) gegen die echten Kalender aus GOA/EDS.
+# Kalenderquellen und Monatsansicht (#373), Woche und Tag (#374) gegen die echten Kalender aus GOA/EDS.
 #
-# Aufruf: tests/kalender.sh [AUSGABEORDNER]   (Standard BUILD/m7-373)
+# Aufruf: tests/kalender.sh [AUSGABEORDNER]   (Standard BUILD/m7-374)
 #   BUILD    Build-Ordner, Standard build-devel/ im Repo (#439, Profil development) (vorher meson compile)
 #   MONAT    Testmonat JJJJ-MM, Standard der nächste Monat (Testtermine nur 2026-10-01 … heute + 90 Tage, Zusatz M7)
-#   TEILE    Läufe, Standard „alle dunkel schmal“ (zum Eingrenzen, z. B. TEILE=dunkel)
+#   TEILE    Läufe, Standard „alle woche dunkel schmal“ (zum Eingrenzen, z. B. TEILE=dunkel)
 #   LAUF_TIMEOUT  Sekunden je Treiber-Lauf, Standard 900; TD_TIMEOUT je tests/testdaten.py, Standard 300
 #
 # Vergleich unabhängig von der App: tests/testdaten.py --kalender, --kalender-termine (eigener Prozess, Python-GI
@@ -17,7 +17,11 @@
 #           Kalender = Python-GI und = Server; zwei fremde Kalender (nur lesend) Anzahl = Python-GI; live anlegen/ändern/
 #           löschen in Gmail und outlook.com ≤ 5 s; Ein/Aus des outlook.com-Kalenders, Neustart (Einstellungen in Datei),
 #           bleibt aus, wieder an.
-#   dunkel  dunkel, Monat MONAT, Bild.   schmal  hell, 900×700 (Seitenleiste überlagert), Bild.
+#           #374: „+N“-Popover öffnen/schließen, Monat per Mausrad scrollen.
+#   woche   hell (#374): Testwoche (Woche nach heute) im Gmail-Kalender: drei überlappende, ein ganztägiger, ein
+#           mehrtägiger Termin; Lage in Woche und Tag per AT-SPI, Tag = Wochenspalte, Heute-Linie, Navigation und
+#           Kürzel, live anlegen/ändern/löschen ≤ 5 s in der Woche (Einzelheiten tests/kalender-treiber.py).
+#   dunkel  dunkel, Monat MONAT, Woche, Tag, Bilder.   schmal  hell, 900×700 (Seitenleiste überlagert), Bilder.
 # Kalender-UIDs nur in ~/.config/revolution/testkonten.ini [kalender] (nicht im Repo). Schreiben nur dort, nur Testtermine
 # „Revolution-Test …“ über die gespeicherte UID; höchstens 20 Schreibvorgänge je Lauf und Kalender (geprüft).
 # Am Ende: kein Testtermin übrig (--termin-live pruefen), fremde Kalender unverändert (--kalender-hash vorher = nachher),
@@ -34,7 +38,7 @@ APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$APP_DIR/tests/testkonten.sh"
 BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
-OUT="${1:-$BUILD/m7-373}"
+OUT="${1:-$BUILD/m7-374}"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-900}"
 MONAT="${MONAT:-$(date -d "$(date +%Y-%m-01) +1 month" +%Y-%m)}"
 FEHLER=0
@@ -97,7 +101,7 @@ lauf () {
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
     ADW_DEBUG_COLOR_SCHEME="$schema" G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals \
     REVOLUTION_TEST_HOOKS=1 REVOLUTION_SKIP_ACCOUNTS="$ALLE_MAILKONTEN" \
-    BIN="$BIN" OUT="$OUT" NAME="m7-373-$name" MODUS="$modus" VERGLEICH="$OUT/kalender.txt" MONAT="$MONAT" \
+    TERMIN_TASK=374 BIN="$BIN" OUT="$OUT" NAME="m7-374-$name" MODUS="$modus" VERGLEICH="$OUT/kalender.txt" MONAT="$MONAT" \
     KALENDER_TERMINE="$SCHREIBBAR $VERGLEICH_LESEND" SCHREIBBAR="$SCHREIBBAR" LIVE_KALENDER="$KAL_GOOGLE $KAL_M365" \
     AUS_KALENDER="$KAL_M365" TERMINE="$OUT" TESTDATEN="$APP_DIR/tests/testdaten.py" \
     xvfb-run -a -s "-screen 0 ${breite}x${hoehe}x24" python3 -I "$APP_DIR/tests/kalender-treiber.py" || rc=$?
@@ -144,10 +148,11 @@ teil () {
   aufraeumen "$name"
 }
 
-TEILE="${TEILE:-alle dunkel schmal}"
+TEILE="${TEILE:-alle woche dunkel schmal}"
 for t in $TEILE; do
   case "$t" in
     alle) teil alle alle prefer-light 1400 900 ;;
+    woche) teil woche woche prefer-light 1400 900 ;;
     dunkel) teil dunkel bild prefer-dark 1400 900 ;;
     schmal) teil schmal bild prefer-light 900 700 ;;
     *) echo "FEHLER  TEILE: $t unbekannt"; FEHLER=$((FEHLER + 1)) ;;

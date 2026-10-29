@@ -1,6 +1,7 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-week-grid.c:1-1007 (ff4d7f7d, GPL-3.0-or-later).
  * Revolution #374: ohne Ablegen per Ziehen (Drop-Ziel, move_event_to_cell; Schreiben folgt mit #375);
- * Tagesansicht: Spaltenzahl n_days (1 oder 7) statt N_WEEKDAYS, Beginn über gcal_week_view_common_get_start. */
+ * Tagesansicht: Spaltenzahl n_days (1 oder 7) statt N_WEEKDAYS, Beginn über gcal_week_view_common_get_start;
+ * snapshot nur für Termine des gezeigten Bereichs; <adwaita.h> statt gcal-application.h. */
 /* gcal-week-grid.c
  *
  * Copyright (C) 2016-2020 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>
@@ -407,6 +408,7 @@ gcal_week_grid_snapshot (GtkWidget   *widget,
                          GtkSnapshot *snapshot)
 {
   g_autoptr (GPtrArray) widgets = NULL;
+  g_autoptr (GcalRange) range = NULL;
   GcalWeekGrid *self;
   gint width, height;
 
@@ -421,8 +423,13 @@ gcal_week_grid_snapshot (GtkWidget   *widget,
   gtk_widget_snapshot_child (widget, self->selection.widget, snapshot);
   gtk_widget_snapshot_child (widget, self->dnd.widget, snapshot);
 
-  widgets = gcal_range_tree_get_all_data (self->events);
-  for (guint i = 0; i < widgets->len; i++)
+  /* Revolution #374: nur Termine des gezeigten Bereichs (die size_allocate platziert); Termine des vorigen Bereichs,
+   * die die Timeline noch nicht entfernt hat, hätten keine Größe (Gtk-WARNING beim ersten Zeigen des Tags). */
+  range = gcal_range_new_take (gcal_week_view_common_get_start (self->active_date, self->n_days),
+                               gcal_week_view_common_get_end (self->active_date, self->n_days),
+                               GCAL_RANGE_DEFAULT);
+  widgets = gcal_range_tree_get_data_at_range (self->events, range);
+  for (guint i = 0; widgets && i < widgets->len; i++)
     {
       ChildData *child_data = g_ptr_array_index (widgets, i);
 

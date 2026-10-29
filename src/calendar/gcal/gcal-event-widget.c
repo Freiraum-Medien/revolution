@@ -1,6 +1,7 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/gcal-event-widget.c:1-1191 (ff4d7f7d, GPL-3.0-or-later).
  * Revolution #373: ohne Termin-Popover (gcal_event_widget_show_preview, folgt mit #375), SOUP_HTTP_URI_FLAGS
- * ausgeschrieben (ohne libsoup). #374: Titel als Name für Barrierefreiheit. */
+ * ausgeschrieben (ohne libsoup). #374 geändert: Titel als Name für Barrierefreiheit, vergangene Termine nicht
+ * abgeblendet (update_color), Titel mit Ellipse statt GcalFadingLabel (gcal-event-widget.blp). */
 /* gcal-event-widget.c
  *
  * Copyright (C) 2015 Erick Pérez Castellanos <erickpc@gnome.org>
@@ -25,7 +26,6 @@
 #include <glib/gi18n.h>
 #include <string.h>
 
-#include "gcal-fading-label.h"
 #include "gcal-context.h"
 #include "gcal-clock.h"
 #include "gcal-debug.h"
@@ -186,18 +186,9 @@ update_color (GcalEventWidget *self)
   GQuark color_id;
   gchar *color_str;
   gchar *css_class;
-  GDateTime *now;
-  gint date_compare;
 
+  /* Revolution #374: vergangene Termine nicht abgeblendet (Design kalender-monat-hell.png, PM 29.10.). */
   color = gcal_event_get_color (self->event);
-  now = g_date_time_new_now_local ();
-  date_compare = g_date_time_compare (self->dt_end, now);
-
-  /* Fades out an event that's earlier than the current date */
-  if (date_compare < 0)
-    gtk_widget_add_css_class (GTK_WIDGET (self), "dimmed");
-  else
-    gtk_widget_remove_css_class (GTK_WIDGET (self), "dimmed");
 
   /* Remove the old style class */
   if (self->css_class)
@@ -226,7 +217,6 @@ update_color (GcalEventWidget *self)
   /* Keep the current style around, so we can remove it later */
   self->css_class = css_class;
 
-  g_clear_pointer (&now, g_date_time_unref);
   g_free (color_str);
 }
 
@@ -720,7 +710,6 @@ gcal_event_widget_class_init (GcalEventWidgetClass *klass)
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (klass);
 
-  g_type_ensure (GCAL_TYPE_FADING_LABEL);
 
   object_class->set_property = gcal_event_widget_set_property;
   object_class->get_property = gcal_event_widget_get_property;

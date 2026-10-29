@@ -1,5 +1,6 @@
 // Übernommen aus gnome-calendar 50.0 src/gui/gcal-event-widget.blp:1-80 (ff4d7f7d, GPL-3.0-or-later).
-// Unverändert.
+// Revolution #374 geändert: Titel in der Zeile (Monat, Ganztagsleiste) als Gtk.Label mit Ellipse statt
+// GcalFadingLabel (Design kalender-monat-hell.png, PM 29.10.).
 using Gtk 4.0;
 using Adw 1;
 
@@ -66,7 +67,10 @@ template $GcalEventWidget: Widget {
     Box horizontal_box {
       spacing: 4;
 
-      $GcalFadingLabel summary_label {}
+      Label summary_label {
+        xalign: 0.0;
+        ellipsize: end;
+      }
 
       Label timestamp_label {
         halign: end;

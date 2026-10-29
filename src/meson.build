@@ -58,7 +58,7 @@ executable('revolution',
     dependency('libedataserver-1.2', version: '>= 3.56'),
     dependency('libebook-1.2', version: '>= 3.56'), # #361 Adressvervollständigung
     dependency('webkitgtk-6.0', version: '>= 2.52'),
-    gcal_dep, # #373 Kalender (libecal-2.0, fribidi)
+    gcal_dep, # #373 Kalender (libecal-2.0)
   ],
   include_directories: include_directories('..'),
   install: true,

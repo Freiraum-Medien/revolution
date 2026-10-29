@@ -1,6 +1,6 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-week-view.c:1-689 (ff4d7f7d, GPL-3.0-or-later).
  * Revolution #374: Eigenschaft n-days (Tagesansicht = Woche mit 1 Spalte), Bereich über
- * gcal_week_view_common_get_start/_end, vor/zurück um n_days Tage. */
+ * gcal_week_view_common_get_start/_end, vor/zurück um n_days Tage; ohne heute scrollt das Raster auf 07:00. */
 /* gcal-week-view.c
  *
  * Copyright (C) 2015 - Erick Pérez Castellanos
@@ -134,16 +134,17 @@ update_grid_scroll_position (GcalWeekView *self)
   week_start = gcal_week_view_common_get_start (self->date, self->n_days);
   week_end = gcal_week_view_common_get_end (self->date, self->n_days);
 
-  /* Don't animate when not today */
-  if (gcal_date_time_compare_date (now, week_start) < 0 || gcal_date_time_compare_date (now, week_end) >= 0)
-    GCAL_GOTO (out);
-
   vadjustment = gtk_scrolled_window_get_vadjustment (GTK_SCROLLED_WINDOW (self->scrolled_window));
   minutes = g_date_time_get_hour (now) * 60 + g_date_time_get_minute (now);
   page = gtk_adjustment_get_page_size (vadjustment);
   max = gtk_adjustment_get_upper (vadjustment);
 
   real_value = max / MINUTES_PER_DAY * minutes - (page / 2.0);
+
+  /* Revolution #374: ohne heute oben 07:00 wie Evolution e-day-view (Beginn des Arbeitstags) und das Design
+   * (kalender-woche-hell.png) statt der zuletzt gescrollten Lage. */
+  if (gcal_date_time_compare_date (now, week_start) < 0 || gcal_date_time_compare_date (now, week_end) >= 0)
+    real_value = max / MINUTES_PER_DAY * 7 * 60;
   page_increment = gtk_adjustment_get_page_increment (vadjustment);
   value = gtk_adjustment_get_value (vadjustment);
 
@@ -157,7 +158,6 @@ update_grid_scroll_position (GcalWeekView *self)
 
   gtk_adjustment_set_page_increment (vadjustment, page_increment);
 
-out:
   self->scroll_grid_timeout_id = 0;
   GCAL_RETURN (G_SOURCE_REMOVE);
 }

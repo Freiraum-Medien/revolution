@@ -1,7 +1,7 @@
 // Kalender-Ansicht (Prototyp #339, #373). Aufbau nach quelltext/gnome-calendar/src/gui/gcal-window.blp:135-348
 // (GNOME Calendar 50.0, Briefing 1.5); Seitenleiste und Umschalter wie mail/mail-view.blp.
-// #373: Monat = GcalMonthView aus gnome-calendar 50.0 (src/calendar/gcal). Woche bleibt bis #374 der
-// Prototyp: Wochenkopf und Wochenraster als leere Gtk.Grid, die calendar-view.c mit Standard-Widgets füllt.
+// #373: Monat = GcalMonthView aus gnome-calendar 50.0 (src/calendar/gcal). #374: Woche = GcalWeekView,
+// Tag = GcalWeekView mit 1 Spalte (n-days, gnome-calendar 50.0 hat keine Tagesansicht).
 using Gtk 4.0;
 using Adw 1;
 
@@ -57,6 +57,26 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
       trigger: "<Alt>2";
       action: "action(calendar.view)";
       arguments: "'week'";
+    }
+
+    // #374: Alt+3 in gnome-calendar die dritte Ansicht (gcal-window.blp:71-75), hier der Tag;
+    // Strg+Bild ab/auf nächste/vorige Ansicht wie gcal-window.blp:47-57.
+    Shortcut {
+      trigger: "<Alt>3";
+      action: "action(calendar.view)";
+      arguments: "'day'";
+    }
+
+    Shortcut {
+      trigger: "<Control>Page_Down";
+      action: "action(calendar.switch-view)";
+      arguments: "1";
+    }
+
+    Shortcut {
+      trigger: "<Control>Page_Up";
+      action: "action(calendar.switch-view)";
+      arguments: "-1";
     }
 
     Shortcut {
@@ -350,7 +370,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
         };
       }
 
-      // Monat und Woche (gcal-window.blp:213-247); Tag folgt in #374.
+      // Monat, Woche und Tag (gcal-window.blp:213-247).
       content: Adw.ViewStack views {
         hexpand: true;
         vexpand: true;
@@ -378,55 +398,29 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
           title: _("_Week");
           use-underline: true;
           icon-name: "calendar-week-symbolic";
-          // Aufbau nach gcal-week-view.blp:3-108.
-          child: Box {
-            orientation: vertical;
 
-            Box {
-              Adw.Bin week_header_spacer {}
-
-              // Wochentage und ganztägige Termine (GcalWeekHeader).
-              Grid week_header {
-                accessible-role: group;
-                hexpand: true;
-                column-homogeneous: true;
-                margin-top: 4;
-
-                accessibility {
-                  label: _("All-Day Events");
-                }
-              }
+          // #374: GcalWeekView (gnome-calendar 50.0) mit Zeitraster, Ganztagsleiste, Überlappungen
+          // nebeneinander und Heute-Linie; Kontext und Timeline setzt calendar-view.c.
+          child: $GcalWeekView week_view {
+            accessibility {
+              label: _("Week");
             }
+          };
+        }
 
-            Separator {}
+        // #374: Tag = GcalWeekView mit 1 Spalte; Verhalten wie Evolution e-day-view (ein Tag, Zeitraster,
+        // ganztägige Termine oben).
+        Adw.ViewStackPage {
+          name: "day";
+          title: _("_Day");
+          use-underline: true;
+          icon-name: "calendar-today-symbolic";
 
-            // Fest 07–21 Uhr; bei wenig Platz abgeschnitten wie der Monat.
-            ScrolledWindow {
-              hscrollbar-policy: external;
-              vscrollbar-policy: external;
-              vexpand: true;
+          child: $GcalWeekView day_view {
+            n-days: 1;
 
-              child: Viewport {
-                child: Box {
-                  // Stundenleiste (GcalWeekHourBar).
-                  Box hour_bar {
-                    orientation: vertical;
-                    homogeneous: true;
-                  }
-
-                  // Stundenraster mit Terminen (GcalWeekGrid), 07–21 Uhr in halben Stunden.
-                  Grid week_grid {
-                    accessible-role: group;
-                    hexpand: true;
-                    column-homogeneous: true;
-                    row-homogeneous: true;
-
-                    accessibility {
-                      label: _("Week");
-                    }
-                  }
-                };
-              };
+            accessibility {
+              label: _("Day");
             }
           };
         }
@@ -489,15 +483,6 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
       }
     };
   };
-}
-
-SizeGroup {
-  mode: horizontal;
-
-  widgets [
-    week_header_spacer,
-    hour_bar,
-  ]
 }
 
 // #402: Hauptmenü mit Inhalt wie Mail (mail-view.blp:1199-1243); erster Eintrag Neuer Termin

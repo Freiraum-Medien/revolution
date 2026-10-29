@@ -4,8 +4,8 @@
  * Oberfläche in calendar-view.blp. #373: Kalender und Termine über die aus GNOME Calendar 50.0
  * übernommene Schicht in src/calendar/gcal (GcalContext → GcalManager → GcalTimeline, je Kalender ein
  * GcalCalendarMonitor mit ECalClientView); Monat = GcalMonthView. Die Anbindung folgt GcalWindow
- * (gcal-window.c). Die Woche bildet bis #374 nur das Aussehen von GcalWeekHeader/GcalWeekGrid
- * aus Standard-Widgets nach (Prototyp #339), ab dem heutigen Tag und ohne Termine.
+ * (gcal-window.c). #374: Woche = GcalWeekView, Tag = GcalWeekView mit 1 Spalte (n-days); alle drei Ansichten
+ * sind Abonnenten derselben Timeline, das gemeinsame Datum ist der Tag der Monatsauswahl in der Seitenleiste.
  * Aktionen ohne Funktion sind nicht registriert, ihre Knöpfe sind ausgegraut.
  *
  * Copyright 2026 Arnd Messer
@@ -21,14 +21,12 @@
 
 #include "calendar-view.h"
 #include "gcal/gcal-context.h"
+#include "gcal/gcal-date-time-utils.h"
 #include "gcal/gcal-month-view.h"
 #include "gcal/gcal-timeline.h"
 #include "gcal/gcal-timeline-subscriber.h"
 #include "gcal/gcal-view.h"
-
-#define FIRST_HOUR     7   /* Woche zeigt fest 07–21 Uhr */
-#define LAST_HOUR      21
-#define HOUR_HEIGHT    40  /* = Höhe eines einstündigen Termins (Gtk.Button); 14 Stunden passen in 1200×760 */
+#include "gcal/gcal-week-view.h"
 
 struct _RevolutionCalendarView
 {
@@ -38,10 +36,9 @@ struct _RevolutionCalendarView
   AdwViewStack        *views;
   GtkSortListModel    *calendar_sorted;
   GtkWidget           *month_view;
+  GtkWidget           *week_view;
+  GtkWidget           *day_view;
   GtkCalendar         *date_chooser;
-  GtkGrid             *week_header;
-  GtkGrid             *week_grid;
-  GtkBox              *hour_bar;
   GtkLabel            *month_title;
   GtkCssProvider      *colors;
   GtkStack            *header_stack;
@@ -129,11 +126,13 @@ on_search (GSimpleAction *action G_GNUC_UNUSED,
 static void on_previous (GSimpleAction *action, GVariant *parameter, gpointer user_data);
 static void on_next (GSimpleAction *action, GVariant *parameter, gpointer user_data);
 static void on_today (GSimpleAction *action, GVariant *parameter, gpointer user_data);
+static void on_switch_view (GSimpleAction *action, GVariant *parameter, gpointer user_data);
 
 static const GActionEntry calendar_actions[] = {
   { "previous", on_previous, NULL, NULL, NULL, { 0 } },
   { "next", on_next, NULL, NULL, NULL, { 0 } },
   { "today", on_today, NULL, NULL, NULL, { 0 } },
+  { "switch-view", on_switch_view, "i", NULL, NULL, { 0 } },
   { "search", on_search, NULL, NULL, NULL, { 0 } },
   { "toggle-sidebar", on_toggle_sidebar, NULL, NULL, NULL, { 0 } },
 };
@@ -151,99 +150,6 @@ on_dark_changed (AdwStyleManager        *manager,
 }
 
 enum { PROP_0, PROP_STACK, N_PROPS };
-
-/* Heute, 0:00 Uhr Ortszeit. */
-static GDateTime *
-today_midnight (void)
-{
-  g_autoptr (GDateTime) now = g_date_time_new_now_local ();
-
-  return g_date_time_new_local (g_date_time_get_year (now), g_date_time_get_month (now),
-                                g_date_time_get_day_of_month (now), 0, 0, 0);
-}
-
-/* Montag der Woche, in der date liegt (Wochenbeginn Montag wie im Prototyp #339). */
-static GDateTime *
-week_start (GDateTime *date)
-{
-  return g_date_time_add_days (date, 1 - g_date_time_get_day_of_week (date));
-}
-
-static GtkWidget *
-separator (GtkOrientation orientation)
-{
-  GtkWidget *widget = gtk_separator_new (orientation);
-
-  if (orientation == GTK_ORIENTATION_HORIZONTAL)
-    gtk_widget_set_valign (widget, GTK_ALIGN_START);
-  else
-    gtk_widget_set_halign (widget, GTK_ALIGN_START);
-
-  return widget;
-}
-
-/* Woche von heute: Kopf mit Wochentag und Tagesnummer (gcal-week-header.c:995-1027,
- * 1565-1590), darunter Platz für ganztägige Termine; Raster FIRST_HOUR–LAST_HOUR in halben
- * Stunden. */
-static void
-fill_week (RevolutionCalendarView *self,
-           GDateTime              *today)
-{
-  g_autoptr (GDateTime) first = week_start (today);
-  int today_column = g_date_time_get_day_of_week (today) - 1;
-  int rows = (LAST_HOUR - FIRST_HOUR) * 2;
-
-  for (int column = 0; column < 7; column++)
-    {
-      g_autoptr (GDateTime) date = g_date_time_add_days (first, column);
-      g_autofree char *weekday = g_date_time_format (date, "%a");
-      g_autofree char *weekday_upper = g_utf8_strup (weekday, -1);
-      g_autofree char *number = g_strdup_printf ("%d", g_date_time_get_day_of_month (date));
-      const char *emphasis = column == today_column ? "accent" : "dimmed";
-      GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
-      GtkWidget *name = gtk_label_new (weekday_upper);
-      GtkWidget *day = gtk_label_new (number);
-
-      gtk_widget_set_margin_start (box, 6);
-      gtk_label_set_xalign (GTK_LABEL (name), 0);
-      gtk_label_set_xalign (GTK_LABEL (day), 0);
-      /* #402: leichte Typografie, Wochentag wie der Monatskopf (caption-heading),
-       * Tagesnummer groß, aber nicht fett; nur heute halbfett (style.css). */
-      gtk_widget_add_css_class (name, "caption-heading");
-      gtk_widget_add_css_class (name, emphasis);
-      gtk_widget_add_css_class (day, "title-2");
-      gtk_widget_add_css_class (day, "calendar-day-number");
-      gtk_widget_add_css_class (day, "numeric");
-      gtk_widget_add_css_class (day, emphasis);
-      if (column == today_column)
-        gtk_widget_add_css_class (day, "calendar-emphasis");
-      gtk_box_append (GTK_BOX (box), name);
-      gtk_box_append (GTK_BOX (box), day);
-      gtk_grid_attach (self->week_header, box, column, 0, 1, 1);
-
-      gtk_grid_attach (self->week_grid, separator (GTK_ORIENTATION_VERTICAL), column, 0, 1, rows);
-    }
-
-  for (int hour = FIRST_HOUR; hour < LAST_HOUR; hour++)
-    {
-      g_autofree char *text = g_strdup_printf ("%02d:00", hour);
-      GtkWidget *label = gtk_label_new (text);
-
-      gtk_label_set_yalign (GTK_LABEL (label), 0);
-      gtk_widget_set_size_request (label, -1, HOUR_HEIGHT - 4);
-      gtk_widget_set_margin_top (label, 4);
-      gtk_widget_set_margin_start (label, 6);
-      gtk_widget_set_margin_end (label, 6);
-      /* #402: Uhrzeit wie die Zeit in der Mail-Liste (caption, numeric, dimmed). */
-      gtk_widget_add_css_class (label, "caption");
-      gtk_widget_add_css_class (label, "dimmed");
-      gtk_widget_add_css_class (label, "numeric");
-      gtk_box_append (self->hour_bar, label);
-
-      if (hour > FIRST_HOUR)
-        gtk_grid_attach (self->week_grid, separator (GTK_ORIENTATION_HORIZONTAL), 0, (hour - FIRST_HOUR) * 2, 7, 1);
-    }
-}
 
 /* Kalenderfarben (#373): je Farbe eine Klasse .color-<Quark> mit --event-bg-color für die Termine
  * (GcalEventWidget, events.css), übernommen aus gnome-calendar 50.0 gcal-window.c:345-372
@@ -333,42 +239,72 @@ on_calendar_toggled (GtkListItem    *item,
   gcal_calendar_set_visible (calendar, gtk_check_button_get_active (button));
 }
 
-/* Titel (Monat und Jahr, gcal-calendar-navigation-button.c:106 „%B %Y“) folgt dem Datum der Monatsansicht,
- * auch beim Scrollen (gcal-month-view.c:236-237); die Monatsauswahl nur, wenn der Monat wechselt (sonst
- * bliebe der gewählte Tag nicht stehen). */
+/* #374: die drei Ansichten der Reihe nach (Strg+Bild auf/ab) und die sichtbare. */
+static const char *const view_names[] = { "month", "week", "day" };
+
+static GtkWidget *
+visible_view (RevolutionCalendarView *self)
+{
+  return adw_view_stack_get_visible_child (self->views);
+}
+
+/* Titel (Monat und Jahr, gcal-calendar-navigation-button.c:106 „%B %Y“) folgt dem Datum der sichtbaren Ansicht,
+ * auch beim Scrollen des Monats (gcal-month-view.c:236-237). Die Monatsauswahl folgt im Monat nur, wenn der Monat
+ * wechselt (sonst bliebe der gewählte Tag nicht stehen), in Woche und Tag dem Datum. */
 static void
 on_active_date_changed (RevolutionCalendarView *self)
 {
-  GDateTime *date = gcal_view_get_date (GCAL_VIEW (self->month_view));
+  GtkWidget *view = visible_view (self);
+  GDateTime *date = gcal_view_get_date (GCAL_VIEW (view));
   g_autoptr (GDateTime) selected = gtk_calendar_get_date (self->date_chooser);
   g_autofree char *title = g_date_time_format (date, "%B %Y");
+  g_autofree char *day = g_date_time_format (date, "%F");
 
   gtk_label_set_label (self->month_title, title);
-  if (g_date_time_get_month (date) != g_date_time_get_month (selected) ||
-      g_date_time_get_year (date) != g_date_time_get_year (selected))
+  g_debug ("Kalender: Ansicht %s Datum %s", adw_view_stack_get_visible_child_name (self->views), day);
+  if (view == self->month_view ? g_date_time_get_month (date) != g_date_time_get_month (selected) ||
+                                 g_date_time_get_year (date) != g_date_time_get_year (selected)
+                               : gcal_date_time_compare_date (date, selected) != 0)
     gtk_calendar_set_date (self->date_chooser, date);
 }
 
-/* Monat zeigen: Datum der Ansicht = 1. des Monats, die erste Zeile ist dann die Woche des Monatsersten wie im
- * Design (kalender-monat-hell.png) und wie nach vor/zurück (gcal_month_view_get_next_date). */
+/* Datum zeigen: im Monat den 1. des Monats, dann ist die erste Zeile die Woche des Monatsersten wie im Design
+ * (kalender-monat-hell.png) und wie nach vor/zurück (gcal_month_view_get_next_date); in Woche und Tag den Tag. */
 static void
-show_month (RevolutionCalendarView *self,
-            GDateTime              *date)
+show_date (RevolutionCalendarView *self,
+           GDateTime              *date)
 {
-  g_autoptr (GDateTime) first = g_date_time_new_local (g_date_time_get_year (date), g_date_time_get_month (date), 1, 0, 0, 0);
+  GtkWidget *view = visible_view (self);
+  GDateTime *current = gcal_view_get_date (GCAL_VIEW (view));
 
-  g_object_set (self->month_view, "active-date", first, NULL); /* mit notify::active-date */
+  if (view == self->month_view)
+    {
+      g_autoptr (GDateTime) first = g_date_time_new_local (g_date_time_get_year (date), g_date_time_get_month (date), 1, 0, 0, 0);
+
+      if (gcal_date_time_compare_date (first, current) != 0)
+        g_object_set (view, "active-date", first, NULL); /* mit notify::active-date */
+    }
+  else if (gcal_date_time_compare_date (date, current) != 0)
+    {
+      g_object_set (view, "active-date", date, NULL);
+    }
 }
 
 static void
 on_day_selected (RevolutionCalendarView *self)
 {
   g_autoptr (GDateTime) selected = gtk_calendar_get_date (self->date_chooser);
-  GDateTime *date = gcal_view_get_date (GCAL_VIEW (self->month_view));
 
-  if (g_date_time_get_month (date) != g_date_time_get_month (selected) ||
-      g_date_time_get_year (date) != g_date_time_get_year (selected))
-    show_month (self, selected);
+  show_date (self, selected);
+}
+
+/* Umschalten Monat | Woche | Tag: die neue Ansicht zeigt den gewählten Tag (gcal-window.c hält ein gemeinsames
+ * active-date für alle Ansichten). */
+static void
+on_view_changed (RevolutionCalendarView *self)
+{
+  on_day_selected (self);
+  on_active_date_changed (self);
 }
 
 /* calendar.previous / calendar.next / calendar.today wie gcal-window.c switch_prev_view,
@@ -379,9 +315,9 @@ on_previous (GSimpleAction *action G_GNUC_UNUSED,
              gpointer       user_data)
 {
   RevolutionCalendarView *self = user_data;
-  g_autoptr (GDateTime) date = gcal_view_get_previous_date (GCAL_VIEW (self->month_view));
+  g_autoptr (GDateTime) date = gcal_view_get_previous_date (GCAL_VIEW (visible_view (self)));
 
-  g_object_set (self->month_view, "active-date", date, NULL);
+  g_object_set (visible_view (self), "active-date", date, NULL);
 }
 
 static void
@@ -390,9 +326,9 @@ on_next (GSimpleAction *action G_GNUC_UNUSED,
          gpointer       user_data)
 {
   RevolutionCalendarView *self = user_data;
-  g_autoptr (GDateTime) date = gcal_view_get_next_date (GCAL_VIEW (self->month_view));
+  g_autoptr (GDateTime) date = gcal_view_get_next_date (GCAL_VIEW (visible_view (self)));
 
-  g_object_set (self->month_view, "active-date", date, NULL);
+  g_object_set (visible_view (self), "active-date", date, NULL);
 }
 
 static void
@@ -403,8 +339,24 @@ on_today (GSimpleAction *action G_GNUC_UNUSED,
   RevolutionCalendarView *self = user_data;
   g_autoptr (GDateTime) now = g_date_time_new_now_local ();
 
-  show_month (self, now);
+  show_date (self, now);
   gtk_calendar_set_date (self->date_chooser, now);
+}
+
+/* calendar.switch-view (Strg+Bild ab/auf): nächste bzw. vorige Ansicht wie gcal-window.c change-view. */
+static void
+on_switch_view (GSimpleAction *action G_GNUC_UNUSED,
+                GVariant      *parameter,
+                gpointer       user_data)
+{
+  RevolutionCalendarView *self = user_data;
+  const char *name = adw_view_stack_get_visible_child_name (self->views);
+  int index = 0;
+
+  while (index < (int) G_N_ELEMENTS (view_names) - 1 && g_strcmp0 (view_names[index], name) != 0)
+    index++;
+  index = CLAMP (index + g_variant_get_int32 (parameter), 0, (int) G_N_ELEMENTS (view_names) - 1);
+  adw_view_stack_set_visible_child_name (self->views, view_names[index]);
 }
 
 /* Kalender verbinden erst, wenn die Seite erscheint (wie die Adressbücher, contacts-view.c on_map):
@@ -430,6 +382,8 @@ on_map (RevolutionCalendarView *self)
   g_signal_connect_object (manager, "calendar-changed", G_CALLBACK (recalculate_calendar_colors_css), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (manager, "calendar-removed", G_CALLBACK (recalculate_calendar_colors_css), self, G_CONNECT_SWAPPED);
   gcal_timeline_add_subscriber (gcal_manager_get_timeline (manager), GCAL_TIMELINE_SUBSCRIBER (self->month_view));
+  gcal_timeline_add_subscriber (gcal_manager_get_timeline (manager), GCAL_TIMELINE_SUBSCRIBER (self->week_view));
+  gcal_timeline_add_subscriber (gcal_manager_get_timeline (manager), GCAL_TIMELINE_SUBSCRIBER (self->day_view));
 }
 
 void
@@ -479,8 +433,13 @@ revolution_calendar_view_dispose (GObject *object)
   RevolutionCalendarView *self = REVOLUTION_CALENDAR_VIEW (object);
 
   if (self->context != NULL && self->started)
-    gcal_timeline_remove_subscriber (gcal_manager_get_timeline (gcal_context_get_manager (self->context)),
-                                     GCAL_TIMELINE_SUBSCRIBER (self->month_view));
+    {
+      GcalTimeline *timeline = gcal_manager_get_timeline (gcal_context_get_manager (self->context));
+
+      gcal_timeline_remove_subscriber (timeline, GCAL_TIMELINE_SUBSCRIBER (self->month_view));
+      gcal_timeline_remove_subscriber (timeline, GCAL_TIMELINE_SUBSCRIBER (self->week_view));
+      gcal_timeline_remove_subscriber (timeline, GCAL_TIMELINE_SUBSCRIBER (self->day_view));
+    }
 
   if (self->colors != NULL)
     gtk_style_context_remove_provider_for_display (gtk_widget_get_display (GTK_WIDGET (self)),
@@ -510,6 +469,7 @@ revolution_calendar_view_class_init (RevolutionCalendarViewClass *klass)
                                                         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_type_ensure (GCAL_TYPE_MONTH_VIEW);
+  g_type_ensure (GCAL_TYPE_WEEK_VIEW);
   g_type_ensure (GCAL_TYPE_CALENDAR);
   g_type_ensure (E_TYPE_SOURCE);
 
@@ -518,10 +478,9 @@ revolution_calendar_view_class_init (RevolutionCalendarViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, views);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, calendar_sorted);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, month_view);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, week_view);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, day_view);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, date_chooser);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, week_header);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, week_grid);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, hour_bar);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, month_title);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, header_stack);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, search_entry);
@@ -538,7 +497,7 @@ revolution_calendar_view_class_init (RevolutionCalendarViewClass *klass)
 static void
 revolution_calendar_view_init (RevolutionCalendarView *self)
 {
-  g_autoptr (GDateTime) today = today_midnight ();
+  g_autoptr (GDateTime) now = g_date_time_new_now_local ();
   g_autoptr (GSimpleActionGroup) group = g_simple_action_group_new ();
   g_autoptr (GPropertyAction) view_action = NULL;
   g_autoptr (GPropertyAction) sidebar_action = NULL;
@@ -550,17 +509,22 @@ revolution_calendar_view_init (RevolutionCalendarView *self)
    * Kalender verbinden erst in on_map. */
   self->context = gcal_context_new ();
   g_object_set (self->month_view, "context", self->context, NULL);
+  /* #374: Woche und Tag brauchen ein Datum, bevor sie die Timeline abonnieren (get_range). */
+  g_object_set (self->week_view, "context", self->context, "active-date", now, NULL);
+  g_object_set (self->day_view, "context", self->context, "active-date", now, NULL);
   self->colors = gtk_css_provider_new ();
   gtk_style_context_add_provider_for_display (gtk_widget_get_display (GTK_WIDGET (self)),
                                               GTK_STYLE_PROVIDER (self->colors),
                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
   g_signal_connect_swapped (self->month_view, "notify::active-date", G_CALLBACK (on_active_date_changed), self);
+  g_signal_connect_swapped (self->week_view, "notify::active-date", G_CALLBACK (on_active_date_changed), self);
+  g_signal_connect_swapped (self->day_view, "notify::active-date", G_CALLBACK (on_active_date_changed), self);
+  g_signal_connect_swapped (self->views, "notify::visible-child-name", G_CALLBACK (on_view_changed), self);
   on_today (NULL, NULL, self);
   on_active_date_changed (self);
   g_signal_connect (self, "map", G_CALLBACK (on_map), NULL);
-  fill_week (self, today);
 
-  /* calendar.view für Alt+1/Alt+2 wie win.view in main.c;
+  /* calendar.view für Alt+1/2/3 wie win.view in main.c;
    * calendar.sidebar für F9 (gcal-window.blp:181-188). */
   view_action = g_property_action_new ("view", self->views, "visible-child-name");
   sidebar_action = g_property_action_new ("sidebar", self->split, "show-sidebar");

@@ -378,20 +378,6 @@ calendar.date-chooser {
   margin-left: 6px;
 }
 
-/* Nur Wichtiges halbfett wie der Mailkopf (.mail-sender 600): Monatsanfang, heute. */
-.calendar-emphasis {
-  font-weight: 600;
-}
-
-/* Tagesnummer der Woche groß (.title-2), aber nicht fett. */
-.calendar-day-number {
-  font-weight: 400;
-}
-
-.calendar-day-number.calendar-emphasis {
-  font-weight: 600;
-}
-
 /* Dunkel: Trennlinien dunkler als der Hintergrund wie der Trennstrich der Mail
  * (.dark .mail-split paned.horizontal > separator). */
 .dark .calendar-main separator {
@@ -569,6 +555,52 @@ monthpopover > box {
   margin: 4px;
   padding: 12px;
   background-color: var(--popover-bg-color);
+}
+
+/* #374: Woche und Tag. Übernommen aus gnome-calendar 50.0 src/theme/style.css:229-265 (GcalWeekHourBar
+ * „weekhourbar“, GcalWeekGrid „weekgrid“, GcalWeekHeader „weekheader“), angepasst an das Design
+ * (kalender-woche-hell.png, #402): Wochentag klein wie die Monatskopfzeile (statt .heading), Tagesnummer groß,
+ * aber nicht fett, nur heute halbfett; Uhrzeit dezent wie in der Mail-Liste. */
+weekhourbar > label {
+  font-size: 9pt;
+  font-feature-settings: "tnum";
+  padding: 4px 6px;
+}
+
+.week-main-content {
+  border: 0 solid var(--border-color);
+  border-width: 1px 0;
+}
+
+weekgrid > widget.now-strip {
+  background-color: rgb(from var(--accent-bg-color) r g b / 80%);
+  margin: 0 0 0 1px;
+  min-height: 2px;
+}
+
+weekheader > selection,
+weekgrid > selection {
+  background-color: rgb(from var(--accent-bg-color) r g b / 25%);
+  border-radius: 6px;
+  margin: 2px 0 1px 2px;
+}
+
+button.week-header-expander:checked image {
+  transform: rotateZ(180deg);
+  transition: 200ms;
+}
+
+.week-header label.heading {
+  font-size: 9pt;
+  font-weight: 700;
+}
+
+.week-header label.title-2 {
+  font-weight: 400;
+}
+
+.week-header label.title-2.accent {
+  font-weight: 600;
 }
 
 /* Flach, ohne Verläufe (#336) – Arnd 22.10.2026: „alles flach“, Form unverändert.

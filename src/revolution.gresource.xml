@@ -32,5 +32,7 @@
     <file alias="views/gcal-month-cell.ui" compressed="true">gcal-month-cell.ui</file>
     <file alias="views/gcal-month-popover.ui" compressed="true">gcal-month-popover.ui</file>
     <file alias="views/gcal-month-view.ui" compressed="true">gcal-month-view.ui</file>
+    <file alias="views/gcal-week-header.ui" compressed="true">gcal-week-header.ui</file>
+    <file alias="views/gcal-week-view.ui" compressed="true">gcal-week-view.ui</file>
   </gresource>
 </gresources>

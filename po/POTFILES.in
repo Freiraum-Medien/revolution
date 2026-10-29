@@ -40,3 +40,6 @@ src/calendar/gcal/gcal-event-widget.c
 src/calendar/gcal/gcal-month-cell.blp
 src/calendar/gcal/gcal-month-popover.blp
 src/calendar/gcal/gcal-utils.c
+src/calendar/gcal/gcal-week-header.c
+src/calendar/gcal/gcal-week-hour-bar.c
+src/calendar/gcal/gcal-week-view.c

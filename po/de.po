@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: revolution\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-29 21:14+0100\n"
+"POT-Creation-Date: 2026-10-29 23:15+0100\n"
 "PO-Revision-Date: 2026-10-28 22:20+0100\n"
 "Last-Translator: Arnd Messer\n"
 "Language-Team: German\n"
@@ -47,7 +47,7 @@ msgstr "Arnd Messer"
 
 #: data/de.freiraum_medien.Revolution.gschema.xml:14
 #: src/mail/mail-view.blp:1256 src/contacts/contacts-view.blp:721
-#: src/calendar/calendar-view.blp:532
+#: src/calendar/calendar-view.blp:516
 msgid "Appearance"
 msgstr "Darstellung"
 
@@ -142,7 +142,16 @@ msgstr "Ausgeblendete Kalender"
 
 #: data/de.freiraum_medien.Revolution.gschema.xml:67
 msgid "UIDs of the calendars whose events are hidden in the calendar view."
-msgstr "UIDs der Kalender, deren Termine in der Kalender-Ansicht ausgeblendet sind."
+msgstr ""
+"UIDs der Kalender, deren Termine in der Kalender-Ansicht ausgeblendet sind."
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:73
+msgid "Zoom level of the week grid"
+msgstr "Zoomstufe des Wochenrasters"
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:74
+msgid "The current zoom level of the week grid"
+msgstr "Die aktuelle Zoomstufe des Wochenrasters"
 
 #: src/main.c:156
 #, c-format
@@ -779,7 +788,7 @@ msgid_plural "%u messages"
 msgstr[0] "%u E-Mail"
 msgstr[1] "%u E-Mails"
 
-#: src/window.blp:53 src/calendar/calendar-view.blp:200
+#: src/window.blp:53 src/calendar/calendar-view.blp:220
 msgid "Calendar"
 msgstr "Kalender"
 
@@ -792,7 +801,7 @@ msgstr "Kontakte"
 #: src/composer/composer.blp:90 src/composer/composer.blp:95
 #: src/mail/mail-view.blp:193 src/mail/mail-view.blp:197
 #: src/contacts/contacts-view.blp:106 src/contacts/contacts-view.blp:110
-#: src/calendar/calendar-view.blp:151 src/calendar/calendar-view.blp:155
+#: src/calendar/calendar-view.blp:171 src/calendar/calendar-view.blp:175
 msgid "Main Menu"
 msgstr "Hauptmenü"
 
@@ -1032,7 +1041,7 @@ msgstr ""
 
 #: src/mail/mail-view.blp:367 src/mail/mail-view.blp:371
 #: src/contacts/contacts-view.blp:223 src/contacts/contacts-view.blp:227
-#: src/calendar/calendar-view.blp:297 src/calendar/calendar-view.blp:301
+#: src/calendar/calendar-view.blp:317 src/calendar/calendar-view.blp:321
 msgid "Toggle Sidebar"
 msgstr "Seitenleiste ein-/ausblenden"
 
@@ -1128,7 +1137,7 @@ msgstr "Suchbereich"
 
 #: src/mail/mail-view.blp:926 src/mail/mail-view.blp:930
 #: src/contacts/contacts-view.blp:573 src/contacts/contacts-view.blp:577
-#: src/calendar/calendar-view.blp:339 src/calendar/calendar-view.blp:343
+#: src/calendar/calendar-view.blp:359 src/calendar/calendar-view.blp:363
 msgid "Search"
 msgstr "Suchen"
 
@@ -1201,7 +1210,7 @@ msgid "_New Message"
 msgstr "_Neue E-Mail"
 
 #: src/mail/mail-view.blp:1231 src/contacts/contacts-view.blp:704
-#: src/calendar/calendar-view.blp:515
+#: src/calendar/calendar-view.blp:499
 msgid "_Search"
 msgstr "_Suchen"
 
@@ -1210,37 +1219,37 @@ msgid "_Refresh"
 msgstr "_Aktualisieren"
 
 #: src/mail/mail-view.blp:1248 src/contacts/contacts-view.blp:713
-#: src/calendar/calendar-view.blp:524
+#: src/calendar/calendar-view.blp:508
 msgid "Toggle S_idebar"
 msgstr "Seiten_leiste ein-/ausblenden"
 
 #: src/mail/mail-view.blp:1259 src/contacts/contacts-view.blp:724
-#: src/calendar/calendar-view.blp:535
+#: src/calendar/calendar-view.blp:519
 msgid "_Light"
 msgstr "_Hell"
 
 #: src/mail/mail-view.blp:1265 src/contacts/contacts-view.blp:730
-#: src/calendar/calendar-view.blp:541
+#: src/calendar/calendar-view.blp:525
 msgid "Dark with Light _Content"
 msgstr "Dunkel _mit hellem Inhalt"
 
 #: src/mail/mail-view.blp:1271 src/contacts/contacts-view.blp:736
-#: src/calendar/calendar-view.blp:547
+#: src/calendar/calendar-view.blp:531
 msgid "_Dark"
 msgstr "_Dunkel"
 
 #: src/mail/mail-view.blp:1279 src/contacts/contacts-view.blp:744
-#: src/calendar/calendar-view.blp:555
+#: src/calendar/calendar-view.blp:539
 msgid "_Preferences"
 msgstr "_Einstellungen"
 
 #: src/mail/mail-view.blp:1285 src/contacts/contacts-view.blp:750
-#: src/calendar/calendar-view.blp:561
+#: src/calendar/calendar-view.blp:545
 msgid "_Keyboard Shortcuts"
 msgstr "_Tastenkürzel"
 
 #: src/mail/mail-view.blp:1291 src/contacts/contacts-view.blp:756
-#: src/calendar/calendar-view.blp:567
+#: src/calendar/calendar-view.blp:551
 msgid "_About Revolution"
 msgstr "_Info zu Revolution"
 
@@ -1652,64 +1661,68 @@ msgstr "Kontakt ist schon vorhanden"
 msgid "Jump to “%s”"
 msgstr "Zu „%s“ springen"
 
-#: src/calendar/calendar-view.blp:179
+#: src/calendar/calendar-view.blp:199
 msgid "Select Date"
 msgstr "Datum wählen"
 
-#: src/calendar/calendar-view.blp:247
+#: src/calendar/calendar-view.blp:267
 msgid "Show or Hide Calendar"
 msgstr "Kalender ein- oder ausblenden"
 
-#: src/calendar/calendar-view.blp:324 src/calendar/calendar-view.blp:331
+#: src/calendar/calendar-view.blp:344 src/calendar/calendar-view.blp:351
 msgid "Search Events"
 msgstr "Termine durchsuchen"
 
-#: src/calendar/calendar-view.blp:360
+#: src/calendar/calendar-view.blp:380
 msgid "_Month"
 msgstr "_Monat"
 
-#: src/calendar/calendar-view.blp:371
+#: src/calendar/calendar-view.blp:391
 msgid "Month"
 msgstr "Monat"
 
-#: src/calendar/calendar-view.blp:378
+#: src/calendar/calendar-view.blp:398
 msgid "_Week"
 msgstr "_Woche"
 
-#: src/calendar/calendar-view.blp:396
-msgid "All-Day Events"
-msgstr "Ganztägige Termine"
-
-#: src/calendar/calendar-view.blp:425
+#: src/calendar/calendar-view.blp:406
 msgid "Week"
 msgstr "Woche"
 
-#: src/calendar/calendar-view.blp:442 src/calendar/calendar-view.blp:446
+#: src/calendar/calendar-view.blp:415
+msgid "_Day"
+msgstr "_Tag"
+
+#: src/calendar/calendar-view.blp:423
+msgid "Day"
+msgstr "Tag"
+
+#: src/calendar/calendar-view.blp:436 src/calendar/calendar-view.blp:440
 msgid "Previous"
 msgstr "Zurück"
 
-#: src/calendar/calendar-view.blp:453 src/calendar/calendar-view.blp:457
+#: src/calendar/calendar-view.blp:447 src/calendar/calendar-view.blp:451
 msgid "Next"
 msgstr "Vor"
 
-#: src/calendar/calendar-view.blp:464
+#: src/calendar/calendar-view.blp:458
 msgid "Go to Today"
 msgstr "Zu heute springen"
 
-#: src/calendar/calendar-view.blp:467
+#: src/calendar/calendar-view.blp:460
 msgid "_Today"
 msgstr "_Heute"
 
-#: src/calendar/calendar-view.blp:483 src/calendar/calendar-view.blp:487
+#: src/calendar/calendar-view.blp:476 src/calendar/calendar-view.blp:480
 msgid "Add Event"
 msgstr "Termin hinzufügen"
 
-#: src/calendar/calendar-view.blp:509
+#: src/calendar/calendar-view.blp:493
 msgid "_New Event"
 msgstr "_Neuer Termin"
 
 #. Translators: %s is the meeting service name for the event (e.g. "Google Meet")
-#: src/calendar/gcal/gcal-event-widget.c:380
+#: src/calendar/gcal/gcal-event-widget.c:383
 #, c-format
 msgid ""
 "\n"
@@ -1722,8 +1735,8 @@ msgstr ""
 
 #. Translators: %s is a URL informed as the location of the event
 #. Translators: %s is the location of the event (e.g. "Downtown, 3rd Avenue")
-#: src/calendar/gcal/gcal-event-widget.c:393
-#: src/calendar/gcal/gcal-event-widget.c:399
+#: src/calendar/gcal/gcal-event-widget.c:396
+#: src/calendar/gcal/gcal-event-widget.c:402
 #, c-format
 msgid ""
 "\n"
@@ -1740,75 +1753,101 @@ msgstr ""
 #. * More formats can be found on the doc:
 #. * https://docs.gtk.org/glib/method.DateTime.format.html
 #.
-#: src/calendar/gcal/gcal-event-widget.c:458
+#: src/calendar/gcal/gcal-event-widget.c:461
 msgid "%a %B %d"
 msgstr "%a, %d. %B"
 
-#: src/calendar/gcal/gcal-month-cell.blp:43
+#: src/calendar/gcal/gcal-month-cell.blp:45
 msgid "All Events"
 msgstr "Alle Termine"
 
-#: src/calendar/gcal/gcal-month-popover.blp:58
+#: src/calendar/gcal/gcal-month-popover.blp:60
 msgid "New Event…"
 msgstr "Neuer Termin …"
 
 #. Conferencing
-#: src/calendar/gcal/gcal-utils.c:441
+#: src/calendar/gcal/gcal-utils.c:444
 msgid "BlueJeans"
 msgstr "BlueJeans"
 
-#: src/calendar/gcal/gcal-utils.c:442 src/calendar/gcal/gcal-utils.c:443
+#: src/calendar/gcal/gcal-utils.c:445 src/calendar/gcal/gcal-utils.c:446
 msgid "BigBlueButton"
 msgstr "BigBlueButton"
 
-#: src/calendar/gcal/gcal-utils.c:444
+#: src/calendar/gcal/gcal-utils.c:447
 msgid "Google Meet"
 msgstr "Google Meet"
 
-#: src/calendar/gcal/gcal-utils.c:445 src/calendar/gcal/gcal-utils.c:446
+#: src/calendar/gcal/gcal-utils.c:448 src/calendar/gcal/gcal-utils.c:449
 msgid "Jitsi"
 msgstr "Jitsi"
 
-#: src/calendar/gcal/gcal-utils.c:447
+#: src/calendar/gcal/gcal-utils.c:450
 msgid "Uber Conference"
 msgstr "Uber Conference"
 
-#: src/calendar/gcal/gcal-utils.c:448
+#: src/calendar/gcal/gcal-utils.c:451
 msgid "GNOME Meet"
 msgstr "GNOME Meet"
 
-#: src/calendar/gcal/gcal-utils.c:449
+#: src/calendar/gcal/gcal-utils.c:452
 msgid "Microsoft Teams"
 msgstr "Microsoft Teams"
 
-#: src/calendar/gcal/gcal-utils.c:450
+#: src/calendar/gcal/gcal-utils.c:453
 msgid "Whereby"
 msgstr "Whereby"
 
-#: src/calendar/gcal/gcal-utils.c:451
+#: src/calendar/gcal/gcal-utils.c:454
 msgid "Webex"
 msgstr "Webex"
 
-#: src/calendar/gcal/gcal-utils.c:452
+#: src/calendar/gcal/gcal-utils.c:455
 msgid "Zoom"
 msgstr "Zoom"
 
 #. Map
-#: src/calendar/gcal/gcal-utils.c:455
+#: src/calendar/gcal/gcal-utils.c:458
 msgid "View Map"
 msgstr "Karte anzeigen"
 
-#: src/calendar/gcal/gcal-utils.c:456
+#: src/calendar/gcal/gcal-utils.c:459
 msgid "OpenStreetMap"
 msgstr "OpenStreetMap"
 
-#: src/calendar/gcal/gcal-utils.c:457 src/calendar/gcal/gcal-utils.c:458
+#: src/calendar/gcal/gcal-utils.c:460 src/calendar/gcal/gcal-utils.c:461
 msgid "Google Maps"
 msgstr "Google Maps"
 
-#: src/calendar/gcal/gcal-utils.c:459
+#: src/calendar/gcal/gcal-utils.c:462
 msgid "Bing Maps"
 msgstr "Bing Maps"
+
+#: src/calendar/gcal/gcal-week-header.c:358
+#, c-format
+msgid "Other event"
+msgid_plural "Other %d events"
+msgstr[0] "Weiterer Termin"
+msgstr[1] "Weitere %d Termine"
+
+#: src/calendar/gcal/gcal-week-hour-bar.c:60
+msgid "PM"
+msgstr "PM"
+
+#: src/calendar/gcal/gcal-week-hour-bar.c:60
+msgid "AM"
+msgstr "AM"
+
+#: src/calendar/gcal/gcal-week-view.c:248
+msgid "Hide Additional Events"
+msgstr "Zusätzliche Termine verbergen"
+
+#: src/calendar/gcal/gcal-week-view.c:250
+msgid "Show Additional Events"
+msgstr "Zusätzliche Termine anzeigen"
+
+#~ msgid "All-Day Events"
+#~ msgstr "Ganztägige Termine"
 
 #~ msgid "MO"
 #~ msgstr "MO"

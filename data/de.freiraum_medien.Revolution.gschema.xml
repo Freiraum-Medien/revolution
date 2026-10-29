@@ -66,5 +66,12 @@
       <summary>Hidden calendars</summary>
       <description>UIDs of the calendars whose events are hidden in the calendar view.</description>
     </key>
+    <!-- #374: wie GNOME Calendar 50.0 data/org.gnome.calendar.gschema.xml.in:24-28, Nutzer
+         src/calendar/gcal/gcal-week-view.c (Strg+Mausrad, Zoomgeste). -->
+    <key name="week-view-zoom-level" type="d">
+      <default>1.0</default>
+      <summary>Zoom level of the week grid</summary>
+      <description>The current zoom level of the week grid</description>
+    </key>
   </schema>
 </schemalist>

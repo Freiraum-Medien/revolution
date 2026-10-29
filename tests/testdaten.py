@@ -2328,19 +2328,27 @@ def termin_live(registry, aktion, kal, datei, wann=None):
     if aktion != 'pruefen' and kal not in kalender_schreibbar():
         sys.exit('ABBRUCH: Kalender %s ist nicht zum Schreiben freigegeben' % kal)
     c = kalender_verbinden(registry, kal)
-    if aktion in ('anlegen', 'woechentlich'):
+    if aktion in ('anlegen', 'woechentlich', 'ganztags', 'mehrtaegig'):
         if not wann:
             sys.exit('ABBRUCH: --termin-live %s braucht ZEIT (JJJJ-MM-TTTHH:MM)' % aktion)
         start = termin_datum(wann).astimezone(datetime.timezone.utc)
         if aktion == 'woechentlich' and not (start + datetime.timedelta(weeks=4)).date() <= \
                 datetime.date.today() + datetime.timedelta(days=90):
             sys.exit('ABBRUCH: letzte Wiederholung außerhalb des Zeitfensters')
-        name = '%s 373 %s %s' % (TERMIN_PREFIX, aktion, datetime.datetime.now().strftime('%H%M%S'))
-        ics = ['BEGIN:VEVENT', 'UID:revolution-test-373-%s@%s' % (datetime.datetime.now().strftime('%Y%m%d%H%M%S%f'),
-                                                                  MSGID_DOMAIN),
-               'DTSTAMP:' + datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ'),
-               'DTSTART:' + start.strftime('%Y%m%dT%H%M%SZ'),
-               'DTEND:' + (start + datetime.timedelta(hours=1)).strftime('%Y%m%dT%H%M%SZ'),
+        # #374: TERMIN_TASK (Umgebung) im Namen, Standard 373; ganztags: ein Tag (DATE), mehrtaegig: ZEIT bis
+        # zwei Tage und zwei Stunden später (drei Tage, Kopfleiste der Woche).
+        task = os.environ.get('TERMIN_TASK', '373')
+        name = '%s %s %s %s' % (TERMIN_PREFIX, task, aktion, datetime.datetime.now().strftime('%H%M%S%f')[:9])
+        tag = termin_datum(wann).date()
+        if aktion == 'ganztags':
+            zeiten = ['DTSTART;VALUE=DATE:' + tag.strftime('%Y%m%d'),
+                      'DTEND;VALUE=DATE:' + (tag + datetime.timedelta(days=1)).strftime('%Y%m%d')]
+        else:
+            dauer = datetime.timedelta(days=2, hours=2) if aktion == 'mehrtaegig' else datetime.timedelta(hours=1)
+            zeiten = ['DTSTART:' + start.strftime('%Y%m%dT%H%M%SZ'), 'DTEND:' + (start + dauer).strftime('%Y%m%dT%H%M%SZ')]
+        ics = ['BEGIN:VEVENT', 'UID:revolution-test-%s-%s@%s' % (task, datetime.datetime.now().strftime('%Y%m%d%H%M%S%f'),
+                                                                 MSGID_DOMAIN),
+               'DTSTAMP:' + datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')] + zeiten + [
                'SUMMARY:' + name]
         if aktion == 'woechentlich':
             ics.append('RRULE:FREQ=WEEKLY;COUNT=5')
@@ -3219,8 +3227,10 @@ def main():
                     help='#373: nur lesend Prüfsumme (UID, RECURRENCE-ID, LAST-MODIFIED) je Kalender')
     ap.add_argument('--kalender-server', nargs=2, metavar=('KALENDER', 'JJJJ-MM'),
                     help='#373: nur lesend Termine eines Monats am Server ohne EDS (Graph bzw. CalDAV REPORT)')
-    ap.add_argument('--termin-live', nargs='+', metavar='anlegen|woechentlich|aendern|loeschen|pruefen KALENDER DATEI [ZEIT]',
-                    help='#373: Testtermin von außen über EDS (nur freigegebene Kalender)')
+    ap.add_argument('--termin-live', nargs='+',
+                    metavar='anlegen|woechentlich|ganztags|mehrtaegig|aendern|loeschen|pruefen KALENDER DATEI [ZEIT]',
+                    help='#373: Testtermin von außen über EDS (nur freigegebene Kalender); #374 ganztags (ein Tag), '
+                         'mehrtaegig (ZEIT + 2 Tage 2 Stunden), Name mit TERMIN_TASK (Umgebung)')
     ap.add_argument('--live-flags', metavar='KONTO', help='#351: nur lesend Flags der Live-Mails im Posteingang')
     ap.add_argument('--antwort', action='store_true',
                     help='#359: Testmail für Antworten per APPEND in den Posteingang von %s' % ANTWORT_KONTO)

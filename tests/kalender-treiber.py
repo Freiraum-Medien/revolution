@@ -11,7 +11,16 @@
 #                  dazu = Server ohne EDS (--kalender-server). Wiederholung: alle 5 Wochen. Live: anlegen, ändern,
 #                  löschen von außen (zweiter Python-GI-Prozess) in LIVE_KALENDER, Zeit bis zur App ≤ 5 s. Ein/Aus in der
 #                  Seitenleiste (AUS_KALENDER): Termine weg, Neustart (Einstellungen in Datei), weiter aus; wieder an.
-#   MODUS=bild     nur Start, Monat MONAT, Bild (dunkel/schmal; kalender.sh setzt Schema und Größe).
+#                  #374: „+N“-Popover öffnen und mit Escape schließen, Monat per Mausrad scrollen (Titelwechsel).
+#   MODUS=woche    #374: Testwoche (Woche nach heute) von außen im ersten Kalender aus SCHREIBBAR: drei überlappende Termine
+#                  am Dienstag, ein ganztägiger am Mittwoch, ein mehrtägiger Do–Sa. Lage per AT-SPI (Ausdehnung der
+#                  Termine und des Wochenrasters GcalWeekGrid): überlappende nebeneinander in der richtigen Spalte, Höhe
+#                  und Lage nach Uhrzeit; ganztägig/mehrtägig in der Kopfleiste über den richtigen Tagen. Tag (Alt+3) =
+#                  dieselben Termine wie die Wochenspalte. Heute-Linie (2 px hoch im Raster) in der Spalte von heute auf
+#                  der aktuellen Uhrzeit. Navigation vor/zurück/Heute in Woche und Tag, Alt+1/2/3, Strg+Bild ab/auf
+#                  (Log „Kalender: Ansicht <Name> Datum <Tag>“). Live anlegen/ändern/löschen von außen ≤ 5 s in der Woche.
+#   MODUS=bild     nur Start, Monat MONAT, Bild; #374 dazu Woche und Tag (dunkel/schmal; kalender.sh setzt Schema und
+#                  Größe).
 # Umgebung: BIN, OUT, NAME, MODUS, VERGLEICH, MONAT, KALENDER_TERMINE (UIDs), SCHREIBBAR (UIDs), LIVE_KALENDER (UIDs),
 #           AUS_KALENDER (UID), TERMINE (Ordner für die Termin-Dateien), TESTDATEN, TIMEOUT, LIVE_GRENZE (s, Standard 5).
 # Ausgabe: „OK …“, „FEHLER …“, „WERT …“, „SCHREIBVORGANG <Kalender>“; Bilder OUT/NAME-<Schritt>.png.
@@ -342,7 +351,7 @@ def tastatur():
     jetzt = '%s %d' % (MONATE[heute.month - 1], heute.year)
     (ok if titel_ist(jetzt) else falsch)('Strg+2: Kalender mit Titel „%s“' % jetzt)
     for name in ('Zurück', 'Vor', 'Heute', 'Termin hinzufügen', 'Seitenleiste ein-/ausblenden', 'Monat', 'Woche',
-                 'Kalender', 'Hauptmenü'):
+                 'Tag', 'Kalender', 'Hauptmenü'):
         o = finde(wurzel(), 'button', name) or finde(wurzel(), 'toggle button', name) or finde(wurzel(), None, name)
         (ok if o is not None else falsch)('a11y: Bedienelement „%s“' % name)
     nm = heute.replace(day=1) + datetime.timedelta(days=32)
@@ -515,6 +524,263 @@ def andere_zeilen():
     (ok if not andere else falsch)('keine Warnungen/Criticals im Log%s' % ('' if not andere else ': %s' % andere[:3]))
 
 
+# ------------------------------------------------------------------ #374 Popover, Scrollen, Woche und Tag
+
+def alle(o, rolle, out=None):
+    """Alle sichtbaren Nachfahren von o mit der Rolle (None = alle)."""
+    out = [] if out is None else out
+    try:
+        if (rolle is None or o.get_role_name() == rolle) and o.get_state_set().contains(Atspi.StateType.SHOWING):
+            out.append(o)
+        for i in range(o.get_child_count()):
+            k = o.get_child_at_index(i)
+            if k is not None:
+                alle(k, rolle, out)
+    except Exception:
+        pass
+    return out
+
+
+def ausdehnung(o):
+    r = o.get_component_iface().get_extents(Atspi.CoordType.WINDOW)
+    return r.x, r.y, r.width, r.height
+
+
+def popover_und_scrollen():
+    """„+N“-Popover (GcalMonthPopover) öffnen, Escape schließt; Mausrad blättert den Monat (Titel wechselt)."""
+    knoepfe = [b for b in alle(wurzel(), 'toggle button') if (b.get_name() or '').startswith('+')]
+    if knoepfe:
+        klick(*mitte(knoepfe[0]))
+        time.sleep(1.5)
+        (ok if finde(wurzel(), None, 'Neuer Termin …') else falsch)(
+            '„%s“ geklickt: Popover mit „Neuer Termin …“ sichtbar' % knoepfe[0].get_name())
+        bild('popover')
+        taste('Escape')
+        time.sleep(1)
+        (ok if not finde(wurzel(), None, 'Neuer Termin …') else falsch)('Escape schließt das Popover')
+    else:
+        falsch('kein „+N“-Knopf im aktuellen Monat sichtbar')
+    heute = datetime.date.today()
+    jetzt = '%s %d' % (MONATE[heute.month - 1], heute.year)
+    for _ in range(12):
+        xtest.fake_input(d, X.MotionNotify, x=900, y=500)
+        xtest.fake_input(d, X.ButtonPress, 5)
+        xtest.fake_input(d, X.ButtonRelease, 5)
+        d.sync()
+        time.sleep(0.15)
+    time.sleep(1.5)
+    (ok if not titel_ist(jetzt, 2) else falsch)('Scrollen (12× Mausrad ab): Titel nicht mehr „%s“' % jetzt)
+    taste('Control_L', 't')
+    (ok if titel_ist(jetzt) else falsch)('Strg+T nach dem Scrollen: „%s“' % jetzt)
+
+
+def ansicht(name, tag, ab, zeit=10):
+    """Log „Kalender: Ansicht <name> Datum <tag>“ seit ab."""
+    return warte(r'^.*Kalender: Ansicht %s Datum %s$' % (name, tag.isoformat()), ab, zeit) is not None
+
+
+def taste_ansicht(tasten, name, tag, text):
+    ab = marke()
+    taste(*tasten)
+    (ok if ansicht(name, tag, ab) else falsch)('%s: Ansicht %s, Datum %s (Log)' % (text, name, tag))
+
+
+def raster(seite):
+    """(Ansicht, GcalWeekGrid) der sichtbaren Woche bzw. des Tags: das Raster ist die Fläche über 24 Stunden
+    (Höhe > 1000 px), deren Kinder die Termine und die Heute-Linie sind."""
+    v = finde(wurzel(), 'panel', seite)
+    if v is None:
+        return None, None
+    kandidaten = [p for p in alle(v, 'panel') if ausdehnung(p)[3] > 1000 and
+                  any(p.get_child_at_index(i) is not None and p.get_child_at_index(i).get_role_name() == 'toggle button'
+                      for i in range(p.get_child_count()))]
+    return v, (kandidaten[0] if kandidaten else None)
+
+
+def termine_in(v, gitter):
+    """{Name: [(x, y, b, h, im Raster)]} aller Termine der Ansicht v."""
+    out = {}
+    kinder = set()
+    if gitter is not None:
+        for i in range(gitter.get_child_count()):
+            k = gitter.get_child_at_index(i)
+            if k is not None:
+                kinder.add(ausdehnung(k) + (k.get_name(),))
+    for b in alle(v, 'toggle button'):
+        name = b.get_name() or ''
+        if name.startswith('Zusätzliche Termine'):
+            continue
+        e = ausdehnung(b)
+        out.setdefault(name, []).append(e + (e + (name,) in kinder,))
+    return out
+
+
+def spalte(gitter, x):
+    gx, _, gb, _ = ausdehnung(gitter)
+    return int((x - gx) // (gb / NSPALTEN[0]))
+
+
+NSPALTEN = [7]
+
+
+def warte_termine(seite, namen, zeit=60, weg=False):
+    ende = time.monotonic() + zeit
+    while True:
+        v, g = raster(seite)
+        t = termine_in(v, g) if v is not None else {}
+        if all((n in t) != weg for n in namen) or time.monotonic() > ende:
+            return v, g, t
+        time.sleep(0.2)
+
+
+def testwoche_anlegen(kal, montag):
+    """Drei überlappende (Di 10:00, 10:30, 10:45, je 1 h), ganztägig (Mi), mehrtägig (Do 14:00 – Sa 16:00)."""
+    namen = {}
+    di, mi, do = (montag + datetime.timedelta(days=i) for i in (1, 2, 3))
+    for art, aktion, wann in (('ueber1', 'anlegen', '%sT10:00' % di), ('ueber2', 'anlegen', '%sT10:30' % di),
+                              ('ueber3', 'anlegen', '%sT10:45' % di), ('ganztags', 'ganztags', '%sT00:00' % mi),
+                              ('mehrtaegig', 'mehrtaegig', '%sT14:00' % do)):
+        aus = testdaten('--termin-live', aktion, kal, datei(kal, art), wann)
+        namen[art] = re.search(r'^ANGELEGT \S+ \S+ (.+)$', aus, re.M).group(1)
+    return namen
+
+
+def lage_pruefen(seite, namen, tag_spalte, spalten):
+    """Überlappende nebeneinander in tag_spalte, Lage/Höhe nach Uhrzeit; ganztägig/mehrtägig in der Kopfleiste."""
+    NSPALTEN[0] = spalten
+    v, g, t = warte_termine(seite, namen.values())
+    if g is None or not all(n in t for n in namen.values()):
+        falsch('%s: Testtermine nicht alle sichtbar (%s)' % (seite, sorted(set(namen.values()) - set(t))))
+        return v, g, t
+    gx, gy, gb, gh = ausdehnung(g)
+    pro_minute = gh / 1440.0
+    ueber = sorted((t[namen[a]][0] for a in ('ueber1', 'ueber2', 'ueber3')), key=lambda e: e[0])
+    wert('%s: Raster x %d y %d Breite %d Höhe %d; überlappende %s' % (seite, gx, gy, gb, gh, [e[:4] for e in ueber]))
+    (ok if all(e[4] for e in ueber) else falsch)('%s: überlappende Termine im Zeitraster (nicht Kopfleiste)' % seite)
+    spalten_ist = [(spalte(g, e[0] + 2), spalte(g, e[0] + e[2] - 2)) for e in ueber]
+    (ok if all(s == (tag_spalte, tag_spalte) for s in spalten_ist) else falsch)(
+        '%s: überlappende Termine in Spalte %d: %s' % (seite, tag_spalte, spalten_ist))
+    neben = all(ueber[i][0] + ueber[i][2] <= ueber[i + 1][0] + 2 for i in range(2))
+    (ok if neben else falsch)('%s: überlappende Termine nebeneinander (x-Bereiche getrennt: %s)' % (
+        seite, [(e[0], e[0] + e[2]) for e in ueber]))
+    soll_y = {'ueber1': 600, 'ueber2': 630, 'ueber3': 645}
+    for a, minuten in soll_y.items():
+        e = t[namen[a]][0]
+        dy, dh = e[1] - gy - minuten * pro_minute, e[3] - 60 * pro_minute
+        (ok if abs(dy) <= 4 and abs(dh) <= 4 else falsch)(
+            '%s: %s Beginn %02d:%02d bei y %+.1f px, Höhe 60 min %+.1f px (Toleranz 4 px)' % (
+                seite, a, minuten // 60, minuten % 60, dy, dh))
+    for a, von, bis in (('ganztags', 2, 2), ('mehrtaegig', 3, 5)):
+        if a not in namen:
+            continue
+        es = t[namen[a]]
+        anfang = min(spalte(g, e[0] + 2) for e in es)
+        ende = max(spalte(g, e[0] + e[2] - 2) for e in es)
+        (ok if not any(e[4] for e in es) and e[1] < gy + gh and (anfang, ende) == (von, bis) else falsch)(
+            '%s: %s in der Kopfleiste über Spalte %d–%d (soll %d–%d)' % (seite, a, anfang, ende, von, bis))
+    return v, g, t
+
+
+def heute_linie(seite, spalte_heute):
+    v, g = raster(seite)
+    if g is None:
+        falsch('%s: Raster nicht gefunden' % seite)
+        return
+    gx, gy, gb, gh = ausdehnung(g)
+    jetzt = datetime.datetime.now()
+    linien = []
+    for i in range(g.get_child_count()):
+        k = g.get_child_at_index(i)
+        if k is not None and k.get_role_name() == 'panel' and k.get_state_set().contains(Atspi.StateType.SHOWING):
+            e = ausdehnung(k)
+            if e[3] <= 3:
+                linien.append(e)
+    soll = (jetzt.hour * 60 + jetzt.minute) * gh / 1440.0
+    passt = [e for e in linien if spalte(g, e[0] + 2) == spalte_heute and abs(e[1] - gy - soll) <= 2 * gh / 1440.0 + 2]
+    (ok if len(linien) == 1 and passt else falsch)(
+        '%s: Heute-Linie %s in Spalte %d bei %02d:%02d (soll y %.0f)' % (seite, linien, spalte_heute, jetzt.hour,
+                                                                         jetzt.minute, gy + soll))
+
+
+def woche():
+    kal = SCHREIBBAR[0]
+    heute = datetime.date.today()
+    montag_heute = heute - datetime.timedelta(days=heute.weekday())
+    montag = montag_heute + datetime.timedelta(days=7)
+    namen = testwoche_anlegen(kal, montag)
+    taste_ansicht(('Alt_L', '2'), 'week', heute, 'Alt+2')
+    taste_ansicht(('Alt_L', 'Right'), 'week', heute + datetime.timedelta(days=7), 'Woche Alt+Rechts')
+    v = finde(wurzel(), 'panel', 'Woche')
+    tage = [int(x.get_name()) for x in alle(v, 'label') if (x.get_name() or '').isdigit()] if v else []
+    soll_tage = [(montag + datetime.timedelta(days=i)).day for i in range(7)]
+    (ok if tage[:7] == soll_tage else falsch)('Woche: Kopf zeigt Tage %s (soll %s, Montag zuerst)' % (tage[:7], soll_tage))
+    v, g, t = lage_pruefen('Woche', namen, 1, 7)
+    time.sleep(1)
+    bild('woche')
+    spalte_di = sorted((n, round((e[1] - ausdehnung(g)[1]) / ausdehnung(g)[3] * 1440)) for n, es in t.items()
+                       for e in es if e[4] and spalte(g, e[0] + 2) == 1) if g else []
+    kopf_di = sorted(n for n, es in t.items() for e in es if not e[4] and g and
+                     spalte(g, e[0] + 2) <= 1 <= spalte(g, e[0] + e[2] - 2))
+    # Tag: Alt+3 zeigt den gewählten Tag (Donnerstag der Testwoche), Alt+Links 2× = Dienstag.
+    taste_ansicht(('Alt_L', '3'), 'day', heute + datetime.timedelta(days=7), 'Alt+3')
+    di = montag + datetime.timedelta(days=1)
+    taste_ansicht(('Alt_L', 'Left'), 'day', di + datetime.timedelta(days=1), 'Tag Alt+Links')
+    taste_ansicht(('Prior',), 'day', di, 'Tag Bild auf')
+    v2, g2, t2 = lage_pruefen('Tag', {a: n for a, n in namen.items() if a.startswith('ueber')}, 0, 1)
+    tag_raster = sorted((n, round((e[1] - ausdehnung(g2)[1]) / ausdehnung(g2)[3] * 1440)) for n, es in t2.items()
+                        for e in es if e[4]) if g2 else []
+    tag_kopf = sorted(n for n, es in t2.items() for e in es if not e[4])
+    (ok if tag_raster == spalte_di and spalte_di else falsch)(
+        'Tag %s = Wochenspalte: %d Termine im Raster (Name, Beginn in min)%s' % (
+            di, len(tag_raster), '' if tag_raster == spalte_di else ': Tag %s, Woche %s' % (tag_raster, spalte_di)))
+    (ok if tag_kopf == kopf_di else falsch)('Tag %s = Wochenspalte: Kopfleiste %s' % (di, tag_kopf))
+    time.sleep(1)
+    bild('tag')
+    taste_ansicht(('Alt_L', 'Right'), 'day', di + datetime.timedelta(days=1), 'Tag Alt+Rechts')
+    taste_ansicht(('Next',), 'day', di + datetime.timedelta(days=2), 'Tag Bild ab')
+    taste_ansicht(('Control_L', 't'), 'day', heute, 'Tag Strg+T')
+    NSPALTEN[0] = 1
+    heute_linie('Tag', 0)
+    taste_ansicht(('Control_L', 'Page_Up'), 'week', heute, 'Strg+Bild auf')
+    NSPALTEN[0] = 7
+    heute_linie('Woche', heute.weekday())
+    taste_ansicht(('Next',), 'week', heute + datetime.timedelta(days=7), 'Woche Bild ab')
+    taste_ansicht(('Alt_L', 'Left'), 'week', heute, 'Woche Alt+Links')
+    taste_ansicht(('Prior',), 'week', heute - datetime.timedelta(days=7), 'Woche Bild auf')
+    taste_ansicht(('Home',), 'week', heute, 'Woche Pos1')
+    taste_ansicht(('Control_L', 'Page_Down'), 'day', heute, 'Strg+Bild ab')
+    ab = marke()
+    taste('Alt_L', '1')
+    (ok if warte(r'Kalender: Ansicht month Datum ', ab, 10) else falsch)('Alt+1: Ansicht month (Log)')
+    taste_ansicht(('Alt_L', '2'), 'week', heute, 'Alt+2 aus dem Monat')
+    taste_ansicht(('Alt_L', 'Right'), 'week', heute + datetime.timedelta(days=7), 'Woche Alt+Rechts (Testwoche)')
+    # Live von außen (zweiter Python-GI-Prozess), Mittwoch 15:00 der Testwoche.
+    pfad = datei(kal, 'live')
+    aus = testdaten('--termin-live', 'anlegen', kal, pfad, '%sT15:00' % (montag + datetime.timedelta(days=2)))
+    name = re.search(r'^ANGELEGT \S+ \S+ (.+)$', aus, re.M).group(1)
+    t0 = time.monotonic()
+    _, g, t = warte_termine('Woche', [name], 30)
+    dauer = time.monotonic() - t0
+    sp = spalte(g, t[name][0][0] + 2) if g is not None and name in t else None
+    (ok if name in t and dauer <= LIVE_GRENZE and sp == 2 else falsch)(
+        'Live anlegen: in der Woche (Mittwoch, Spalte %s) nach %.1f s (≤ %.0f s, nach Ende des Schreibprozesses)' % (
+            sp, dauer, LIVE_GRENZE))
+    testdaten('--termin-live', 'aendern', kal, pfad)
+    t0 = time.monotonic()
+    _, g, t = warte_termine('Woche', [name + ' geändert'], 30)
+    dauer = time.monotonic() - t0
+    e = t.get(name + ' geändert', [None])[0]
+    beginn = round((e[1] - ausdehnung(g)[1]) / ausdehnung(g)[3] * 1440) if e else None
+    (ok if e and dauer <= LIVE_GRENZE and abs(beginn - 16 * 60) <= 3 and name not in t else falsch)(
+        'Live ändern: neuer Titel und Beginn %s min (soll 960 = 16:00) nach %.1f s' % (beginn, dauer))
+    testdaten('--termin-live', 'loeschen', kal, pfad)
+    t0 = time.monotonic()
+    _, g, t = warte_termine('Woche', [name + ' geändert'], 30, weg=True)
+    dauer = time.monotonic() - t0
+    (ok if name + ' geändert' not in t and dauer <= LIVE_GRENZE else falsch)(
+        'Live löschen: aus der Woche nach %.1f s' % dauer)
+
+
 def pruefen():
     soll = vergleich()
     if not starten():
@@ -526,10 +792,22 @@ def pruefen():
         zum_monat()
         time.sleep(3)
         bild('monat')
+        # #374: Woche und Tag (heute).
+        taste('Control_L', 't')
+        taste('Alt_L', '2')
+        time.sleep(3)
+        bild('woche')
+        taste('Alt_L', '3')
+        time.sleep(3)
+        bild('tag')
+        return
+    if MODUS == 'woche':
+        woche()
         return
     # Erstes Laden ohne Blättern: aktueller Monat je Kalender = Python-GI (Änderungen während des ersten Ladens,
     # gcal-calendar-monitor.c, Revolution #373).
     termine_vergleichen(False, datetime.date.today().strftime('%Y-%m'))
+    popover_und_scrollen()
     tastatur()
     erster_montag = testtermine_anlegen()
     zum_monat()

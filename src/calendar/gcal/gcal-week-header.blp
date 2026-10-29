@@ -1,0 +1,48 @@
+// Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-week-header.blp:1-46 (ff4d7f7d, GPL-3.0-or-later).
+// Unverändert.
+using Gtk 4.0;
+
+template $GcalWeekHeader: Widget {
+  Box main_box {
+    hexpand: true;
+    vexpand: false;
+    orientation: vertical;
+
+    styles [
+      "week-header",
+    ]
+
+    Box {
+      orientation: vertical;
+
+      GestureClick {
+        button: 1;
+        pressed => $on_button_pressed(template) not-swapped;
+        released => $on_button_released(template) not-swapped;
+      }
+
+      EventControllerMotion motion_controller {
+        propagation-phase: none;
+        motion => $on_motion_notify(template) not-swapped;
+      }
+
+      Box weekdays_box {
+        homogeneous: true;
+      }
+
+      ScrolledWindow scrolledwindow {
+        hscrollbar-policy: never;
+        vscrollbar-policy: never;
+        propagate-natural-height: true;
+        margin-bottom: 2;
+
+        Viewport {
+          Grid grid {
+            column-homogeneous: true;
+            hexpand: true;
+          }
+        }
+      }
+    }
+  }
+}

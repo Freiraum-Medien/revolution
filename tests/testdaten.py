@@ -2253,6 +2253,29 @@ def ical_zeit(t):
     return datetime.datetime.fromtimestamp(s, datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
+def ical_sekunden(t):
+    """ICalTime → Sekunden seit 1970 (DATE als UTC-Mitternacht, schwebend als Ortszeit) wie ical_zeit."""
+    z = ical_zeit(t)
+    if len(z) == 10:
+        return datetime.datetime.fromisoformat(z + 'T00:00:00+00:00').timestamp()
+    return datetime.datetime.fromisoformat(z.replace('Z', '+00:00')).timestamp()
+
+
+def zeit_text(sekunden, datum):
+    t = datetime.datetime.fromtimestamp(sekunden, datetime.timezone.utc)
+    return t.strftime('%Y-%m-%d') if datum else t.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def im_bereich(start, ende, anfang, schluss):
+    """Überschneidet [start, ende) den Monat [anfang, schluss)? Datum = ganzer Tag in Ortszeit."""
+    def zeitpunkt(z):
+        if len(z) == 10:
+            return datetime.datetime.fromisoformat(z).astimezone()
+        return datetime.datetime.fromisoformat(z.replace('Z', '+00:00'))
+    s, e = zeitpunkt(start), zeitpunkt(ende)
+    return s < schluss and (e > anfang or (e == s and s >= anfang))
+
+
 def kalender_termine(registry, uid, monat):
     """#373: siehe Kopf (--kalender-termine), nur lesend: Vorkommen im Monat (e_cal_client_generate_instances_sync)."""
     c = kalender_verbinden(registry, uid)
@@ -2427,13 +2450,38 @@ def kalender_server(registry, kal, monat):
         with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
             xml = r.read().decode()
         import xml.etree.ElementTree as ET
+        # Google wertet <C:expand> nicht aus (liefert nur den Haupttermin mit RRULE): Vorkommen dann hier mit
+        # libical (RecurIterator) aus den Rohdaten des Servers, ohne EXDATE und ohne Ausnahmen (RECURRENCE-ID).
         for daten in ET.fromstring(xml).iter('{urn:ietf:params:xml:ns:caldav}calendar-data'):
             vcal = ICalGLib.Component.new_from_string(daten.text)
+            evs = []
             ev = vcal.get_first_component(ICalGLib.ComponentKind.VEVENT_COMPONENT)
             while ev is not None:
-                s, en = ev.get_dtstart(), ev.get_dtend()
-                out.append((ev.get_uid(), ical_zeit(s), ical_zeit(en), int(s.is_date())))
+                evs.append(ev)
                 ev = vcal.get_next_component(ICalGLib.ComponentKind.VEVENT_COMPONENT)
+            ausnahmen = set(ical_zeit(e.get_recurrenceid()) for e in evs if not e.get_recurrenceid().is_null_time())
+            for ev in evs:
+                s, en = ev.get_dtstart(), ev.get_dtend()
+                rr = ev.get_first_property(ICalGLib.PropertyKind.RRULE_PROPERTY)
+                if rr is None or not ev.get_recurrenceid().is_null_time():
+                    if im_bereich(ical_zeit(s), ical_zeit(en), anfang, ende):
+                        out.append((ev.get_uid(), ical_zeit(s), ical_zeit(en), int(s.is_date())))
+                    continue
+                exdates = set()
+                p = ev.get_first_property(ICalGLib.PropertyKind.EXDATE_PROPERTY)
+                while p is not None:
+                    exdates.add(ical_zeit(p.get_exdate()))
+                    p = ev.get_next_property(ICalGLib.PropertyKind.EXDATE_PROPERTY)
+                dauer = ical_sekunden(en) - ical_sekunden(s)
+                it = ICalGLib.RecurIterator.new(rr.get_rrule(), s)
+                t = it.next()
+                while t is not None and not t.is_null_time() and ical_sekunden(t) < ende.timestamp():
+                    z = ical_zeit(t)
+                    if z not in exdates and z not in ausnahmen:
+                        e_z = zeit_text(ical_sekunden(t) + dauer, t.is_date())
+                        if im_bereich(z, e_z, anfang, ende):
+                            out.append((ev.get_uid(), z, e_z, int(t.is_date())))
+                    t = it.next()
     else:
         sys.exit('ABBRUCH: Backend %s nicht unterstützt' % backend)
     for t in sorted(out):

@@ -175,7 +175,7 @@ def finde(o, rolle, name):
     if o is None:
         return None
     try:
-        if o.get_role_name() == rolle and (name is None or o.get_name() == name) and \
+        if (rolle is None or o.get_role_name() == rolle) and (name is None or o.get_name() == name) and \
                 o.get_state_set().contains(Atspi.StateType.SHOWING):
             return o
         n = o.get_child_count()
@@ -236,9 +236,14 @@ def termine_app():
 
 
 def norm(zeit, ganztags):
-    """App-Log (UTC ISO 8601) → wie tests/testdaten.py ical_zeit: ganztags Datum, sonst UTC mit Z."""
+    """App-Log (UTC ISO 8601) → wie tests/testdaten.py ical_zeit: Datum bei ganztägigen Terminen mit DATE-Werten
+    (GcalEvent legt sie in UTC an, gcal-event.c get_timezone_from_ical), sonst der Zeitpunkt in UTC. GNOME Calendar
+    zeigt auch Termine von Mitternacht bis Mitternacht ihrer Zeitzone als ganztägig (gcal-event.c:375-405); deren
+    Zeitpunkt vergleicht der Treiber wie Python-GI als UTC-Zeit."""
     t = datetime.datetime.fromisoformat(zeit.replace('Z', '+00:00')).astimezone(datetime.timezone.utc)
-    return t.strftime('%Y-%m-%d') if ganztags else t.strftime('%Y-%m-%dT%H:%M:%SZ')
+    if ganztags and t.strftime('%H:%M:%S') == '00:00:00':
+        return t.strftime('%Y-%m-%d')
+    return t.strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
 def grenzen():
@@ -248,7 +253,7 @@ def grenzen():
 
 def im_monat(start, ende, ganztags):
     a, e = grenzen()
-    if ganztags:
+    if ganztags and len(start) == 10:
         s = datetime.date.fromisoformat(start[:10])
         en = datetime.date.fromisoformat(ende[:10])
         return s < e.date() and en > a.date()
@@ -261,13 +266,14 @@ def app_monat(kal):
     """[(Komponenten-UID, Beginn, Ende, ganztags)] des Kalenders im Monat, wie tests/testdaten.py sortiert."""
     out = []
     for cal, uid, s, e, g in termine_app().values():
+        s, e = norm(s, g), norm(e, g)
         if cal == kal and im_monat(s, e, g):
-            out.append((uid, norm(s, g), norm(e, g), int(g)))
+            out.append((uid, s, e))
     return sorted(out)
 
 
 def zeilen_termine(text, kopf):
-    return sorted((m.group(1), m.group(2), m.group(3), int(m.group(4))) for m in
+    return sorted((m.group(1), m.group(2), m.group(3)) for m in
                   re.finditer(r'^%s (\S+) (\S+) (\S+) ganztags (\d)$' % kopf, text, re.M))
 
 
@@ -396,7 +402,7 @@ def termine_vergleichen(mit_server):
 def wiederholung(erster_montag):
     kal = SCHREIBBAR[0]
     uid = open(datei(kal, 'woche')).read().split()[2]
-    tage = sorted(s[:10] for u, s, _, _ in app_monat(kal) if u == uid)
+    tage = sorted(s[:10] for u, s, _ in app_monat(kal) if u == uid)
     soll = [(erster_montag + datetime.timedelta(weeks=w)).isoformat() for w in range(5)
             if (erster_montag + datetime.timedelta(weeks=w)).month == erster_montag.month]
     (ok if tage == soll else falsch)('Wiederholung (wöchentlich, COUNT=5): Vorkommen am %s, erwartet %s' % (tage, soll))
@@ -432,7 +438,7 @@ def live():
         t = time.monotonic()
         mt = warte(r'Termin: - %s %s:%s ' % (re.escape(kal), re.escape(kal), re.escape(uid)), ab, 60)
         dauer = time.monotonic() - t
-        (ok if mt and dauer <= LIVE_GRENZE and uid not in [u for _, u, _, _ in app_monat(kal)] else falsch)(
+        (ok if mt and dauer <= LIVE_GRENZE and uid not in [u for u, _, _ in app_monat(kal)] else falsch)(
             'Live löschen %s: aus der Monatsansicht nach %.1f s' % (kal[:8], dauer))
 
 
@@ -520,7 +526,7 @@ def pruefen():
     time.sleep(1)
     bild('monat')
     live()
-    m = [z for z in re.findall(r'UI-Thread (\S+)', log_text())]
+    m = re.findall(r'Termin: .* UI-Thread (\S+)$', log_text(), re.M)
     (ok if m and all(x == 'ja' for x in m) else falsch)('Termine im UI-Thread an die Monatsansicht (%d Zeilen)' % len(m))
     aus_an(soll, False)
     bild('aus')

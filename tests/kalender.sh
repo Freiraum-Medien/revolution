@@ -15,7 +15,7 @@
 #           (Strg+2, Bild auf/ab, Strg+T, Alt+Rechts, Pos1, a11y-Namen); Testtermine von außen in den freigegebenen
 #           Kalendern (Gmail-CalDAV mit wöchentlicher Wiederholung, outlook.com „Kalender“, „Persönlich“), Monat MONAT je
 #           Kalender = Python-GI und = Server; zwei fremde Kalender (nur lesend) Anzahl = Python-GI; live anlegen/ändern/
-#           löschen in Gmail und outlook.com ≤ 5 s; Ein/Aus des Gmail-Kalenders, Neustart (Einstellungen in Datei),
+#           löschen in Gmail und outlook.com ≤ 5 s; Ein/Aus des outlook.com-Kalenders, Neustart (Einstellungen in Datei),
 #           bleibt aus, wieder an.
 #   dunkel  dunkel, Monat MONAT, Bild.   schmal  hell, 900×700 (Seitenleiste überlagert), Bild.
 # Kalender-UIDs nur in ~/.config/revolution/testkonten.ini [kalender] (nicht im Repo). Schreiben nur dort, nur Testtermine
@@ -99,7 +99,7 @@ lauf () {
     REVOLUTION_TEST_HOOKS=1 REVOLUTION_SKIP_ACCOUNTS="$ALLE_MAILKONTEN" \
     BIN="$BIN" OUT="$OUT" NAME="m7-373-$name" MODUS="$modus" VERGLEICH="$OUT/kalender.txt" MONAT="$MONAT" \
     KALENDER_TERMINE="$SCHREIBBAR $VERGLEICH_LESEND" SCHREIBBAR="$SCHREIBBAR" LIVE_KALENDER="$KAL_GOOGLE $KAL_M365" \
-    AUS_KALENDER="$KAL_GOOGLE" TERMINE="$OUT" TESTDATEN="$APP_DIR/tests/testdaten.py" \
+    AUS_KALENDER="$KAL_M365" TERMINE="$OUT" TESTDATEN="$APP_DIR/tests/testdaten.py" \
     xvfb-run -a -s "-screen 0 ${breite}x${hoehe}x24" python3 -I "$APP_DIR/tests/kalender-treiber.py" || rc=$?
   rm -rf "$rundir"
   for _ in $(seq 10); do [ "$(bus_hat_app)" = "(false,)" ] && break; sleep 1; done

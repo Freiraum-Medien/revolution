@@ -251,13 +251,13 @@ def norm(zeit, ganztags):
     return t.strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
-def grenzen():
-    j, m = (int(x) for x in MONAT.split('-'))
+def grenzen(monat=None):
+    j, m = (int(x) for x in (monat or MONAT).split('-'))
     return datetime.datetime(j, m, 1).astimezone(), datetime.datetime(j + (m == 12), m % 12 + 1, 1).astimezone()
 
 
-def im_monat(start, ende, ganztags):
-    a, e = grenzen()
+def im_monat(start, ende, ganztags, monat=None):
+    a, e = grenzen(monat)
     if ganztags and len(start) == 10:
         s = datetime.date.fromisoformat(start[:10])
         en = datetime.date.fromisoformat(ende[:10])
@@ -267,12 +267,12 @@ def im_monat(start, ende, ganztags):
     return s < e and (en > a or (en == s and s >= a))
 
 
-def app_monat(kal):
+def app_monat(kal, monat=None):
     """[(Komponenten-UID, Beginn, Ende, ganztags)] des Kalenders im Monat, wie tests/testdaten.py sortiert."""
     out = []
     for cal, uid, s, e, g in termine_app().values():
         s, e = norm(s, g), norm(e, g)
-        if cal == kal and im_monat(s, e, g):
+        if cal == kal and im_monat(s, e, g, monat):
             out.append((uid, s, e))
     return sorted(out)
 
@@ -282,10 +282,10 @@ def zeilen_termine(text, kopf):
                   re.finditer(r'^%s (\S+) (\S+) (\S+) ganztags (\d)$' % kopf, text, re.M))
 
 
-def warte_gleich(kal, soll, zeit=TIMEOUT):
+def warte_gleich(kal, soll, zeit=TIMEOUT, monat=None):
     ende = time.monotonic() + zeit
     while True:
-        ist = app_monat(kal)
+        ist = app_monat(kal, monat)
         if ist == soll or time.monotonic() > ende:
             return ist
         time.sleep(0.5)
@@ -385,23 +385,24 @@ def testtermine_anlegen():
     return erster_montag
 
 
-def termine_vergleichen(mit_server):
+def termine_vergleichen(mit_server, monat=None):
+    monat = monat or MONAT
     for kal in KALENDER_TERMINE:
-        aus = testdaten('--kalender-termine', kal, MONAT)
+        aus = testdaten('--kalender-termine', kal, monat)
         soll = zeilen_termine(aus, 'TERMIN')
         t = time.monotonic()
-        ist = warte_gleich(kal, soll, 90)
+        ist = warte_gleich(kal, soll, 90, monat)
         (ok if ist == soll else falsch)('Termine %s %s: App %d = Python-GI %d (UIDs, Beginn, Ende)%s, nach %.1f s'
-                                        % (kal[:8], MONAT, len(ist), len(soll),
+                                        % (kal[:8], monat, len(ist), len(soll),
                                            '' if ist == soll else ': nur App %s, nur Python-GI %s' % (
                                                sorted(set(ist) - set(soll))[:3], sorted(set(soll) - set(ist))[:3]),
                                            time.monotonic() - t))
         if mit_server and kal in SCHREIBBAR and kal != 'system-calendar':
-            aus = testdaten('--kalender-server', kal, MONAT)
+            aus = testdaten('--kalender-server', kal, monat)
             server = zeilen_termine(aus, 'SERVER-TERMIN')
             # Graph liefert seine Ereignis-ID, CalDAV die iCalendar-UID: verglichen werden UIDs, Beginn, Ende.
             (ok if server == ist else falsch)('Termine %s %s: App %d = Server ohne EDS %d%s' % (
-                kal[:8], MONAT, len(ist), len(server),
+                kal[:8], monat, len(ist), len(server),
                 '' if server == ist else ': nur App %s, nur Server %s' % (sorted(set(ist) - set(server))[:3],
                                                                          sorted(set(server) - set(ist))[:3])))
 
@@ -526,6 +527,9 @@ def pruefen():
         time.sleep(3)
         bild('monat')
         return
+    # Erstes Laden ohne Blättern: aktueller Monat je Kalender = Python-GI (Änderungen während des ersten Ladens,
+    # gcal-calendar-monitor.c, Revolution #373).
+    termine_vergleichen(False, datetime.date.today().strftime('%Y-%m'))
     tastatur()
     erster_montag = testtermine_anlegen()
     zum_monat()

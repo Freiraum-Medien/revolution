@@ -281,8 +281,7 @@ show_date (RevolutionCalendarView *self,
     {
       g_autoptr (GDateTime) first = g_date_time_new_local (g_date_time_get_year (date), g_date_time_get_month (date), 1, 0, 0, 0);
 
-      if (g_date_time_get_month (date) != g_date_time_get_month (current) ||
-          g_date_time_get_year (date) != g_date_time_get_year (current))
+      if (gcal_date_time_compare_date (first, current) != 0)
         g_object_set (view, "active-date", first, NULL); /* mit notify::active-date */
     }
   else if (gcal_date_time_compare_date (date, current) != 0)

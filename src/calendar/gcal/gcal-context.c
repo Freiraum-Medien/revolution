@@ -1,3 +1,6 @@
+/* Übernommen aus gnome-calendar 50.0 src/core/gcal-context.c:1-469 (ff4d7f7d, GPL-3.0-or-later). Revolution
+ * #373: ohne Wetter, Suche, Settings-Portal und org.gnome.calendar; Einstellungen
+ * de.freiraum_medien.Revolution, Zeitformat fest 24 h; startup mit der Registry der App. */
 /* gcal-context.c
  *
  * Copyright 2019 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

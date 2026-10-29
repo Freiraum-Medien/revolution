@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: revolution\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-29 01:19+0100\n"
+"POT-Creation-Date: 2026-10-29 21:14+0100\n"
 "PO-Revision-Date: 2026-10-28 22:20+0100\n"
 "Last-Translator: Arnd Messer\n"
 "Language-Team: German\n"
@@ -16,7 +16,7 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 #: data/de.freiraum_medien.Revolution.desktop.in.in:2
-#: data/de.freiraum_medien.Revolution.metainfo.xml.in.in:8 src/main.c:1447
+#: data/de.freiraum_medien.Revolution.metainfo.xml.in.in:8 src/main.c:1451
 #: src/window.blp:5
 msgid "Revolution"
 msgstr "Revolution"
@@ -47,7 +47,7 @@ msgstr "Arnd Messer"
 
 #: data/de.freiraum_medien.Revolution.gschema.xml:14
 #: src/mail/mail-view.blp:1256 src/contacts/contacts-view.blp:721
-#: src/calendar/calendar-view.blp:611
+#: src/calendar/calendar-view.blp:532
 msgid "Appearance"
 msgstr "Darstellung"
 
@@ -136,6 +136,14 @@ msgstr ""
 "Schließen verbirgt das Fenster nur; Revolution läuft weiter und meldet neue "
 "E-Mails, bis „Beenden“ gewählt wird."
 
+#: data/de.freiraum_medien.Revolution.gschema.xml:66
+msgid "Hidden calendars"
+msgstr "Ausgeblendete Kalender"
+
+#: data/de.freiraum_medien.Revolution.gschema.xml:67
+msgid "UIDs of the calendars whose events are hidden in the calendar view."
+msgstr "UIDs der Kalender, deren Termine in der Kalender-Ansicht ausgeblendet sind."
+
 #: src/main.c:156
 #, c-format
 msgid "Could not create folder “%s”: %s"
@@ -157,7 +165,7 @@ msgstr "Zertifikat nicht vertrauenswürdig"
 msgid "Authentication Failed"
 msgstr "Anmeldung fehlgeschlagen"
 
-#: src/main.c:539 src/mail/mail-view.c:4570 src/mail/mail-view.c:4574
+#: src/main.c:539 src/mail/mail-view.c:1096 src/mail/mail-view.c:1100
 msgid "No Connection"
 msgstr "Keine Verbindung"
 
@@ -169,12 +177,12 @@ msgstr "Ordner nicht geladen"
 msgid "Account Not Set Up"
 msgstr "Konto nicht eingerichtet"
 
-#: src/main.c:1304
+#: src/main.c:1307
 #, c-format
 msgid "Could not load accounts: %s"
 msgstr "Konten konnten nicht geladen werden: %s"
 
-#: src/main.c:1306
+#: src/main.c:1309
 msgid "Accounts Unavailable"
 msgstr "Konten nicht verfügbar"
 
@@ -269,26 +277,57 @@ msgstr ", mit Anhang"
 msgid "(No Subject)"
 msgstr "(Kein Betreff)"
 
-#: src/mail/mail-view.c:190
+#: src/mail/mail-view.c:88
 msgid "Searching…"
 msgstr "Suche läuft …"
 
-#: src/mail/mail-view.c:191
+#: src/mail/mail-view.c:89
 msgid "No Messages Match the Search Criteria"
 msgstr "Keine Nachricht entspricht den Suchkriterien"
 
-#: src/mail/mail-view.c:192 src/mail/mail-view.blp:489
+#: src/mail/mail-view.c:90 src/mail/mail-view.blp:489
 msgid "No Messages"
 msgstr "Keine Nachrichten"
 
-#: src/mail/mail-view.c:577
+#: src/mail/mail-view.c:459
+msgid "Refresh Failed"
+msgstr "Aktualisieren fehlgeschlagen"
+
+#. #351: Favoriten als erster Abschnitt vor den Konten (Prototyp), außerhalb von self->accounts
+#. * (sync_accounts gleicht nur die Konten der Registry ab); Ordner sind gleich da.
+#: src/mail/mail-view.c:778
+msgid "Favorites"
+msgstr "Favoriten"
+
+#. #362: Postausgang wie Evolution im lokalen Store „Auf diesem Rechner“ (e-mail-session.c:824-894,
+#. * em-folder-tree-model.c:1534-1538), Name wie dort „Outbox“ mit eigenem Typ; erst sichtbar, wenn er
+#. * Nachrichten hat (revolution_mail_view_set_outbox).
+#: src/mail/mail-view.c:787
+msgid "On This Computer"
+msgstr "Auf diesem Rechner"
+
+#: src/mail/mail-view.c:792 src/mail/mail-outbox.c:656
+#: src/mail/mail-outbox.c:681
+msgid "Outbox"
+msgstr "Postausgang"
+
+#. Translators: title of the error banner, e.g. “No Connection (7 accounts)”:
+#. * kind of error and number of accounts with this kind of error.
+#: src/mail/mail-view.c:973
+#, c-format
+msgid "%s (%u account)"
+msgid_plural "%s (%u accounts)"
+msgstr[0] "%s (%u Konto)"
+msgstr[1] "%s (%u Konten)"
+
+#: src/mail/mail-list.c:138
 #, c-format
 msgid "%'u conversation"
 msgid_plural "%'u conversations"
 msgstr[0] "%'u Konversation"
 msgstr[1] "%'u Konversationen"
 
-#: src/mail/mail-view.c:579
+#: src/mail/mail-list.c:140
 #, c-format
 msgid "%'u message"
 msgid_plural "%'u messages"
@@ -296,186 +335,155 @@ msgstr[0] "%'u E-Mail"
 msgstr[1] "%'u E-Mails"
 
 #. Translators: “10 messages, 4 unread”; %s is the number of messages.
-#: src/mail/mail-view.c:582
+#: src/mail/mail-list.c:143
 #, c-format
 msgid "%s, %'u unread"
 msgstr "%s, %'u ungelesen"
 
-#: src/mail/mail-view.c:1095
+#: src/mail/mail-list.c:656
 msgid "Search Failed"
 msgstr "Suche fehlgeschlagen"
 
-#: src/mail/mail-view.c:1264 src/mail/mail-reader.c:730
+#: src/mail/mail-list.c:825 src/mail/mail-reader.c:730
 #: src/composer/composer.c:884 src/composer/composer.c:1621
 #, c-format
 msgid "Account %s unavailable"
 msgstr "Konto %s nicht verfügbar"
 
-#: src/mail/mail-view.c:1908 src/mail/mail-view.c:3251
-#, c-format
-msgid "Message %s not found"
-msgstr "Nachricht %s nicht gefunden"
-
-#: src/mail/mail-view.c:2085
-msgid "Flags Not Saved"
-msgstr "Markierung nicht gespeichert"
-
-#: src/mail/mail-view.c:2634
-msgid "Refresh Failed"
-msgstr "Aktualisieren fehlgeschlagen"
-
-#: src/mail/mail-view.c:2843
+#: src/mail/mail-list.c:1428
 msgid "Messages Not Loaded"
 msgstr "Nachrichten nicht geladen"
 
-#: src/mail/mail-view.c:2945 src/window.blp:42 src/mail/mail-view.blp:397
+#: src/mail/mail-list.c:1530 src/window.blp:42 src/mail/mail-view.blp:397
 #: src/mail/mail-view.blp:1026
 msgid "Mail"
 msgstr "Mail"
 
-#: src/mail/mail-view.c:2991 src/mail/mail-view.c:2993
+#: src/mail/mail-list.c:1576 src/mail/mail-list.c:1578
 msgid "All Folders"
 msgstr "Alle Ordner"
 
-#: src/mail/mail-view.c:3109
+#: src/mail/mail-queue.c:104 src/mail/mail-actions.c:608
+#, c-format
+msgid "Message %s not found"
+msgstr "Nachricht %s nicht gefunden"
+
+#: src/mail/mail-queue.c:278
+msgid "Flags Not Saved"
+msgstr "Markierung nicht gespeichert"
+
+#: src/mail/mail-actions.c:466
 msgid "Deleted"
 msgstr "Gelöscht"
 
-#: src/mail/mail-view.c:3110
+#: src/mail/mail-actions.c:467
 msgid "Archived"
 msgstr "Archiviert"
 
-#: src/mail/mail-view.c:3111
+#: src/mail/mail-actions.c:468
 msgid "Marked as Junk"
 msgstr "Als Spam markiert"
 
-#: src/mail/mail-view.c:3112
+#: src/mail/mail-actions.c:469
 msgid "Moved"
 msgstr "Verschoben"
 
-#: src/mail/mail-view.c:3354
+#: src/mail/mail-actions.c:711
 msgid "Not Moved"
 msgstr "Nicht verschoben"
 
-#: src/mail/mail-view.c:3487
+#: src/mail/mail-actions.c:844
 msgid "Messages cannot be moved between accounts"
 msgstr "Verschieben zwischen Konten ist nicht möglich"
 
-#: src/mail/mail-view.c:3492
+#: src/mail/mail-actions.c:849
 msgid "The message is already in this folder"
 msgstr "Die Nachricht ist schon in diesem Ordner"
 
-#: src/mail/mail-view.c:3498
+#: src/mail/mail-actions.c:855
 msgid "No Target Folder"
 msgstr "Kein Zielordner"
 
-#: src/mail/mail-view.c:3540
+#: src/mail/mail-actions.c:897
 #, c-format
 msgid "Moved to “%s”"
 msgstr "Verschoben nach „%s“"
 
-#: src/mail/mail-view.c:3543 src/contacts/contacts-view.c:1409
+#: src/mail/mail-actions.c:900 src/contacts/contacts-view.c:1423
 msgid "_Undo"
 msgstr "_Rückgängig"
 
-#: src/mail/mail-view.c:3701
+#: src/mail/mail-actions.c:1058
 msgid "Cannot move here"
 msgstr "Hierhin lässt sich nicht verschieben"
 
-#: src/mail/mail-view.c:3802
+#: src/mail/mail-folder-actions.c:25
 msgid "Folder Not Created"
 msgstr "Ordner nicht angelegt"
 
-#: src/mail/mail-view.c:3803
+#: src/mail/mail-folder-actions.c:26
 msgid "Folder Not Renamed"
 msgstr "Ordner nicht umbenannt"
 
-#: src/mail/mail-view.c:3804
+#: src/mail/mail-folder-actions.c:27
 msgid "Folder Not Deleted"
 msgstr "Ordner nicht gelöscht"
 
-#: src/mail/mail-view.c:3990
+#: src/mail/mail-folder-actions.c:210
 #, c-format
 msgid "Delete Folder “%s” and All Subfolders?"
 msgstr "Ordner „%s“ und alle Unterordner löschen?"
 
-#: src/mail/mail-view.c:3990
+#: src/mail/mail-folder-actions.c:210
 #, c-format
 msgid "Delete Folder “%s”?"
 msgstr "Ordner „%s“ löschen?"
 
-#: src/mail/mail-view.c:3992
+#: src/mail/mail-folder-actions.c:212
 msgid "New Folder"
 msgstr "Neuer Ordner"
 
-#: src/mail/mail-view.c:3992
+#: src/mail/mail-folder-actions.c:212
 msgid "Rename Folder"
 msgstr "Ordner umbenennen"
 
-#: src/mail/mail-view.c:3994
+#: src/mail/mail-folder-actions.c:214
 msgid ""
 "The contents of the folder and its subfolders will be permanently deleted."
 msgstr "Der Inhalt des Ordners und seiner Unterordner wird endgültig gelöscht."
 
-#: src/mail/mail-view.c:3995
+#: src/mail/mail-folder-actions.c:215
 msgid "The contents of the folder will be permanently deleted."
 msgstr "Der Inhalt des Ordners wird endgültig gelöscht."
 
-#: src/mail/mail-view.c:3996
+#: src/mail/mail-folder-actions.c:216
 msgid "Do _Not Delete"
 msgstr "_Nicht löschen"
 
-#: src/mail/mail-view.c:3996 src/contacts/contacts-view.blp:528
+#: src/mail/mail-folder-actions.c:216 src/contacts/contacts-view.blp:528
 msgid "_Cancel"
 msgstr "_Abbrechen"
 
-#: src/mail/mail-view.c:3997
+#: src/mail/mail-folder-actions.c:217
 msgid "C_reate"
 msgstr "_Anlegen"
 
-#: src/mail/mail-view.c:3997
+#: src/mail/mail-folder-actions.c:217
 msgid "_Rename"
 msgstr "_Umbenennen"
 
-#: src/mail/mail-view.c:3997 src/mail/mail-view.blp:1179
+#: src/mail/mail-folder-actions.c:217 src/mail/mail-view.blp:1179
 msgid "_Delete"
 msgstr "_Löschen"
 
-#: src/mail/mail-view.c:4011
+#: src/mail/mail-folder-actions.c:231
 msgid "Folder Name"
 msgstr "Ordnername"
 
-#: src/mail/mail-view.c:4015
+#: src/mail/mail-folder-actions.c:235
 #, c-format
 msgid "_Subfolder of “%s”"
 msgstr "_Unterordner von „%s“"
-
-#. #351: Favoriten als erster Abschnitt vor den Konten (Prototyp), außerhalb von self->accounts
-#. * (sync_accounts gleicht nur die Konten der Registry ab); Ordner sind gleich da.
-#: src/mail/mail-view.c:4252
-msgid "Favorites"
-msgstr "Favoriten"
-
-#. #362: Postausgang wie Evolution im lokalen Store „Auf diesem Rechner“ (e-mail-session.c:824-894,
-#. * em-folder-tree-model.c:1534-1538), Name wie dort „Outbox“ mit eigenem Typ; erst sichtbar, wenn er
-#. * Nachrichten hat (revolution_mail_view_set_outbox).
-#: src/mail/mail-view.c:4261
-msgid "On This Computer"
-msgstr "Auf diesem Rechner"
-
-#: src/mail/mail-view.c:4266 src/mail/mail-outbox.c:656
-#: src/mail/mail-outbox.c:681
-msgid "Outbox"
-msgstr "Postausgang"
-
-#. Translators: title of the error banner, e.g. “No Connection (7 accounts)”:
-#. * kind of error and number of accounts with this kind of error.
-#: src/mail/mail-view.c:4447
-#, c-format
-msgid "%s (%u account)"
-msgid_plural "%s (%u accounts)"
-msgstr[0] "%s (%u Konto)"
-msgstr[1] "%s (%u Konten)"
 
 #: src/mail/mail-reader.c:692
 #, c-format
@@ -771,20 +779,20 @@ msgid_plural "%u messages"
 msgstr[0] "%u E-Mail"
 msgstr[1] "%u E-Mails"
 
-#: src/window.blp:53 src/calendar/calendar-view.blp:193
+#: src/window.blp:53 src/calendar/calendar-view.blp:200
 msgid "Calendar"
 msgstr "Kalender"
 
 #: src/window.blp:64 src/contacts/contacts-view.blp:252
 #: src/contacts/contacts-view.blp:358 src/contacts/contacts-view.blp:659
-#: src/contacts/contacts-view.c:135
+#: src/contacts/contacts-view.c:136
 msgid "Contacts"
 msgstr "Kontakte"
 
 #: src/composer/composer.blp:90 src/composer/composer.blp:95
 #: src/mail/mail-view.blp:193 src/mail/mail-view.blp:197
 #: src/contacts/contacts-view.blp:106 src/contacts/contacts-view.blp:110
-#: src/calendar/calendar-view.blp:147 src/calendar/calendar-view.blp:151
+#: src/calendar/calendar-view.blp:151 src/calendar/calendar-view.blp:155
 msgid "Main Menu"
 msgstr "Hauptmenü"
 
@@ -1024,7 +1032,7 @@ msgstr ""
 
 #: src/mail/mail-view.blp:367 src/mail/mail-view.blp:371
 #: src/contacts/contacts-view.blp:223 src/contacts/contacts-view.blp:227
-#: src/calendar/calendar-view.blp:276 src/calendar/calendar-view.blp:280
+#: src/calendar/calendar-view.blp:297 src/calendar/calendar-view.blp:301
 msgid "Toggle Sidebar"
 msgstr "Seitenleiste ein-/ausblenden"
 
@@ -1120,7 +1128,7 @@ msgstr "Suchbereich"
 
 #: src/mail/mail-view.blp:926 src/mail/mail-view.blp:930
 #: src/contacts/contacts-view.blp:573 src/contacts/contacts-view.blp:577
-#: src/calendar/calendar-view.blp:318 src/calendar/calendar-view.blp:322
+#: src/calendar/calendar-view.blp:339 src/calendar/calendar-view.blp:343
 msgid "Search"
 msgstr "Suchen"
 
@@ -1193,7 +1201,7 @@ msgid "_New Message"
 msgstr "_Neue E-Mail"
 
 #: src/mail/mail-view.blp:1231 src/contacts/contacts-view.blp:704
-#: src/calendar/calendar-view.blp:594
+#: src/calendar/calendar-view.blp:515
 msgid "_Search"
 msgstr "_Suchen"
 
@@ -1202,37 +1210,37 @@ msgid "_Refresh"
 msgstr "_Aktualisieren"
 
 #: src/mail/mail-view.blp:1248 src/contacts/contacts-view.blp:713
-#: src/calendar/calendar-view.blp:603
+#: src/calendar/calendar-view.blp:524
 msgid "Toggle S_idebar"
 msgstr "Seiten_leiste ein-/ausblenden"
 
 #: src/mail/mail-view.blp:1259 src/contacts/contacts-view.blp:724
-#: src/calendar/calendar-view.blp:614
+#: src/calendar/calendar-view.blp:535
 msgid "_Light"
 msgstr "_Hell"
 
 #: src/mail/mail-view.blp:1265 src/contacts/contacts-view.blp:730
-#: src/calendar/calendar-view.blp:620
+#: src/calendar/calendar-view.blp:541
 msgid "Dark with Light _Content"
 msgstr "Dunkel _mit hellem Inhalt"
 
 #: src/mail/mail-view.blp:1271 src/contacts/contacts-view.blp:736
-#: src/calendar/calendar-view.blp:626
+#: src/calendar/calendar-view.blp:547
 msgid "_Dark"
 msgstr "_Dunkel"
 
 #: src/mail/mail-view.blp:1279 src/contacts/contacts-view.blp:744
-#: src/calendar/calendar-view.blp:634
+#: src/calendar/calendar-view.blp:555
 msgid "_Preferences"
 msgstr "_Einstellungen"
 
 #: src/mail/mail-view.blp:1285 src/contacts/contacts-view.blp:750
-#: src/calendar/calendar-view.blp:640
+#: src/calendar/calendar-view.blp:561
 msgid "_Keyboard Shortcuts"
 msgstr "_Tastenkürzel"
 
 #: src/mail/mail-view.blp:1291 src/contacts/contacts-view.blp:756
-#: src/calendar/calendar-view.blp:646
+#: src/calendar/calendar-view.blp:567
 msgid "_About Revolution"
 msgstr "_Info zu Revolution"
 
@@ -1538,7 +1546,7 @@ msgstr "Schreibgeschützt"
 
 #: src/contacts/contacts-view.blp:237 src/contacts/contacts-view.blp:241
 #: src/contacts/contacts-view.blp:480 src/contacts/contacts-view.blp:484
-#: src/contacts/contacts-view.c:1054
+#: src/contacts/contacts-view.c:1066
 msgid "New Contact"
 msgstr "Neuer Kontakt"
 
@@ -1571,7 +1579,7 @@ msgid "Delete Contact"
 msgstr "Kontakt löschen"
 
 #: src/contacts/contacts-view.blp:511 src/contacts/contacts-view.blp:515
-#: src/contacts/contacts-view.c:1054
+#: src/contacts/contacts-view.c:1066
 msgid "Edit Contact"
 msgstr "Kontakt bearbeiten"
 
@@ -1587,143 +1595,238 @@ msgstr "Kontakt"
 msgid "_New Contact"
 msgstr "_Neuer Kontakt"
 
-#: src/contacts/contacts-view.c:131
+#: src/contacts/contacts-view.c:132
 #, c-format
 msgid "%u contact"
 msgid_plural "%u contacts"
 msgstr[0] "%u Kontakt"
 msgstr[1] "%u Kontakte"
 
-#: src/contacts/contacts-view.c:334
+#: src/contacts/contacts-view.c:335
 msgid "Address Book Incomplete"
 msgstr "Adressbuch unvollständig"
 
-#: src/contacts/contacts-view.c:389 src/contacts/contacts-view.c:431
-#: src/contacts/contacts-view.c:557
+#: src/contacts/contacts-view.c:390 src/contacts/contacts-view.c:432
+#: src/contacts/contacts-view.c:558
 msgid "Address Book Unavailable"
 msgstr "Adressbuch nicht verfügbar"
 
-#: src/contacts/contacts-view.c:1055
+#: src/contacts/contacts-view.c:1067
 msgid "_Add"
 msgstr "_Hinzufügen"
 
-#: src/contacts/contacts-view.c:1055
+#: src/contacts/contacts-view.c:1067
 msgid "_Done"
 msgstr "_Fertig"
 
-#: src/contacts/contacts-view.c:1104
+#: src/contacts/contacts-view.c:1118
 msgid "No Writable Address Book"
 msgstr "Kein schreibbares Adressbuch"
 
-#: src/contacts/contacts-view.c:1104
+#: src/contacts/contacts-view.c:1118
 msgid "All address books are read-only."
 msgstr "Alle Adressbücher sind schreibgeschützt."
 
-#: src/contacts/contacts-view.c:1209 src/contacts/contacts-view.c:1245
+#: src/contacts/contacts-view.c:1223 src/contacts/contacts-view.c:1259
 msgid "Could Not Save Contact"
 msgstr "Kontakt konnte nicht gespeichert werden"
 
-#: src/contacts/contacts-view.c:1245
+#: src/contacts/contacts-view.c:1259
 msgid "No address book selected."
 msgstr "Kein Adressbuch gewählt."
 
-#: src/contacts/contacts-view.c:1311
+#: src/contacts/contacts-view.c:1325
 msgid "Could Not Delete Contact"
 msgstr "Kontakt konnte nicht gelöscht werden"
 
-#: src/contacts/contacts-view.c:1408
+#: src/contacts/contacts-view.c:1422
 msgid "Contact deleted"
 msgstr "Kontakt gelöscht"
 
-#: src/contacts/contacts-view.c:1468
+#: src/contacts/contacts-view.c:1485
 msgid "Contact already exists"
 msgstr "Kontakt ist schon vorhanden"
 
-#: src/contacts/contacts-view.c:1700
+#: src/contacts/contacts-view.c:1718
 #, c-format
 msgid "Jump to “%s”"
 msgstr "Zu „%s“ springen"
 
-#: src/calendar/calendar-view.blp:173
+#: src/calendar/calendar-view.blp:179
 msgid "Select Date"
 msgstr "Datum wählen"
 
-#: src/calendar/calendar-view.blp:226
+#: src/calendar/calendar-view.blp:247
 msgid "Show or Hide Calendar"
 msgstr "Kalender ein- oder ausblenden"
 
-#: src/calendar/calendar-view.blp:303 src/calendar/calendar-view.blp:310
+#: src/calendar/calendar-view.blp:324 src/calendar/calendar-view.blp:331
 msgid "Search Events"
 msgstr "Termine durchsuchen"
 
-#: src/calendar/calendar-view.blp:339
+#: src/calendar/calendar-view.blp:360
 msgid "_Month"
 msgstr "_Monat"
 
-#: src/calendar/calendar-view.blp:354
-msgid "MO"
-msgstr "MO"
-
-#: src/calendar/calendar-view.blp:365
-msgid "TU"
-msgstr "DI"
-
-#: src/calendar/calendar-view.blp:376
-msgid "WE"
-msgstr "MI"
-
-#: src/calendar/calendar-view.blp:387
-msgid "TH"
-msgstr "DO"
-
-#: src/calendar/calendar-view.blp:398
-msgid "FR"
-msgstr "FR"
-
-#: src/calendar/calendar-view.blp:409
-msgid "SA"
-msgstr "SA"
-
-#: src/calendar/calendar-view.blp:420
-msgid "SU"
-msgstr "SO"
-
-#: src/calendar/calendar-view.blp:448
+#: src/calendar/calendar-view.blp:371
 msgid "Month"
 msgstr "Monat"
 
-#: src/calendar/calendar-view.blp:457
+#: src/calendar/calendar-view.blp:378
 msgid "_Week"
 msgstr "_Woche"
 
-#: src/calendar/calendar-view.blp:475
+#: src/calendar/calendar-view.blp:396
 msgid "All-Day Events"
 msgstr "Ganztägige Termine"
 
-#: src/calendar/calendar-view.blp:504
+#: src/calendar/calendar-view.blp:425
 msgid "Week"
 msgstr "Woche"
 
-#: src/calendar/calendar-view.blp:521 src/calendar/calendar-view.blp:525
+#: src/calendar/calendar-view.blp:442 src/calendar/calendar-view.blp:446
 msgid "Previous"
 msgstr "Zurück"
 
-#: src/calendar/calendar-view.blp:532 src/calendar/calendar-view.blp:536
+#: src/calendar/calendar-view.blp:453 src/calendar/calendar-view.blp:457
 msgid "Next"
 msgstr "Vor"
 
-#: src/calendar/calendar-view.blp:543
+#: src/calendar/calendar-view.blp:464
 msgid "Go to Today"
 msgstr "Zu heute springen"
 
-#: src/calendar/calendar-view.blp:546
+#: src/calendar/calendar-view.blp:467
 msgid "_Today"
 msgstr "_Heute"
 
-#: src/calendar/calendar-view.blp:562 src/calendar/calendar-view.blp:566
+#: src/calendar/calendar-view.blp:483 src/calendar/calendar-view.blp:487
 msgid "Add Event"
 msgstr "Termin hinzufügen"
 
-#: src/calendar/calendar-view.blp:588
+#: src/calendar/calendar-view.blp:509
 msgid "_New Event"
 msgstr "_Neuer Termin"
+
+#. Translators: %s is the meeting service name for the event (e.g. "Google Meet")
+#: src/calendar/gcal/gcal-event-widget.c:380
+#, c-format
+msgid ""
+"\n"
+"\n"
+"On %s"
+msgstr ""
+"\n"
+"\n"
+"Auf %s"
+
+#. Translators: %s is a URL informed as the location of the event
+#. Translators: %s is the location of the event (e.g. "Downtown, 3rd Avenue")
+#: src/calendar/gcal/gcal-event-widget.c:393
+#: src/calendar/gcal/gcal-event-widget.c:399
+#, c-format
+msgid ""
+"\n"
+"\n"
+"At %s"
+msgstr ""
+"\n"
+"\n"
+"In %s"
+
+#.
+#. * Translators: %a is the abbreviated day name, %B is the month name
+#. * and %d is the day of the month as a number between 0 and 31.
+#. * More formats can be found on the doc:
+#. * https://docs.gtk.org/glib/method.DateTime.format.html
+#.
+#: src/calendar/gcal/gcal-event-widget.c:458
+msgid "%a %B %d"
+msgstr "%a, %d. %B"
+
+#: src/calendar/gcal/gcal-month-cell.blp:43
+msgid "All Events"
+msgstr "Alle Termine"
+
+#: src/calendar/gcal/gcal-month-popover.blp:58
+msgid "New Event…"
+msgstr "Neuer Termin …"
+
+#. Conferencing
+#: src/calendar/gcal/gcal-utils.c:441
+msgid "BlueJeans"
+msgstr "BlueJeans"
+
+#: src/calendar/gcal/gcal-utils.c:442 src/calendar/gcal/gcal-utils.c:443
+msgid "BigBlueButton"
+msgstr "BigBlueButton"
+
+#: src/calendar/gcal/gcal-utils.c:444
+msgid "Google Meet"
+msgstr "Google Meet"
+
+#: src/calendar/gcal/gcal-utils.c:445 src/calendar/gcal/gcal-utils.c:446
+msgid "Jitsi"
+msgstr "Jitsi"
+
+#: src/calendar/gcal/gcal-utils.c:447
+msgid "Uber Conference"
+msgstr "Uber Conference"
+
+#: src/calendar/gcal/gcal-utils.c:448
+msgid "GNOME Meet"
+msgstr "GNOME Meet"
+
+#: src/calendar/gcal/gcal-utils.c:449
+msgid "Microsoft Teams"
+msgstr "Microsoft Teams"
+
+#: src/calendar/gcal/gcal-utils.c:450
+msgid "Whereby"
+msgstr "Whereby"
+
+#: src/calendar/gcal/gcal-utils.c:451
+msgid "Webex"
+msgstr "Webex"
+
+#: src/calendar/gcal/gcal-utils.c:452
+msgid "Zoom"
+msgstr "Zoom"
+
+#. Map
+#: src/calendar/gcal/gcal-utils.c:455
+msgid "View Map"
+msgstr "Karte anzeigen"
+
+#: src/calendar/gcal/gcal-utils.c:456
+msgid "OpenStreetMap"
+msgstr "OpenStreetMap"
+
+#: src/calendar/gcal/gcal-utils.c:457 src/calendar/gcal/gcal-utils.c:458
+msgid "Google Maps"
+msgstr "Google Maps"
+
+#: src/calendar/gcal/gcal-utils.c:459
+msgid "Bing Maps"
+msgstr "Bing Maps"
+
+#~ msgid "MO"
+#~ msgstr "MO"
+
+#~ msgid "TU"
+#~ msgstr "DI"
+
+#~ msgid "WE"
+#~ msgstr "MI"
+
+#~ msgid "TH"
+#~ msgstr "DO"
+
+#~ msgid "FR"
+#~ msgstr "FR"
+
+#~ msgid "SA"
+#~ msgstr "SA"
+
+#~ msgid "SU"
+#~ msgstr "SO"

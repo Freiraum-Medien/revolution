@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/gui/gcal-overflow-bin.c:1-297 (ff4d7f7d, GPL-3.0-or-later).
+ * Unverändert. */
 /* gcal-overflow-bin-layout.c
  *
  * Copyright (C) 2022 Purism SPC

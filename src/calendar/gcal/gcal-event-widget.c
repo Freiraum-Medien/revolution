@@ -1,3 +1,6 @@
+/* Übernommen aus gnome-calendar 50.0 src/gui/gcal-event-widget.c:1-1191 (ff4d7f7d, GPL-3.0-or-later).
+ * Revolution #373: ohne Termin-Popover (gcal_event_widget_show_preview, folgt mit #375), SOUP_HTTP_URI_FLAGS
+ * ausgeschrieben (ohne libsoup). */
 /* gcal-event-widget.c
  *
  * Copyright (C) 2015 Erick Pérez Castellanos <erickpc@gnome.org>

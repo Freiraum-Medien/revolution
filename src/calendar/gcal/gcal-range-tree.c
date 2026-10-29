@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/core/gcal-range-tree.c:1-767 (ff4d7f7d, GPL-3.0-or-later). Revolution
+ * #373: Include ohne Unterordner utils/. */
 /* gcal-range-tree.c
  *
  * Copyright (C) 2016-2020 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/utils/gcal-date-time-utils.c:1-346 (ff4d7f7d, GPL-3.0-or-later).
+ * Unverändert. */
 /* gcal-date-time-utils.c
  *
  * Copyright 2019-2020 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

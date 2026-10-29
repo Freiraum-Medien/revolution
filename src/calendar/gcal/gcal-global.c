@@ -1,3 +1,4 @@
+/* Übernommen aus gnome-calendar 50.0 src/core/gcal-global.c:1-47 (ff4d7f7d, GPL-3.0-or-later). Unverändert. */
 /*
  * gcal-global.c
  *

@@ -1,3 +1,4 @@
+/* Übernommen aus gnome-calendar 50.0 src/core/gcal-timeline.h:1-57 (ff4d7f7d, GPL-3.0-or-later). Unverändert. */
 /* gcal-timeline.h
  *
  * Copyright 2020 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

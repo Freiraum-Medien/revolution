@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-month-popover.c:1-582 (ff4d7f7d, GPL-3.0-or-later).
+ * Revolution #373: „Neuer Termin …“ über calendar.new-event statt win.new-event. */
 /* gcal-month-popover.c
  *
  * Copyright © 2017 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

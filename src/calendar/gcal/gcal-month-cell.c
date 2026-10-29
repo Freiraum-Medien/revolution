@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-month-cell.c:1-711 (ff4d7f7d, GPL-3.0-or-later).
+ * Revolution #373: ohne Wetter und ohne Ablegen per Ziehen (move_event, Drop-Ziel; Schreiben folgt mit #375). */
 /* gcal-month-cell.c
  *
  * Copyright (C) 2017 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

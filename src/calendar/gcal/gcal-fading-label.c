@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/gui/gcal-fading-label.c:1-310 (ff4d7f7d, GPL-3.0-or-later).
+ * Unverändert. */
 /*
  * Copyright (C) 2021 Purism SPC
  *

@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/core/gcal-manager.h:1-84 (ff4d7f7d, GPL-3.0-or-later). Revolution
+ * #373: wie gcal-manager.c gekürzt. */
 /* gcal-manager.h
  *
  * Copyright (C) 2015 Erick Pérez Castellanos <erickpc@gnome.org>

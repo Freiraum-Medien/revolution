@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/core/gcal-event.c:1-1867 (ff4d7f7d, GPL-3.0-or-later). Revolution
+ * #373: ohne gcal_event_format_date (Zeitformat über GcalApplication, 1733-1800). */
 /* gcal-event.c
  *
  * Copyright (C) 2016-2020 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/gui/gcal-event-widget.h:1-82 (ff4d7f7d, GPL-3.0-or-later). Revolution
+ * #373: ohne gcal_event_widget_show_preview. */
 /* gcal-event-widget.h
  *
  * Copyright (C) 2015 Erick Pérez Castellanos <erickpc@gnome.org>

@@ -1,3 +1,4 @@
+/* Übernommen aus gnome-calendar 50.0 src/core/gcal-clock.h:1-35 (ff4d7f7d, GPL-3.0-or-later). Unverändert. */
 /* gcal-clock.h
  *
  * Copyright (C) 2017 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

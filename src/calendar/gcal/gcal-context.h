@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/core/gcal-context.h:1-54 (ff4d7f7d, GPL-3.0-or-later). Revolution
+ * #373: ohne Wetter und Suche; gcal_context_startup mit ESourceRegistry. */
 /* gcal-context.h
  *
  * Copyright 2019 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

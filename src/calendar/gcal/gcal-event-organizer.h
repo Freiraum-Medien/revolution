@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/core/gcal-event-organizer.h:1-35 (ff4d7f7d, GPL-3.0-or-later).
+ * Unverändert. */
 /* gcal-event-organizer.h
  *
  * Copyright (C) 2025 Alen Galinec <mind.on.warp@gmail.com>

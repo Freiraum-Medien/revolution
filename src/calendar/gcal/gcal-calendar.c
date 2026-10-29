@@ -1,3 +1,6 @@
+/* Übernommen aus gnome-calendar 50.0 src/core/gcal-calendar.c:1-801 (ff4d7f7d, GPL-3.0-or-later). Revolution
+ * #373: ohne e_source_write (save_calendar, set_color, set_name), Sichtbarkeit nur im Speicher (Einstellungen
+ * der App in gcal-manager.c), Farbe nur gelesen. */
 /* gcal-calendar.c
  *
  * Copyright 2019 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

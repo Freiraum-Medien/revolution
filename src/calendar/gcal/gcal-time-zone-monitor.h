@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/core/gcal-time-zone-monitor.h:1-35 (ff4d7f7d, GPL-3.0-or-later).
+ * Unverändert. */
 /* gcal-time-zone-monitor.h
  *
  * Copyright 2019 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

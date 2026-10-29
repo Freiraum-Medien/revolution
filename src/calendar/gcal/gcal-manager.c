@@ -1,3 +1,7 @@
+/* Übernommen aus gnome-calendar 50.0 src/core/gcal-manager.c:1-1394 (ff4d7f7d, GPL-3.0-or-later). Revolution
+ * #373: ohne Credential-Prompter (500-620), ohne Quellen-Commit beim Laden (296-310), ohne add/save_source,
+ * refresh, Standardkalender und Schreib-API (create/update/remove/move_event, folgen mit #375); Registry der
+ * App statt e_source_registry_new_sync (1299); Sichtbarkeit in den Einstellungen der App („hidden-calendars“). */
 /* gcal-manager.c
  *
  * Copyright (C) 2015 Erick Pérez Castellanos <erickpc@gnome.org>

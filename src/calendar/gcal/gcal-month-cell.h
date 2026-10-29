@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-month-cell.h:1-65 (ff4d7f7d, GPL-3.0-or-later).
+ * Unverändert. */
 /* gcal-month-cell.h
  *
  * Copyright (C) 2017 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

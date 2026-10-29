@@ -1,3 +1,4 @@
+/* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-view.h:1-81 (ff4d7f7d, GPL-3.0-or-later). Unverändert. */
 /* gcal-view.h
  *
  * Copyright (C) 2012 - Erick Pérez Castellanos

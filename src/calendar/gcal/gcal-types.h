@@ -1,3 +1,4 @@
+/* Übernommen aus gnome-calendar 50.0 src/gcal-types.h:1-33 (ff4d7f7d, GPL-3.0-or-later). Unverändert. */
 /* gcal-types.h
  *
  * Copyright 2020 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

@@ -1,3 +1,6 @@
+/* Übernommen aus gnome-calendar 50.0 src/utils/gcal-utils.c:1-1451 (ff4d7f7d, GPL-3.0-or-later). Revolution
+ * #373: nur die benutzten Funktionen (Zeilen 1-62, 107-119, 204-249, 371-431, 706-784, 855-1017, 1309-1355),
+ * erster Wochentag nur aus der Locale (ohne Portal), ohne gweather/libsoup. */
 /* gcal-utils.c
  *
  * Copyright (C) 2012 - Erick Pérez Castellanos

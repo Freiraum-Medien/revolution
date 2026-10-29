@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/core/gcal-calendar-monitor.c:1-1466 (ff4d7f7d, GPL-3.0-or-later).
+ * Unverändert. */
 /* gcal-calendar-monitor.c
  *
  * Copyright 2020 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

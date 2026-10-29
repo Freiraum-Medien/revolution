@@ -55,6 +55,7 @@ fehler = 0
 d = display.Display()
 app = None
 log_datei = None
+log_start = 0  # Beginn des Logs des laufenden App-Starts (Neustart hängt an)
 schreibvorgaenge = {}
 
 
@@ -223,9 +224,9 @@ def vergleich():
 
 
 def termine_app():
-    """{Termin-UID: (Kalender, Komponenten-UID, Beginn, Ende, ganztags)} nach allen +/- im Log."""
+    """{Termin-UID: (Kalender, Komponenten-UID, Beginn, Ende, ganztags)} nach allen +/- im Log dieses Starts."""
     stand = {}
-    for m in re.finditer(r'Termin: ([+-]) (\S+) (\S+) (\S+) (\S+) ganztags (\d)', log_text()):
+    for m in re.finditer(r'Termin: ([+-]) (\S+) (\S+) (\S+) (\S+) ganztags (\d)', log_text()[log_start:]):
         if m.group(1) == '+':
             stand[m.group(3)] = (m.group(2), m.group(3)[len(m.group(2)) + 1:].split(':')[0], m.group(4), m.group(5),
                                  m.group(6) == '1')
@@ -327,7 +328,8 @@ def tastatur():
     heute = datetime.date.today()
     jetzt = '%s %d' % (MONATE[heute.month - 1], heute.year)
     (ok if titel_ist(jetzt) else falsch)('Strg+2: Kalender mit Titel „%s“' % jetzt)
-    for name in ('Zurück', 'Weiter', 'Heute', 'Termin hinzufügen', 'Seitenleiste ein-/ausblenden', 'Monat'):
+    for name in ('Zurück', 'Vor', 'Zu heute springen', 'Termin hinzufügen', 'Seitenleiste ein-/ausblenden', 'Monat',
+                 'Datum wählen', 'Kalender', 'Hauptmenü'):
         o = finde(wurzel(), 'button', name) or finde(wurzel(), 'toggle button', name) or finde(wurzel(), None, name)
         (ok if o is not None else falsch)('a11y: Bedienelement „%s“' % name)
     nm = heute.replace(day=1) + datetime.timedelta(days=32)
@@ -422,9 +424,7 @@ def live():
         aus = testdaten('--termin-live', 'aendern', kal, pfad)
         neu = re.search(r'^GEAENDERT \S+ (\S+)', aus, re.M).group(1)
         t = time.monotonic()
-        mt = warte(r'Termin: \+ %s %s:%s %s' % (re.escape(kal), re.escape(kal), re.escape(uid),
-                                              re.escape(neu.replace('Z', '+00')) if False else re.escape(neu[:16])),
-                   ab, 60)
+        mt = warte(r'Termin: \+ %s %s:%s %s' % (re.escape(kal), re.escape(kal), re.escape(uid), re.escape(neu[:16])), ab, 60)
         dauer = time.monotonic() - t
         (ok if mt and dauer <= LIVE_GRENZE else falsch)('Live ändern %s: neuer Beginn %s nach %.1f s' % (kal[:8], neu, dauer))
         ab = marke()
@@ -457,7 +457,9 @@ def aus_an(soll, an):
     klick(*mitte(box))
     m = warte(r'Kalender: %s sichtbar %d$' % (re.escape(AUS_KALENDER), int(an)), ab, 10)
     (ok if m else falsch)('Ein/Aus: „%s“ %s (Log)' % (name, 'an' if an else 'aus'))
-    time.sleep(2)
+    ende = time.monotonic() + 30
+    while (len(app_monat(AUS_KALENDER)) > 0) != an and time.monotonic() < ende:
+        time.sleep(0.5)
     n = len(app_monat(AUS_KALENDER))
     (ok if (n > 0) == an else falsch)('Ein/Aus: Termine von „%s“ im Monat %s: %d' % (name, MONAT, n))
     box = check_box(name)
@@ -466,7 +468,8 @@ def aus_an(soll, an):
 
 
 def starten():
-    global app, log_datei
+    global app, log_datei, log_start
+    log_start = marke()
     log_datei = open(LOG, 'a')
     app = subprocess.Popen([BIN], stdout=log_datei, stderr=subprocess.STDOUT)
     if not fenster():
@@ -526,7 +529,7 @@ def pruefen():
     ok('Neustart')
     if not starten():
         return
-    m = warte(r'Kalender: %s .* sichtbar (\d)$' % re.escape(AUS_KALENDER), 0, TIMEOUT)
+    m = warte(r'Kalender: %s .* sichtbar (\d)$' % re.escape(AUS_KALENDER), log_start, TIMEOUT)
     (ok if m and m.group(1) == '0' else falsch)('Nach Neustart: „%s“ weiter aus (sichtbar %s)' % (
         AUS_KALENDER[:8], m and m.group(1)))
     zum_monat()

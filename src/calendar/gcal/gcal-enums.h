@@ -1,3 +1,4 @@
+/* Übernommen aus gnome-calendar 50.0 src/gcal-enums.h:1-116 (ff4d7f7d, GPL-3.0-or-later). Unverändert. */
 /* gcal-enums.h
  *
  * Copyright © 2018 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

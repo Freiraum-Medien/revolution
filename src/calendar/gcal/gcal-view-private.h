@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-view-private.h:1-38 (ff4d7f7d, GPL-3.0-or-later).
+ * Unverändert. */
 /* gcal-view-private.h
  *
  * Copyright 2023 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

@@ -1,3 +1,4 @@
+/* Übernommen aus gnome-calendar 50.0 src/gui/gcal-bidi.c:1-71 (ff4d7f7d, GPL-3.0-or-later). Unverändert. */
 /* GDK - The GIMP Drawing Kit
  * Copyright (C) 1995-1997 Peter Mattis, Spencer Kimball and Josh MacDonald
  *

@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/utils/gcal-utils.h:1-141 (ff4d7f7d, GPL-3.0-or-later). Revolution
+ * #373: nur die benutzten Deklarationen und Makros, ohne gweather. */
 /*
  * gcal-window.h
  * Copyright (C) 2015 Erick Pérez Castellanos <erickpc@gnome.org>

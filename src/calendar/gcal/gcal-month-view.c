@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-month-view.c:1-1982 (ff4d7f7d, GPL-3.0-or-later).
+ * Revolution #373: Termine im Log (revolution_log_event, Domäne revolution) für tests/kalender-treiber.py. */
 /*
  * gcal-month-view.c
  *

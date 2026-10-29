@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-month-view-row.c:1-1378 (ff4d7f7d, GPL-3.0-or-later).
+ * Unverändert. */
 /*
  * gcal-month-view-row.c
  *

@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-month-popover.h:1-45 (ff4d7f7d, GPL-3.0-or-later).
+ * Unverändert. */
 /* gcal-month-popover.h
  *
  * Copyright © 2017 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

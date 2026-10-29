@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/core/gcal-recurrence.c:1-339 (ff4d7f7d, GPL-3.0-or-later).
+ * Unverändert. */
 /* gcal-recurrence.c
  *
  * Copyright (C) 2017 Yash Singh <yashdev10p@gmail.com>

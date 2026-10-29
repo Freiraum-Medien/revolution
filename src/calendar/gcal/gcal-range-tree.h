@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/core/gcal-range-tree.h:1-89 (ff4d7f7d, GPL-3.0-or-later).
+ * Unverändert. */
 /* gcal-range-tree.h
  *
  * Copyright (C) 2016-2020 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>

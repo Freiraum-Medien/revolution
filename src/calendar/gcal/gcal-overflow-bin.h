@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/gui/gcal-overflow-bin.h:1-44 (ff4d7f7d, GPL-3.0-or-later).
+ * Unverändert. */
 /* -*- mode: c; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /*
  * gcal-overflow-bin-.h

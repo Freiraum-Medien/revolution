@@ -1,3 +1,4 @@
+/* Übernommen aus gnome-calendar 50.0 src/gconstructor.h:1-120 (ff4d7f7d, GPL-3.0-or-later). Unverändert. */
 /*
   If G_HAS_CONSTRUCTORS is true then the compiler support *both* constructors and
   destructors, in a sane way, including e.g. on library unload. If not you're on

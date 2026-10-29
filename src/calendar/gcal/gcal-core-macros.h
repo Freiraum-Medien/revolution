@@ -1,3 +1,5 @@
+/* Übernommen aus gnome-calendar 50.0 src/core/gcal-core-macros.h:1-31 (ff4d7f7d, GPL-3.0-or-later).
+ * Unverändert. */
 /*
  * gcal-core-macros.h
  *

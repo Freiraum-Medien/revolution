@@ -30,7 +30,7 @@ Modern mail client for GNOME with mail, contacts and calendar; the accounts come
 
 ```sh
 sudo apt install meson ninja-build blueprint-compiler gettext libgtk-4-dev libadwaita-1-dev \
-  libcamel1.2-dev libedataserver1.2-dev libebook1.2-dev libwebkitgtk-6.0-dev \
+  libcamel1.2-dev libedataserver1.2-dev libebook1.2-dev libecal2.0-dev libfribidi-dev libwebkitgtk-6.0-dev \
   appstream desktop-file-utils libglib2.0-bin
 meson setup build
 meson compile -C build
@@ -50,3 +50,5 @@ Build, tests, architecture and workflow: [docs/ENTWICKLUNG.md](docs/ENTWICKLUNG.
 ## License
 
 GPL-3.0-or-later, see [COPYING](COPYING). Copyright 2026 Arnd Messer.
+
+The calendar data layer and month view in `src/calendar/gcal/` are taken from GNOME Calendar 50.0 (GPL-3.0-or-later, copyright the GNOME Calendar authors); each file names its source.

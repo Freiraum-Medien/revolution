@@ -690,6 +690,20 @@ def detail():
 # ------------------------------------------------------------------ Anlegen, Bearbeiten, Löschen (#370)
 
 ZIEL = os.environ.get('ZIEL', BUCH)
+# #371 S1: Schreiben nur in die freigegebenen Bücher (tests/testdaten.py KONTAKT_SCHREIBBAR), je Buch höchstens 20.
+SCHREIBBAR = ('518e93226d14866ae0d8074ec0128a43c0c0c257', '3be9d2a4067fd00b72a3d3d5dbd529075a08ea88', 'system-address-book')
+if MODUS in ('schreiben', 'absender', 'beenden') and ZIEL not in SCHREIBBAR:
+    sys.exit('FEHLER  %s: ZIEL %s ist nicht zum Schreiben freigegeben, Abbruch' % (NAME, ZIEL))
+_schreibzaehler = {}
+
+
+def schreib_erlaubt(buch):
+    """Vor jedem Schreibvorgang: freigegebenes Buch und höchstens 20 je Lauf, sonst Abbruch vor dem Schreiben."""
+    if buch not in SCHREIBBAR:
+        raise RuntimeError('Schreiben in %s nicht freigegeben' % buch)
+    _schreibzaehler[buch] = _schreibzaehler.get(buch, 0) + 1
+    if _schreibzaehler[buch] > 20:
+        raise RuntimeError('mehr als 20 Schreibvorgänge in %s' % buch)
 NURLESEND = os.environ.get('NURLESEND', '')
 LOKAL = os.environ.get('LOKAL') == '1'
 LOKAL_BUCH = 'system-address-book'
@@ -992,6 +1006,7 @@ def neu_formular(ziel, datei, voll, bildname=None, vorgabe=BUCH):
     if bildname:
         bild(bildname, os.path.join(OUT, bildname + '.png'))
     ab = marke()
+    schreib_erlaubt(ziel)
     if tab_bis('Hinzufügen', 'button'):
         taste('Return')
     m = warte(r'Kontakt: anlegen (\S+) (\S+) fertig', ab, 60)
@@ -1027,6 +1042,7 @@ def aendern(buch, datei, s, extra):
     uid = open(datei).read().split()[2]
     if extra:
         ab = marke()
+        schreib_erlaubt(buch)
         testdaten('--kontakt-live', 'extra', buch, datei)
         warte(r'Kontakte: %s geändert %s ' % (re.escape(buch), re.escape(uid)), ab, 60)
     ab = marke()
@@ -1070,6 +1086,7 @@ def aendern(buch, datei, s, extra):
     if not sperre(buch, uid, 'Ändern vor „Fertig“'):
         return s
     ab = marke()
+    schreib_erlaubt(buch)
     if tab_bis('Fertig', 'button'):
         taste('Return')
     m = warte(r'Kontakt: ändern (\S+) (\S+) fertig', ab, 60)
@@ -1092,6 +1109,7 @@ def konflikt(buch, datei):
     if not sperre(buch, uid, 'Konflikt'):
         return
     feld('Position', 'Testerin (App)')
+    schreib_erlaubt(buch)
     aus = testdaten('--kontakt-server-aendern', buch, datei)
     zusatz = re.search(r'^SERVER-GEAENDERT \S+ \S+ HTTP (\d+) (.*)$', aus, re.M)
     wert('Konflikt: Server direkt geändert (HTTP %s, NOTE + „%s“), Formular noch offen' % (zusatz.group(1), zusatz.group(2)))
@@ -1099,6 +1117,7 @@ def konflikt(buch, datei):
     if not sperre(buch, uid, 'Konflikt vor „Fertig“'):
         return
     ab = marke()
+    schreib_erlaubt(buch)
     if tab_bis('Fertig', 'button'):
         taste('Return')
     m = warte(r'Kontakt: ändern \S+ \S+ (fertig|Fehler: .*)$', ab, 60)
@@ -1145,12 +1164,14 @@ def loeschen(buch, datei, name, rueckgaengig, per_knopf=False):
         return
     ab = marke()
     if per_knopf:
+        schreib_erlaubt(buch)
         knopf('Kontakt löschen')
     else:
         fokus_liste()
         if detail_uid() != uid:
             falsch('Löschen: Auswahl nach dem Fokus %s ist nicht der Testkontakt, nichts gelöscht' % detail_uid())
             return
+        schreib_erlaubt(buch)
         taste('Delete')
     m = warte(r'Kontakt: Löschen vorgemerkt %s %s ' % (re.escape(buch), re.escape(uid)), ab, 5)
     (ok if m else falsch)('%s: Löschen vorgemerkt, Toast mit Rückgängig' % ('Knopf „Kontakt löschen“' if per_knopf else 'Entf'))
@@ -1179,6 +1200,54 @@ def loeschen(buch, datei, name, rueckgaengig, per_knopf=False):
     if buch != LOKAL_BUCH:
         status, _ = server(buch, datei)
         (ok if status == '404' else falsch)('Löschen: am Server ohne EDS HTTP %s (erwartet 404)' % status)
+
+
+def angezeigt(name):
+    """Ein Element mit diesem Namen ist zu sehen (AT-SPI SHOWING), gleich welche Rolle."""
+    return any(k.get_name() == name and k.get_state_set().contains(Atspi.StateType.SHOWING) for k in knoten(wurzel()))
+
+
+def suche_formular():
+    """#371 M1: Strg+F bei offenem Formular wirkungslos (Fertig/Abbrechen bleiben); Suche aktiv → Strg+N →
+    Abbrechen → Suchfeld wieder da. Schreibt nichts."""
+    fokus_ansicht()
+    ab = marke()
+    taste('Control_L', 'n')
+    if not warte(r'Kontakt-Formular: neu', ab, 10):
+        falsch('Suche/Formular: Strg+N öffnet kein Formular')
+        return
+    time.sleep(0.5)
+    taste('Control_L', 'f')
+    time.sleep(1)
+    (ok if angezeigt('Hinzufügen') and angezeigt('Abbrechen') and not angezeigt('Kontakte durchsuchen') and
+     warte(r'Ansicht „', ab, 1) is None else falsch)(
+        'Suche/Formular: Strg+F bei offenem Formular wirkungslos, Hinzufügen/Abbrechen bleiben, keine neue Ansicht')
+    bild('formular-strg-f')
+    ab = marke()
+    taste('Escape')
+    (ok if warte(r'Kontakt-Formular: abgebrochen', ab, 5) else falsch)('Suche/Formular: Escape bricht das Formular ab')
+    time.sleep(0.5)
+    fokus_ansicht()
+    taste('Control_L', 'f')
+    time.sleep(1)
+    (ok if angezeigt('Kontakte durchsuchen') else falsch)('Suche/Formular: Strg+F öffnet die Suche')
+    ab = marke()
+    taste('Control_L', 'n')
+    m = warte(r'Kontakt-Formular: neu', ab, 10)
+    time.sleep(0.5)
+    (ok if m and angezeigt('Hinzufügen') and not angezeigt('Kontakte durchsuchen') else falsch)(
+        'Suche/Formular: Strg+N bei aktiver Suche zeigt das Formular mit Hinzufügen/Abbrechen')
+    ab = marke()
+    knopf('Abbrechen')
+    m = warte(r'Kontakt-Formular: abgebrochen', ab, 5)
+    time.sleep(0.5)
+    (ok if m and angezeigt('Kontakte durchsuchen') else falsch)('Suche/Formular: Abbrechen → Suchfeld wieder sichtbar')
+    bild('suche-nach-abbrechen')
+    suche = [k for k in knoten(wurzel()) if k.get_role_name() == 'toggle button' and k.get_name() == 'Suchen']
+    if suche and suche[0].get_action_iface() is not None:
+        suche[0].get_action_iface().do_action(0)
+        time.sleep(1)
+    (ok if not angezeigt('Kontakte durchsuchen') else falsch)('Suche/Formular: Suche wieder geschlossen')
 
 
 def schreiben():
@@ -1212,6 +1281,7 @@ def schreiben():
     loeschen(ZIEL, KONTAKT, name, True)
     loeschen(ZIEL, KONTAKT, name, False, per_knopf=True)
     bild('geloescht')
+    suche_formular()
     if LOKAL:
         # „Persönlich“ einmal anlegen und löschen (Buch-Auswahl im Formular).
         uid, s = neu_formular(LOKAL_BUCH, KONTAKT_LOKAL, False, vorgabe=ZIEL)
@@ -1308,6 +1378,7 @@ def absender():
     familie = 'Revolution-Test Absender %s' % time.strftime('%H%M%S')
     feld('Nachname', familie)
     ab = marke()
+    schreib_erlaubt(google)
     if tab_bis('Hinzufügen', 'button'):
         taste('Return')
     m = warte(r'Kontakt: anlegen (\S+) (\S+) fertig', ab, 60)
@@ -1340,6 +1411,7 @@ def absender():
 
 def beenden_vorbereiten():
     """#370: Testkontakt von außen, in der App löschen (vorgemerkt), Fenster sofort schließen (main)."""
+    schreib_erlaubt(BUCH)
     aus = testdaten('--kontakt-live', 'anlegen', BUCH, KONTAKT)
     uid, name = re.search(r'^ANGELEGT (\S+) (.*)$', aus, re.M).groups()
     if not warte_zeile(name, True, 60):
@@ -1353,6 +1425,7 @@ def beenden_vorbereiten():
         falsch('Beenden: Auswahl ist nicht der Testkontakt, nichts gelöscht')
         return
     ab = marke()
+    schreib_erlaubt(BUCH)
     knopf('Kontakt löschen')
     (ok if warte(r'Kontakt: Löschen vorgemerkt \S+ %s' % re.escape(uid), ab, 5) else falsch)(
         'Beenden: Löschen vorgemerkt, Fenster wird sofort geschlossen')

@@ -34,6 +34,15 @@
 #   L  Termin in „Persönlich“ (ohne eigene Adresse), Organisator-Wahl Gmail, Teilnehmer outlook.com: Revolution
 #      verschickt REQUEST, Aktualisierung und CANCEL selbst über den Postausgang des Gmail-Kontos; Ankunft und
 #      Kopie bei outlook.com (Graph, Beginn, abgesagt).
+# #449 (TEILE=449, eigener Lauf): Aktualisierung nur bei Änderungen für Teilnehmer, Absage an entfernte Teilnehmer
+#   P  wie L (Persönlich, Organisator Gmail, Teilnehmer outlook.com und seine Plus-Adresse): nur Erinnerung → keine
+#      Mail, SEQUENCE gleich (Python-GI), bei outlook.com nichts Neues; Titel → genau 1 Aktualisierung; Plus-Adresse
+#      entfernen → CANCEL nur an sie, REQUEST an den Verbliebenen (Postausgang; Graph, MIME-Empfänger).
+#   TEILE=449g: Fall G ohne outlook.com (Ausnahme PM 30.10.2026): Einladung per SMTP vom IMAP-Testkonto an Gmail,
+#      Annehmen im Gmail-Kalender, HTTP 400 → Bannertext. Kommt kein 400: Termin über die gemerkte UID löschen.
+#   Q  wie M (Kalender outlook.com, Teilnehmer Gmail und seine Plus-Adresse): Plus-Adresse entfernen → App sendet
+#      nichts („Server plant“), Absage und Aktualisierung von Exchange bei Gmail (IMAP). Den letzten Teilnehmer
+#      entfernen scheitert am Backend (Graph „attendees: null“, evolution-ews e-cal-backend-m365-utils.c:1254-1255).
 # Grenzen: Schreibvorgänge je Kalender ≤ 20 (gezählt „SCHREIBVORGANG“), Mails über outlook.com ≤ 10 („MAIL-OUTLOOK“).
 # Am Ende: Termine und Mails des Laufs über die gemerkten IDs gelöscht (--einladung aufraeumen), fremde Kalender
 # unverändert (--kalender-hash), ~/.config/evolution/sources unverändert. Zeilen „OK …“/„FEHLER …“, Exit 0 ohne Fehler.
@@ -167,7 +176,7 @@ warten () {  # ART FALL
   else echo "FEHLER  $2: Mail $1 nicht angekommen"; FEHLER=$((FEHLER + 1)); BETREFF=""; return 1; fi
 }
 
-for fall in A B C D G M L; do rm -f "$OUT/einladung-$fall.json"; done
+for fall in A B C D G M L P Q; do rm -f "$OUT/einladung-$fall.json"; done
 if [[ " $TEILE " == *" 376 "* ]]; then
 anlegen A "$KONTO_M365" "$KONTO_GOOGLE" 09
 anlegen B "$KONTO_M365" "$KONTO_GOOGLE" 10
@@ -346,13 +355,86 @@ for s in r.list_enabled(EDataServer.SOURCE_EXTENSION_MAIL_IDENTITY):
   unset SCHRITT KAL KAL_NAME TEILNEHMER ART TITEL TAG
 fi
 
+if [[ " $TEILE " == *" 449 "* ]]; then
+  TAG9="$(date -d '+14 days' +%Y-%m-%d)"
+  titel9 () { echo "Revolution-Test 449 $LAUF $1"; }
+  ORG_GOOGLE="$(python3 -c '
+import sys, gi; gi.require_version("EDataServer", "1.2")
+from gi.repository import EDataServer
+r = EDataServer.SourceRegistry.new_sync(None)
+for s in r.list_enabled(EDataServer.SOURCE_EXTENSION_MAIL_IDENTITY):
+    e = s.get_extension(EDataServer.SOURCE_EXTENSION_MAIL_IDENTITY)
+    if (e.get_address() or "").lower() == sys.argv[1]:
+        print("%s <%s>" % (e.get_name(), e.get_address()) if e.get_name() else e.get_address()); break' "$KONTO_GOOGLE")"
+  # Erwartete Fehlanzeige (Exit 1) ohne Abbruch-Zählung von td.
+  ohne_neues () { WARTEN=120 timeout -k 10 300 python3 "$APP_DIR/tests/testdaten.py" --einladung warten "$1" "$2" >"$3" 2>&1; true; }
+
+  # P: Organisator Gmail-Identität in „Persönlich“, Teilnehmer outlook.com und seine Plus-Adresse (HILFS_TOM): Mails der
+  # App über den Postausgang des Gmail-Kontos.
+  export SCHRITT=anlegen KAL="$KAL_LOKAL" KAL_NAME="$NAME_LOKAL" TEILNEHMER="$KONTO_M365" TEILNEHMER2="$HILFS_TOM" ART=p \
+    TITEL="$(titel9 P)" TAG="$TAG9" ORGANISATOR="$ORG_GOOGLE"
+  kal_teil m7-449-p-anlegen "$(ohne "$UID_GOOGLE")" prefer-light
+  unset ORGANISATOR
+  if [ -s "$OUT/eigene-p.uid" ] && tdp --einladung eigene "$OUT/einladung-P.json" "$KAL_LOKAL" "$(cat "$OUT/eigene-p.uid")" \
+       "$KONTO_GOOGLE" "$KONTO_M365" "$TITEL" >/dev/null; then
+    warten einladung P
+    export SCHRITT=erinnerung
+    kal_teil m7-449-p-erinnerung "$(ohne "$UID_GOOGLE")" prefer-light
+    ohne_neues aktualisierung "$OUT/einladung-P.json" "$OUT/warten-P-erinnerung.txt"
+    pruefe "P: nur Erinnerung, bei outlook.com nichts Neues in 120 s (Graph)" "$OUT/warten-P-erinnerung.txt" "^MAIL-FEHLT "
+    export SCHRITT=titel TITEL_NEU="$TITEL neu"
+    kal_teil m7-449-p-titel "$(ohne "$UID_GOOGLE")" prefer-light
+    warten aktualisierung P
+    # Kopie bei outlook.com vor der Absage über die gemerkte UID löschen (wie L), sonst benennt Exchange sie um.
+    tdp --einladung kopie-loeschen "$OUT/einladung-P.json" >/dev/null
+    export SCHRITT=entfernen TITEL="$TITEL_NEU" TEILNEHMER_WEG="$HILFS_TOM" CANCEL_SOLL="CANCEL an 1 Teilnehmer über den Postausgang"
+    kal_teil m7-449-p-entfernen "$(ohne "$UID_GOOGLE")" prefer-light
+    warten abgesagt P
+    warten aktualisiert P
+    sleep 30
+    td --einladung kopie "$OUT/einladung-P.json" >"$OUT/kopie-P.txt" 2>&1
+    pruefe "P: Absage bei outlook.com „Abgesagt: …“ (Graph)" "$OUT/kopie-P.txt" "^MAILTYP inbox .* „Abgesagt: "
+    pruefe "P: Absage nur an den Entfernten (Plus-Adresse), METHOD:CANCEL (MIME, Graph \$value)" "$OUT/kopie-P.txt" "^AN \S+ plus METHOD CANCEL$"
+    pruefe "P: Aktualisierung nur an den Verbliebenen, METHOD:REQUEST" "$OUT/kopie-P.txt" "^AN \S+ haupt METHOD REQUEST$"
+  else echo "FEHLER  P: Termin nicht angelegt/gemerkt"; FEHLER=$((FEHLER + 1)); fi
+  unset TITEL_NEU CANCEL_SOLL TEILNEHMER_WEG
+
+  # Q: Organisator outlook.com (microsoft365, Server plant), Teilnehmer Gmail und seine Plus-Adresse (HILFS_LENA);
+  # Mails über outlook.com (Exchange): Einladung 1, nach dem Entfernen Aktualisierung + Absage 2.
+  export SCHRITT=anlegen KAL="$KAL_M365" KAL_NAME="$NAME_M365" TEILNEHMER="$KONTO_GOOGLE" TEILNEHMER2="$HILFS_LENA" ART=q \
+    TITEL="$(titel9 Q)" TAG="$TAG9"
+  kal_teil m7-449-q-anlegen "$ALLE_MAILKONTEN" prefer-light
+  if [ -s "$OUT/eigene-q.uid" ] && tdp --einladung eigene "$OUT/einladung-Q.json" "$KAL_M365" "$(cat "$OUT/eigene-q.uid")" \
+       "$KONTO_M365" "$KONTO_GOOGLE" "$TITEL" >/dev/null; then
+    echo "MAIL-OUTLOOK 1 Einladung Q (Exchange)" >>"$PROTOKOLL"
+    warten einladung Q
+    export SCHRITT=entfernen TEILNEHMER_WEG="$HILFS_LENA" CANCEL_SOLL="CANCEL an 1 entfernte Teilnehmer Server plant" SEQUENZ=0
+    kal_teil m7-449-q-entfernen "$ALLE_MAILKONTEN" prefer-light
+    echo "MAIL-OUTLOOK 1 Aktualisierung Q (Exchange)" >>"$PROTOKOLL"
+    echo "MAIL-OUTLOOK 1 Absage Q (Exchange)" >>"$PROTOKOLL"
+    warten abgesagt Q
+    warten aktualisiert Q
+  else echo "FEHLER  Q: Termin nicht angelegt/gemerkt"; FEHLER=$((FEHLER + 1)); fi
+  unset SCHRITT KAL KAL_NAME TEILNEHMER TEILNEHMER2 TEILNEHMER_WEG ART TITEL TAG CANCEL_SOLL SEQUENZ
+fi
+
+if [[ " $TEILE " == *" 449g "* ]]; then
+  if tdp --einladung privat "$OUT/einladung-G.json" "Revolution-Test 449 $LAUF G" "$(date -d '+14 days' +%Y-%m-%d)T14:00" >/dev/null; then
+    if warten einladung G; then TITEL_JETZT="Revolution-Test 449 $LAUF G"
+      teil m7-449-g "$UID_GOOGLE" INBOX "$BETREFF" annehmen REQUEST "$KAL_GOOGLE" "$NAME_GOOGLE" nein prefer-light 0 1
+      grep -q 'Schreibfehler e-soup-session-error-quark 400, Google ja' "$OUT/m7-449-g.log" \
+        || tdp --einladung privat-loeschen "$OUT/einladung-G.json" >/dev/null
+    fi
+  else echo "FEHLER  G: Einladung nicht gesendet"; FEHLER=$((FEHLER + 1)); fi
+fi
+
 # Aufräumen über die gemerkten IDs.
-for fall in A B C D G M L; do
+for fall in A B C D G M L P Q; do
   [ -f "$OUT/einladung-$fall.json" ] || continue
   tdp --einladung gesendet "$OUT/einladung-$fall.json" >/dev/null
   # Absagen nach dem Löschen des Organisator-Termins (Exchange und Google schicken sie) ebenfalls merken und löschen.
   if tdp --einladung aufraeumen "$OUT/einladung-$fall.json" >"$OUT/aufraeumen-$fall.txt" &&
-     { [ "$fall" = A ] || [ "$fall" = M ] || [ "$fall" = L ] || WARTEN=300 tdp --einladung warten absage "$OUT/einladung-$fall.json" >/dev/null; } &&
+     { [ "$fall" = A ] || [ "$fall" = M ] || [ "$fall" = L ] || [ "$fall" = P ] || [ "$fall" = Q ] || [[ " $TEILE " == *" 449g "* ]] || WARTEN=300 tdp --einladung warten absage "$OUT/einladung-$fall.json" >/dev/null; } &&
      tdp --einladung aufraeumen "$OUT/einladung-$fall.json" >>"$OUT/aufraeumen-$fall.txt" &&
      tdp --einladung rest "$OUT/einladung-$fall.json" >/dev/null &&
      tdp --einladung aufraeumen "$OUT/einladung-$fall.json" >>"$OUT/aufraeumen-$fall.txt"; then

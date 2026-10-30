@@ -1089,7 +1089,7 @@ move_event_to_cell (GcalWeekHeader        *self,
   gcal_event_set_date_start (changed_event, dnd_date);
 
   /* Commit the changes */
-  gcal_manager_update_event (gcal_context_get_manager (self->context), changed_event, mod_type);
+  gcal_manager_update_event (gcal_context_get_manager (self->context), changed_event, mod_type, NULL);
 }
 
 static void

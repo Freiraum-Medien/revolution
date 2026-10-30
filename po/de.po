@@ -748,6 +748,10 @@ msgstr "Kein beschreibbarer Kalender"
 msgid "Could not send meeting response"
 msgstr "Antwort auf die Besprechung konnte nicht gesendet werden"
 
+#: src/mail/mail-invitation.c
+msgid "Google has already added this invitation to your Google Calendar. Please respond there."
+msgstr "Google hat diese Einladung bereits in Ihren Google Kalender übernommen. Bitte antworten Sie dort."
+
 #: src/mail/mail-invitation.c:906 src/mail/mail-invitation.c:959
 msgid "Unable to update calendar"
 msgstr "Kalender konnte nicht aktualisiert werden"

@@ -7,7 +7,8 @@
  * Banner der Ansicht statt g_warning (241, 381, 417, 452; Monitor über GcalCalendar::error), Log für die Tests.
  * #377: Einladungen des Organisators nach Anlegen/Ändern (REQUEST, SEQUENCE + 1 bei Änderung) und vor dem Löschen
  * (CANCEL) über revolution_mail_invitation_send (src/mail/mail-invitation.c), wie Evolution nach dem Speichern
- * (e-comp-editor.c:590-640) bzw. vor dem Entfernen (e-calendar-view.c:684-686, delete_event). */
+ * (e-comp-editor.c:590-640) bzw. vor dem Entfernen (e-calendar-view.c:684-686, delete_event). #449: Aktualisierung
+ * nur bei Änderungen für die Teilnehmer (attendee_text), CANCEL an entfernte Teilnehmer (removed_attendees). */
 /* gcal-manager.c
  *
  * Copyright (C) 2015 Erick Pérez Castellanos <erickpc@gnome.org>
@@ -719,6 +720,82 @@ gcal_manager_create_event (GcalManager *self,
   GCAL_EXIT;
 }
 
+/* Revolution #449: Felder, die Teilnehmer betreffen (Zeit, ganztägig, Wiederholung, Ort, Titel, Beschreibung,
+ * Teilnehmerliste nur als Adressen); Erinnerungen und Ähnliches nicht. Evolution fragt stattdessen bei jedem Speichern
+ * (e-cal-dialogs.c:1358-1460) und zählt SEQUENCE immer hoch (e-comp-editor.c:2987-2995). */
+static gchar *
+attendee_text (ICalComponent *comp)
+{
+  static const ICalPropertyKind kinds[] = { I_CAL_DTSTART_PROPERTY, I_CAL_DTEND_PROPERTY, I_CAL_DURATION_PROPERTY,
+                                            I_CAL_RRULE_PROPERTY, I_CAL_RDATE_PROPERTY, I_CAL_EXDATE_PROPERTY,
+                                            I_CAL_LOCATION_PROPERTY, I_CAL_SUMMARY_PROPERTY, I_CAL_DESCRIPTION_PROPERTY,
+                                            I_CAL_ATTENDEE_PROPERTY };
+  GString *text = g_string_new (NULL);
+
+  for (gsize i = 0; i < G_N_ELEMENTS (kinds); i++)
+    for (ICalProperty *prop = i_cal_component_get_first_property (comp, kinds[i]); prop != NULL;
+         g_object_unref (prop), prop = i_cal_component_get_next_property (comp, kinds[i]))
+      {
+        const gchar *address = kinds[i] == I_CAL_ATTENDEE_PROPERTY ? e_cal_util_get_property_email (prop) : NULL;
+        g_autofree gchar *value = kinds[i] == I_CAL_ATTENDEE_PROPERTY ? g_ascii_strdown (address ? address : "", -1)
+                                                                      : i_cal_property_as_ical_string (prop);
+
+        g_string_append_printf (text, "%d %s\n", kinds[i], value);
+      }
+  return g_string_free (text, FALSE);
+}
+
+/* Revolution #449: Absage an die beim Bearbeiten entfernten Teilnehmer: Stand vor dem Bearbeiten (mit Organisator, der
+ * beim Entfernen aller Teilnehmer fehlt) nur mit diesen Teilnehmern (RFC 5546 3.2.5). NULL, wenn keiner entfernt
+ * wurde. Evolution 3.56.2 verschickt keine solche Absage: e_comp_editor_page_general_get_removed_attendees
+ * (e-comp-editor-page-general.c:1985-2032) hat keinen Aufrufer. */
+static ICalComponent *
+removed_attendees (ECalComponent *original,
+                   ECalComponent *component)
+{
+  ICalComponent *cancel = i_cal_component_clone (e_cal_component_get_icalcomponent (original));
+  ICalComponent *now = e_cal_component_get_icalcomponent (component);
+  GSList *kept = NULL;
+  gint removed = 0;
+
+  for (ICalProperty *prop = i_cal_component_get_first_property (cancel, I_CAL_ATTENDEE_PROPERTY); prop != NULL;
+       g_object_unref (prop), prop = i_cal_component_get_next_property (cancel, I_CAL_ATTENDEE_PROPERTY))
+    {
+      gboolean found = FALSE;
+
+      for (ICalProperty *other = i_cal_component_get_first_property (now, I_CAL_ATTENDEE_PROPERTY);
+           other != NULL && !found;
+           g_object_unref (other), other = i_cal_component_get_next_property (now, I_CAL_ATTENDEE_PROPERTY))
+        found = e_cal_util_email_addresses_equal (e_cal_util_get_property_email (prop),
+                                                  e_cal_util_get_property_email (other));
+      if (found)
+        kept = g_slist_prepend (kept, g_object_ref (prop));
+      else
+        removed++;
+    }
+  for (GSList *l = kept; l != NULL; l = l->next)
+    i_cal_component_remove_property (cancel, l->data);
+  g_slist_free_full (kept, g_object_unref);
+  if (removed == 0)
+    g_clear_object (&cancel);
+  return cancel;
+}
+
+typedef struct
+{
+  ECalComponent *component;
+  ICalComponent *cancel;
+  gboolean       notify;
+} UpdateData;
+
+static void
+update_data_free (UpdateData *data)
+{
+  g_clear_object (&data->component);
+  g_clear_object (&data->cancel);
+  g_free (data);
+}
+
 static void
 on_event_updated (GObject      *source_object,
                   GAsyncResult *result,
@@ -726,7 +803,7 @@ on_event_updated (GObject      *source_object,
 {
   g_autoptr (GTask) task = user_data;
   GcalManager *self = g_task_get_source_object (task);
-  ECalComponent *component = g_task_get_task_data (task);
+  UpdateData *data = g_task_get_task_data (task);
   g_autoptr (GError) error = NULL;
   ESource *source = e_client_get_source (E_CLIENT (source_object));
 
@@ -738,8 +815,16 @@ on_event_updated (GObject      *source_object,
     }
 
   g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: ändern %s fertig", e_source_get_uid (source));
-  if (e_cal_component_has_attendees (component))
-    send_invitation (self, E_CAL_CLIENT (source_object), component, NULL, I_CAL_METHOD_REQUEST, FALSE, NULL, NULL);
+  if (data->notify && e_cal_component_has_attendees (data->component))
+    send_invitation (self, E_CAL_CLIENT (source_object), data->component, NULL, I_CAL_METHOD_REQUEST, FALSE, NULL, NULL);
+  /* #449: Plant der Server, sagt er den Entfernten selbst ab; ein CANCEL über das Backend (microsoft365: Graph
+   * „cancel“, e-cal-backend-m365.c:1737-1828) sagte den ganzen Termin ab. */
+  if (data->cancel != NULL && e_cal_client_check_save_schedules (E_CAL_CLIENT (source_object)))
+    g_log ("revolution", G_LOG_LEVEL_DEBUG, "Einladung: CANCEL an %d entfernte Teilnehmer Server plant",
+           i_cal_component_count_properties (data->cancel, I_CAL_ATTENDEE_PROPERTY));
+  else if (data->cancel != NULL)
+    revolution_mail_invitation_send (E_CAL_CLIENT (source_object), g_steal_pointer (&data->cancel), I_CAL_METHOD_CANCEL,
+                                     FALSE, on_invitation_sent, g_object_ref (self));
 }
 
 /**
@@ -747,16 +832,19 @@ on_event_updated (GObject      *source_object,
  * @self: a #GcalManager
  * @event: a #GcalEvent
  * @mod: an #GcalRecurrenceModType
+ * @original: (nullable): Revolution #449: Stand vor dem Bearbeiten; %NULL (Ziehen): immer Aktualisierung
  *
  * Saves all changes made to @event persistently.
  */
 void
 gcal_manager_update_event (GcalManager           *self,
                            GcalEvent             *event,
-                           GcalRecurrenceModType  mod)
+                           GcalRecurrenceModType  mod,
+                           ECalComponent         *original)
 {
   ECalComponent *component;
   GcalCalendar *calendar;
+  UpdateData *data;
 
   GCAL_ENTRY;
 
@@ -765,17 +853,34 @@ gcal_manager_update_event (GcalManager           *self,
 
   calendar = gcal_event_get_calendar (event);
   component = gcal_event_get_component (event);
+  data = g_new0 (UpdateData, 1);
+  data->component = g_object_ref (component);
+  data->notify = TRUE;
+  if (original != NULL)
+    {
+      g_autofree gchar *before = attendee_text (e_cal_component_get_icalcomponent (original));
+      g_autofree gchar *after = attendee_text (e_cal_component_get_icalcomponent (component));
+
+      data->notify = g_strcmp0 (before, after) != 0;
+      data->cancel = removed_attendees (original, component);
+    }
 
   g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: ändern %s %s mod %d „%s“", gcal_calendar_get_id (calendar),
          e_cal_component_get_uid (component), mod, gcal_event_get_summary (event));
   /* Revolution #377: Aktualisierung für die Teilnehmer (RFC 5546 3.2.2: höhere SEQUENCE), nur ohne Organisator oder als
-   * Organisator wie Evolution (e-comp-editor.c:2987-2995). */
-  if (e_cal_component_has_attendees (component) && organizer_is_user (self, gcal_calendar_get_client (calendar), component))
+   * Organisator wie Evolution (e-comp-editor.c:2987-2995). #449: nur bei Änderungen für die Teilnehmer (auch wenn
+   * alle entfernt wurden; der Organisator steht dann nur noch im Stand vorher). */
+  if (!data->notify)
+    g_log ("revolution", G_LOG_LEVEL_DEBUG, "Einladung: keine Aktualisierung, nichts für Teilnehmer geändert");
+  else if ((e_cal_component_has_attendees (component) || data->cancel != NULL) &&
+           organizer_is_user (self, gcal_calendar_get_client (calendar), original != NULL ? original : component))
     e_cal_component_set_sequence (component, MAX (e_cal_component_get_sequence (component), 0) + 1);
+  if (data->cancel != NULL)
+    i_cal_component_set_sequence (data->cancel, MAX (e_cal_component_get_sequence (component), 0));
   {
     GTask *task = g_task_new (self, NULL, NULL, NULL);
 
-    g_task_set_task_data (task, g_object_ref (component), g_object_unref);
+    g_task_set_task_data (task, data, (GDestroyNotify) update_data_free);
     e_cal_client_modify_object (gcal_calendar_get_client (calendar),
                                 e_cal_component_get_icalcomponent (component),
                                 (ECalObjModType) mod,

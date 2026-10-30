@@ -4,7 +4,9 @@
  * e_cal_client_get_object_sync/gcal_event_new im UI-Thread (424-440), Fehler dort als Banner (Signal „error“ des
  * GcalManager) statt g_warning; Speichern übernimmt zuerst getippte Datums-/Zeitfelder (Fokus auf „Speichern“).
  * #377: Teilnehmer-Sektion (eigener Code gcal-attendees-section.c) statt attendees-section/attendee-details-page;
- * Kalender eines neuen Termins vor dem Übernehmen der Sektionen setzen (Organisator = Adresse dieses Kalenders). */
+ * Kalender eines neuen Termins vor dem Übernehmen der Sektionen setzen (Organisator = Adresse dieses Kalenders).
+ * #449: Stand vor dem Bearbeiten an gcal_manager_update_event (Aktualisierung nur bei Änderungen für Teilnehmer,
+ * Absage an entfernte Teilnehmer). */
 /* gcal-ediat-dialog.c
  *
  * Copyright (C) 2015 Erick Pérez Castellanos <erickpc@gnome.org>
@@ -81,6 +83,7 @@ struct _GcalEventEditorDialog
 
   GcalContext        *context;
   GcalEvent          *event;
+  ECalComponent      *original;   /* Revolution #449 */
 
   GBinding           *event_title_binding;
 
@@ -306,7 +309,7 @@ save_event_and_close_dialog (GcalEventEditorDialog *self)
     }
   else
     {
-      gcal_manager_update_event (manager, self->event, GCAL_RECURRENCE_MOD_THIS_ONLY);
+      gcal_manager_update_event (manager, self->event, GCAL_RECURRENCE_MOD_THIS_ONLY, self->original);
     }
 
 out:
@@ -431,6 +434,7 @@ on_template_event_loaded_cb (GObject      *source_object,
 {
   GcalEvent *event = g_task_get_task_data (G_TASK (result));
   g_autoptr (GcalEvent) template_event = NULL;
+  g_autoptr (ECalComponent) original = NULL;
   g_autoptr (GError) error = NULL;
 
   template_event = g_task_propagate_pointer (G_TASK (result), &error);
@@ -440,8 +444,9 @@ on_template_event_loaded_cb (GObject      *source_object,
       return;
     }
 
+  original = e_cal_component_clone (gcal_event_get_component (template_event));
   apply_event_properties_to_template_event (template_event, event);
-  gcal_manager_update_event (GCAL_MANAGER (source_object), template_event, GCAL_RECURRENCE_MOD_ALL);
+  gcal_manager_update_event (GCAL_MANAGER (source_object), template_event, GCAL_RECURRENCE_MOD_ALL, original);
 }
 
 static void
@@ -473,7 +478,7 @@ on_ask_recurrence_response_save_cb (GcalEvent             *event,
 
     case GCAL_RECURRENCE_MOD_THIS_AND_FUTURE:
     case GCAL_RECURRENCE_MOD_THIS_ONLY:
-      gcal_manager_update_event (manager, self->event, mod_type);
+      gcal_manager_update_event (manager, self->event, mod_type, self->original);
       break;
     }
 
@@ -511,6 +516,7 @@ gcal_event_editor_dialog_finalize (GObject *object)
   g_clear_object (&self->action_group);
   g_clear_object (&self->context);
   g_clear_object (&self->event);
+  g_clear_object (&self->original);
 
 
   G_OBJECT_CLASS (gcal_event_editor_dialog_parent_class)->finalize (object);
@@ -719,6 +725,7 @@ gcal_event_editor_dialog_set_event (GcalEventEditorDialog *self,
   g_return_if_fail (GCAL_IS_EVENT_EDITOR_DIALOG (self));
 
   g_clear_object (&self->event);
+  g_clear_object (&self->original);
 
   /* If we just set the event to NULL, simply send a property notify */
   if (!event)
@@ -726,6 +733,7 @@ gcal_event_editor_dialog_set_event (GcalEventEditorDialog *self,
 
   cloned_event = gcal_event_new_from_event (event);
   self->event = g_object_ref (cloned_event);
+  self->original = e_cal_component_clone (gcal_event_get_component (cloned_event));
 
   calendar = gcal_event_get_calendar (cloned_event);
 

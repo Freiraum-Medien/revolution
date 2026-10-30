@@ -51,7 +51,8 @@ void                 gcal_manager_create_event                   (GcalManager   
 
 void                 gcal_manager_update_event                   (GcalManager           *self,
                                                                   GcalEvent             *event,
-                                                                  GcalRecurrenceModType  mod);
+                                                                  GcalRecurrenceModType  mod,
+                                                                  ECalComponent         *original);
 
 void                 gcal_manager_remove_event                   (GcalManager           *self,
                                                                   GcalEvent             *event,

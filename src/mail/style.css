@@ -717,3 +717,13 @@ popover.event-popover > contents {
 label.no-events {
   font-style: italic;
 }
+
+/* #376: Einladungskarte im Lesebereich (mail-invitation.blp), Innenabstand wie die Inhaltskarte. */
+.mail-invitation {
+  padding: 12px;
+}
+
+/* #376 R2: Termintitel in normaler Stärke, etwas größer (Design #5 „Betreffe und Werte normal“). */
+.mail-invitation-title {
+  font-size: 1.2em;
+}

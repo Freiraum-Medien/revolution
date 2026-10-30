@@ -36,6 +36,7 @@
 
 #include "mail-account.h"
 #include "mail-attachment.h"
+#include "mail-invitation.h"
 #include "mail-reader.h"
 #include "mail-view.h"
 
@@ -70,6 +71,7 @@ struct _RevolutionMailReader
   GtkOverlay     *content_overlay;
   AdwSpinner     *spinner;
   RevolutionMailAttachmentBar *attachments;
+  RevolutionMailInvitation *invitation;
   WebKitWebView  *web_view;
   GCancellable   *cancellable;
   guint           generation;
@@ -139,6 +141,8 @@ typedef struct _LoadMessage
   guint         scheme_queries;
   GHashTable   *parts;
   GPtrArray    *attachments;
+  /* #376: erster Kalenderteil (iCalendar-Text) */
+  char         *calendar;
   char         *to_short;
   char         *to_full;
   char         *cc_full;
@@ -159,6 +163,7 @@ load_message_free (LoadMessage *load)
   g_free (load->html_light);
   g_clear_pointer (&load->parts, g_hash_table_unref);
   g_clear_pointer (&load->attachments, g_ptr_array_unref);
+  g_free (load->calendar);
   g_free (load->to_short);
   g_free (load->to_full);
   g_free (load->cc_full);
@@ -244,6 +249,7 @@ typedef struct
   gboolean      html;
   GHashTable   *parts;
   GPtrArray    *attachments;
+  char         *calendar;
   GCancellable *cancellable;
 } Collect;
 
@@ -287,6 +293,22 @@ append_plain (Collect       *collect,
 
   html = camel_text_to_html (text, flags, 0x737373);
   g_string_append_printf (collect->body, "<div class=\"revolution-plain\">%s</div>", html);
+}
+
+/* #376: Kalenderteil wie Evolution itip-formatter (e-mail-parser-itip.c:54-58: text/calendar, application/ics);
+ * der erste zählt, er bleibt außerdem Anhang wie bisher (#356). */
+static gboolean
+is_calendar (CamelContentType *type)
+{
+  return camel_content_type_is (type, "text", "calendar") || camel_content_type_is (type, "application", "ics");
+}
+
+static void
+note_calendar (Collect       *collect,
+               CamelMimePart *part)
+{
+  if (collect->calendar == NULL && is_calendar (camel_mime_part_get_content_type (part)))
+    collect->calendar = decode_text (part, collect->cancellable);
 }
 
 /* multipart/alternative: die beste darstellbare Fassung wie Evolution (HTML vor Text): von
@@ -340,7 +362,7 @@ related_root (CamelMultipart   *multipart,
 }
 
 /* Zerlegen wie Stamp stamp-mime-parser.c:850-893, 959-1003, 1192-1234 (Tabelle Typ → Behandlung),
- * ohne Signatur/Verschlüsselung und Kalender. Darstellbare Texte kommen der Reihe nach in den
+ * ohne Signatur/Verschlüsselung; Kalenderteile nur für die Einladungskarte (#376, note_calendar). Darstellbare Texte kommen der Reihe nach in den
  * Körper, HTML unverändert, Text über append_plain. Anhänge (#356, Liste collect->attachments):
  * angehängte Nachrichten, Teile mit Content-Disposition „attachment“ und alle Blätter, die weder
  * text/plain noch text/html sind (Evolution: Teile ohne eigenen Parser werden Anhang,
@@ -364,6 +386,11 @@ collect_part (Collect       *collect,
         {
           CamelMimePart *best = best_alternative (multipart);
 
+          /* #376: Einladungen von Exchange und Google tragen text/calendar als eigene Fassung neben Text und HTML;
+           * Evolution zeigt dann die Karte statt des Textes (e-mail-parser-multipart-alternative.c: letzte
+           * darstellbare Fassung), Revolution zeigt beides: Karte und Text. */
+          for (guint i = 0; i < camel_multipart_get_number (multipart); i++)
+            note_calendar (collect, camel_multipart_get_part (multipart, i));
           if (best != NULL)
             collect_part (collect, best, depth + 1);
         }
@@ -401,6 +428,7 @@ collect_part (Collect       *collect,
     }
 
   store_part (collect, part);
+  note_calendar (collect, part);
 
   if (CAMEL_IS_MIME_MESSAGE (content) || g_strcmp0 (camel_mime_part_get_disposition (part), "attachment") == 0 ||
       !(camel_content_type_is (type, "text", "html") || camel_content_type_is (type, "text", "plain")))
@@ -480,6 +508,7 @@ revolution_mail_reader_message_html (CamelMimeMessage *message,
   collect_part (&collect, CAMEL_MIME_PART (message), 0);
   g_hash_table_unref (collect.parts);
   g_ptr_array_unref (collect.attachments);
+  g_free (collect.calendar);
 
   return g_string_free (collect.body, FALSE);
 }
@@ -757,6 +786,7 @@ load_message_thread (GTask        *task,
   collect_part (&collect, CAMEL_MIME_PART (message), 0);
   load->attachments = attachments_for (&collect);
   g_ptr_array_unref (collect.attachments);
+  load->calendar = collect.calendar;
 
   if (!collect.html)
     {
@@ -1601,6 +1631,7 @@ on_message_loaded (GObject      *source_object,
 
   set_header (self, load);
   revolution_mail_attachment_bar_set (self->attachments, load->attachments);
+  revolution_mail_invitation_set (self->invitation, load->account_uid, load->calendar);
   /* #355: Absender freigegeben (Liste im Worker gelesen): gleich mit entfernten Inhalten laden. */
   g_free (self->sender);
   self->sender = g_steal_pointer (&load->sender);
@@ -1718,6 +1749,7 @@ revolution_mail_reader_class_init (RevolutionMailReaderClass *klass)
   widget_class->size_allocate = revolution_mail_reader_size_allocate;
 
   g_type_ensure (REVOLUTION_TYPE_MAIL_ATTACHMENT_BAR);
+  g_type_ensure (REVOLUTION_TYPE_MAIL_INVITATION);
   shown_signal = g_signal_new ("shown", G_TYPE_FROM_CLASS (klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
                                G_TYPE_NONE, 0);
 
@@ -1741,6 +1773,7 @@ revolution_mail_reader_class_init (RevolutionMailReaderClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, content_overlay);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, spinner);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, attachments);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, invitation);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, sender_row);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, header_grid);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, content_card);
@@ -1865,6 +1898,7 @@ revolution_mail_reader_clear (RevolutionMailReader *self)
   set_notice (self, FALSE);
   gtk_widget_set_visible (GTK_WIDGET (self->spinner), FALSE);
   revolution_mail_attachment_bar_set (self->attachments, NULL);
+  revolution_mail_invitation_set (self->invitation, NULL, NULL);
 
   gtk_label_set_label (self->date_label, "");
   gtk_label_set_label (self->to_label, "");

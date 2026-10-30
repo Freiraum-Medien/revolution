@@ -296,7 +296,9 @@ def alle_speichern(teile, anzahl):
         if runde == 3:
             time.sleep(1)
             bild('8d-gesperrt-banner')
-            warnung = [z for z in open(LOG, encoding='utf-8', errors='replace') if 'Anhang nicht gespeichert' in z]
+            # Nur die Warnung selbst; seit #420 folgt ihr die DEBUG-Zeile „Banner: Anhang nicht gespeichert, 1 Fehler“.
+            warnung = [z for z in open(LOG, encoding='utf-8', errors='replace')
+                       if 'Anhang nicht gespeichert' in z and 'revolution-WARNING' in z]
             namen = ('Lageplan Übersicht.pdf', 'Marktstand.png', 'Unterlagen.zip', 'revolution-pfad.txt', 'Weitergeleitet')
             gesammelt = warnung and '%d von %d nicht gespeichert' % (anzahl, anzahl) in warnung[-1] and all(
                 n in warnung[-1] for n in namen)

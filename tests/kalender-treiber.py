@@ -1646,6 +1646,143 @@ def termine():
         (ok if 'VORHANDEN 0' in aus else falsch)('Nach dem Schließen: Erinnerungstermin gelöscht (Python-GI)')
 
 
+def gesperrt(dlg, soll, text):
+    """#452: Kalenderwahl gesperrt (soll True) bzw. wählbar (AT-SPI SENSITIVE)."""
+    c = finde(dlg, 'combo box', 'Kalender')
+    ist = c is not None and not c.get_state_set().contains(Atspi.StateType.SENSITIVE)
+    (ok if ist == soll else falsch)('Kalenderwahl %s: %s' % (text, 'gesperrt' if ist else 'wählbar'))
+
+
+def editor_schliessen():
+    for _ in range(4):
+        if dialog(1) is None:
+            return
+        taste('Escape')
+        time.sleep(0.5)
+
+
+def serie():
+    """#452 (Kopf von tests/kalender.sh, Teil serie)."""
+    vergleich()
+    G, L = SCHREIBBAR[0], SCHREIBBAR[-1]
+    heute = datetime.date.today()
+    montag = heute - datetime.timedelta(days=heute.weekday()) + datetime.timedelta(days=14)
+    di = [montag + datetime.timedelta(days=1 + 7 * i) for i in range(5)]
+
+    # Gegenkontrolle S1: neuer Termin wählbar.
+    taste('Control_L', 'n')
+    gesperrt(dialog(), False, 'neuer Termin')
+    editor_schliessen()
+
+    aus = testdaten('--termin-live', 'woechentlich', G, datei(G, 'serie'), '%sT10:00' % di[0].isoformat())
+    m = re.search(r'^ANGELEGT (\S+) \S+ (.*)$', aus, re.M)
+    uid, titel = m.group(1), m.group(2)
+    eigene = {uid}
+    regel = 'FREQ=WEEKLY;COUNT=5'
+
+    def ausnahme(i):
+        """Vorkommen i (Woche 2 + i) ändern, „Nur diesen Termin“; Titel der Ausnahme zurück."""
+        zur_woche(heute, 2 + i)
+        dlg, _ = bearbeiten(titel, eigene)
+        gesperrt(dlg, True, 'Vorkommen einer Serie')
+        neu = '%s ausnahme %d' % (titel, i)
+        feld_setzen(dlg, 'Titel', neu)
+        ab = marke()
+        app_schreibt(G, 'ändern nur dieser')
+        taste('Control_L', 'Return')
+        druecke(warte_obj(lambda: finde(wurzel(), 'button', 'Nur diesen Termin'), 10))
+        e = warte(r'Kalender: ändern %s (fertig|Fehler)' % re.escape(G), ab, 60)
+        (ok if e and e.group(1) == 'fertig' else falsch)('Ausnahme %d angelegt: %s' % (i, e and e.group(0)))
+        gegenprobe(G, uid, {'titel': titel, 'rrule': regel}, 'Ausnahme %d' % i,
+                   ausnahme_soll=[(zeit_utc(di[i], 10, 0), neu)])
+        return neu
+
+    def frage_loeschen(knopf_name, mod, ab):
+        frage = warte_obj(lambda: finde(wurzel(), 'button', knopf_name), 10)
+        (ok if frage else falsch)('Löschen der Ausnahme: Abfrage „%s“' % knopf_name)
+        druecke(frage)
+        v = warte(r'Kalender: Löschen vorgemerkt %s \S+ mod (\d+)' % re.escape(G), ab, 10)
+        (ok if v and v.group(1) == str(mod) else falsch)('Löschen vorgemerkt mod %s (soll %d)' % (v and v.group(1), mod))
+        e = warte(r'Kalender: löschen %s (fertig|Fehler)' % re.escape(G), ab, 30)
+        r = warte(r'Kalender: löschen %s \S+ rid (\S+) mod %d$' % (re.escape(G), mod), ab, 1)
+        return e, r
+
+    def geloescht(i, text, weg):
+        """Serie bleibt ohne Ausnahme, Vorkommen i fehlt (Python-GI), EXDATE am Server."""
+        gegenprobe(G, uid, {'titel': titel, 'rrule': regel}, text, ausnahme_soll=[])
+        vork = sorted(re.findall(r'^GI vorkommen (\S+) titel', testdaten('--termin-details', G, uid), re.M))
+        soll = sorted(zeit_utc(di[k], 10, 0) for k in range(5) if k not in weg)
+        (ok if vork == soll else falsch)('%s: %d Vorkommen, die gelöschten fehlen (Python-GI %s)' % (text, len(vork), vork))
+        ex = re.findall(r'^SERVER exdate (\S+)$', testdaten('--termin-server', G, uid), re.M)
+        (ok if len(ex) == len(weg) else falsch)('%s: Server EXDATE %s' % (text, ex))
+
+    # M1 Entf im Popover.
+    neu = ausnahme(1)
+    zur_woche(heute, 3)
+    dlg, _ = bearbeiten(neu, eigene)
+    gesperrt(dlg, True, 'geänderte Ausnahme')
+    editor_schliessen()
+    time.sleep(1)
+    popover_oeffnen(neu, eigene)
+    ab = marke()
+    app_schreibt(G, 'löschen Ausnahme (Entf)')
+    taste('Delete')
+    e, r = frage_loeschen('Nur diesen Termin', 1, ab)
+    (ok if e and e.group(1) == 'fertig' and r and r.group(1) != '-' else falsch)(
+        'Ausnahme per Entf gelöscht: %s, rid %s' % (e and e.group(0), r and r.group(1)))
+    geloescht(1, 'Ausnahme per Entf gelöscht, Serie bleibt', [1])
+
+    # M1 Löschen im Editor.
+    neu = ausnahme(2)
+    zur_woche(heute, 4)
+    dlg, _ = bearbeiten(neu, eigene)
+    ab = marke()
+    app_schreibt(G, 'löschen Ausnahme (Editor)')
+    knopf = finde(dlg, 'button', 'Termin löschen')
+    zeigen(dlg, knopf)
+    klick(*mitte(knopf))
+    e, r = frage_loeschen('Nur diesen Termin', 1, ab)
+    (ok if e and e.group(1) == 'fertig' and r and r.group(1) != '-' else falsch)(
+        'Ausnahme im Editor gelöscht: %s, rid %s' % (e and e.group(0), r and r.group(1)))
+    geloescht(2, 'Ausnahme im Editor gelöscht, Serie bleibt', [1, 2])
+
+    # Von einer Ausnahme aus „Alle Termine“: ganze Serie (rid NULL, wie Evolution).
+    neu = ausnahme(3)
+    zur_woche(heute, 5)
+    popover_oeffnen(neu, eigene)
+    ab = marke()
+    app_schreibt(G, 'löschen alle von der Ausnahme aus')
+    taste('Delete')
+    e, r = frage_loeschen('Alle Termine', 7, ab)
+    aus = testdaten('--termin-live', 'pruefen', G, datei(G, 'serie'))
+    srv = testdaten('--termin-server', G, uid)
+    (ok if e and e.group(1) == 'fertig' and 'VORHANDEN 0' in aus and 'SERVER-FEHLT' in srv else falsch)(
+        '„Alle Termine“ von der Ausnahme aus: Serie weg (Python-GI, Server), rid %s' % (r and r.group(1)))
+
+    # M2 und S4: mehrtägige ganztägige Serie (lokal), nur Titel, „Alle Termine“, Fenster sofort schließen.
+    aus = testdaten('--termin-live', 'ganztags-serie', L, datei(L, 'serie'), '%sT00:00' % montag.isoformat())
+    m = re.search(r'^ANGELEGT (\S+) \S+ (.*)$', aus, re.M)
+    uid_l, titel_l = m.group(1), m.group(2)
+    soll_ende = (montag + datetime.timedelta(days=3)).isoformat()
+    gegenprobe(L, uid_l, {'beginn': montag.isoformat(), 'ende': soll_ende, 'ganztags': '1'}, 'Ganztägige Serie')
+    zur_woche(heute, 3)   # zweites Vorkommen: Dauer und Beginn der Serie bleiben
+    dlg, _ = bearbeiten(titel_l, {uid_l})
+    neu = titel_l + ' neu'
+    feld_setzen(dlg, 'Titel', neu)
+    ab = marke()
+    app_schreibt(L, 'ändern alle')
+    taste('Control_L', 'Return')
+    frage = warte_obj(lambda: finde(wurzel(), 'button', 'Alle Termine'), 10)
+    (ok if frage else falsch)('Ganztägige Serie: Abfrage „Alle Termine“')
+    w = fenster()
+    druecke(frage)
+    rc = schliessen(w) if w else None
+    e = warte(r'Kalender: ändern %s (fertig|Fehler)' % re.escape(L), ab, 10)
+    (ok if rc == 0 and e and e.group(1) == 'fertig' else falsch)('Fenster sofort geschlossen: Exit %s, %s' % (rc, e and e.group(0)))
+    gegenprobe(L, uid_l, {'titel': neu, 'beginn': montag.isoformat(), 'ende': soll_ende, 'ganztags': '1',
+                          'rrule': 'FREQ=WEEKLY;COUNT=3'}, '„Alle Termine“ ganztägig: Dauer bleibt 3 Tage')
+
+
 def tag_x(v, tag):
     """x-Mitte der Spalte eines Tags in der Woche (Tageszahl im Kopf, AT-SPI)."""
     lab = next((x for x in alle(v, 'label') if x.get_name() == str(tag.day)), None)
@@ -1742,7 +1879,8 @@ def editor_fuer(name, uid):
             klick(*mitte(knoepfe[i]))
             m = warte(r'Kalender: Popover (\S+)$', ab, 5)
         wert('Termin %d/%d „%s“: Popover %s' % (i + 1, len(knoepfe), name[:30], m and m.group(1)[:60]))
-        if m and m.group(1).split(':', 1)[1] == uid:
+        # #452: Vorkommen einer Serie: <Kalender>:<UID>:<RECURRENCE-ID>.
+        if m and m.group(1).split(':')[1] == uid:
             time.sleep(0.8)
             ab = marke()
             taste('Return')
@@ -1777,7 +1915,8 @@ def einladung():
         ab = marke()
         taste('Control_L', 'n')
         dlg = dialog()
-        neuer_termin(dlg, os.environ['KAL_NAME'], titel, 'Testraum 377', 'Einladungstest 377', False, tag, '09:00', '09:30')
+        neuer_termin(dlg, os.environ['KAL_NAME'], titel, 'Testraum 377', 'Einladungstest 377', False, tag, '09:00', '09:30',
+                     woechentlich=bool(os.environ.get('WOECHENTLICH')))
         (ok if not finde(dlg, 'combo box', 'Organisator') else falsch)('Ohne Teilnehmer keine Organisator-Wahl')
         # Feld per Maus (schließt das Zeit-Popover von neuer_termin), Alt+I danach aus dem Titel geprüft.
         feld = finde(dlg, 'text', 'Teilnehmer hinzufügen')
@@ -1939,6 +2078,38 @@ def einladung():
             soll['teilnehmer'] = '1' if os.environ.get('TEILNEHMER2') else '0'
         gegenprobe(kal, uid, soll, '#449 %s (SEQUENCE vorher %s)' % (schritt, vorher.get('sequenz')), mit_server=False)
         return
+    if schritt in ('folgende-loeschen', 'folgende-aendern'):
+        # #452: Serie, „Nachfolgende Termine“: CANCEL mit RANGE=THISANDFUTURE, REQUEST ohne RANGE (Beleg im
+        # Gesendet-Ordner, tests/testdaten.py --einladung serie), Serie geteilt mit neuer UID (eigene-<ART>-neu.uid).
+        aendern = schritt == 'folgende-aendern'
+        ab = marke()
+        if aendern:
+            feld_setzen(dlg, 'Titel', os.environ['TITEL_NEU'])
+            ab = marke()
+            app_schreibt(kal, 'ändern nachfolgende (alte Serie kürzen)')
+            app_schreibt(kal, 'ändern nachfolgende (neue Serie)')
+            taste('Control_L', 'Return')
+        else:
+            app_schreibt(kal, 'löschen nachfolgende')
+            knopf = finde(dlg, 'button', 'Termin löschen')
+            zeigen(dlg, knopf)
+            klick(*mitte(knopf))
+        frage = warte_obj(lambda: finde(wurzel(), 'button', 'Nachfolgende Termine'), 10)
+        (ok if frage else falsch)('Abfrage „Nachfolgende Termine“')
+        druecke(frage)
+        art_log = 'REQUEST' if aendern else 'CANCEL'
+        e = warte(r'Einladung: %s (.*)$' % art_log, ab, 60)
+        (ok if e else falsch)('%s: %s' % (art_log, e and e.group(1)))
+        versand(e, ab, art_log)
+        m = warte(r'Kalender: %s %s (fertig|Fehler)' % ('ändern' if aendern else 'löschen', re.escape(kal)), ab, 60)
+        (ok if m and m.group(1) == 'fertig' else falsch)('Nachfolgende: %s' % (m and m.group(0)))
+        if aendern:
+            mt = warte(r'Termin: \+ %s %s:(\S+?)(?::\S+)? %s ' % (re.escape(kal), re.escape(kal), zeit_utc(tag, 9, 0)), ab, 30)
+            (ok if mt and mt.group(1) != uid else falsch)('Serie geteilt: neue UID %s' % (mt and mt.group(1)[:24]))
+            if mt:
+                with open(os.path.join(TERMINE, 'eigene-%s-neu.uid' % art), 'w') as f:
+                    f.write(mt.group(1) + '\n')
+        return
     if schritt == 'rueckgaengig':
         # Löschen über den Editor, dann „Rückgängig“ im Toast: kein CANCEL, nichts im Postausgang, Termin bleibt.
         ab = marke()
@@ -1997,6 +2168,9 @@ def pruefen():
         return
     if MODUS == 'einladung':
         einladung()
+        return
+    if MODUS == 'serie':
+        serie()
         return
     # Erstes Laden ohne Blättern: aktueller Monat je Kalender = Python-GI (Änderungen während des ersten Ladens,
     # gcal-calendar-monitor.c, Revolution #373).

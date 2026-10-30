@@ -6,7 +6,9 @@
  * #377: Teilnehmer-Sektion (eigener Code gcal-attendees-section.c) statt attendees-section/attendee-details-page;
  * Kalender eines neuen Termins vor dem Übernehmen der Sektionen setzen (Organisator = Adresse dieses Kalenders).
  * #449: Stand vor dem Bearbeiten an gcal_manager_update_event (Aktualisierung nur bei Änderungen für Teilnehmer,
- * Absage an entfernte Teilnehmer). */
+ * Absage an entfernte Teilnehmer). #452: „Alle Termine“ übernimmt die Dauer auch ganztägig (Vorlage: 1 Tag, 176),
+ * Kalenderwahl bei Serie und Vorkommen gesperrt wie Evolution, Löschen fragt auch bei einer geänderten Ausnahme,
+ * „Alle Termine“ hält die Anwendung ab dem Laden der Hauptkomponente. */
 /* gcal-ediat-dialog.c
  *
  * Copyright (C) 2015 Erick Pérez Castellanos <erickpc@gnome.org>
@@ -172,10 +174,8 @@ apply_event_properties_to_template_event (GcalEvent *template_event,
                                 is_all_day ? 0 : g_date_time_get_minute (event_start_date),
                                 is_all_day ? 0 : g_date_time_get_second (event_start_date));
 
-  if (is_all_day)
-    end_date = g_date_time_add_days (start_date, 1);
-  else
-    end_date = g_date_time_add (start_date, g_date_time_difference (event_end_date, event_start_date));
+  /* Revolution #452: ganztägig ist die Zeitzone UTC (gcal-event.c:168-171), die Differenz sind ganze Tage. */
+  end_date = g_date_time_add (start_date, g_date_time_difference (event_end_date, event_start_date));
 
   gcal_event_set_summary (template_event, gcal_event_get_summary (event));
   gcal_event_set_location (template_event, gcal_event_get_location (event));
@@ -379,7 +379,8 @@ on_delete_row_activated_cb (AdwButtonRow          *button,
 
   GCAL_ENTRY;
 
-  if (gcal_event_has_recurrence (self->event))
+  /* Revolution #452: auch eine geänderte Ausnahme (RECURRENCE-ID ohne RRULE) gehört zur Serie. */
+  if (gcal_event_has_recurrence (self->event) || e_cal_component_is_instance (gcal_event_get_component (self->event)))
     {
       gcal_utils_ask_recurrence_modification_type (GTK_WIDGET (self),
                                                    self->event,
@@ -441,12 +442,14 @@ on_template_event_loaded_cb (GObject      *source_object,
   if (template_event == NULL)
     {
       g_signal_emit_by_name (source_object, "error", _("Could not save event"), error->message);
+      g_application_release (g_application_get_default ());
       return;
     }
 
   original = e_cal_component_clone (gcal_event_get_component (template_event));
   apply_event_properties_to_template_event (template_event, event);
   gcal_manager_update_event (GCAL_MANAGER (source_object), template_event, GCAL_RECURRENCE_MOD_ALL, original);
+  g_application_release (g_application_get_default ());
 }
 
 static void
@@ -471,6 +474,7 @@ on_ask_recurrence_response_save_cb (GcalEvent             *event,
         /* Revolution #375: Hauptkomponente im Worker (load_template_event_thread). */
         g_autoptr (GTask) task = g_task_new (manager, NULL, on_template_event_loaded_cb, NULL);
 
+        g_application_hold (g_application_get_default ());
         g_task_set_task_data (task, g_object_ref (event), g_object_unref);
         g_task_run_in_thread (task, load_template_event_thread);
       }
@@ -763,6 +767,11 @@ gcal_event_editor_dialog_set_event (GcalEventEditorDialog *self,
 
   self->event_is_new = new_event;
   gtk_widget_set_visible (self->delete_group, !new_event && self->writable);
+  /* Revolution #452: wie Evolution e-comp-editor-page-general.c:631-638 keine Serie und kein Vorkommen in einen anderen
+   * Kalender. */
+  gtk_widget_set_sensitive (GTK_WIDGET (self->calendar_combo_row),
+                            self->writable && (new_event || (!gcal_event_has_recurrence (cloned_event) &&
+                                                             !e_cal_component_is_instance (gcal_event_get_component (cloned_event)))));
 
   if (!self->writable)
     gtk_widget_grab_focus (self->done_button);

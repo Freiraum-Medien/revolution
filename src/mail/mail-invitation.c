@@ -281,7 +281,8 @@ format_when (gint64   start,
              gboolean all_day)
 {
   g_autoptr (GDateTime) from = g_date_time_new_from_unix_local (start);
-  g_autoptr (GDateTime) to = g_date_time_new_from_unix_local (all_day && end > start ? end - 86400 : MAX (end, start));
+  g_autoptr (GDateTime) last = g_date_time_new_from_unix_local (MAX (end, start));
+  g_autoptr (GDateTime) to = all_day && end > start ? g_date_time_add_days (last, -1) : g_date_time_ref (last);
   /* Translators: date of a meeting in the invitation card (g_date_time_format). */
   const char *day = _("%A, %B %-d, %Y");
   g_autofree char *from_day = g_date_time_format (from, day);
@@ -584,6 +585,13 @@ response_free (Response *response)
   g_free (response);
 }
 
+/* Zeilenumbrüche aus Betreff und Namen (Kopfzeilen der Mail). */
+static char *
+one_line (const char *text)
+{
+  return g_strdelimit (g_strdup (text != NULL ? text : ""), "\r\n", ' ');
+}
+
 /* iTIP-REPLY als Mail (iMIP, RFC 6047) an den Organisator: Teil text/calendar mit METHOD REPLY, Betreff wie Evolution
  * comp_subject (itip-utils.c:1230-1255), Absender die Identität des Kontos. */
 static CamelMimeMessage *
@@ -596,7 +604,7 @@ build_reply (Response      *response,
   g_autoptr (ICalComponent) top = NULL;
   g_autoptr (CamelInternetAddress) from = camel_internet_address_new ();
   g_autoptr (CamelInternetAddress) to = camel_internet_address_new ();
-  g_autofree char *text = NULL, *subject = NULL;
+  g_autofree char *text = NULL, *subject = NULL, *summary = one_line (inv->summary);
   ICalComponent *comp = i_cal_component_clone (answered);
   CamelMimeMessage *message;
   ESourceMailIdentity *ext;
@@ -625,7 +633,7 @@ build_reply (Response      *response,
   prefix = response->respond == RESPOND_ACCEPTED    ? C_("Meeting", "Accepted")
            : response->respond == RESPOND_TENTATIVE ? C_("Meeting", "Tentatively Accepted")
                                                     : C_("Meeting", "Declined");
-  subject = g_strdup_printf ("%s: %s", prefix, inv->summary != NULL ? inv->summary : "");
+  subject = g_strdup_printf ("%s: %s", prefix, summary);
 
   message = camel_mime_message_new ();
   camel_mime_message_set_from (message, from);
@@ -754,8 +762,6 @@ respond_thread (GTask        *task,
                response->reply != NULL ? "ja" : "nein");
     }
 
-  if (g_task_return_error_if_cancelled (task))
-    return;
   g_task_return_boolean (task, TRUE);
 }
 
@@ -899,12 +905,10 @@ on_reply_sent (GObject      *source G_GNUC_UNUSED,
   g_autoptr (GError) error = NULL;
 
   if (!revolution_mail_send_message_finish (result, &error))
-    {
-      if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-        show_error (self, _("Could not send meeting response"), error->message);
-      return;
-    }
-  g_debug ("Einladung: Antwort im Postausgang");
+    show_error (self, _("Could not send meeting response"), error->message);
+  else
+    g_debug ("Einladung: Antwort im Postausgang");
+  g_application_release (g_application_get_default ());
 }
 
 static void
@@ -924,8 +928,9 @@ on_responded (GObject      *source_object,
       if (response->google)
         show_error (self, _("Google has already added this invitation to your Google Calendar. Please respond there."),
                     error->message);
-      else if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+      else
         show_error (self, _("Unable to update calendar"), error->message);
+      g_application_release (g_application_get_default ());
       return;
     }
 
@@ -937,12 +942,16 @@ on_responded (GObject      *source_object,
       if (response->respond == RESPOND_REMOVE)
         gtk_widget_set_visible (self->remove_button, FALSE);
     }
-  /* Antwort unabhängig von der angezeigten Mail senden (Postausgang, #362). */
+  /* Antwort unabhängig von der angezeigten Mail senden (Postausgang, #362); Freigabe dann in on_reply_sent. */
   if (response->reply != NULL && response->inv->identity_uid != NULL)
-    revolution_mail_send_message (response->reply, response->inv->identity_uid, NULL, on_reply_sent,
-                                  g_object_ref (self));
-  else if (response->reply != NULL)
+    {
+      revolution_mail_send_message (response->reply, response->inv->identity_uid, NULL, on_reply_sent,
+                                    g_object_ref (self));
+      return;
+    }
+  if (response->reply != NULL)
     show_error (self, _("Could not send meeting response"), _("No identity for this account"));
+  g_application_release (g_application_get_default ());
 }
 
 static void
@@ -984,7 +993,10 @@ on_respond (GSimpleAction *action G_GNUC_UNUSED,
 
   g_debug ("Einladung: Antwort %s, Kalender %s", name, e_source_get_uid (response->calendar));
   set_busy (self, TRUE);
-  task = g_task_new (self, self->cancellable, on_responded, GUINT_TO_POINTER (self->generation));
+  /* #452: Die Antwort des Nutzers läuft zu Ende, auch wenn er die Mail wechselt oder beendet: ohne self->cancellable, die
+   * Anwendung bleibt bis zur Antwort-Mail (on_responded, on_reply_sent). */
+  g_application_hold (g_application_get_default ());
+  task = g_task_new (self, NULL, on_responded, GUINT_TO_POINTER (self->generation));
   g_task_set_source_tag (task, on_respond);
   g_task_set_task_data (task, response, (GDestroyNotify) response_free);
   g_task_run_in_thread (task, respond_thread);
@@ -1201,13 +1213,6 @@ strip_for_sending (ICalComponent *comp)
     for (ICalProperty *prop = i_cal_component_get_first_property (comp, kinds[i]); prop != NULL;
          g_object_unref (prop), prop = i_cal_component_get_next_property (comp, kinds[i]))
       i_cal_property_remove_parameter_by_kind (prop, I_CAL_SCHEDULESTATUS_PARAMETER);
-}
-
-/* Zeilenumbrüche aus Betreff und Namen (Kopfzeilen der Mail). */
-static char *
-one_line (const char *text)
-{
-  return g_strdelimit (g_strdup (text != NULL ? text : ""), "\r\n", ' ');
 }
 
 static void

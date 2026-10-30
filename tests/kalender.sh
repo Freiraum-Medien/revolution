@@ -33,6 +33,10 @@
 #           ein Testtermin (lokal, 5 min vorher) löst über evolution-alarm-notify eine Benachrichtigung aus
 #           (dbus-monitor nur lesend, höchstens 1 je Lauf).
 #   dunkel  dunkel, Monat MONAT, Woche, Tag, Bilder.   schmal  hell, 900×700 (Seitenleiste überlagert), Bilder.
+#   serie   nur mit TEILE=serie (#452, TERMIN_TASK 452): Serie im Gmail-Kalender von außen; geänderte Ausnahme löschen
+#           (Entf, Editor): Serie bleibt, Ausnahme und Vorkommen weg, EXDATE (Python-GI, CalDAV); von der Ausnahme aus „Alle
+#           Termine“: Serie weg; Kalenderwahl gesperrt bei Vorkommen und Ausnahme (AT-SPI); mehrtägige ganztägige Serie
+#           (lokal): nur Titel, „Alle Termine“, Dauer bleibt, Fenster sofort geschlossen (Änderung kommt an, g_application_hold).
 # Kalender-UIDs nur in ~/.config/revolution/testkonten.ini [kalender] (nicht im Repo). Schreiben nur dort, nur Testtermine
 # „Revolution-Test …“ über die gespeicherte UID; höchstens 20 Schreibvorgänge je Lauf und Kalender über alle Teile
 # (#375: Zähler der vorigen Teile als SCHREIB_VORHER an den Treiber, Abbruch vor dem 21.).
@@ -117,7 +121,7 @@ lauf () {
     GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
     ADW_DEBUG_COLOR_SCHEME="$schema" G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals \
     REVOLUTION_TEST_HOOKS=1 REVOLUTION_SKIP_ACCOUNTS="$ALLE_MAILKONTEN" \
-    APP_ID="$APP_ID" TERMIN_TASK=375 BIN="$BIN" OUT="$OUT" NAME="m7-375-$name" MODUS="$modus" SCHREIB_VORHER="$(schreib_vorher)" VERGLEICH="$OUT/kalender.txt" MONAT="$MONAT" \
+    APP_ID="$APP_ID" TERMIN_TASK="${TERMIN_TASK:-375}" BIN="$BIN" OUT="$OUT" NAME="m7-375-$name" MODUS="$modus" SCHREIB_VORHER="$(schreib_vorher)" VERGLEICH="$OUT/kalender.txt" MONAT="$MONAT" \
     KALENDER_TERMINE="$SCHREIBBAR $VERGLEICH_LESEND" SCHREIBBAR="$SCHREIBBAR" LIVE_KALENDER="$KAL_GOOGLE $KAL_M365" \
     AUS_KALENDER="$KAL_M365" TERMINE="$OUT" TESTDATEN="$APP_DIR/tests/testdaten.py" \
     xvfb-run -a -s "-screen 0 ${breite}x${hoehe}x24" python3 -I "$APP_DIR/tests/kalender-treiber.py" || rc=$?
@@ -190,6 +194,7 @@ for t in $TEILE; do
     alle) teil alle alle prefer-light 1400 900 ;;
     woche) teil woche woche prefer-light 1400 900 ;;
     termine) teil termine termine prefer-light 1400 900 ;;
+    serie) TERMIN_TASK=452 teil serie serie prefer-light 1400 900 ;;
     dunkel) teil dunkel bild prefer-dark 1400 900 ;;
     schmal) teil schmal bild prefer-light 900 700 ;;
     *) echo "FEHLER  TEILE: $t unbekannt"; FEHLER=$((FEHLER + 1)) ;;

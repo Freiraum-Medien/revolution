@@ -1966,6 +1966,11 @@ msgstr "%a, %d. %B"
 msgid "All Events"
 msgstr "Alle Termine"
 
+#: src/calendar/gcal/gcal-month-popover.blp:39
+#: src/calendar/gcal/gcal-month-popover.blp:44
+msgid "Close"
+msgstr "Schließen"
+
 #: src/calendar/gcal/gcal-month-popover.blp:60
 msgid "New Event…"
 msgstr "Neuer Termin …"

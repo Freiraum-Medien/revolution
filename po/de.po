@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: revolution\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-30 01:25+0100\n"
+"POT-Creation-Date: 2026-10-30 03:53+0100\n"
 "PO-Revision-Date: 2026-10-28 22:20+0100\n"
 "Last-Translator: Arnd Messer\n"
 "Language-Team: German\n"
@@ -354,7 +354,7 @@ msgstr "%s, %'u ungelesen"
 msgid "Search Failed"
 msgstr "Suche fehlgeschlagen"
 
-#: src/mail/mail-list.c:825 src/mail/mail-reader.c:730
+#: src/mail/mail-list.c:825 src/mail/mail-reader.c:759
 #: src/composer/composer.c:884 src/composer/composer.c:1621
 #, c-format
 msgid "Account %s unavailable"
@@ -498,78 +498,78 @@ msgstr "Ordnername"
 msgid "_Subfolder of “%s”"
 msgstr "_Unterordner von „%s“"
 
-#: src/mail/mail-reader.c:692
+#: src/mail/mail-reader.c:721
 #, c-format
 msgid "Invalid entry “%s”"
 msgstr "Ungültiger Eintrag „%s“"
 
-#: src/mail/mail-reader.c:893
+#: src/mail/mail-reader.c:923
 msgid "Remote Content Not Loaded"
 msgstr "Entfernte Inhalte nicht geladen"
 
-#: src/mail/mail-reader.c:962
+#: src/mail/mail-reader.c:992
 #, c-format
 msgid "Protection against network access not active: %s"
 msgstr "Schutz vor Netzzugriffen nicht aktiv: %s"
 
-#: src/mail/mail-reader.c:965 src/mail/mail-reader.c:1106
+#: src/mail/mail-reader.c:995 src/mail/mail-reader.c:1136
 msgid "Message Not Shown"
 msgstr "Nachricht nicht angezeigt"
 
-#: src/mail/mail-reader.c:1192
+#: src/mail/mail-reader.c:1222
 msgid "Permission Not Saved"
 msgstr "Freigabe nicht gespeichert"
 
 #. Translators: menu of the “Remote Content Blocked” notice, %s is the sender address.
-#: src/mail/mail-reader.c:1245
+#: src/mail/mail-reader.c:1275
 #, c-format
 msgid "Always Load for %s"
 msgstr "Immer für %s laden"
 
 #. Translators: menu of the notice, %s is the domain with “@”, e.g. “@example.org”.
-#: src/mail/mail-reader.c:1255
+#: src/mail/mail-reader.c:1285
 #, c-format
 msgid "Always Load for Everyone at %s"
 msgstr "Immer für alle von %s laden"
 
-#: src/mail/mail-reader.c:1512
+#: src/mail/mail-reader.c:1542
 msgid "Message Content"
 msgstr "Nachrichteninhalt"
 
 #. Translators: date in the message header, %s is the time.
-#: src/mail/mail-reader.c:1541
+#: src/mail/mail-reader.c:1571
 #, c-format
 msgid "Today, %s"
 msgstr "Heute, %s"
 
 #. Translators: date in the message header, %s is the time.
-#: src/mail/mail-reader.c:1544
+#: src/mail/mail-reader.c:1574
 #, c-format
 msgid "Yesterday, %s"
 msgstr "Gestern, %s"
 
 #. Translators: date in the message header (g_date_time_format), e.g. “10/17/2026, 14:05”.
-#: src/mail/mail-reader.c:1547
+#: src/mail/mail-reader.c:1577
 msgid "%m/%d/%Y, %H:%M"
 msgstr "%d.%m.%Y, %H:%M"
 
 #. Translators: full date in the details (g_date_time_format).
-#: src/mail/mail-reader.c:1557
+#: src/mail/mail-reader.c:1587
 msgid "%A, %B %-d, %Y, %H:%M:%S"
 msgstr "%A, %-d. %B %Y, %H:%M:%S"
 
-#: src/mail/mail-reader.c:1591
+#: src/mail/mail-reader.c:1621
 msgid "Message Not Loaded"
 msgstr "Nachricht nicht geladen"
 
 #. Translators: tooltip of the “Load” button in the notice, %s is the shortcut, e.g. “Ctrl+I”.
-#: src/mail/mail-reader.c:1763
+#: src/mail/mail-reader.c:1796
 #, c-format
 msgid "Load Remote Content of This Message (%s)"
 msgstr "Entfernte Inhalte dieser E-Mail laden (%s)"
 
 #. Translators: folder and account in the message header, e.g. “Inbox — Private”.
-#: src/mail/mail-reader.c:1827 src/mail/mail-conversation.c:263
+#: src/mail/mail-reader.c:1860 src/mail/mail-conversation.c:263
 #, c-format
 msgid "%s — %s"
 msgstr "%s — %s"
@@ -620,6 +620,142 @@ msgstr "_Speichern"
 #: src/mail/mail-attachment.c:829
 msgid "Save All Attachments"
 msgstr "Alle Anhänge speichern"
+
+#
+#. Translators: date of a meeting in the invitation card (g_date_time_format).
+#: src/mail/mail-invitation.c:286
+msgid "%A, %B %-d, %Y"
+msgstr "%A, %-d. %B %Y"
+
+#. Translators: time of a meeting, day, start and end, e.g. “Tuesday, November 10, 2026, 11:00 – 11:30”.
+#: src/mail/mail-invitation.c:299
+#, c-format
+msgid "%s, %s – %s"
+msgstr "%s, %s – %s"
+
+#. Übernommen aus Evolution 3.56.2 itip-view.c:525 (set_calendar_sender_text).
+#: src/mail/mail-invitation.c:420
+#, c-format
+msgid "%s has sent back the following meeting response:"
+msgstr "%s hat folgende Besprechungsrückmeldung geschickt:"
+
+#. Übernommen aus Evolution 3.56.2 itip-view.c:531.
+#: src/mail/mail-invitation.c:424
+#, c-format
+msgid "%s has cancelled the following meeting:"
+msgstr "%s hat folgende Besprechung abgesagt:"
+
+#. Übernommen aus Evolution 3.56.2 itip-view.c:505.
+#: src/mail/mail-invitation.c:427
+#, c-format
+msgid "%s requests your presence at the following meeting:"
+msgstr "%s wünscht Ihre Teilnahme an folgender Besprechung:"
+
+#. Übernommen aus Evolution 3.56.2 itip-view.c:4516 (find_cal_update_ui).
+#: src/mail/mail-invitation.c:510
+#, c-format
+msgid "An appointment “%s” in the calendar “%s” conflicts with this meeting"
+msgstr ""
+"Ein Termin »%s« im Kalender »%s« überschneidet sich mit dieser Besprechung"
+
+#. Übernommen aus Evolution 3.56.2 itip-utils.c:1236, 1243, 1250 (Kontext „Meeting“).
+#: src/mail/mail-invitation.c:624
+msgctxt "Meeting"
+msgid "Accepted"
+msgstr "Angenommen"
+
+#: src/mail/mail-invitation.c:625
+msgctxt "Meeting"
+msgid "Tentatively Accepted"
+msgstr "Vorläufig angenommen"
+
+#: src/mail/mail-invitation.c:626
+msgctxt "Meeting"
+msgid "Declined"
+msgstr "Abgelehnt"
+
+#: src/mail/mail-invitation.c:680
+msgid "Attendee status could not be updated because the status is invalid"
+msgstr ""
+"Teilnehmerstatus konnte nicht aktualisiert werden, da der Status ungültig ist"
+
+#. Übernommen aus Evolution 3.56.2 itip-view.c:6099.
+#: src/mail/mail-invitation.c:691
+msgid "Attendee status updated"
+msgstr "Teilnehmerstatus aktualisiert"
+
+#. Übernommen aus Evolution 3.56.2 itip-view.c:5628.
+#: src/mail/mail-invitation.c:703
+#, c-format
+msgid "Sent to calendar “%s” as cancelled"
+msgstr "In Kalender »%s« als »Abgesagt« eingetragen"
+
+#. Übernommen aus Evolution 3.56.2 itip-view.c:5568, 5588, 5608.
+#: src/mail/mail-invitation.c:725
+#, c-format
+msgid "Sent to calendar “%s” as accepted"
+msgstr "In Kalender »%s« als »Angenommen« eingetragen"
+
+#: src/mail/mail-invitation.c:726
+#, c-format
+msgid "Sent to calendar “%s” as tentative"
+msgstr "In Kalender »%s« als »Vorläufig angenommen« eingetragen"
+
+#: src/mail/mail-invitation.c:727
+#, c-format
+msgid "Sent to calendar “%s” as declined"
+msgstr "In Kalender »%s« als »Abgelehnt« eingetragen"
+
+#: src/mail/mail-invitation.c:781
+msgid "Accepted"
+msgstr "Angenommen"
+
+#: src/mail/mail-invitation.c:783
+msgid "Tentatively Accepted"
+msgstr "Vorläufig angenommen"
+
+#: src/mail/mail-invitation.c:785
+msgid "Declined"
+msgstr "Abgelehnt"
+
+#. Translators: status of the replying attendee, e.g. “Response: Accepted”.
+#: src/mail/mail-invitation.c:826
+#, c-format
+msgid "Response: %s"
+msgstr "Antwort: %s"
+
+#. Translators: own response already in the calendar, e.g. “Accepted in “Calendar””.
+#: src/mail/mail-invitation.c:829
+#, c-format
+msgid "%s in “%s”"
+msgstr "%s in »%s«"
+
+#. Übernommen aus Evolution 3.56.2 itip-view.c:4777.
+#: src/mail/mail-invitation.c:833
+msgid "Unable to find this meeting in any calendar"
+msgstr "Diese Besprechung wurde in keinem Kalender gefunden"
+
+#: src/mail/mail-invitation.c:841 src/mail/mail-invitation.c:959
+msgid "You are not an attendee of this meeting"
+msgstr "Sie sind kein Teilnehmer dieser Besprechung"
+
+#: src/mail/mail-invitation.c:844 src/calendar/calendar-view.c:432
+msgid "No writable calendar"
+msgstr "Kein beschreibbarer Kalender"
+
+#
+#: src/mail/mail-invitation.c:885 src/mail/mail-invitation.c:923
+msgid "Could not send meeting response"
+msgstr "Antwort auf die Besprechung konnte nicht gesendet werden"
+
+#: src/mail/mail-invitation.c:906 src/mail/mail-invitation.c:959
+msgid "Unable to update calendar"
+msgstr "Kalender konnte nicht aktualisiert werden"
+
+#
+#: src/mail/mail-invitation.c:923
+msgid "No identity for this account"
+msgstr "Keine Identität für dieses Konto"
 
 #: src/mail/mail-favorites.c:51
 msgid "All Inboxes"
@@ -1323,6 +1459,56 @@ msgstr "_Speichern unter …"
 msgid "Save A_ll…"
 msgstr "_Alle speichern …"
 
+#
+#: src/mail/mail-invitation.blp:26
+msgid "Invitation"
+msgstr "Einladung"
+
+#
+#: src/mail/mail-invitation.blp:89
+msgid "Time:"
+msgstr "Zeit:"
+
+#
+#: src/mail/mail-invitation.blp:120
+msgid "Location:"
+msgstr "Ort:"
+
+#
+#: src/mail/mail-invitation.blp:152
+msgid "Organizer:"
+msgstr "Organisator:"
+
+#
+#: src/mail/mail-invitation.blp:227
+msgid "_Calendar:"
+msgstr "_Kalender:"
+
+#: src/mail/mail-invitation.blp:237
+msgid "Calendar for this meeting"
+msgstr "Kalender für diese Besprechung"
+
+#: src/mail/mail-invitation.blp:250
+msgid "_Decline"
+msgstr "Ab_lehnen"
+
+#: src/mail/mail-invitation.blp:257
+msgid "_Tentative"
+msgstr "_Vorläufig"
+
+#: src/mail/mail-invitation.blp:264
+msgid "Acce_pt"
+msgstr "_Annehmen"
+
+#
+#: src/mail/mail-invitation.blp:275
+msgid "_Remove from Calendar"
+msgstr "Aus Kalender _entfernen"
+
+#: src/mail/mail-invitation.blp:286
+msgid "_Update Attendee Status"
+msgstr "Teilnehmerstatus _aktualisieren"
+
 #: src/mail/mail-conversation.blp:54
 msgid "Conversation Messages"
 msgstr "Nachrichten der Konversation"
@@ -1886,10 +2072,6 @@ msgstr "Zusätzliche Termine verbergen"
 #: src/calendar/gcal/gcal-week-view.c:250
 msgid "Show Additional Events"
 msgstr "Zusätzliche Termine anzeigen"
-
-#: src/calendar/calendar-view.c:432
-msgid "No writable calendar"
-msgstr "Kein beschreibbarer Kalender"
 
 #: src/calendar/calendar-view.c:432
 msgid "Add a calendar in Online Accounts."

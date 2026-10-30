@@ -1,0 +1,299 @@
+// Einladungskarte (#376) zwischen Anhangleiste und Inhalt des Lesebereichs (mail-reader.blp), nur bei einer
+// Mail mit Kalenderteil (text/calendar, METHOD REQUEST, CANCEL, REPLY) sichtbar. Natives GTK statt HTML wie
+// Evolution (itip-view.c:2069-2281 schreibt die Karte als HTML mit Knöpfen per JavaScript in die Mail; der
+// Lesebereich von Revolution läuft ohne JavaScript, mail-reader.c Kopf). Daten und Aktionen in mail-invitation.c.
+// Tastatur: Zugriffstasten an den Knöpfen (Alt+P, Alt+T, Alt+D, Alt+R, Alt+U) und an „Kalender“ (Alt+K bzw. Alt+C).
+using Gtk 4.0;
+using Adw 1;
+
+template $RevolutionMailInvitation: Adw.Bin {
+  visible: false;
+  // Scrollbar, damit die Karte die Mindesthöhe des Lesebereichs nicht hochtreibt (kleine Fenster; sonst
+  // „AdwMultiLayoutView exceeds RevolutionMailView height“, gemessen build-devel/m7-376/probe-m365.log).
+  child: ScrolledWindow {
+    hscrollbar-policy: never;
+    propagate-natural-height: true;
+
+    child: Box card {
+      orientation: vertical;
+      accessible-role: group;
+      spacing: 10;
+      margin-start: 12;
+      margin-end: 12;
+      margin-bottom: 12;
+
+      accessibility {
+        label: _("Invitation");
+      }
+
+      styles [
+        "card",
+        "mail-invitation",
+      ]
+
+      Box {
+        spacing: 12;
+
+        Image {
+          icon-name: "x-office-calendar-symbolic";
+          pixel-size: 32;
+          valign: start;
+          accessible-role: presentation;
+
+          styles [
+            "accent",
+          ]
+        }
+
+        Box {
+          orientation: vertical;
+          spacing: 2;
+          hexpand: true;
+
+          Label intro_label {
+            xalign: 0;
+            wrap: true;
+            wrap-mode: word_char;
+
+            styles [
+              "dimmed",
+            ]
+          }
+
+          Label title_label {
+            xalign: 0;
+            wrap: true;
+            wrap-mode: word_char;
+            selectable: true;
+
+            // Design #5 „Betreffe und Werte normal“: Hierarchie über die Größe, nicht die Stärke (style.css).
+            styles [
+              "mail-invitation-title",
+            ]
+          }
+        }
+
+        Adw.Spinner spinner {
+          visible: false;
+          valign: start;
+        }
+      }
+
+      // Werte an der Spalte des Titels (32 Symbol + 12 Abstand).
+      Grid {
+        column-spacing: 12;
+        row-spacing: 4;
+        margin-start: 44;
+
+        Label when_caption {
+          label: _("Time:");
+          xalign: 1;
+          yalign: 0;
+
+          layout {
+            column: 0;
+            row: 0;
+          }
+
+          styles [
+            "dimmed",
+          ]
+        }
+
+        Label when_label {
+          xalign: 0;
+          hexpand: true;
+          wrap: true;
+          selectable: true;
+
+          accessibility {
+            labelled-by: when_caption;
+          }
+
+          layout {
+            column: 1;
+            row: 0;
+          }
+        }
+
+        Label where_caption {
+          label: _("Location:");
+          xalign: 1;
+          yalign: 0;
+          visible: bind where_label.visible;
+
+          layout {
+            column: 0;
+            row: 1;
+          }
+
+          styles [
+            "dimmed",
+          ]
+        }
+
+        Label where_label {
+          xalign: 0;
+          wrap: true;
+          wrap-mode: word_char;
+          selectable: true;
+
+          accessibility {
+            labelled-by: where_caption;
+          }
+
+          layout {
+            column: 1;
+            row: 1;
+          }
+        }
+
+        Label organizer_caption {
+          label: _("Organizer:");
+          xalign: 1;
+          yalign: 0;
+
+          layout {
+            column: 0;
+            row: 2;
+          }
+
+          styles [
+            "dimmed",
+          ]
+        }
+
+        Label organizer_label {
+          xalign: 0;
+          wrap: true;
+          wrap-mode: word_char;
+          selectable: true;
+
+          accessibility {
+            labelled-by: organizer_caption;
+          }
+
+          layout {
+            column: 1;
+            row: 2;
+          }
+        }
+
+        // Konflikt mit eigenen Terminen wie Evolution (itip-view.c:5157-5170, 4928-4981).
+        Label conflict_label {
+          visible: false;
+          xalign: 0;
+          wrap: true;
+          wrap-mode: word_char;
+
+          layout {
+            column: 1;
+            row: 3;
+          }
+
+          styles [
+            "warning",
+          ]
+        }
+
+        // Stand: „Zugesagt in „Kalender““ usw. wie Evolution receive_objects_ready_cb (itip-view.c:5504-5670).
+        Label status_label {
+          visible: false;
+          xalign: 0;
+          wrap: true;
+          wrap-mode: word_char;
+
+          layout {
+            column: 1;
+            row: 4;
+          }
+
+          styles [
+            "dimmed",
+          ]
+        }
+      }
+
+      Box {
+        orientation: vertical;
+        spacing: 8;
+        margin-start: 44;
+
+        Box calendar_box {
+          spacing: 6;
+          hexpand: true;
+
+          Label calendar_caption {
+            label: _("_Calendar:");
+            use-underline: true;
+            mnemonic-widget: calendar_dropdown;
+
+            styles [
+              "dimmed",
+            ]
+          }
+
+          DropDown calendar_dropdown {
+            tooltip-text: _("Calendar for this meeting");
+
+            accessibility {
+              labelled-by: calendar_caption;
+            }
+          }
+        }
+
+        Box {
+          spacing: 6;
+          halign: end;
+
+          Button decline_button {
+            label: _("_Decline");
+            use-underline: true;
+            action-name: "invitation.respond";
+            action-target: "'declined'";
+          }
+
+          Button tentative_button {
+            label: _("_Tentative");
+            use-underline: true;
+            action-name: "invitation.respond";
+            action-target: "'tentative'";
+          }
+
+          Button accept_button {
+            label: _("Acce_pt");
+            use-underline: true;
+            action-name: "invitation.respond";
+            action-target: "'accepted'";
+
+            styles [
+              "suggested-action",
+            ]
+          }
+
+          Button remove_button {
+            label: _("_Remove from Calendar");
+            use-underline: true;
+            action-name: "invitation.respond";
+            action-target: "'remove'";
+
+            styles [
+              "destructive-action",
+            ]
+          }
+
+          Button update_button {
+            label: _("_Update Attendee Status");
+            use-underline: true;
+            action-name: "invitation.respond";
+            action-target: "'update'";
+
+            styles [
+              "suggested-action",
+            ]
+          }
+        }
+      }
+    };
+  };
+}

@@ -102,6 +102,29 @@
 #                                 OR SUBJECT/FROM/TO/CC/BODY bzw. Graph $search) und der Filter (UNSEEN, FLAGGED,
 #                                 Anhang aus BODYSTRUCTURE bzw. Graph isRead/importance/hasAttachments), ohne
 #                                 Gelöschte und Junk; ORDNER * = alle Ordner (IMAP LIST bzw. Graph /me/messages, nur Text)
+#   tests/testdaten.py --einladung anlegen ORGANISATOR TEILNEHMER DATEI TITEL BEGINN
+#                                 #376: Einladung am Server des Organisators (nur KONTO_M365 ↔ KONTO_GOOGLE): M365 Graph
+#                                 POST /me/events mit attendees (Exchange verschickt die Einladung), Google CalDAV PUT
+#                                 mit ORGANIZER/ATTENDEE ohne SCHEDULE-AGENT (Vorgabe SERVER, RFC 6638 7.1: Google
+#                                 verschickt sie); 30 min ab BEGINN (UTC, JJJJ-MM-TTTHH:MM); merkt IDs in DATEI (JSON)
+#   tests/testdaten.py --einladung warten ART DATEI
+#                                 #376: wartet auf die Mail ART (einladung|absage beim Teilnehmer, antwort beim
+#                                 Organisator, Betreff enthält TITEL), Gmail-Spam → Posteingang (UID MOVE, nur diese Mail);
+#                                 merkt Message-ID bzw. Graph-ID in DATEI; Zeile „MAIL ART KONTO ORDNER“
+#   tests/testdaten.py --einladung pruefen DATEI [KALENDER]
+#                                 #376, nur lesend: Status des Teilnehmers im Termin des Organisators (Graph GET bzw.
+#                                 CalDAV REPORT), Kopie beim Teilnehmer am Server ohne EDS und mit KALENDER per Python-GI
+#                                 ECal.Client; Zeilen „ORGANISATOR <PARTSTAT>“, „TEILNEHMER-SERVER <0|1> <PARTSTAT>“,
+#                                 „TEILNEHMER-EDS <0|1> <PARTSTAT>“
+#   tests/testdaten.py --einladung absagen DATEI
+#                                 #376: Organisator KONTO_M365 löscht den Termin (Graph DELETE), Exchange schickt die Absage
+#   tests/testdaten.py --einladung gesendet DATEI
+#                                 #376: merkt Kopien der Mails dieses Laufs in Gesendet beider Konten (Betreff mit TITEL)
+#   tests/testdaten.py --einladung rest DATEI
+#                                 #376: merkt übrige Mails des Laufs (Absagen in Gesendet, verschobene in Gelöschte)
+#   tests/testdaten.py --einladung aufraeumen DATEI
+#                                 #376: löscht Termine (Organisator, Kopien beim Teilnehmer, „Persönlich“) über die
+#                                 gemerkte UID/ID und die gemerkten Mails (Graph permanentDelete, IMAP UID STORE/EXPUNGE)
 #   tests/testdaten.py --antwort  #359, schreibend nur in geops@ (IMAP): Testmail für Antworten/Allen
 #                                 antworten per APPEND in den Posteingang (kein Versand), idempotent über
 #                                 die Message-ID; mehrere Empfänger, „RE:“ im Betreff, References. Absender
@@ -256,7 +279,7 @@ LAST_KONTO = KONTO_IMAP_1
 UNTERORDNER = ORDNER + '/Archiv-Test'
 REMOTE_BILD = 'https://upload.wikimedia.org/wikipedia/commons/a/a9/Example.jpg'
 TIMEOUT = 90
-WARTEN = 600
+WARTEN = int(os.environ.get('WARTEN', '600'))
 # #439: Camel-Cache im Ordner des Profils (USER_DIR aus tests/abbruch.sh bzw. BUILD/config.h), nie im
 # Cache der installierten App (~/.cache/revolution); Standard Entwicklungsvariante.
 CACHE = os.path.join(GLib.get_user_cache_dir(), os.environ.get('USER_DIR') or 'revolution-devel', 'testdaten')
@@ -3329,6 +3352,446 @@ def original(k, lauf, aktion):
     return 0
 
 
+# ------------------------------------------------------------------ #376 Einladungen
+
+EINLADUNG_KONTEN = (KONTO_M365, KONTO_GOOGLE)
+GRAPH_STATUS = {'accepted': 'ACCEPTED', 'declined': 'DECLINED', 'tentativelyAccepted': 'TENTATIVE',
+                'none': 'NEEDS-ACTION', 'notResponded': 'NEEDS-ACTION', 'organizer': 'ORGANIZER'}
+
+
+def einladung_daten(datei, neu=None):
+    if neu is not None:
+        with open(datei, 'w') as f:
+            json.dump(neu, f, indent=1)
+        return neu
+    with open(datei) as f:
+        return json.load(f)
+
+
+def caldav_basis(registry):
+    q = registry.ref_source(kalender_schreibbar()[1])
+    g = q.get_extension(EDataServer.SOURCE_EXTENSION_WEBDAV_BACKEND).dup_uri()
+    return 'https://%s%s' % (g.get_host(), g.get_path())
+
+
+def caldav(konten, methode, url, daten=None, kopf=None):
+    token = konten[KONTO_GOOGLE].goa.get_oauth2_based().call_get_access_token_sync(None)[0]
+    h = {'Authorization': 'Bearer ' + token}
+    h.update(kopf or {})
+    req = urllib.request.Request(url, data=daten.encode() if daten else None, method=methode, headers=h)
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            return r.status, r.read().decode()
+    except urllib.error.HTTPError as f:
+        return f.code, ''
+
+
+def caldav_uid(konten, basis, uid):
+    """[(href, VEVENT-Text)] der Termine mit dieser UID (REPORT calendar-query, RFC 4791 9.7.5)."""
+    import xml.etree.ElementTree as ET
+    body = ('<?xml version="1.0" encoding="utf-8"?>'
+            '<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">'
+            '<D:prop><D:getetag/><C:calendar-data/></D:prop>'
+            '<C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT">'
+            '<C:prop-filter name="UID"><C:text-match collation="i;octet">%s</C:text-match></C:prop-filter>'
+            '</C:comp-filter></C:comp-filter></C:filter></C:calendar-query>' % uid)
+    status, xml = caldav(konten, 'REPORT', basis, body, {'Depth': '1', 'Content-Type': 'application/xml; charset=utf-8'})
+    if status >= 300:
+        raise RuntimeError('CalDAV REPORT HTTP %d' % status)
+    out = []
+    for r in ET.fromstring(xml).iter('{DAV:}response'):
+        href = r.find('{DAV:}href').text
+        daten = r.find('.//{urn:ietf:params:xml:ns:caldav}calendar-data')
+        # Google wertet den prop-filter nicht aus und liefert alle Termine (Vorfall 30.10.2026: vier fremde Termine
+        # gelöscht): nur Treffer, deren VEVENT genau diese UID trägt.
+        if daten is not None and daten.text and caldav_hat_uid(daten.text, uid):
+            out.append((urllib.parse.urljoin(basis, href), daten.text))
+    return out
+
+
+def caldav_summary(text, uid):
+    """SUMMARY des VEVENT mit genau dieser UID ('' ohne Treffer)."""
+    _, ICalGLib = ecal()
+    vcal = ICalGLib.Component.new_from_string(text)
+    ev = vcal if vcal is not None and vcal.isa() == ICalGLib.ComponentKind.VEVENT_COMPONENT else \
+        (vcal.get_first_component(ICalGLib.ComponentKind.VEVENT_COMPONENT) if vcal is not None else None)
+    while ev is not None:
+        if ev.get_uid() == uid:
+            return ev.get_summary() or ''
+        ev = vcal.get_next_component(ICalGLib.ComponentKind.VEVENT_COMPONENT) if vcal is not ev else None
+    return ''
+
+
+def caldav_hat_uid(text, uid):
+    _, ICalGLib = ecal()
+    vcal = ICalGLib.Component.new_from_string(text)
+    if vcal is None:
+        return False
+    if vcal.isa() == ICalGLib.ComponentKind.VEVENT_COMPONENT:
+        return vcal.get_uid() == uid
+    ev = vcal.get_first_component(ICalGLib.ComponentKind.VEVENT_COMPONENT)
+    while ev is not None:
+        if ev.get_uid() == uid:
+            return True
+        ev = vcal.get_next_component(ICalGLib.ComponentKind.VEVENT_COMPONENT)
+    return False
+
+
+def ical_partstat(text, adresse):
+    _, ICalGLib = ecal()
+    vcal = ICalGLib.Component.new_from_string(text)
+    ev = vcal if vcal.isa() == ICalGLib.ComponentKind.VEVENT_COMPONENT else \
+        vcal.get_first_component(ICalGLib.ComponentKind.VEVENT_COMPONENT)
+    a = ev.get_first_property(ICalGLib.PropertyKind.ATTENDEE_PROPERTY)
+    while a is not None:
+        if a.get_attendee().lower().replace('mailto:', '') == adresse:
+            m = re.search(r'PARTSTAT=([A-Z-]+)', a.as_ical_string().replace('\r\n ', ''))
+            return m.group(1) if m else 'NEEDS-ACTION'
+        a = ev.get_next_property(ICalGLib.PropertyKind.ATTENDEE_PROPERTY)
+    return '-'
+
+
+def graph_ical_uid(ical_uid):
+    """UID aus der iCalUId von Graph: Exchange packt fremde UIDs in eine GlobalObjectId mit Kennung „vCal-Uid“
+    (Hex 7643616C2D556964, dann 01000000, dann die UID als Hex mit 00 am Ende; gemessen Lauf 10300410, [MS-OXOCAL]
+    2.2.1.27 PidLidGlobalObjectId). Eigene UIDs von Exchange bleiben unverändert."""
+    marke = '7643616C2D55696401000000'
+    if not ical_uid or marke not in ical_uid.upper():
+        return ical_uid
+    rest = ical_uid.upper().split(marke, 1)[1]
+    try:
+        return bytes.fromhex(rest).split(b'\0', 1)[0].decode('utf-8')
+    except ValueError:
+        return None
+
+
+def graph_ereignis_uid(k, uid):
+    """Termine mit dieser iCalUId; der Server-Filter gilt nur als Vorauswahl (PM 30.10.2026, Vorfall CalDAV), geprüft
+    wird die zurückgegebene iCalUId."""
+    f = urllib.parse.quote("iCalUId eq '%s'" % uid)
+    evs = graph(k, 'GET', '/me/events?$filter=%s&$select=id,iCalUId,subject,responseStatus' % f)['value']
+    return [e for e in evs if graph_ical_uid(e.get('iCalUId')) == uid]
+
+
+def einladung_anlegen(registry, organisator, teilnehmer, datei, titel, beginn):
+    if sorted((organisator, teilnehmer)) != sorted(EINLADUNG_KONTEN) or not titel.startswith('Revolution-Test'):
+        sys.exit('ABBRUCH: Einladungen nur zwischen den beiden Testkonten mit Kalender, Titel „Revolution-Test …“')
+    start = datetime.datetime.strptime(beginn, '%Y-%m-%dT%H:%M').replace(tzinfo=datetime.timezone.utc)
+    heute = datetime.datetime.now(datetime.timezone.utc)
+    if not (datetime.datetime(2026, 10, 1, tzinfo=datetime.timezone.utc) <= start <= heute + datetime.timedelta(days=90)):
+        sys.exit('ABBRUCH: Beginn außerhalb 2026-10-01 … heute + 90 Tage')
+    ende = start + datetime.timedelta(minutes=30)
+    konten = konten_finden(registry)
+    m365, google, _ = kalender_schreibbar()
+    d = {'organisator': organisator, 'teilnehmer': teilnehmer, 'titel': titel, 'mails': [], 'kalender_teilnehmer': []}
+    if organisator == KONTO_M365:
+        ev = {'subject': titel, 'start': {'dateTime': start.strftime('%Y-%m-%dT%H:%M:%S'), 'timeZone': 'UTC'},
+              'end': {'dateTime': ende.strftime('%Y-%m-%dT%H:%M:%S'), 'timeZone': 'UTC'},
+              'location': {'displayName': 'Testraum 376'}, 'responseRequested': True,
+              'attendees': [{'emailAddress': {'address': teilnehmer}, 'type': 'required'}]}
+        r = graph(konten[organisator], 'POST', '/me/calendars/%s/events' % graph(konten[organisator], 'GET', '/me/calendar?$select=id')['id'], ev)
+        d.update(uid=r['iCalUId'], id=r['id'], kal=m365)
+        print('SCHREIBVORGANG %s (Graph POST Einladung)' % m365)
+        print('MAIL-OUTLOOK 1 Einladung (Exchange)')
+    else:
+        uid = 'revolution-test-376-%s@%s' % (hashlib.sha1((titel + beginn).encode()).hexdigest()[:12], MSGID_DOMAIN)
+        stempel = heute.strftime('%Y%m%dT%H%M%SZ')
+        ics = '\r\n'.join(['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Revolution//Test 376//EN', 'BEGIN:VEVENT',
+                           'UID:' + uid, 'DTSTAMP:' + stempel, 'DTSTART:' + start.strftime('%Y%m%dT%H%M%SZ'),
+                           'DTEND:' + ende.strftime('%Y%m%dT%H%M%SZ'), 'SUMMARY:' + titel, 'LOCATION:Testraum 376',
+                           'ORGANIZER;CN=Revolution Test:mailto:' + organisator,
+                           'ATTENDEE;ROLE=CHAIR;PARTSTAT=ACCEPTED:mailto:' + organisator,
+                           'ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:' + teilnehmer,
+                           'END:VEVENT', 'END:VCALENDAR', ''])
+        href = caldav_basis(registry) + uid + '.ics'
+        status, _ = caldav(konten, 'PUT', href, ics, {'Content-Type': 'text/calendar; charset=utf-8', 'If-None-Match': '*'})
+        if status >= 300:
+            sys.exit('ABBRUCH: CalDAV PUT HTTP %d' % status)
+        d.update(uid=uid, href=href, kal=google)
+        print('SCHREIBVORGANG %s (CalDAV PUT Einladung)' % google)
+    einladung_daten(datei, d)
+    print('EINLADUNG %s' % titel, flush=True)
+    return 0
+
+
+def einladung_warten(registry, art, datei):
+    d = einladung_daten(datei)
+    konto = d['organisator'] if art == 'antwort' else d['teilnehmer']
+    k = konten_finden(registry)[konto]
+    ende = time.monotonic() + WARTEN
+    while time.monotonic() < ende:
+        if konto == KONTO_M365:
+            for ordner in ('inbox', 'junkemail'):
+                mails = graph(k, 'GET', '/me/mailFolders/%s/messages?$search=%s&$select=id,subject,internetMessageId'
+                              % (ordner, urllib.parse.quote('"%s"' % d['titel'])))['value']
+                mails = [m for m in mails if d['titel'] in (m['subject'] or '') and
+                         m['id'] not in [x.get('id') for x in d['mails']] and
+                         (art != 'antwort' or not m['subject'].startswith(('Einladung', 'Invitation')))]
+                if mails:
+                    m = mails[0]
+                    d['mails'].append({'art': art, 'konto': konto, 'id': m['id'], 'mid': m['internetMessageId']})
+                    einladung_daten(datei, d)
+                    print('MAIL %s %s %s %s' % (art, konto, ordner, m['subject']), flush=True)
+                    return 0
+        else:
+            c = imap_verbinden(k)
+            try:
+                rollen = imap_rollen(c)
+                for rolle in ('eingang', 'spam'):
+                    c.select('"%s"' % rollen[rolle])
+                    uids = c.uid('SEARCH', 'CHARSET', 'UTF-8', 'SUBJECT', '"%s"' % d['titel'])[1][0].split()
+                    for u in uids:
+                        kopf = c.uid('FETCH', u, '(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID SUBJECT)])')[1][0][1]
+                        msg = email.message_from_bytes(kopf, policy=email.policy.default)
+                        mid, betreff = msg['Message-ID'], str(msg['Subject'])
+                        # Gesendet-Kopie beim anderen Konto trägt dieselbe Message-ID: je Konto vergleichen.
+                        if mid in [x.get('mid') for x in d['mails'] if x['konto'] == konto] or d['titel'] not in betreff:
+                            continue
+                        if art == 'antwort' and betreff.startswith(('Einladung', 'Invitation')):
+                            continue
+                        if art != 'absage' and betreff.startswith(('Abgesagt', 'Canceled', 'Cancelled', 'Termin abgesagt')):
+                            continue
+                        if rolle == 'spam':
+                            # Nur diese Mail des Laufs aus dem Spam in den Posteingang (UID MOVE, RFC 6851).
+                            c.uid('MOVE', u, '"INBOX"')
+                        d['mails'].append({'art': art, 'konto': konto, 'mid': mid})
+                        einladung_daten(datei, d)
+                        print('MAIL %s %s %s %s' % (art, konto, rolle, betreff), flush=True)
+                        return 0
+            finally:
+                c.logout()
+        time.sleep(10)
+    print('MAIL-FEHLT %s %s' % (art, konto), flush=True)
+    return 1
+
+
+def einladung_rest(registry, datei):
+    """Nach dem Aufräumen: übrige Mails des Laufs (Betreff mit TITEL; Absagen in Gesendet, „Aktualisierte Einladung“,
+    von Exchange in Gelöschte verschobene) merken, damit aufraeumen sie über die gemerkte ID löscht."""
+    d = einladung_daten(datei)
+    konten = konten_finden(registry)
+    k = konten[KONTO_M365]
+    for ordner in ('inbox', 'junkemail', 'sentitems', 'deleteditems'):
+        for m in graph(k, 'GET', '/me/mailFolders/%s/messages?$search=%s&$select=id,subject,internetMessageId'
+                       % (ordner, urllib.parse.quote('"%s"' % d['titel'])))['value']:
+            if d['titel'] in (m['subject'] or '') and m['id'] not in [x.get('id') for x in d['mails']]:
+                d['mails'].append({'art': 'rest', 'konto': KONTO_M365, 'id': m['id'], 'mid': m['internetMessageId']})
+    c = imap_verbinden(konten[KONTO_GOOGLE])
+    try:
+        rollen = imap_rollen(c)
+        for rolle in ('eingang', 'spam', 'gesendet'):
+            c.select('"%s"' % rollen[rolle], readonly=True)
+            for u in c.uid('SEARCH', 'CHARSET', 'UTF-8', 'SUBJECT', '"%s"' % d['titel'])[1][0].split():
+                kopf = c.uid('FETCH', u, '(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID SUBJECT)])')[1][0][1]
+                msg = email.message_from_bytes(kopf, policy=email.policy.default)
+                if d['titel'] in str(msg['Subject']) and msg['Message-ID'] not in \
+                        [x.get('mid') for x in d['mails'] if x['konto'] == KONTO_GOOGLE]:
+                    d['mails'].append({'art': 'rest', 'konto': KONTO_GOOGLE, 'mid': msg['Message-ID']})
+    finally:
+        c.logout()
+    einladung_daten(datei, d)
+    print('REST %d Mails gemerkt' % sum(1 for x in d['mails'] if x['art'] == 'rest'), flush=True)
+    return 0
+
+
+def einladung_gesendet(registry, datei):
+    """Kopien in Gesendet merken (Antworten, Einladungen), damit aufraeumen sie über die ID löschen kann."""
+    d = einladung_daten(datei)
+    konten = konten_finden(registry)
+    for konto in EINLADUNG_KONTEN:
+        k = konten[konto]
+        if konto == KONTO_M365:
+            mails = graph(k, 'GET', '/me/mailFolders/sentitems/messages?$search=%s&$select=id,subject,internetMessageId'
+                          % urllib.parse.quote('"%s"' % d['titel']))['value']
+            for m in mails:
+                if d['titel'] in (m['subject'] or '') and m['id'] not in [x.get('id') for x in d['mails']]:
+                    d['mails'].append({'art': 'gesendet', 'konto': konto, 'id': m['id'], 'mid': m['internetMessageId']})
+        else:
+            c = imap_verbinden(k)
+            try:
+                c.select('"%s"' % imap_rollen(c)['gesendet'], readonly=True)
+                for u in c.uid('SEARCH', 'CHARSET', 'UTF-8', 'SUBJECT', '"%s"' % d['titel'])[1][0].split():
+                    kopf = c.uid('FETCH', u, '(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID SUBJECT)])')[1][0][1]
+                    msg = email.message_from_bytes(kopf, policy=email.policy.default)
+                    if d['titel'] in str(msg['Subject']) and \
+                            msg['Message-ID'] not in [x.get('mid') for x in d['mails'] if x['konto'] == konto]:
+                        d['mails'].append({'art': 'gesendet', 'konto': konto, 'mid': msg['Message-ID']})
+            finally:
+                c.logout()
+    einladung_daten(datei, d)
+    print('GESENDET %d Mails gemerkt' % sum(1 for x in d['mails'] if x['art'] == 'gesendet'), flush=True)
+    return 0
+
+
+def einladung_pruefen(registry, datei, kal=None):
+    """Nur lesend, siehe Kopf (--einladung pruefen)."""
+    ECal, _ = ecal()
+    d = einladung_daten(datei)
+    konten = konten_finden(registry)
+    org, teil = d['organisator'], d['teilnehmer']
+    if org == KONTO_M365:
+        try:
+            ev = graph(konten[org], 'GET', '/me/events/%s?$select=attendees' % d['id'])
+            st = [GRAPH_STATUS.get(a['status']['response'], a['status']['response']) for a in ev['attendees']
+                  if a['emailAddress']['address'].lower() == teil]
+            print('ORGANISATOR %s' % (st[0] if st else '-'))
+        except urllib.error.HTTPError as f:
+            print('ORGANISATOR FEHLT HTTP %d' % f.code)
+        treffer = caldav_uid(konten, caldav_basis(registry), d['uid'])
+        print('TEILNEHMER-SERVER %d %s' % (len(treffer), ical_partstat(treffer[0][1], teil) if treffer else '-'))
+    else:
+        treffer = caldav_uid(konten, caldav_basis(registry), d['uid'])
+        print('ORGANISATOR %s' % (ical_partstat(treffer[0][1], teil) if treffer else 'FEHLT'))
+        ev = graph_ereignis_uid(konten[teil], d['uid'])
+        print('TEILNEHMER-SERVER %d %s' % (len(ev), GRAPH_STATUS.get(ev[0]['responseStatus']['response'], '?') if ev else '-'))
+    if kal:
+        c = kalender_verbinden(registry, kal)
+        try:
+            c.refresh_sync(cancellable())
+        except GLib.Error:
+            pass
+        time.sleep(5)
+        try:
+            _, comp = c.get_object_sync(d['uid'], None, cancellable())
+            # microsoft365 trägt die eigene Antwort als STATUS ein, nicht als PARTSTAT (evolution-ews
+            # e-cal-backend-m365-utils.c:1340-1369: accepted → CONFIRMED, tentativelyAccepted → TENTATIVE).
+            st = re.search(r'^STATUS:(\S+)', comp.as_ical_string(), re.M)
+            print('TEILNEHMER-EDS 1 %s STATUS %s' % (ical_partstat(comp.as_ical_string(), teil), st.group(1) if st else '-'))
+        except GLib.Error:
+            print('TEILNEHMER-EDS 0 -')
+    sys.stdout.flush()
+    return 0
+
+
+def einladung_absagen(registry, datei):
+    """#376 CANCEL: der Organisator (nur KONTO_M365) löscht seinen Termin über die gemerkte ID, Exchange schickt die
+    Absage an den Teilnehmer (Graph event delete: „sends a cancellation message to the meeting attendees“)."""
+    d = einladung_daten(datei)
+    if d['organisator'] != KONTO_M365:
+        sys.exit('ABBRUCH: --einladung absagen nur mit Organisator KONTO_M365')
+    graph(konten_finden(registry)[KONTO_M365], 'DELETE', '/me/events/%s' % d['id'])
+    d['abgesagt'] = True
+    einladung_daten(datei, d)
+    print('SCHREIBVORGANG %s (Graph DELETE Organisator, Absage)' % kalender_schreibbar()[0])
+    print('MAIL-OUTLOOK 1 Absage (Exchange)', flush=True)
+    return 0
+
+
+def einladung_imap_uids(c, mid):
+    """UIDs im gewählten Ordner, deren Message-ID genau mid ist und deren Betreff „Revolution-Test“ enthält (Suche
+    des Servers nur als Vorauswahl, PM 30.10.2026)."""
+    out = []
+    for u in c.uid('SEARCH', None, 'HEADER', 'Message-ID', '"%s"' % mid)[1][0].split():
+        kopf = c.uid('FETCH', u, '(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID SUBJECT)])')[1][0][1]
+        msg = email.message_from_bytes(kopf, policy=email.policy.default)
+        if (msg['Message-ID'] or '').strip() == mid.strip() and 'Revolution-Test' in str(msg['Subject']):
+            out.append(u)
+    return out
+
+
+def einladung_aufraeumen(registry, datei):
+    ECal, _ = ecal()
+    d = einladung_daten(datei)
+    konten = konten_finden(registry)
+    m365, google, lokal = kalender_schreibbar()
+    basis = caldav_basis(registry)
+    # #376 R2: Kopie bei outlook.com zuerst, sonst benennt Exchange sie nach der Absage des Organisators um
+    # („Termin abgesagt: …“) und sie bleibt liegen (gemessen Lauf 10300410).
+    # Kopie bei outlook.com: nur genau ein Treffer, dessen iCalUId der gemerkten UID gleicht und dessen Betreff mit
+    # „Revolution-Test“ beginnt (PM #376 R2; exec-377 schreibt parallel in denselben Kalender), sonst Abbruch.
+    if d['teilnehmer'] == KONTO_M365:
+        f = urllib.parse.quote("iCalUId eq '%s'" % d['uid'])
+        roh = graph(konten[KONTO_M365], 'GET', '/me/events?$filter=%s&$select=id,iCalUId,subject' % f)['value']
+        evs = [e for e in roh if graph_ical_uid(e.get('iCalUId')) == d['uid']]
+        if len(evs) != len(roh) or len(evs) > 1:
+            sys.exit('ABBRUCH: Graph lieferte %d Treffer, %d mit gleicher iCalUId, kein DELETE' % (len(roh), len(evs)))
+        for ev in evs:
+            if not (ev.get('subject') or '').startswith('Revolution-Test'):
+                # Exchange benennt die Kopie nach einer Absage um („Termin abgesagt: …“): liegen lassen, melden.
+                print('UEBRIG %s Kopie „%s…“ (Betreff ohne „Revolution-Test“ am Anfang, kein DELETE)'
+                      % (m365[:8], (ev.get('subject') or '')[:40]))
+                continue
+            graph(konten[KONTO_M365], 'DELETE', '/me/events/%s' % ev['id'])
+            print('SCHREIBVORGANG %s (Graph DELETE Kopie)' % m365)
+    # Termin des Organisators über die gemerkte ID bzw. href (Graph DELETE schickt Exchange eine Absage, Google ebenso).
+    if d['organisator'] == KONTO_M365 and d.get('abgesagt'):
+        print('ORGANISATOR schon abgesagt')
+    elif d['organisator'] == KONTO_M365:
+        try:
+            graph(konten[KONTO_M365], 'DELETE', '/me/events/%s' % d['id'])
+            print('SCHREIBVORGANG %s (Graph DELETE Organisator)' % m365)
+            print('MAIL-OUTLOOK 1 Absage (Exchange)')
+        except urllib.error.HTTPError as f:
+            print('ORGANISATOR schon weg HTTP %d' % f.code)
+    # Google-CalDAV (Organisator oder Kopie): genau ein Treffer mit exakt der gemerkten UID und SUMMARY
+    # „Revolution-Test…“ (PM 30.10.2026 nach dem Vorfall), sonst Abbruch ohne DELETE.
+    treffer = caldav_uid(konten, basis, d['uid'])
+    if len(treffer) > 1:
+        sys.exit('ABBRUCH: %d Treffer für UID %s, kein DELETE' % (len(treffer), d['uid']))
+    for href, text in treffer:
+        if d['organisator'] != KONTO_GOOGLE:
+            # Kopie beim Teilnehmer Gmail legt Google selbst an (Übernahme aus dem Posteingang), der Lauf schreibt dort
+            # nicht (PM 30.10.2026): nicht anfassen, nur melden.
+            print('UEBRIG %s Googles Kopie „%s“ (PARTSTAT %s), nicht gelöscht'
+                  % (google[:8], caldav_summary(text, d['uid'])[:40], ical_partstat(text, d['teilnehmer'])))
+            continue
+        if not caldav_summary(text, d['uid']).startswith('Revolution-Test'):
+            sys.exit('ABBRUCH: Treffer ohne SUMMARY „Revolution-Test…“, kein DELETE')
+        if d['organisator'] == KONTO_GOOGLE and urllib.parse.unquote(href) != urllib.parse.unquote(d['href']):
+            sys.exit('ABBRUCH: href des Organisators weicht ab, kein DELETE')
+        status, _ = caldav(konten, 'DELETE', href)
+        print('SCHREIBVORGANG %s (CalDAV DELETE %s, HTTP %d)' % (
+            google, 'Organisator' if d['organisator'] == KONTO_GOOGLE else 'Kopie', status))
+    c = kalender_verbinden(registry, lokal)
+    try:
+        _, lok = c.get_object_sync(d['uid'], None, cancellable())
+        if not (lok.get_summary() or '').startswith('Revolution-Test'):
+            sys.exit('ABBRUCH: lokaler Treffer ohne SUMMARY „Revolution-Test…“, kein Löschen')
+        c.remove_object_sync(d['uid'], None, ECal.ObjModType.ALL, ECal.OperationFlags.DISABLE_ITIP_MESSAGE, cancellable())
+        print('SCHREIBVORGANG %s (Kopie entfernt)' % lokal)
+    except GLib.Error:
+        pass
+    # Mails: nur die gemerkten (Graph-ID bzw. Message-ID), in Posteingang, Spam, Gesendet, Papierkorb.
+    for konto in EINLADUNG_KONTEN:
+        k = konten[konto]
+        mails = [x for x in d['mails'] if x['konto'] == konto]
+        if not mails:
+            continue
+        if konto == KONTO_M365:
+            for x in mails:
+                try:
+                    m = graph(k, 'GET', '/me/messages/%s?$select=subject,internetMessageId' % x['id'])
+                    if 'Revolution-Test' not in (m['subject'] or '') or m['internetMessageId'] != x['mid']:
+                        print('AUFGERAEUMT %s %s übersprungen (Betreff/Message-ID passt nicht)' % (konto, x['art']))
+                        continue
+                    graph(k, 'POST', '/me/messages/%s/permanentDelete' % x['id'])
+                    print('AUFGERAEUMT %s %s' % (konto, x['art']))
+                except urllib.error.HTTPError as f:
+                    print('AUFGERAEUMT %s %s schon weg (HTTP %d)' % (konto, x['art'], f.code))
+            continue
+        c = imap_verbinden(k)
+        try:
+            rollen = imap_rollen(c)
+            for rolle in ('eingang', 'spam', 'gesendet'):
+                c.select('"%s"' % rollen[rolle])
+                for x in mails:
+                    uids = einladung_imap_uids(c, x['mid'])
+                    if uids:
+                        c.uid('MOVE', b','.join(uids).decode(), '"%s"' % rollen['papierkorb'])
+                        print('AUFGERAEUMT %s %s %s' % (konto, x['art'], rolle))
+            c.select('"%s"' % rollen['papierkorb'])
+            for x in mails:
+                uids = einladung_imap_uids(c, x['mid'])
+                if uids:
+                    menge = b','.join(uids).decode()
+                    c.uid('STORE', menge, '+FLAGS', '(\\Deleted)')
+                    c.uid('EXPUNGE', menge)
+        finally:
+            c.logout()
+    sys.stdout.flush()
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description='Testdaten für Revolution (#344)')
     ap.add_argument('--dry-run', action='store_true', help='nur anzeigen, nichts senden/schreiben')
@@ -3411,6 +3874,8 @@ def main():
                     help='#362: nur lesend Anzahl der Nachricht in Posteingang, Spam, Gesendet')
     ap.add_argument('--aufraeumen', nargs='+', metavar='KONTO MESSAGE-ID',
                     help='#362: vom Test gesendete Mails endgültig löschen (Testkonten)')
+    ap.add_argument('--einladung', nargs='+', metavar='anlegen|warten|pruefen|gesendet|aufraeumen …',
+                    help='#376: Einladungen zwischen den Testkonten mit Kalender (siehe Kopf)')
     ap.add_argument('--suche', action='store_true',
                     help='#365: Such-Mail per APPEND in geops@ (Posteingang, Revolution-Test) und outlook.com')
     ap.add_argument('--konten', action='store_true', help='#364: nur lesend UID und Adresse aller Mail-Konten')
@@ -3424,6 +3889,23 @@ def main():
                 args.original[2] not in ('anlegen', 'flags', 'aufraeumen'):
             ap.error('--original %s|%s LAUF anlegen|flags|aufraeumen' % (KONTO_IMAP_2, KONTO_M365))
         return original(konten_finden(EDataServer.SourceRegistry.new_sync(None))[adresse], *args.original[1:])
+    if args.einladung:
+        reg, a = EDataServer.SourceRegistry.new_sync(None), args.einladung
+        if a[0] == 'anlegen' and len(a) == 6:
+            return einladung_anlegen(reg, a[1].lower(), a[2].lower(), *a[3:])
+        if a[0] == 'warten' and len(a) == 3 and a[1] in ('einladung', 'absage', 'antwort'):
+            return einladung_warten(reg, a[1], a[2])
+        if a[0] == 'pruefen' and len(a) in (2, 3):
+            return einladung_pruefen(reg, *a[1:])
+        if a[0] == 'absagen' and len(a) == 2:
+            return einladung_absagen(reg, a[1])
+        if a[0] == 'gesendet' and len(a) == 2:
+            return einladung_gesendet(reg, a[1])
+        if a[0] == 'rest' and len(a) == 2:
+            return einladung_rest(reg, a[1])
+        if a[0] == 'aufraeumen' and len(a) == 2:
+            return einladung_aufraeumen(reg, a[1])
+        ap.error('--einladung: siehe Kopf von tests/testdaten.py')
     if args.zustellung or args.aufraeumen:
         adresse = (args.zustellung or args.aufraeumen)[0].lower()
         nur_testkonten([adresse])

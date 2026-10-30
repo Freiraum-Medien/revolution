@@ -36,8 +36,13 @@ template $GcalMonthPopover: Widget {
         halign: end;
         valign: start;
         icon-name: "window-close-symbolic";
+        tooltip-text: _("Close");
         clicked => $close_button_clicked_cb(template);
         focusable: false;
+
+        accessibility {
+          label: _("Close");
+        }
 
         styles [
           "flat",

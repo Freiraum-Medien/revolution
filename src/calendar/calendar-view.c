@@ -667,7 +667,8 @@ on_delete_event (GSimpleAction *action G_GNUC_UNUSED,
   for (GtkWidget *child = gtk_widget_get_first_child (widget); child != NULL; child = gtk_widget_get_next_sibling (child))
     if (GTK_IS_POPOVER (child))
       gtk_popover_popdown (GTK_POPOVER (child));
-  if (gcal_event_has_recurrence (event))
+  /* #452: auch eine geänderte Ausnahme (RECURRENCE-ID ohne RRULE) gehört zur Serie. */
+  if (gcal_event_has_recurrence (event) || e_cal_component_is_instance (gcal_event_get_component (event)))
     gcal_utils_ask_recurrence_modification_type (GTK_WIDGET (self), event, TRUE, on_delete_response, self);
   else
     on_remove_event (NULL, event, GCAL_RECURRENCE_MOD_THIS_ONLY, self);

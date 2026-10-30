@@ -43,6 +43,9 @@
 #   Q  wie M (Kalender outlook.com, Teilnehmer Gmail und seine Plus-Adresse): Plus-Adresse entfernen → App sendet
 #      nichts („Server plant“), Absage und Aktualisierung von Exchange bei Gmail (IMAP). Den letzten Teilnehmer
 #      entfernen scheitert am Backend (Graph „attendees: null“, evolution-ews e-cal-backend-m365-utils.c:1254-1255).
+# #452 (TEILE=452, eigener Lauf, nichts über outlook.com): Serie in „Persönlich“, Organisator Gmail, Teilnehmer IMAP-Testkonto
+#   S  Löschen „Nachfolgende“ am dritten Vorkommen: CANCEL mit RECURRENCE-ID;RANGE=THISANDFUTURE; Ändern „Nachfolgende“ am
+#      zweiten: REQUEST ebenso, EDS teilt die Serie. Beleg: gesendete und empfangene Mail per IMAP (--einladung serie).
 # Grenzen: Schreibvorgänge je Kalender ≤ 20 (gezählt „SCHREIBVORGANG“), Mails über outlook.com ≤ 10 („MAIL-OUTLOOK“).
 # Am Ende: Termine und Mails des Laufs über die gemerkten IDs gelöscht (--einladung aufraeumen), fremde Kalender
 # unverändert (--kalender-hash), ~/.config/evolution/sources unverändert. Zeilen „OK …“/„FEHLER …“, Exit 0 ohne Fehler.
@@ -426,6 +429,48 @@ if [[ " $TEILE " == *" 449g "* ]]; then
         || tdp --einladung privat-loeschen "$OUT/einladung-G.json" >/dev/null
     fi
   else echo "FEHLER  G: Einladung nicht gesendet"; FEHLER=$((FEHLER + 1)); fi
+fi
+
+if [[ " $TEILE " == *" 452 "* ]]; then
+  ORG_GOOGLE="$(python3 -c '
+import sys, gi; gi.require_version("EDataServer", "1.2")
+from gi.repository import EDataServer
+r = EDataServer.SourceRegistry.new_sync(None)
+for s in r.list_enabled(EDataServer.SOURCE_EXTENSION_MAIL_IDENTITY):
+    e = s.get_extension(EDataServer.SOURCE_EXTENSION_MAIL_IDENTITY)
+    if (e.get_address() or "").lower() == sys.argv[1]:
+        print("%s <%s>" % (e.get_name(), e.get_address()) if e.get_name() else e.get_address()); break' "$KONTO_GOOGLE")"
+  TITEL_S="Revolution-Test 452 $LAUF S"
+  TAG_S="$(date -d '+14 days' +%Y-%m-%d)"
+  export SCHRITT=anlegen KAL="$KAL_LOKAL" KAL_NAME="$NAME_LOKAL" TEILNEHMER="$KONTO_IMAP_1" ART=s TITEL="$TITEL_S" TAG="$TAG_S" \
+    ORGANISATOR="$ORG_GOOGLE" WOECHENTLICH=1
+  kal_teil m7-452-anlegen "$(ohne "$UID_GOOGLE")" prefer-light
+  unset ORGANISATOR WOECHENTLICH
+  if [ -s "$OUT/eigene-s.uid" ]; then
+    export SCHRITT=folgende-loeschen TAG="$(date -d "$TAG_S +14 days" +%Y-%m-%d)"
+    kal_teil m7-452-loeschen "$(ohne "$UID_GOOGLE")" prefer-light
+    export SCHRITT=folgende-aendern TAG="$(date -d "$TAG_S +7 days" +%Y-%m-%d)" TITEL_NEU="$TITEL_S neu"
+    kal_teil m7-452-aendern "$(ohne "$UID_GOOGLE")" prefer-light
+    for _ in 1 2 3 4 5 6 7 8 9; do
+      td --einladung serie "$OUT/serie-mails.json" "$TITEL_S" >"$OUT/serie-mails.txt" 2>&1
+      [ "$(grep -c '^SERIE-MAIL eingang' "$OUT/serie-mails.txt")" -ge 3 ] && break
+      sleep 20
+    done
+    pruefe "S: CANCEL „Nachfolgende“ gesendet" "$OUT/serie-mails.txt" '^SERIE-MAIL gesendet METHOD CANCEL RECURRENCE-ID .*RANGE=THISANDFUTURE'
+    pruefe "S: CANCEL „Nachfolgende“ angekommen" "$OUT/serie-mails.txt" '^SERIE-MAIL eingang METHOD CANCEL RECURRENCE-ID .*RANGE=THISANDFUTURE'
+    pruefe "S: REQUEST „Nachfolgende“ gesendet" "$OUT/serie-mails.txt" '^SERIE-MAIL gesendet METHOD REQUEST RECURRENCE-ID .*RANGE=THISANDFUTURE'
+    pruefe "S: REQUEST „Nachfolgende“ angekommen" "$OUT/serie-mails.txt" '^SERIE-MAIL eingang METHOD REQUEST RECURRENCE-ID .*RANGE=THISANDFUTURE'
+    pruefe "S: Einladung der Serie ohne RECURRENCE-ID" "$OUT/serie-mails.txt" '^SERIE-MAIL eingang METHOD REQUEST RECURRENCE-ID -$'
+    tdp --einladung serie "$OUT/serie-mails.json" >"$OUT/serie-aufraeumen.txt"
+    for f in s s-neu; do
+      [ -s "$OUT/eigene-$f.uid" ] || continue
+      echo "TERMIN $KAL_LOKAL $(cat "$OUT/eigene-$f.uid") $TITEL_S" >"$OUT/termin-$f.txt"
+      tdp --termin-live loeschen "$KAL_LOKAL" "$OUT/termin-$f.txt" >/dev/null
+      td --termin-live pruefen "$KAL_LOKAL" "$OUT/termin-$f.txt" | grep -q '^VORHANDEN 0' \
+        && echo "OK      S: Termin $f gelöscht" || { echo "FEHLER  S: Termin $f noch da"; FEHLER=$((FEHLER + 1)); }
+    done
+  else echo "FEHLER  S: Termin nicht angelegt"; FEHLER=$((FEHLER + 1)); fi
+  unset SCHRITT KAL KAL_NAME TEILNEHMER ART TITEL TAG TITEL_NEU
 fi
 
 # Aufräumen über die gemerkten IDs.

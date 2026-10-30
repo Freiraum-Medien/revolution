@@ -2351,7 +2351,7 @@ def termin_live(registry, aktion, kal, datei, wann=None):
     if aktion != 'pruefen' and kal not in kalender_schreibbar():
         sys.exit('ABBRUCH: Kalender %s ist nicht zum Schreiben freigegeben' % kal)
     c = kalender_verbinden(registry, kal)
-    if aktion in ('anlegen', 'woechentlich', 'ganztags', 'mehrtaegig'):
+    if aktion in ('anlegen', 'woechentlich', 'ganztags', 'mehrtaegig', 'ganztags-serie'):
         if not wann:
             sys.exit('ABBRUCH: --termin-live %s braucht ZEIT (JJJJ-MM-TTTHH:MM)' % aktion)
         start = termin_datum(wann).astimezone(datetime.timezone.utc)
@@ -2363,9 +2363,10 @@ def termin_live(registry, aktion, kal, datei, wann=None):
         task = os.environ.get('TERMIN_TASK', '373')
         name = '%s %s %s %s' % (TERMIN_PREFIX, task, aktion, datetime.datetime.now().strftime('%H%M%S%f')[:9])
         tag = termin_datum(wann).date()
-        if aktion == 'ganztags':
+        if aktion in ('ganztags', 'ganztags-serie'):
+            # #452: ganztags-serie: drei Tage, wöchentlich, 3 Vorkommen.
             zeiten = ['DTSTART;VALUE=DATE:' + tag.strftime('%Y%m%d'),
-                      'DTEND;VALUE=DATE:' + (tag + datetime.timedelta(days=1)).strftime('%Y%m%d')]
+                      'DTEND;VALUE=DATE:' + (tag + datetime.timedelta(days=1 if aktion == 'ganztags' else 3)).strftime('%Y%m%d')]
         else:
             dauer = datetime.timedelta(days=2, hours=2) if aktion == 'mehrtaegig' else datetime.timedelta(hours=1)
             zeiten = ['DTSTART:' + start.strftime('%Y%m%dT%H%M%SZ'), 'DTEND:' + (start + dauer).strftime('%Y%m%dT%H%M%SZ')]
@@ -2375,6 +2376,8 @@ def termin_live(registry, aktion, kal, datei, wann=None):
                'SUMMARY:' + name]
         if aktion == 'woechentlich':
             ics.append('RRULE:FREQ=WEEKLY;COUNT=5')
+        elif aktion == 'ganztags-serie':
+            ics.append('RRULE:FREQ=WEEKLY;COUNT=3')
         ics.append('END:VEVENT')
         comp = ICalGLib.Component.new_from_string('\r\n'.join(ics))
         uid = c.create_object_sync(comp, ECal.OperationFlags.NONE, cancellable())[1]
@@ -2575,6 +2578,11 @@ def termin_server(registry, kal, uid):
         print('SERVER-FEHLT %s' % uid, flush=True)
         return 0
     termin_ausgabe('SERVER', termin_felder(ICalGLib, haupt), ausnahmen)
+    # #452: EXDATE der Hauptkomponente (gelöschte Vorkommen).
+    p = haupt.get_first_property(ICalGLib.PropertyKind.EXDATE_PROPERTY)
+    while p is not None:
+        print('SERVER exdate %s' % p.get_value_as_string(), flush=True)
+        p = haupt.get_next_property(ICalGLib.PropertyKind.EXDATE_PROPERTY)
     return 0
 
 def kalender_server(registry, kal, monat):
@@ -3865,6 +3873,63 @@ def einladung_kopie_loeschen(d, konten):
             print('SCHREIBVORGANG %s (Graph DELETE Kopie)' % m365)
 
 
+def einladung_serie(registry, datei, titel=None):
+    """#452 (einladung.sh TEILE=452): mit TITEL nur lesend Einladungsmails des Laufs im Gesendet-Ordner von KONTO_GOOGLE
+    und im Posteingang von KONTO_IMAP_1: je Mail METHOD und RECURRENCE-ID; Message-IDs in DATEI für die zweite Form.
+    Ohne TITEL: genau diese Mails über die gemerkten Message-IDs entfernen (Papierkorb, dort UID STORE + UID EXPUNGE)."""
+    konten = konten_finden(registry)
+    if titel is not None:
+        if not titel.startswith('Revolution-Test 452'):
+            sys.exit('ABBRUCH: Titel „Revolution-Test 452 …“')
+        mids = {}
+        for konto, rolle in ((KONTO_GOOGLE, 'gesendet'), (KONTO_IMAP_1, 'eingang')):
+            c = imap_verbinden(konten[konto])
+            try:
+                c.select('"%s"' % imap_rollen(c)[rolle], readonly=True)
+                for u in c.uid('SEARCH', 'CHARSET', 'UTF-8', 'SUBJECT', '"%s"' % titel)[1][0].split():
+                    roh = c.uid('FETCH', u, '(BODY.PEEK[])')[1][0][1]
+                    msg = email.message_from_bytes(roh, policy=email.policy.default)
+                    if titel not in str(msg['Subject']):
+                        continue
+                    mids.setdefault(konto, []).append(msg['Message-ID'])
+                    teil = next((x for x in msg.walk() if x.get_content_type() == 'text/calendar'), None)
+                    ics = teil.get_content().replace('\r\n ', '').replace('\n ', '') if teil is not None else ''
+                    methode = re.search(r'^METHOD:(\S+)', ics, re.M)
+                    rid = re.search(r'^RECURRENCE-ID(.*?)$', ics, re.M)
+                    print('SERIE-MAIL %s METHOD %s RECURRENCE-ID %s' % (rolle, methode.group(1) if methode else '-',
+                                                                        rid.group(1).strip() if rid else '-'))
+            finally:
+                c.logout()
+        with open(datei, 'w') as f:
+            json.dump(mids, f)
+        sys.stdout.flush()
+        return 0
+    with open(datei) as f:
+        mids = json.load(f)
+    for konto, liste in mids.items():
+        c = imap_verbinden(konten[konto])
+        try:
+            rollen = imap_rollen(c)
+            for rolle in ('eingang', 'spam', 'gesendet'):
+                c.select('"%s"' % rollen[rolle])
+                for mid in liste:
+                    uids = einladung_imap_uids(c, mid)
+                    if uids:
+                        c.uid('MOVE', b','.join(uids).decode(), '"%s"' % rollen['papierkorb'])
+            c.select('"%s"' % rollen['papierkorb'])
+            for mid in liste:
+                uids = einladung_imap_uids(c, mid)
+                if uids:
+                    menge = b','.join(uids).decode()
+                    c.uid('STORE', menge, '+FLAGS', '(\\Deleted)')
+                    c.uid('EXPUNGE', menge)
+                    print('AUFGERAEUMT serie %s' % rolle)
+        finally:
+            c.logout()
+    sys.stdout.flush()
+    return 0
+
+
 def einladung_aufraeumen(registry, datei):
     ECal, _ = ecal()
     d = einladung_daten(datei)
@@ -4087,6 +4152,8 @@ def main():
             return einladung_rest(reg, a[1])
         if a[0] == 'aufraeumen' and len(a) == 2:
             return einladung_aufraeumen(reg, a[1])
+        if a[0] == 'serie' and len(a) in (2, 3):
+            return einladung_serie(reg, *a[1:])
         ap.error('--einladung: siehe Kopf von tests/testdaten.py')
     if args.zustellung or args.aufraeumen:
         adresse = (args.zustellung or args.aufraeumen)[0].lower()

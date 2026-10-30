@@ -1765,7 +1765,7 @@ def versand(e, ab, text):
 
 def einladung():
     """#377 (tests/einladung.sh TEILE=377): SCHRITT anlegen | aendern | loeschen eines Termins mit Teilnehmer im Kalender
-    KAL. Teilnehmer per Alt+I, Adresse, Enter; Status je Zeile; Log „Einladung: REQUEST|CANCEL …“ (Server plant bzw.
+    KAL (#449, TEILE=449: erinnerung | titel | entfernen). Teilnehmer per Alt+I, Adresse, Enter; Status je Zeile; Log „Einladung: REQUEST|CANCEL …“ (Server plant bzw.
     Postausgang); Gegenprobe Python-GI und Server (Beginn wie im Editor)."""
     schritt, kal, titel = os.environ['SCHRITT'], os.environ['KAL'], os.environ['TITEL']
     teilnehmer, art = os.environ['TEILNEHMER'], os.environ['ART']
@@ -1809,6 +1809,16 @@ def einladung():
                 taste('Return')
             time.sleep(0.5)
             (ok if any(teilnehmer in x for x in texte(dlg)) else falsch)('Wieder hinzugefügt')
+        if os.environ.get('TEILNEHMER2'):
+            # #449: zweiter Teilnehmer (Plus-Adresse desselben Testkontos), damit nach dem Entfernen einer bleibt.
+            ab_z = marke()
+            klick(*mitte(feld))
+            tippe(os.environ['TEILNEHMER2'])
+            taste('Return')
+            if warte(r'Kalender: Teilnehmer 2$', ab_z, 3) is None:
+                taste('Return')
+            m2 = warte(r'Kalender: Teilnehmer 2$', ab_z, 3)
+            (ok if m2 else falsch)('Zweiter Teilnehmer hinzugefügt (Plus-Adresse)')
         titel_feld = finde(dlg, 'text', 'Titel')
         zeigen(dlg, titel_feld)
         klick(*mitte(titel_feld))
@@ -1865,6 +1875,69 @@ def einladung():
         versand(e, ab, 'Aktualisierung')
         gegenprobe(kal, uid, {'titel': titel, 'beginn': zeit_utc(tag, 10, 0), 'ende': zeit_utc(tag, 10, 30)},
                    'Aktualisierung')
+        return
+    if schritt in ('erinnerung', 'titel', 'entfernen'):
+        # #449: nur Erinnerung → keine Mail, SEQUENCE gleich; Titel → genau 1 Aktualisierung; Teilnehmer entfernen →
+        # CANCEL nur an ihn (bzw. „Server plant“), SEQUENCE + 1 (Python-GI, zweiter Prozess).
+        vorher = felder(testdaten('--termin-details', kal, uid), 'GI')
+        if schritt == 'erinnerung':
+            erinnerung_waehlen(dlg, '10 Minuten')
+        elif schritt == 'titel':
+            feld_setzen(dlg, 'Titel', os.environ['TITEL_NEU'])
+        else:
+            knopf = finde(dlg, 'button', '%s entfernen' % os.environ.get('TEILNEHMER_WEG', teilnehmer))
+            if knopf is None:
+                falsch('Entfernen-Knopf für den Teilnehmer fehlt')
+                return
+            druecke(knopf)
+            time.sleep(0.5)
+        ab = marke()
+        m = speichern_und_warten(kal, 'ändern', ab)
+        (ok if m and m.group(1) == 'fertig' else falsch)('Ändern (%s): %s' % (schritt, m and m.group(0)))
+        if schritt == 'entfernen':
+            e = warte(r'Einladung: (CANCEL .*)$', ab, 60)
+            (ok if e and e.group(1) == os.environ['CANCEL_SOLL'] else falsch)(
+                'Absage an den entfernten Teilnehmer: %s (soll %s)' % (e and e.group(1), os.environ['CANCEL_SOLL']))
+            versand(e, ab, 'Absage an den Entfernten')
+        else:
+            e = warte(r'Einladung: REQUEST (.*)$', ab, 30)
+            if schritt == 'titel':
+                (ok if e else falsch)('Aktualisierung nach dem Titel: %s' % (e and e.group(1)))
+                versand(e, ab, 'Aktualisierung')
+        time.sleep(10)
+        log = log_text()[ab:]
+        n_req = len(re.findall(r'Einladung: REQUEST ', log))
+        n_post = len(re.findall(r'Postausgang: \S+ abgelegt', log))
+        if schritt == 'erinnerung':
+            (ok if n_req == 0 and n_post == 0 and 'Einladung: keine Aktualisierung, nichts für Teilnehmer geändert' in log
+             else falsch)('Nur Erinnerung: keine Aktualisierung, Postausgang unberührt (REQUEST %d, Postausgang %d)' % (
+                 n_req, n_post))
+        elif schritt == 'titel':
+            (ok if n_req == 1 and n_post == 1 else falsch)('Titel: genau 1 Aktualisierung (REQUEST %d, Postausgang %d)' % (
+                n_req, n_post))
+        else:
+            # Mit zweitem Teilnehmer: genau 1 Aktualisierung an den verbliebenen; Server plant: nichts im Postausgang.
+            server = 'Server plant' in os.environ['CANCEL_SOLL']
+            req_soll = 1 if os.environ.get('TEILNEHMER2') else 0
+            post_soll = 0 if server else 1 + req_soll
+            (ok if n_req == req_soll and n_post == post_soll else falsch)(
+                'Entfernen: REQUEST %d (soll %d), Postausgang %d (soll %d)' % (n_req, req_soll, n_post, post_soll))
+            if req_soll:
+                r = re.search(r'Einladung: REQUEST (.*)$', log, re.M)
+                (ok if r and r.group(1) == ('Server plant' if server else 'an 1 Teilnehmer über den Postausgang')
+                 else falsch)('Aktualisierung an den verbliebenen Teilnehmer: %s' % (r and r.group(1)))
+                if not server:
+                    versand(r, ab, 'Aktualisierung an den Verbliebenen')
+        soll = {'sequenz': vorher.get('sequenz') if schritt == 'erinnerung' else str(int(vorher.get('sequenz', '0')) + 1)}
+        if os.environ.get('SEQUENZ') == '0':  # microsoft365: SEQUENCE führt Exchange
+            del soll['sequenz']
+        if schritt == 'erinnerung':
+            soll['erinnerung'] = '10'
+        elif schritt == 'titel':
+            soll['titel'] = os.environ['TITEL_NEU']
+        else:
+            soll['teilnehmer'] = '1' if os.environ.get('TEILNEHMER2') else '0'
+        gegenprobe(kal, uid, soll, '#449 %s (SEQUENCE vorher %s)' % (schritt, vorher.get('sequenz')), mit_server=False)
         return
     if schritt == 'rueckgaengig':
         # Löschen über den Editor, dann „Rückgängig“ im Toast: kein CANCEL, nichts im Postausgang, Termin bleibt.

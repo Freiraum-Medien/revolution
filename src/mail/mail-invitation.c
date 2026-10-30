@@ -571,6 +571,7 @@ typedef struct
   ESource    *calendar;
   CamelMimeMessage *reply;
   char       *status;
+  gboolean    google;   /* #449 */
 } Response;
 
 static void
@@ -718,6 +719,23 @@ respond_thread (GTask        *task,
       top = new_toplevel (inv, I_CAL_METHOD_REQUEST, g_object_ref (comp));
       if (!e_cal_client_receive_objects_sync (E_CAL_CLIENT (client), top, E_CAL_OPERATION_FLAG_NONE, cancellable, &error))
         {
+          /* #449: Google-CalDAV (Host wie EDS e-cal-backend-caldav.c:106-109) lehnt das Schreiben mit HTTP 400 ab, wenn
+           * Google die Einladung schon versteckt übernommen hat (#447, Messung #376). Fehlerbereich und Code kommen über
+           * D-Bus unverändert an (e-webdav-session.c:1007-1044 E_SOUP_SESSION_ERROR, Code = HTTP-Status). */
+          ESourceWebdav *webdav = e_source_has_extension (response->calendar, E_SOURCE_EXTENSION_WEBDAV_BACKEND)
+                                    ? e_source_get_extension (response->calendar, E_SOURCE_EXTENSION_WEBDAV_BACKEND) : NULL;
+          g_autoptr (GUri) uri = webdav != NULL ? e_source_webdav_dup_uri (webdav) : NULL;
+          const char *host = uri != NULL ? g_uri_get_host (uri) : NULL;
+
+          response->google = g_error_matches (error, E_SOUP_SESSION_ERROR, SOUP_STATUS_BAD_REQUEST) && host != NULL &&
+                             g_strcmp0 (e_source_backend_get_backend_name (
+                                          e_source_get_extension (response->calendar, E_SOURCE_EXTENSION_CALENDAR)),
+                                        "caldav") == 0 &&
+                             (e_util_host_is_in_domain (host, "google.com") ||
+                              e_util_host_is_in_domain (host, "googleapis.com") ||
+                              e_util_host_is_in_domain (host, "googleusercontent.com"));
+          g_debug ("Einladung: Schreibfehler %s %d, Google %s", g_quark_to_string (error->domain), error->code,
+                   response->google ? "ja" : "nein");
           g_task_return_error (task, error);
           return;
         }
@@ -902,7 +920,10 @@ on_responded (GObject      *source_object,
     set_busy (self, FALSE);
   if (!g_task_propagate_boolean (G_TASK (result), &error))
     {
-      if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+      if (response->google)
+        show_error (self, _("Google has already added this invitation to your Google Calendar. Please respond there."),
+                    error->message);
+      else if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
         show_error (self, _("Unable to update calendar"), error->message);
       return;
     }

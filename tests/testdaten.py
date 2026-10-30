@@ -2479,6 +2479,9 @@ def termin_details(registry, kal, uid):
         print('GI-FEHLT %s' % uid, flush=True)
         return 0
     termin_ausgabe('GI', termin_felder(ICalGLib, haupt), ausnahmen)
+    # #449: SEQUENCE und Anzahl der Teilnehmer (Aktualisierung nur bei Änderungen für Teilnehmer).
+    print('GI sequenz %d' % max(haupt.get_sequence(), 0))
+    print('GI teilnehmer %d' % haupt.count_properties(ICalGLib.PropertyKind.ATTENDEE_PROPERTY), flush=True)
     # #375 Runde 2: Vorkommen (Beginn, Titel) über e_cal_client_generate_instances_for_uid (Nachfolgende Termine)
     jetzt = datetime.datetime.now(datetime.timezone.utc)
     vork = []
@@ -3514,6 +3517,10 @@ def einladung_anlegen(registry, organisator, teilnehmer, datei, titel, beginn):
     return 0
 
 
+# #449: „abgesagt“ nur Absagen, „aktualisiert“ keine Absagen (beide kommen nach dem Entfernen eines Teilnehmers).
+ABSAGE_ARTEN = {a: ('Abgesagt', 'Canceled', 'Cancelled', 'Termin abgesagt') for a in ('abgesagt', 'aktualisiert')}
+
+
 def einladung_warten(registry, art, datei):
     d = einladung_daten(datei)
     konto = d['organisator'] if art == 'antwort' else d['teilnehmer']
@@ -3527,7 +3534,8 @@ def einladung_warten(registry, art, datei):
                               '&$select=id,subject,internetMessageId' % ordner)['value']
                 mails = [m for m in mails if d['titel'] in (m['subject'] or '') and
                          m['id'] not in [x.get('id') for x in d['mails']] and
-                         (art != 'antwort' or not m['subject'].startswith(('Einladung', 'Invitation')))]
+                         (art != 'antwort' or not m['subject'].startswith(('Einladung', 'Invitation'))) and
+                         (art not in ABSAGE_ARTEN or m['subject'].startswith(ABSAGE_ARTEN[art]) == (art == 'abgesagt'))]
                 if mails:
                     m = mails[0]
                     d['mails'].append({'art': art, 'konto': konto, 'id': m['id'], 'mid': m['internetMessageId']})
@@ -3550,7 +3558,10 @@ def einladung_warten(registry, art, datei):
                             continue
                         if art == 'antwort' and betreff.startswith(('Einladung', 'Invitation')):
                             continue
-                        if art != 'absage' and betreff.startswith(('Abgesagt', 'Canceled', 'Cancelled', 'Termin abgesagt')):
+                        if art not in ('absage', 'abgesagt') and \
+                                betreff.startswith(('Abgesagt', 'Canceled', 'Cancelled', 'Termin abgesagt')):
+                            continue
+                        if art == 'abgesagt' and not betreff.startswith(ABSAGE_ARTEN[art]):
                             continue
                         if rolle == 'spam':
                             # Nur diese Mail des Laufs aus dem Spam in den Posteingang (UID MOVE, RFC 6851).
@@ -3746,6 +3757,11 @@ def einladung_kopie(registry, datei):
                         f.write(mime)
                     meth = re.search(rb'^METHOD:(\S+)', mime.replace(b'=\r\n', b''), re.M)
                     print('MIME %s text/calendar METHOD %s' % (ordner, meth.group(1).decode() if meth else '-'))
+                    # #449: Empfänger nur als Art (Hauptadresse bzw. Plus-Adresse), ohne Adressen.
+                    an = email.message_from_bytes(mime, policy=email.policy.default).get_all('To') or []
+                    arten = sorted('plus' if '+' in a.addr_spec.split('@')[0] else 'haupt'
+                                   for h in an for a in h.addresses)
+                    print('AN %s %s METHOD %s' % (ordner, '+'.join(arten) or '-', meth.group(1).decode() if meth else '-'))
     for ev in evs:
         print('KOPIE %s %s abgesagt %s' % (ev['start']['dateTime'][:16], ev['start']['timeZone'],
                                            'ja' if ev.get('isCancelled') else 'nein'))
@@ -3810,7 +3826,9 @@ def einladung_aufraeumen(registry, datei):
             print('SCHREIBVORGANG %s (Graph DELETE Organisator)' % m365)
             print('MAIL-OUTLOOK 1 Absage (Exchange)')
         except urllib.error.HTTPError as f:
-            print('ORGANISATOR schon weg HTTP %d' % f.code)
+            # #449: nur 404 heißt weg; 429 ErrorExceededMessageLimit (Tageslimit Versand) lässt den Termin stehen.
+            print('ORGANISATOR schon weg HTTP 404' if f.code == 404 else
+                  'UEBRIG %s Organisator nicht gelöscht, HTTP %d %s' % (m365[:8], f.code, f.read()[:200]))
     # Google-CalDAV (Organisator oder Kopie): genau ein Treffer mit exakt der gemerkten UID und SUMMARY
     # „Revolution-Test…“ (PM 30.10.2026 nach dem Vorfall), sonst Abbruch ohne DELETE.
     treffer = caldav_uid(konten, basis, d['uid'])
@@ -3981,7 +3999,7 @@ def main():
         reg, a = EDataServer.SourceRegistry.new_sync(None), args.einladung
         if a[0] == 'anlegen' and len(a) == 6:
             return einladung_anlegen(reg, a[1].lower(), a[2].lower(), *a[3:])
-        if a[0] == 'warten' and len(a) == 3 and a[1] in ('einladung', 'absage', 'antwort', 'aktualisierung'):
+        if a[0] == 'warten' and len(a) == 3 and a[1] in ('einladung', 'absage', 'antwort', 'aktualisierung', 'abgesagt', 'aktualisiert'):
             return einladung_warten(reg, a[1], a[2])
         if a[0] == 'pruefen' and len(a) in (2, 3):
             return einladung_pruefen(reg, *a[1:])

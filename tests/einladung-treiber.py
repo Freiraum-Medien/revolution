@@ -35,6 +35,9 @@ METHODE = os.environ['METHODE']
 MAIL = os.environ.get('MAIL', 'nein')
 TASTE = os.environ.get('TASTE') == '1'
 FEHLER_ERWARTET = os.environ.get('FEHLER_ERWARTET') == '1'
+# #449: Bannertext bei Googles versteckter Kopie (po/de.po).
+GOOGLE_TEXT = ('Google hat diese Einladung bereits in Ihren Google Kalender übernommen. '
+               'Bitte antworten Sie dort.')
 LOG = os.path.join(OUT, NAME + '.log')
 VERSATZ = int(os.environ.get('VERSATZ', '15'))
 # Knöpfe (deutsch, abbruch.sh setzt LC_ALL=de_DE.UTF-8) mit Zugriffstaste aus po/de.po.
@@ -297,8 +300,11 @@ def lauf():
 
 def fehler_erwartet(karte, ab):
     """#376 R2: Schreibfehler (Google HTTP 400, #447): Warnung im Log, Banner per AT-SPI sichtbar, kein Stand auf der
-    Karte, keine Antwort im Postausgang."""
-    w = warte(r'revolution-WARNING \*\*: [\d:.]+: (Kalender konnte nicht aktualisiert werden): (.*)$', ab, 120)
+    Karte, keine Antwort im Postausgang. #449: erkannt (Fehlerbereich und HTTP-Status im Log), klarer Bannertext."""
+    g = warte(r'Einladung: Schreibfehler (\S+) (\d+), Google (\S+)$', ab, 120)
+    (ok if g and g.groups() == ('e-soup-session-error-quark', '400', 'ja') else falsch)(
+        'Schreibfehler erkannt: %s' % (g and g.group(0)))
+    w = warte(r'revolution-WARNING \*\*: [\d:.]+: (%s): (.*)$' % re.escape(GOOGLE_TEXT), ab, 120)
     if w is None:
         falsch('erwarteter Schreibfehler nicht im Log')
         bild('fehler-kein-fehler')
@@ -340,7 +346,7 @@ def main():
         log.close()
     andere = [z for z in log_text().splitlines()
               if z.strip() and 'revolution-DEBUG' not in z and not z.startswith('libEGL warning')
-              and not (FEHLER_ERWARTET and 'revolution-WARNING' in z and 'Kalender konnte nicht aktualisiert werden' in z)]
+              and not (FEHLER_ERWARTET and 'revolution-WARNING' in z and GOOGLE_TEXT in z)]
     (ok if not andere else falsch)('keine Warnungen/Criticals im Log%s' % ('' if not andere else ': %s' % andere[:3]))
     return 1 if fehler else 0
 

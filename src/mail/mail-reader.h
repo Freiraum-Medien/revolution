@@ -12,6 +12,7 @@
 #include <webkit/webkit.h>
 
 #include "mail-folder.h"
+#include "mail-header.h"
 #include "mail-message.h"
 
 G_BEGIN_DECLS
@@ -26,7 +27,7 @@ void revolution_mail_reader_show  (RevolutionMailReader  *self,
                                    RevolutionMailMessage *message);
 void revolution_mail_reader_clear (RevolutionMailReader  *self);
 void revolution_mail_reader_set_compact (RevolutionMailReader *self,
-                                         gboolean              compact);
+                                         RevolutionMailHeader *header);
 char *revolution_mail_reader_message_html (CamelMimeMessage *message,
                                            GCancellable     *cancellable);
 void revolution_mail_reader_disable_prefetch (WebKitSettings *settings);

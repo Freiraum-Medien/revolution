@@ -101,7 +101,7 @@ inline-view-switcher.app-switcher > toggle-group.icons > toggle {
 }
 
 /* Eine Linie (Arnd 30.10.2026, Task 454): „Favoriten“, Listen-Titel und Absendername haben dieselbe
- * Oberkante. Die Linie setzt der Nachrichtenkopf (mail-reader.blp header_grid margin-top 14 unter
+ * Oberkante. Die Linie setzt der Nachrichtenkopf (mail-header.blp grid margin-top 14 unter
  * der 50px-Kopfleiste), die anderen Spalten richten sich danach: Seitenleiste über .sidebar-grip,
  * einen leeren GtkWindowHandle über der Liste (Fläche bleibt frei bis auf das schwebende Hauptmenü,
  * scrollt mit), Liste über .list-heading. Kontakte: erster Buchstabenkopf ohne 18px, Liste oben 3px statt 4px (.contact-list). */
@@ -239,7 +239,11 @@ menubutton.primary-menu popover.menu separator {
   background-color: color-mix(in srgb, var(--accent-bg-color) 24%, transparent);
 }
 
-/* Task 401 Punkt 5: Mailkopf graziler (Vorbild 13). */
+/* Task 401 Punkt 5: Mailkopf graziler (Vorbild 13). Task 455: ein Tick kleiner, in Einzelansicht und Konversation. */
+.mail-header {
+  font-size: 0.92em;
+}
+
 .mail-sender {
   font-weight: 600;
 }
@@ -248,8 +252,89 @@ menubutton.primary-menu popover.menu separator {
   font-weight: 400;
 }
 
-.mail-details {
+/* Task 455: Namen im Kopf als Textlink. In Ruhe gedimmt, überfahren oder mit offenem Popover Akzent und unterstrichen
+ * (Mockup design1-kopf.png, Kommentar 1306). „Details“ und die Links im Popover immer Akzent. */
+button.mail-name,
+button.mail-link {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border-radius: 3px;
+  background: none;
   font-weight: 400;
+  outline-offset: 1px;
+}
+
+/* Gedimmt nur der Text, der Fokusring des Knopfs bleibt voll sichtbar. */
+button.mail-name > label {
+  opacity: var(--dim-opacity);
+}
+
+button.mail-name:hover > label,
+button.mail-name.open > label {
+  opacity: 1;
+  color: var(--accent-color);
+}
+
+button.mail-name:hover > label,
+button.mail-name.open > label,
+button.mail-link:hover > label {
+  text-decoration-line: underline;
+}
+
+button.mail-link,
+button.mail-link:hover,
+button.mail-link:active,
+button.mail-link:checked {
+  background: none;
+  color: var(--accent-color);
+}
+
+/* Task 455: Kontakt-Popover (mail-contact-popover.blp), Maße aus design1-popover.png (3× zu 1,24× logisch). Zeile
+ * ohne Knopf-Optik, Hover als Pille Akzent 10 %, Symbol und Text Akzent (Kommentare 1298, 1300). */
+popover.contact-popover > contents {
+  padding: 0;
+}
+
+.contact-popover-name {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.contact-popover-company {
+  font-size: 12px;
+}
+
+.contact-popover button.contact-row {
+  min-height: 27px;
+  padding: 0 8px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 400;
+  background: none;
+}
+
+.contact-popover button.contact-row image {
+  opacity: var(--dim-opacity);
+}
+
+.contact-popover button.contact-row:hover {
+  background-color: color-mix(in srgb, var(--accent-color) 10%, transparent);
+  color: var(--accent-color);
+}
+
+.contact-popover button.contact-row:active {
+  background-color: color-mix(in srgb, var(--accent-color) 16%, transparent);
+  color: var(--accent-color);
+}
+
+.contact-popover button.contact-row:hover image,
+.contact-popover button.contact-row:active image {
+  opacity: 1;
+}
+
+.contact-popover button.mail-link {
+  font-size: 12px;
 }
 
 /* Task 356: Anhänge als Pillen (Dokument #5, wie die Pillen im Composer, composer-hell.png) in einer
@@ -734,10 +819,19 @@ avatar.color14 {
   background-color: color-mix(in srgb, currentColor 10%, transparent);
 }
 
-.conversation-header {
-  padding: 8px 12px 8px 4px;
+.conversation-row {
+  padding: 8px 0 8px 4px;
   border-radius: 12px;
-  font-weight: normal;
+}
+
+.conversation-row:hover {
+  background-color: color-mix(in srgb, currentColor 5%, transparent);
+}
+
+.conversation-header:focus:focus-visible {
+  outline: 2px solid var(--focus-ring-color);
+  outline-offset: 2px;
+  border-radius: 8px;
 }
 
 /* Task 375: Termin-Popover und Erinnerungen. Übernommen aus gnome-calendar 50.0 src/theme/style.css:32-44 (popover.alarms),

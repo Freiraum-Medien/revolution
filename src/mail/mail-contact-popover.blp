@@ -1,0 +1,222 @@
+// Kontakt-Popover (#455) unter einem Namen im Nachrichtenkopf. Mockup
+// Design/Mockup/2026-10-30-design1-popover.png (Fassung 10, 3× von -kopf.png, das 1,24× logisch ist).
+// Zeilen sind selbst die Aktion (Kommentare 1298, 1300). Daten setzt mail-contact-popover.c.
+using Gtk 4.0;
+using Adw 1;
+
+template $RevolutionMailContactPopover: Popover {
+  position: bottom;
+  closed => $on_closed() swapped;
+
+  styles [
+    "contact-popover",
+  ]
+
+  child: Box {
+    orientation: vertical;
+    width-request: 235;
+
+    Box {
+      spacing: 10;
+      margin-start: 16;
+      margin-end: 16;
+      margin-top: 16;
+      margin-bottom: 11;
+
+      Adw.Avatar avatar {
+        size: 36;
+        show-initials: true;
+      }
+
+      Box {
+        orientation: vertical;
+        valign: center;
+
+        Label name_label {
+          xalign: 0;
+          wrap: true;
+          wrap-mode: word_char;
+          max-width-chars: 44;
+
+          styles [
+            "contact-popover-name",
+          ]
+        }
+
+        Revealer company_revealer {
+          transition-type: slide_down;
+
+          child: Label company_label {
+            xalign: 0;
+            wrap: true;
+            wrap-mode: word_char;
+            max-width-chars: 44;
+
+            styles [
+              "contact-popover-company",
+              "dimmed",
+            ]
+          };
+        }
+      }
+    }
+
+    Separator {
+      margin-start: 16;
+      margin-end: 16;
+    }
+
+    Box {
+      orientation: vertical;
+      margin-start: 16;
+      margin-end: 16;
+      margin-top: 10;
+      margin-bottom: 10;
+
+      Button mail_row {
+        tooltip-text: _("Write Mail");
+        clicked => $on_mail_clicked() swapped;
+
+        styles [
+          "flat",
+          "contact-row",
+        ]
+
+        child: Box {
+          spacing: 10;
+
+          Image {
+            icon-name: "mail-unread-symbolic";
+            pixel-size: 13;
+            accessible-role: presentation;
+          }
+
+          Label mail_label {
+            xalign: 0;
+            wrap: true;
+            wrap-mode: word_char;
+            max-width-chars: 44;
+          }
+        };
+      }
+
+      Revealer phone_revealer {
+        transition-type: slide_down;
+
+        child: Button phone_row {
+          tooltip-text: _("Call");
+          clicked => $on_phone_clicked() swapped;
+
+          styles [
+            "flat",
+            "contact-row",
+          ]
+
+          child: Box {
+            spacing: 10;
+
+            Image {
+              icon-name: "call-start-symbolic";
+              pixel-size: 13;
+              accessible-role: presentation;
+            }
+
+            Label phone_label {
+              xalign: 0;
+              wrap: true;
+              wrap-mode: word_char;
+              max-width-chars: 44;
+            }
+          };
+        };
+      }
+
+      Revealer place_revealer {
+        transition-type: slide_down;
+
+        child: Button place_row {
+          tooltip-text: _("Navigation");
+          clicked => $on_place_clicked() swapped;
+
+          styles [
+            "flat",
+            "contact-row",
+          ]
+
+          child: Box {
+            spacing: 10;
+
+            Image {
+              icon-name: "mark-location-symbolic";
+              pixel-size: 13;
+              accessible-role: presentation;
+            }
+
+            Label place_label {
+              xalign: 0;
+              wrap: true;
+              wrap-mode: word_char;
+              max-width-chars: 44;
+            }
+          };
+        };
+      }
+    }
+
+    Separator {
+      margin-start: 16;
+      margin-end: 16;
+    }
+
+    // Gleich hoch in allen drei Zuständen: das Warten auf das Adressbuch verschiebt nichts.
+    Stack bottom {
+      hhomogeneous: true;
+      vhomogeneous: true;
+      margin-top: 11;
+      margin-bottom: 15;
+
+      StackPage {
+        name: "search";
+
+        child: Adw.Spinner {
+          halign: center;
+          valign: center;
+          width-request: 16;
+          height-request: 16;
+
+          accessibility {
+            label: _("Searching Address Books");
+          }
+        };
+      }
+
+      StackPage {
+        name: "known";
+
+        child: Button {
+          label: _("Open in Address Book");
+          halign: center;
+          clicked => $on_open_clicked() swapped;
+
+          styles [
+            "mail-link",
+          ]
+        };
+      }
+
+      StackPage {
+        name: "unknown";
+
+        child: Button {
+          label: _("Save Contact");
+          halign: center;
+          clicked => $on_save_clicked() swapped;
+
+          styles [
+            "mail-link",
+          ]
+        };
+      }
+    }
+  };
+}

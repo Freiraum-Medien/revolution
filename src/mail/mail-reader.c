@@ -52,19 +52,9 @@ typedef enum
 struct _RevolutionMailReader
 {
   AdwBin          parent_instance;
-  AdwAvatar      *avatar;
-  GtkLabel       *sender_label;
-  GtkImage       *folder_icon;
-  GtkLabel       *folder_label;
-  GtkLabel       *date_label;
-  GtkLabel       *subject_label;
-  GtkLabel       *to_caption;
-  GtkLabel       *to_label;
-  GtkToggleButton *details_button;
-  GtkLabel       *from_full;
-  GtkLabel       *to_full;
-  GtkLabel       *cc_full;
-  GtkLabel       *date_full;
+  /* #455: Kopf der Einzelansicht; shown_header ist er oder der des Konversationseintrags (geliehen). */
+  RevolutionMailHeader *header;
+  RevolutionMailHeader *shown_header;
   GtkWidget      *notice;
   GMenu          *notice_menu;
   GtkWidget      *notice_button;
@@ -95,8 +85,6 @@ struct _RevolutionMailReader
   /* #357: in der Konversation (mail-conversation.c): ohne eigenen Kopf, Höhe nach dem Inhalt. */
   gboolean        compact;
   int             fitted_width;
-  GtkWidget      *sender_row;
-  GtkWidget      *header_grid;
   GtkWidget      *content_card;
   AdwClamp       *fit_clamp;
   guint           fit_id;
@@ -143,10 +131,11 @@ typedef struct _LoadMessage
   GPtrArray    *attachments;
   /* #376: erster Kalenderteil (iCalendar-Text) */
   char         *calendar;
-  char         *to_short;
-  char         *to_full;
-  char         *cc_full;
-  char         *from_full;
+  /* #455: Empfänger für den Kopf, aus der Nachricht des Workers (nur gelesen). */
+  CamelInternetAddress *from;
+  CamelInternetAddress *to;
+  CamelInternetAddress *cc;
+  CamelInternetAddress *bcc;
   gint64        date;
   char         *sender;
   gboolean      sender_allowed;
@@ -164,10 +153,10 @@ load_message_free (LoadMessage *load)
   g_clear_pointer (&load->parts, g_hash_table_unref);
   g_clear_pointer (&load->attachments, g_ptr_array_unref);
   g_free (load->calendar);
-  g_free (load->to_short);
-  g_free (load->to_full);
-  g_free (load->cc_full);
-  g_free (load->from_full);
+  g_clear_object (&load->from);
+  g_clear_object (&load->to);
+  g_clear_object (&load->cc);
+  g_clear_object (&load->bcc);
   g_free (load->sender);
   g_free (load);
 }
@@ -513,41 +502,6 @@ revolution_mail_reader_message_html (CamelMimeMessage *message,
   return g_string_free (collect.body, FALSE);
 }
 
-/* Anzeigenamen der Empfänger für die Zeile „An:“, sonst die Adresse. Ein Name in spitzen
- * Klammern gilt als kein Name (microsoft365, camel-m365-folder.c:787-800, wie mail-message.c). */
-static char *
-names_for (CamelInternetAddress *address)
-{
-  GString *names = g_string_new (NULL);
-
-  for (int i = 0; address != NULL && i < camel_address_length (CAMEL_ADDRESS (address)); i++)
-    {
-      const char *name = NULL, *email = NULL;
-      g_autofree char *bare = NULL;
-
-      if (!camel_internet_address_get (address, i, &name, &email))
-        continue;
-
-      bare = g_strstrip (g_strdup (name != NULL ? name : ""));
-      if (*bare == '<' || (email != NULL && g_ascii_strcasecmp (bare, email) == 0))
-        bare[0] = '\0';
-
-      if (names->len > 0)
-        g_string_append (names, ", ");
-      g_string_append (names, *bare != '\0' ? bare : (email != NULL ? email : ""));
-    }
-
-  return g_string_free (names, FALSE);
-}
-
-static char *
-format_address (CamelInternetAddress *address)
-{
-  char *text = address != NULL ? camel_address_format (CAMEL_ADDRESS (address)) : NULL;
-
-  return text != NULL ? text : g_strdup ("");
-}
-
 /* Krücke: WebKitGTK 2.52.6 setzt prefers-color-scheme fensterweit nach GtkSettings
  * gtk-application-prefer-dark-theme, keine API je WebView (Beleg: strings libwebkitgtk-6.0.so.4 kennt
  * nur „notify::gtk-application-prefer-dark-theme“ und „notify::gtk-theme-name“; Testprogramm mit
@@ -770,11 +724,11 @@ load_message_thread (GTask        *task,
       return;
     }
 
-  load->from_full = format_address (camel_mime_message_get_from (message));
   check_sender (load, camel_mime_message_get_from (message));
-  load->to_short = names_for (camel_mime_message_get_recipients (message, CAMEL_RECIPIENT_TYPE_TO));
-  load->to_full = format_address (camel_mime_message_get_recipients (message, CAMEL_RECIPIENT_TYPE_TO));
-  load->cc_full = format_address (camel_mime_message_get_recipients (message, CAMEL_RECIPIENT_TYPE_CC));
+  g_set_object (&load->from, camel_mime_message_get_from (message));
+  g_set_object (&load->to, camel_mime_message_get_recipients (message, CAMEL_RECIPIENT_TYPE_TO));
+  g_set_object (&load->cc, camel_mime_message_get_recipients (message, CAMEL_RECIPIENT_TYPE_CC));
+  g_set_object (&load->bcc, camel_mime_message_get_recipients (message, CAMEL_RECIPIENT_TYPE_BCC));
   load->date = camel_mime_message_get_date (message, &offset);
   if (load->date == CAMEL_MESSAGE_DATE_CURRENT || load->date <= 0)
     load->date = camel_mime_message_get_date_received (message, &offset);
@@ -1158,8 +1112,6 @@ set_notice (RevolutionMailReader *self,
             gboolean              visible)
 {
   gtk_widget_set_visible (self->notice, visible);
-  /* #422: Rand des Kopfs wie revolution_mail_reader_set_compact (Abstand zwischen Hinweis und „An:“). */
-  gtk_widget_set_margin_top (self->header_grid, self->compact && !visible ? 0 : 14);
   g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (G_ACTION_MAP (self->actions), "load-remote")),
                                visible);
   g_simple_action_set_enabled (G_SIMPLE_ACTION (g_action_map_lookup_action (G_ACTION_MAP (self->actions), "allow-remote")),
@@ -1552,50 +1504,6 @@ create_web_view (RevolutionMailReader *self)
   return web_view;
 }
 
-/* ------------------------------------------------------------------ Kopf */
-
-/* Datum im Kopf wie der Prototyp („Heute, 07:30“, Design/Prototyp/mail-hell.png). */
-static char *
-header_date (GDateTime *local)
-{
-  g_autoptr (GDateTime) now = g_date_time_new_now_local ();
-  g_autoptr (GDate) day = g_date_new_dmy (g_date_time_get_day_of_month (local), g_date_time_get_month (local),
-                                          g_date_time_get_year (local));
-  g_autoptr (GDate) today = g_date_new_dmy (g_date_time_get_day_of_month (now), g_date_time_get_month (now),
-                                            g_date_time_get_year (now));
-  int days = g_date_days_between (day, today);
-  g_autofree char *time = g_date_time_format (local, "%H:%M");
-
-  if (days == 0)
-    /* Translators: date in the message header, %s is the time. */
-    return g_strdup_printf (_("Today, %s"), time);
-  if (days == 1)
-    /* Translators: date in the message header, %s is the time. */
-    return g_strdup_printf (_("Yesterday, %s"), time);
-
-  /* Translators: date in the message header (g_date_time_format), e.g. “10/17/2026, 14:05”. */
-  return g_date_time_format (local, _("%m/%d/%Y, %H:%M"));
-}
-
-static void
-set_header (RevolutionMailReader *self,
-            LoadMessage          *load)
-{
-  g_autoptr (GDateTime) local = load->date > 0 ? g_date_time_new_from_unix_local (load->date) : NULL;
-  g_autofree char *date = local != NULL ? header_date (local) : g_strdup ("");
-  /* Translators: full date in the details (g_date_time_format). */
-  g_autofree char *full = local != NULL ? g_date_time_format (local, _("%A, %B %-d, %Y, %H:%M:%S")) : g_strdup ("");
-
-  gtk_label_set_label (self->date_label, date);
-  gtk_label_set_label (self->to_label, load->to_short);
-  gtk_widget_set_visible (GTK_WIDGET (self->to_caption), *load->to_short != '\0');
-  gtk_label_set_label (self->from_full, load->from_full);
-  gtk_label_set_label (self->to_full, load->to_full);
-  gtk_label_set_label (self->cc_full, load->cc_full);
-  gtk_widget_set_visible (GTK_WIDGET (self->cc_full), *load->cc_full != '\0');
-  gtk_label_set_label (self->date_full, full);
-}
-
 static void
 on_message_loaded (GObject      *source_object,
                    GAsyncResult *result,
@@ -1616,7 +1524,7 @@ on_message_loaded (GObject      *source_object,
 
   if (error != NULL)
     {
-      g_autofree char *detail = g_strdup_printf ("%s: %s", gtk_label_get_label (self->subject_label), error->message);
+      g_autofree char *detail = g_strdup_printf ("%s: %s", revolution_mail_header_get_subject (self->shown_header), error->message);
 
       show_error (self, _("Message Not Loaded"), detail);
       return;
@@ -1629,7 +1537,8 @@ on_message_loaded (GObject      *source_object,
            strlen (load->html), g_hash_table_size (load->parts), load->scheme_queries,
            load->own_dark ? "ja" : "nein", load->attachments->len);
 
-  set_header (self, load);
+  revolution_mail_header_set_date (self->shown_header, load->date);
+  revolution_mail_header_set_addresses (self->shown_header, load->from, load->to, load->cc, load->bcc);
   revolution_mail_attachment_bar_set (self->attachments, load->attachments);
   revolution_mail_invitation_set (self->invitation, load->account_uid, load->calendar);
   /* #355: Absender freigegeben (Liste im Worker gelesen): gleich mit entfernten Inhalten laden. */
@@ -1748,25 +1657,14 @@ revolution_mail_reader_class_init (RevolutionMailReaderClass *klass)
   widget_class->unroot = revolution_mail_reader_unroot;
   widget_class->size_allocate = revolution_mail_reader_size_allocate;
 
+  g_type_ensure (REVOLUTION_TYPE_MAIL_HEADER);
   g_type_ensure (REVOLUTION_TYPE_MAIL_ATTACHMENT_BAR);
   g_type_ensure (REVOLUTION_TYPE_MAIL_INVITATION);
   shown_signal = g_signal_new ("shown", G_TYPE_FROM_CLASS (klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
                                G_TYPE_NONE, 0);
 
   gtk_widget_class_set_template_from_resource (widget_class, "/de/freiraum_medien/Revolution/mail-reader.ui");
-  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, avatar);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, sender_label);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, folder_icon);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, folder_label);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, date_label);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, subject_label);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, to_caption);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, to_label);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, details_button);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, from_full);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, to_full);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, cc_full);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, date_full);
+  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, header);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, notice);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, notice_menu);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, notice_button);
@@ -1774,8 +1672,6 @@ revolution_mail_reader_class_init (RevolutionMailReaderClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, spinner);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, attachments);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, invitation);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, sender_row);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, header_grid);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailReader, content_card);
 }
 
@@ -1783,6 +1679,7 @@ static void
 revolution_mail_reader_init (RevolutionMailReader *self)
 {
   gtk_widget_init_template (GTK_WIDGET (self));
+  self->shown_header = self->header;
 
   /* #355: Aktionen des Hinweises, Kürzel in mail-reader.blp. */
   self->actions = g_simple_action_group_new ();
@@ -1838,7 +1735,7 @@ revolution_mail_reader_show (RevolutionMailReader  *self,
 {
   g_autoptr (RevolutionMailAccount) account = NULL;
   g_autoptr (RevolutionMailAccount) place_account = NULL;
-  g_autofree char *sender = NULL, *subject = NULL, *folder_name = NULL, *icon = NULL, *account_name = NULL;
+  g_autofree char *sender = NULL, *avatar = NULL, *subject = NULL, *folder_name = NULL, *icon = NULL, *account_name = NULL;
   g_autofree char *place = NULL;
   LoadMessage *load;
 
@@ -1850,7 +1747,7 @@ revolution_mail_reader_show (RevolutionMailReader  *self,
 
   revolution_mail_reader_clear (self);
 
-  g_object_get (message, "sender", &sender, "subject", &subject, NULL);
+  g_object_get (message, "sender", &sender, "avatar", &avatar, "subject", &subject, NULL);
   /* #351: Geladen wird aus folder, angezeigt wird der Ort place_folder: bei Nachrichten aus den
    * Favoriten der echte Ordner wie der Prototyp („Eingang — Privat“, mail-view.c). */
   g_object_get (folder, "account", &account, NULL);
@@ -1859,11 +1756,10 @@ revolution_mail_reader_show (RevolutionMailReader  *self,
   /* Translators: folder and account in the message header, e.g. “Inbox — Private”. */
   place = g_strdup_printf (_("%s — %s"), folder_name, account_name);
 
-  adw_avatar_set_text (self->avatar, sender);
-  gtk_label_set_label (self->sender_label, sender);
-  gtk_label_set_label (self->subject_label, subject);
-  gtk_image_set_from_icon_name (self->folder_icon, icon);
-  gtk_label_set_label (self->folder_label, place);
+  revolution_mail_header_set_summary (self->shown_header, sender, avatar, subject, icon, place);
+  revolution_mail_header_set_source (self->shown_header, session, revolution_mail_account_get_uid (account),
+                                     revolution_mail_folder_get_full_name (folder), revolution_mail_message_get_uid (message),
+                                     revolution_mail_account_get_uid (place_account));
 
   load = g_new0 (LoadMessage, 1);
   load->session = g_object_ref (session);
@@ -1900,26 +1796,24 @@ revolution_mail_reader_clear (RevolutionMailReader *self)
   revolution_mail_attachment_bar_set (self->attachments, NULL);
   revolution_mail_invitation_set (self->invitation, NULL, NULL);
 
-  gtk_label_set_label (self->date_label, "");
-  gtk_label_set_label (self->to_label, "");
-  gtk_label_set_label (self->from_full, "");
-  gtk_label_set_label (self->to_full, "");
-  gtk_label_set_label (self->cc_full, "");
-  gtk_label_set_label (self->date_full, "");
+  revolution_mail_header_clear (self->shown_header);
 
   /* Alte Nachricht sofort ausblenden: WebView unsichtbar statt leere Seite laden (beim Blättern
    * lud sonst jeder Auswahlwechsel eine Seite, PM #354 Runde 2: Frames > 16,7 ms 3 → 12). */
   gtk_widget_set_visible (GTK_WIDGET (self->web_view), FALSE);
 }
 
-/* #357: Darstellung in der Konversation (mail-conversation.c): ohne Bild, Absender, Datum und Betreff
- * (stehen im Kopf der Nachricht in der Konversation), Inhalt so hoch wie die Mail (fit_content). */
+/* #357: Darstellung in der Konversation (mail-conversation.c), Inhalt so hoch wie die Mail (fit_content).
+ * #455: Den Kopf hält dort der Eintrag, auch zugeklappt ohne Lesebereich: header ersetzt den eigenen. */
 void
 revolution_mail_reader_set_compact (RevolutionMailReader *self,
-                                    gboolean              compact)
+                                    RevolutionMailHeader *header)
 {
+  gboolean compact = header != NULL;
+
   g_return_if_fail (REVOLUTION_IS_MAIL_READER (self));
 
+  self->shown_header = compact ? header : self->header;
   self->compact = compact;
   if (compact && self->fit_clamp == NULL)
     {
@@ -1934,12 +1828,7 @@ revolution_mail_reader_set_compact (RevolutionMailReader *self,
       adw_clamp_set_child (self->fit_clamp, GTK_WIDGET (web_view));
       gtk_overlay_set_child (self->content_overlay, GTK_WIDGET (self->fit_clamp));
     }
-  gtk_widget_set_visible (GTK_WIDGET (self->avatar), !compact);
-  gtk_widget_set_visible (self->sender_row, !compact);
-  gtk_widget_set_visible (GTK_WIDGET (self->subject_label), !compact);
-  /* #422: „An:“ direkt unter dem Kopf der Nachricht in der Konversation (sonst Lücke, Rand 14 wie mail-reader.blp);
-   * mit sichtbarem Hinweis bleibt der Rand als Abstand zur Pille (set_notice). */
-  gtk_widget_set_margin_top (self->header_grid, compact && !gtk_widget_get_visible (self->notice) ? 0 : 14);
+  gtk_widget_set_visible (GTK_WIDGET (self->header), !compact);
   gtk_widget_set_vexpand (self->content_card, !compact);
   gtk_widget_set_size_request (self->content_card, -1, compact ? 48 : -1);
 }

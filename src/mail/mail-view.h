@@ -52,6 +52,17 @@ void revolution_mail_view_set_outbox (RevolutionMailView *self,
                                       guint               count);
 RevolutionMailFolder *revolution_mail_view_find_place (RevolutionMailView    *self,
                                                        RevolutionMailMessage *message);
+ESourceRegistry *revolution_mail_view_get_registry (RevolutionMailView *self);
+void revolution_mail_view_compose_to (RevolutionMailView *self,
+                                      const char         *account_uid,
+                                      const char         *name,
+                                      const char         *address);
+void revolution_mail_view_save_contact (RevolutionMailView *self,
+                                        const char         *name,
+                                        const char         *address);
+void revolution_mail_view_open_contact (RevolutionMailView *self,
+                                        const char         *book_uid,
+                                        const char         *contact_uid);
 void revolution_mail_view_show_message (RevolutionMailView *self,
                                         const char         *folder_uri,
                                         const char         *uid);

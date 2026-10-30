@@ -19,5 +19,8 @@ void revolution_contacts_view_set_registry (RevolutionContactsView *self,
                                             ESourceRegistry        *registry);
 void revolution_contacts_view_add_sender   (RevolutionContactsView *self,
                                             const char             *from);
+void revolution_contacts_view_show_contact (RevolutionContactsView *self,
+                                            const char             *book_uid,
+                                            const char             *contact_uid);
 
 G_END_DECLS

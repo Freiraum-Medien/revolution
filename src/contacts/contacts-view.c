@@ -1556,6 +1556,28 @@ revolution_contacts_view_add_sender (RevolutionContactsView *self,
   g_task_run_in_thread (task, job_thread);
 }
 
+/* #455: Kontakt aus dem Popover im Nachrichtenkopf zeigen: Buch wählen, Kontakt wählen, sobald die Live-Ansicht
+ * ihn meldet (select_pending, wie nach dem Anlegen). */
+void
+revolution_contacts_view_show_contact (RevolutionContactsView *self,
+                                       const char             *book_uid,
+                                       const char             *contact_uid)
+{
+  g_autoptr (ESource) source = NULL;
+
+  g_return_if_fail (REVOLUTION_IS_CONTACTS_VIEW (self));
+
+  source = self->registry != NULL ? e_source_registry_ref_source (self->registry, book_uid) : NULL;
+  if (source == NULL || self->editing)
+    return;
+  g_free (self->select_uid);
+  self->select_uid = g_strdup (contact_uid);
+  if (self->book == NULL || !e_source_equal (revolution_contacts_book_get_source (self->book), source))
+    select_book (self, source);
+  else
+    select_pending (self);
+}
+
 static const GActionEntry contact_actions[] = {
   { "new", on_new, NULL, NULL, NULL, { 0 } },
   { "edit", on_edit, NULL, NULL, NULL, { 0 } },

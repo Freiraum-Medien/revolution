@@ -11,6 +11,8 @@ src/mail/mail-queue.c
 src/mail/mail-actions.c
 src/mail/mail-folder-actions.c
 src/mail/mail-reader.c
+src/mail/mail-header.c
+src/mail/mail-contact-popover.c
 src/mail/mail-attachment.c
 src/mail/mail-invitation.c
 src/mail/mail-favorites.c
@@ -27,6 +29,8 @@ src/composer/composer.c
 src/composer/contact-completion.c
 src/mail/mail-view.blp
 src/mail/mail-reader.blp
+src/mail/mail-header.blp
+src/mail/mail-contact-popover.blp
 src/mail/mail-attachment.blp
 src/mail/mail-invitation.blp
 src/mail/mail-conversation.blp

@@ -1,7 +1,7 @@
 subdir('calendar/gcal')
 
 blueprints = []
-foreach blp : ['window.blp', 'mail/mail-view.blp', 'mail/mail-reader.blp', 'mail/mail-conversation.blp', 'mail/mail-attachment.blp', 'mail/mail-invitation.blp', 'composer/composer.blp', 'contacts/contacts-view.blp', 'contacts/contacts-detail.blp', 'contacts/contacts-editor.blp', 'calendar/calendar-view.blp',
+foreach blp : ['window.blp', 'mail/mail-view.blp', 'mail/mail-reader.blp', 'mail/mail-header.blp', 'mail/mail-contact-popover.blp', 'mail/mail-conversation.blp', 'mail/mail-attachment.blp', 'mail/mail-invitation.blp', 'composer/composer.blp', 'contacts/contacts-view.blp', 'contacts/contacts-detail.blp', 'contacts/contacts-editor.blp', 'calendar/calendar-view.blp',
             # #373: gnome-calendar 50.0 (src/calendar/gcal)
             'calendar/gcal/gcal-event-widget.blp', 'calendar/gcal/gcal-month-cell.blp',
             'calendar/gcal/gcal-month-popover.blp', 'calendar/gcal/gcal-month-view.blp',
@@ -49,6 +49,8 @@ executable('revolution',
   'mail/mail-outbox.c',
   'mail/mail-queue.c',
   'mail/mail-reader.c',
+  'mail/mail-header.c',
+  'mail/mail-contact-popover.c',
   'mail/mail-search.c',
   'mail/mail-session.c',
   'mail/mail-thread.c',

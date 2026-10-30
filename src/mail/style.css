@@ -425,8 +425,7 @@ calendar.date-chooser {
   margin-left: 6px;
 }
 
-/* Dunkel: Trennlinien dunkler als der Hintergrund wie der Trennstrich der Mail
- * (.dark .mail-split paned.horizontal > separator). */
+/* Dunkel: Trennlinien dunkler als der Hintergrund. */
 .dark .calendar-main separator {
   background-color: var(--shade-color);
 }

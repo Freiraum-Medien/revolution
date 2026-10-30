@@ -50,6 +50,8 @@ src/calendar/gcal/gcal-event-popover.c
 src/calendar/gcal/gcal-event-popover.blp
 src/calendar/gcal/gcal-event-editor-dialog.c
 src/calendar/gcal/gcal-event-editor-dialog.blp
+src/calendar/gcal/gcal-attendees-section.c
+src/calendar/gcal/gcal-attendees-section.blp
 src/calendar/gcal/gcal-summary-section.blp
 src/calendar/gcal/gcal-notes-section.blp
 src/calendar/gcal/gcal-schedule-section.blp

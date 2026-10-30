@@ -1057,3 +1057,374 @@ revolution_mail_invitation_init (RevolutionMailInvitation *self)
                                    self);
   gtk_widget_insert_action_group (GTK_WIDGET (self), "invitation", G_ACTION_GROUP (self->actions));
 }
+
+/* ------------------------------------------------------------------ Eigene Einladungen (#377) */
+
+/* Verhalten wie Evolution 3.56.2 src/calendar/gui/itip-utils.c (Vorlage, nicht übernommen):
+ *   nur als Organisator (itip_organizer_is_user 227-280: cal-email-address oder eine Identität)
+ *   Server plant (save-schedules), außer Absage bei retract-supported: keine Mail (itip_send_component_begin 2219-2224)
+ *   sonst zuerst das Backend (e_cal_client_send_objects_sync, comp_server_send_sync), bei create-messages schickt es
+ *   selbst (2266-2280; microsoft365: Graph „cancel“, e-cal-backend-m365.c:1737-1828)
+ *   sonst Mail an alle Teilnehmer außer dem Organisator, ohne Erinnerungen, mit den VTIMEZONEs (foreach_tzid_callback
+ *   686-760), Betreff comp_subject 1167-1300; Versand über den Postausgang (#362) statt Composer. */
+typedef struct
+{
+  ECalClient         *client;
+  ICalComponent      *comp;
+  ICalPropertyMethod  method;
+  gboolean            master;
+  CamelMimeMessage   *message;
+  char               *identity_uid;
+} Send;
+
+static void
+send_free (Send *send)
+{
+  g_clear_object (&send->client);
+  g_clear_object (&send->comp);
+  g_clear_object (&send->message);
+  g_free (send->identity_uid);
+  g_free (send);
+}
+
+typedef struct
+{
+  ECalClient    *client;
+  ICalComponent *top;
+  GHashTable    *seen;    /* TZID bzw. Ort → Ort (NULL: schon als Ort eingetragen) */
+  ICalTime      *from;
+  ICalTime      *to;
+} Zones;
+
+/* Wie Evolution 3.56.2 itip-utils.c:686-760 (foreach_tzid_callback): TZID im Parameter und in der VTIMEZONE auf den
+ * Ort („Europe/Berlin“ statt „/freeassociation.sourceforge.net/…“), VTIMEZONE auf den Zeitraum des Termins gekürzt
+ * (e_cal_util_clamp_vtimezone, 748-749, Zeitraum 785-800). */
+static void
+add_zone (ICalParameter *param,
+          gpointer       user_data)
+{
+  Zones *zones = user_data;
+  g_autofree char *tzid = g_strdup (i_cal_parameter_get_tzid (param));
+  ICalTimezone *zone = NULL;
+  ICalComponent *vtimezone, *tzcomp;
+  const char *location;
+  gpointer known = NULL;
+
+  if (tzid == NULL)
+    return;
+  if (g_hash_table_lookup_extended (zones->seen, tzid, NULL, &known))
+    {
+      if (known != NULL)
+        i_cal_parameter_set_tzid (param, known);
+      return;
+    }
+  zone = i_cal_timezone_get_builtin_timezone_from_tzid (tzid);
+  if (zone == NULL && !e_cal_client_get_timezone_sync (zones->client, tzid, &zone, NULL, NULL))
+    zone = NULL;
+  vtimezone = zone != NULL ? i_cal_timezone_get_component (zone) : NULL;
+  if (vtimezone == NULL)
+    return;
+  tzcomp = i_cal_component_clone (vtimezone);
+  g_object_unref (vtimezone);
+  location = i_cal_timezone_get_location (zone);
+  if (location == NULL || *location == '\0')
+    location = NULL;
+  if (location != NULL)
+    {
+      g_autoptr (ICalProperty) prop = i_cal_component_get_first_property (tzcomp, I_CAL_TZID_PROPERTY);
+
+      i_cal_parameter_set_tzid (param, location);
+      /* Ort zuerst prüfen, die TZID erst am Ende eintragen (Evolution 731-737, 757); sonst ginge bei TZID == Ort die
+       * VTIMEZONE verloren. */
+      if (g_hash_table_contains (zones->seen, location))
+        {
+          g_hash_table_insert (zones->seen, g_strdup (tzid), g_strdup (location));
+          g_object_unref (tzcomp);
+          return;
+        }
+      if (prop != NULL)
+        i_cal_property_set_tzid (prop, location);
+      g_hash_table_insert (zones->seen, g_strdup (location), NULL);
+    }
+  if (zones->from != NULL)
+    e_cal_util_clamp_vtimezone (tzcomp, zones->from, zones->to);
+  g_debug ("Einladung: VTIMEZONE %s (%u Abschnitte)", location != NULL ? location : tzid,
+           (guint) (i_cal_component_count_components (tzcomp, I_CAL_XSTANDARD_COMPONENT) +
+                    i_cal_component_count_components (tzcomp, I_CAL_XDAYLIGHT_COMPONENT)));
+  i_cal_component_take_component (zones->top, tzcomp);
+  g_hash_table_insert (zones->seen, g_strdup (tzid), g_strdup (location));
+}
+
+/* Übernommen aus Evolution 3.56.2 itip-utils.c:1681-1735 (strip_x_microsoft_props, remove_schedule_status_parameters),
+ * an ICalComponent angepasst; dazu X-LIC-ERROR wie e_cal_component_strip_errors (1839). */
+static void
+strip_for_sending (ICalComponent *comp)
+{
+  GSList *x = NULL;
+  ICalPropertyKind kinds[] = { I_CAL_ORGANIZER_PROPERTY, I_CAL_ATTENDEE_PROPERTY };
+
+  for (ICalProperty *prop = i_cal_component_get_first_property (comp, I_CAL_X_PROPERTY); prop != NULL;
+       g_object_unref (prop), prop = i_cal_component_get_next_property (comp, I_CAL_X_PROPERTY))
+    {
+      const char *name = i_cal_property_get_x_name (prop);
+
+      if (name != NULL && g_ascii_strncasecmp (name, "X-MICROSOFT-", 12) == 0)
+        x = g_slist_prepend (x, g_object_ref (prop));
+    }
+  for (GSList *l = x; l != NULL; l = l->next)
+    i_cal_component_remove_property (comp, l->data);
+  g_slist_free_full (x, g_object_unref);
+  i_cal_component_strip_errors (comp);
+  for (gsize i = 0; i < G_N_ELEMENTS (kinds); i++)
+    for (ICalProperty *prop = i_cal_component_get_first_property (comp, kinds[i]); prop != NULL;
+         g_object_unref (prop), prop = i_cal_component_get_next_property (comp, kinds[i]))
+      i_cal_property_remove_parameter_by_kind (prop, I_CAL_SCHEDULESTATUS_PARAMETER);
+}
+
+/* Zeilenumbrüche aus Betreff und Namen (Kopfzeilen der Mail). */
+static char *
+one_line (const char *text)
+{
+  return g_strdelimit (g_strdup (text != NULL ? text : ""), "\r\n", ' ');
+}
+
+static void
+send_thread (GTask        *task,
+             gpointer      source_object G_GNUC_UNUSED,
+             gpointer      task_data,
+             GCancellable *cancellable)
+{
+  Send *send = task_data;
+  ESourceRegistry *registry = g_object_get_data (G_OBJECT (g_application_get_default ()), "registry");
+  g_autoptr (ICalProperty) organizer = i_cal_component_get_first_property (send->comp, I_CAL_ORGANIZER_PROPERTY);
+  g_autolist (ESource) identities = registry != NULL ? e_source_registry_list_enabled (registry, E_SOURCE_EXTENSION_MAIL_IDENTITY) : NULL;
+  g_autoptr (CamelInternetAddress) from = camel_internet_address_new ();
+  g_autoptr (CamelInternetAddress) to = camel_internet_address_new ();
+  g_autoptr (GHashTable) seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+  g_autoptr (ICalComponent) master = NULL;
+  g_autoptr (ICalTime) now = NULL;
+  g_autoptr (ICalTime) dtstart = NULL;
+  g_autoptr (ICalTime) dtend = NULL;
+  g_autofree char *summary = NULL;
+  ICalComponent *source = send->comp;
+  g_autofree char *cal_address = NULL, *text = NULL, *subject = NULL, *content_type = NULL;
+  g_autoptr (ICalComponent) top = NULL;
+  const char *method = i_cal_property_method_to_string (send->method);
+  const char *address = organizer != NULL ? e_cal_util_get_property_email (organizer) : NULL;
+  ESource *identity = NULL;
+  ICalComponent *comp;
+  GError *error = NULL;
+  Zones zones;
+
+  if (address == NULL || i_cal_component_count_properties (send->comp, I_CAL_ATTENDEE_PROPERTY) == 0)
+    {
+      g_task_return_boolean (task, TRUE);
+      return;
+    }
+  for (GList *l = identities; l != NULL && identity == NULL; l = l->next)
+    if (e_cal_util_email_addresses_equal (e_source_mail_identity_get_address (
+                                            e_source_get_extension (l->data, E_SOURCE_EXTENSION_MAIL_IDENTITY)), address))
+      identity = l->data;
+  if (identity == NULL &&
+      !(e_client_get_backend_property_sync (E_CLIENT (send->client), E_CAL_BACKEND_PROPERTY_CAL_EMAIL_ADDRESS,
+                                            &cal_address, cancellable, NULL) &&
+        cal_address != NULL && e_cal_util_email_addresses_equal (cal_address, address)))
+    {
+      g_debug ("Einladung: %s nicht gesendet, nicht Organisator", method);
+      g_task_return_boolean (task, TRUE);
+      return;
+    }
+  if (e_cal_client_check_save_schedules (send->client) &&
+      (send->method != I_CAL_METHOD_CANCEL ||
+       !e_client_check_capability (E_CLIENT (send->client), E_CAL_STATIC_CAPABILITY_RETRACT_SUPPORTED)))
+    {
+      g_debug ("Einladung: %s Server plant", method);
+      g_task_return_boolean (task, TRUE);
+      return;
+    }
+
+  /* „Alle Termine“ einer Serie: Absage mit dem Hauptdatensatz ohne RECURRENCE-ID, wie Evolution
+   * E_ITIP_SEND_COMPONENT_FLAG_ENSURE_MASTER_OBJECT (e-calendar-view.c:684-686, itip-utils.c:2226-2241). */
+  if (send->master)
+    {
+      GSList *objects = NULL;
+
+      if (e_cal_client_get_objects_for_uid_sync (send->client, i_cal_component_get_uid (send->comp), &objects,
+                                                 cancellable, NULL))
+        for (GSList *l = objects; l != NULL && master == NULL; l = l->next)
+          if (!e_cal_component_is_instance (l->data))
+            master = i_cal_component_clone (e_cal_component_get_icalcomponent (l->data));
+      g_slist_free_full (objects, g_object_unref);
+      if (master != NULL)
+        source = master;
+    }
+  summary = one_line (i_cal_component_get_summary (source));
+
+  comp = i_cal_component_clone (source);
+  for (ICalComponent *alarm = i_cal_component_get_first_component (comp, I_CAL_VALARM_COMPONENT); alarm != NULL;
+       alarm = i_cal_component_get_first_component (comp, I_CAL_VALARM_COMPONENT))
+    {
+      i_cal_component_remove_component (comp, alarm);
+      g_object_unref (alarm);
+    }
+  if (send->method == I_CAL_METHOD_CANCEL)
+    i_cal_component_set_status (comp, I_CAL_STATUS_CANCELLED);
+  /* Wie Evolution comp_compliant_one (itip-utils.c:1749-1752, 1834-1837, 1873). */
+  now = i_cal_time_new_current_with_zone (i_cal_timezone_get_utc_timezone ());
+  i_cal_component_set_dtstamp (comp, now);
+  strip_for_sending (comp);
+  dtstart = i_cal_component_get_dtstart (comp);
+  if (i_cal_component_count_properties (comp, I_CAL_RRULE_PROPERTY) == 0)
+    {
+      dtend = i_cal_component_get_dtend (comp);
+      if (dtend == NULL || i_cal_time_is_null_time (dtend))
+        g_set_object (&dtend, dtstart);
+    }
+  top = i_cal_component_new_vcalendar ();
+  i_cal_component_take_property (top, i_cal_property_new_version ("2.0"));
+  i_cal_component_take_property (top, i_cal_property_new_prodid ("-//Revolution//" PACKAGE_VERSION "//EN"));
+  i_cal_component_set_method (top, send->method);
+  zones = (Zones) { send->client, top, seen,
+                    dtstart != NULL && !i_cal_time_is_null_time (dtstart) ? dtstart : NULL, dtend };
+  i_cal_component_foreach_tzid (comp, add_zone, &zones);
+  i_cal_component_take_component (top, comp);
+
+  if (send->method == I_CAL_METHOD_CANCEL &&
+      e_client_check_capability (E_CLIENT (send->client), E_CAL_STATIC_CAPABILITY_RETRACT_SUPPORTED))
+    {
+      GSList *users = NULL;
+      ICalComponent *modified = NULL;
+
+      if (!e_cal_client_send_objects_sync (send->client, top, E_CAL_OPERATION_FLAG_NONE, &users, &modified, cancellable,
+                                           &error))
+        {
+          g_task_return_error (task, error);
+          return;
+        }
+      g_slist_free_full (users, g_free);
+      g_clear_object (&modified);
+    }
+  if (e_client_check_capability (E_CLIENT (send->client), E_CAL_STATIC_CAPABILITY_CREATE_MESSAGES))
+    {
+      g_debug ("Einladung: %s vom Server verschickt", method);
+      g_task_return_boolean (task, TRUE);
+      return;
+    }
+  if (identity == NULL)
+    {
+      g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, _("No identity for %s"), address);
+      return;
+    }
+
+  for (ICalProperty *prop = i_cal_component_get_first_property (source, I_CAL_ATTENDEE_PROPERTY); prop != NULL;
+       g_object_unref (prop), prop = i_cal_component_get_next_property (source, I_CAL_ATTENDEE_PROPERTY))
+    {
+      const char *attendee = e_cal_util_get_property_email (prop);
+      g_autoptr (ICalParameter) cn = i_cal_property_get_first_parameter (prop, I_CAL_CN_PARAMETER);
+      g_autofree char *name = cn != NULL ? one_line (i_cal_parameter_get_cn (cn)) : NULL;
+
+      if (attendee != NULL && !e_cal_util_email_addresses_equal (attendee, address))
+        camel_internet_address_add (to, name, attendee);
+    }
+  if (camel_address_length (CAMEL_ADDRESS (to)) == 0)
+    {
+      g_task_return_boolean (task, TRUE);
+      return;
+    }
+
+  camel_internet_address_add (from,
+                              e_source_mail_identity_get_name (e_source_get_extension (identity, E_SOURCE_EXTENSION_MAIL_IDENTITY)),
+                              address);
+  /* Übernommen aus Evolution 3.56.2 itip-utils.c:1274-1278 (Kontext „Meeting“, „Cancel“). */
+  subject = send->method == I_CAL_METHOD_CANCEL ? g_strdup_printf ("%s: %s", C_("Meeting", "Cancel"), summary)
+                                                : g_strdup (summary);
+  text = i_cal_component_as_ical_string (top);
+  content_type = g_strdup_printf ("text/calendar; charset=utf-8; method=%s", method);
+  send->message = camel_mime_message_new ();
+  camel_mime_message_set_from (send->message, from);
+  camel_mime_message_set_recipients (send->message, CAMEL_RECIPIENT_TYPE_TO, to);
+  camel_mime_message_set_subject (send->message, subject);
+  camel_mime_message_set_date (send->message, CAMEL_MESSAGE_DATE_CURRENT, 0);
+  camel_mime_message_set_message_id (send->message, NULL);
+  /* Wie Evolution multipart/alternative aus Text und Kalenderteil (itip-utils.c:2330-2354,
+   * e_msg_composer_set_alternative_body); Exchange trägt eine reine text/calendar-Mail nicht ein (gemessen 30.10.). */
+  {
+    g_autoptr (CamelMultipart) alternative = camel_multipart_new ();
+    g_autoptr (CamelMimePart) body = camel_mime_part_new ();
+    g_autoptr (CamelMimePart) calendar = camel_mime_part_new ();
+
+    camel_data_wrapper_set_mime_type (CAMEL_DATA_WRAPPER (alternative), "multipart/alternative");
+    camel_multipart_set_boundary (alternative, NULL);
+    camel_mime_part_set_content (body, subject, strlen (subject), "text/plain; charset=utf-8");
+    camel_mime_part_set_encoding (body, CAMEL_TRANSFER_ENCODING_QUOTEDPRINTABLE);
+    camel_mime_part_set_content (calendar, text, strlen (text), content_type);
+    camel_mime_part_set_encoding (calendar, CAMEL_TRANSFER_ENCODING_QUOTEDPRINTABLE);
+    camel_multipart_add_part (alternative, body);
+    camel_multipart_add_part (alternative, calendar);
+    camel_medium_set_content (CAMEL_MEDIUM (send->message), CAMEL_DATA_WRAPPER (alternative));
+  }
+  send->identity_uid = g_strdup (e_source_get_uid (identity));
+  g_debug ("Einladung: %s an %d Teilnehmer über den Postausgang", method, camel_address_length (CAMEL_ADDRESS (to)));
+  g_task_return_boolean (task, TRUE);
+}
+
+static void
+on_invitation_sent (GObject      *source G_GNUC_UNUSED,
+                    GAsyncResult *result,
+                    gpointer      user_data)
+{
+  g_autoptr (GTask) task = user_data;
+  GError *error = NULL;
+
+  if (!revolution_mail_send_message_finish (result, &error))
+    g_task_return_error (task, error);
+  else
+    g_task_return_boolean (task, TRUE);
+}
+
+static void
+on_send_prepared (GObject      *source G_GNUC_UNUSED,
+                  GAsyncResult *result,
+                  gpointer      user_data)
+{
+  g_autoptr (GTask) task = user_data;
+  Send *send = g_task_get_task_data (task);
+  GError *error = NULL;
+
+  if (!g_task_propagate_boolean (G_TASK (result), &error))
+    g_task_return_error (task, error);
+  else if (send->message == NULL)
+    g_task_return_boolean (task, TRUE);
+  else
+    revolution_mail_send_message (send->message, send->identity_uid, NULL, on_invitation_sent, g_steal_pointer (&task));
+}
+
+void
+revolution_mail_invitation_send (ECalClient          *client,
+                                 ICalComponent       *comp,
+                                 ICalPropertyMethod   method,
+                                 gboolean             master,
+                                 GAsyncReadyCallback  callback,
+                                 gpointer             user_data)
+{
+  GTask *task = g_task_new (NULL, NULL, callback, user_data);
+  g_autoptr (GTask) worker = NULL;
+  Send *send = g_new0 (Send, 1);
+
+  send->client = g_object_ref (client);
+  send->comp = comp;
+  send->method = method;
+  send->master = master;
+  g_task_set_source_tag (task, revolution_mail_invitation_send);
+  g_task_set_task_data (task, send, (GDestroyNotify) send_free);
+  worker = g_task_new (NULL, NULL, on_send_prepared, task);
+  g_task_set_task_data (worker, send, NULL);
+  g_task_run_in_thread (worker, send_thread);
+}
+
+gboolean
+revolution_mail_invitation_send_finish (GAsyncResult *result,
+                                        GError      **error)
+{
+  return g_task_propagate_boolean (G_TASK (result), error);
+}

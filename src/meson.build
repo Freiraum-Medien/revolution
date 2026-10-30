@@ -13,7 +13,9 @@ foreach blp : ['window.blp', 'mail/mail-view.blp', 'mail/mail-reader.blp', 'mail
             'calendar/gcal/gcal-schedule-section.blp', 'calendar/gcal/gcal-date-time-chooser.blp',
             'calendar/gcal/gcal-date-chooser-row.blp', 'calendar/gcal/gcal-date-selector.blp',
             'calendar/gcal/gcal-reminders-section.blp', 'calendar/gcal/gcal-alarm-row.blp',
-            'calendar/gcal/gcal-calendar-combo-row.blp', 'calendar/gcal/gcal-calendar-row.blp']
+            'calendar/gcal/gcal-calendar-combo-row.blp', 'calendar/gcal/gcal-calendar-row.blp',
+            # #377
+            'calendar/gcal/gcal-attendees-section.blp']
   blueprints += custom_target(
     input: blp,
     output: '@BASENAME@.ui',

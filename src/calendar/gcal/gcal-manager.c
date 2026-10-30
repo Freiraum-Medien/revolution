@@ -4,7 +4,10 @@
  * Einstellungen der App („hidden-calendars“). #375: Schreib-API 1033-1230 (create/update/remove_event asynchron wie
  * Vorlage, move_event_to_source im GTask-Worker statt *_sync im UI-Thread), Standardkalender 835-850 nur gelesen
  * (ohne gcal_manager_set_default_calendar: schriebe die Evolution-Einstellung), Fehler als Signal „error“ für das
- * Banner der Ansicht statt g_warning (241, 381, 417, 452; Monitor über GcalCalendar::error), Log für die Tests. */
+ * Banner der Ansicht statt g_warning (241, 381, 417, 452; Monitor über GcalCalendar::error), Log für die Tests.
+ * #377: Einladungen des Organisators nach Anlegen/Ändern (REQUEST, SEQUENCE + 1 bei Änderung) und vor dem Löschen
+ * (CANCEL) über revolution_mail_invitation_send (src/mail/mail-invitation.c), wie Evolution nach dem Speichern
+ * (e-comp-editor.c:590-640) bzw. vor dem Entfernen (e-calendar-view.c:684-686, delete_event). */
 /* gcal-manager.c
  *
  * Copyright (C) 2015 Erick Pérez Castellanos <erickpc@gnome.org>
@@ -31,6 +34,8 @@
 #include "gcal-timeline.h"
 #include "gcal-timeline-subscriber.h"
 #include "gcal-utils.h"
+
+#include "src/mail/mail-invitation.h"
 
 #include <glib/gi18n.h>
 
@@ -595,12 +600,70 @@ gcal_manager_get_default_calendar (GcalManager *self)
   return calendar;
 }
 
+/* Revolution #377: ohne Organisator oder Organisator = Adresse des Kalenders bzw. eine Mailidentität
+ * (Evolution itip_organizer_is_user, itip-utils.c:227-280). cal-email-address aus dem D-Bus-Proxy (e-cal-client.c:1037). */
+static gboolean
+organizer_is_user (GcalManager   *self,
+                   ECalClient    *client,
+                   ECalComponent *component)
+{
+  ECalComponentOrganizer *organizer = e_cal_component_get_organizer (component);
+  g_autolist (ESource) identities = NULL;
+  g_autofree gchar *cal_address = NULL;
+  const gchar *address = organizer != NULL ? e_cal_util_get_organizer_email (organizer) : NULL;
+  gboolean user = address == NULL;
+
+  if (!user && e_client_get_backend_property_sync (E_CLIENT (client), E_CAL_BACKEND_PROPERTY_CAL_EMAIL_ADDRESS,
+                                                   &cal_address, NULL, NULL))
+    user = cal_address != NULL && e_cal_util_email_addresses_equal (cal_address, address);
+  if (!user)
+    identities = e_source_registry_list_enabled (self->source_registry, E_SOURCE_EXTENSION_MAIL_IDENTITY);
+  for (GList *l = identities; l != NULL && !user; l = l->next)
+    user = e_cal_util_email_addresses_equal (
+      e_source_mail_identity_get_address (e_source_get_extension (l->data, E_SOURCE_EXTENSION_MAIL_IDENTITY)), address);
+  g_clear_pointer (&organizer, e_cal_component_organizer_free);
+  return user;
+}
+
+/* Revolution #377 */
+static void
+on_invitation_sent (GObject      *source_object G_GNUC_UNUSED,
+                    GAsyncResult *result,
+                    gpointer      user_data)
+{
+  g_autoptr (GcalManager) self = user_data;
+  g_autoptr (GError) error = NULL;
+
+  if (!revolution_mail_invitation_send_finish (result, &error))
+    report_error (self, _("Could not send meeting invitation"), error->message);
+}
+
+static void
+send_invitation (GcalManager        *self,
+                 ECalClient         *client,
+                 ECalComponent      *component,
+                 const gchar        *uid,
+                 ICalPropertyMethod  method,
+                 gboolean            master,
+                 GAsyncReadyCallback callback,
+                 gpointer            user_data)
+{
+  ICalComponent *icomp = i_cal_component_clone (e_cal_component_get_icalcomponent (component));
+
+  if (uid != NULL)
+    i_cal_component_set_uid (icomp, uid);
+  revolution_mail_invitation_send (client, icomp, method, master, callback ? callback : on_invitation_sent,
+                                   callback ? user_data : g_object_ref (self));
+}
+
 static void
 on_event_created (GObject      *source_object,
                   GAsyncResult *result,
                   gpointer      user_data)
 {
-  g_autoptr (GcalManager) self = user_data;
+  g_autoptr (GTask) task = user_data;
+  GcalManager *self = g_task_get_source_object (task);
+  ECalComponent *component = g_task_get_task_data (task);
   g_autofree gchar *new_uid = NULL;
   g_autoptr (GError) error = NULL;
   ESource *source = e_client_get_source (E_CLIENT (source_object));
@@ -613,6 +676,8 @@ on_event_created (GObject      *source_object,
     }
 
   g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: anlegen %s fertig %s", e_source_get_uid (source), new_uid);
+  if (e_cal_component_has_attendees (component))
+    send_invitation (self, E_CAL_CLIENT (source_object), component, new_uid, I_CAL_METHOD_REQUEST, FALSE, NULL, NULL);
 }
 
 /**
@@ -639,12 +704,17 @@ gcal_manager_create_event (GcalManager *self,
 
   g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: anlegen %s „%s“", gcal_calendar_get_id (calendar),
          gcal_event_get_summary (event));
-  e_cal_client_create_object (gcal_calendar_get_client (calendar),
-                              e_cal_component_get_icalcomponent (component),
-                              E_CAL_OPERATION_FLAG_NONE,
-                              NULL,
-                              on_event_created,
-                              g_object_ref (self));
+  {
+    GTask *task = g_task_new (self, NULL, NULL, NULL);
+
+    g_task_set_task_data (task, g_object_ref (component), g_object_unref);
+    e_cal_client_create_object (gcal_calendar_get_client (calendar),
+                                e_cal_component_get_icalcomponent (component),
+                                E_CAL_OPERATION_FLAG_NONE,
+                                NULL,
+                                on_event_created,
+                                task);
+  }
 
   GCAL_EXIT;
 }
@@ -654,7 +724,9 @@ on_event_updated (GObject      *source_object,
                   GAsyncResult *result,
                   gpointer      user_data)
 {
-  g_autoptr (GcalManager) self = user_data;
+  g_autoptr (GTask) task = user_data;
+  GcalManager *self = g_task_get_source_object (task);
+  ECalComponent *component = g_task_get_task_data (task);
   g_autoptr (GError) error = NULL;
   ESource *source = e_client_get_source (E_CLIENT (source_object));
 
@@ -666,6 +738,8 @@ on_event_updated (GObject      *source_object,
     }
 
   g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: ändern %s fertig", e_source_get_uid (source));
+  if (e_cal_component_has_attendees (component))
+    send_invitation (self, E_CAL_CLIENT (source_object), component, NULL, I_CAL_METHOD_REQUEST, FALSE, NULL, NULL);
 }
 
 /**
@@ -694,13 +768,22 @@ gcal_manager_update_event (GcalManager           *self,
 
   g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: ändern %s %s mod %d „%s“", gcal_calendar_get_id (calendar),
          e_cal_component_get_uid (component), mod, gcal_event_get_summary (event));
-  e_cal_client_modify_object (gcal_calendar_get_client (calendar),
-                              e_cal_component_get_icalcomponent (component),
-                              (ECalObjModType) mod,
-                              E_CAL_OPERATION_FLAG_NONE,
-                              NULL,
-                              on_event_updated,
-                              g_object_ref (self));
+  /* Revolution #377: Aktualisierung für die Teilnehmer (RFC 5546 3.2.2: höhere SEQUENCE), nur ohne Organisator oder als
+   * Organisator wie Evolution (e-comp-editor.c:2987-2995). */
+  if (e_cal_component_has_attendees (component) && organizer_is_user (self, gcal_calendar_get_client (calendar), component))
+    e_cal_component_set_sequence (component, MAX (e_cal_component_get_sequence (component), 0) + 1);
+  {
+    GTask *task = g_task_new (self, NULL, NULL, NULL);
+
+    g_task_set_task_data (task, g_object_ref (component), g_object_unref);
+    e_cal_client_modify_object (gcal_calendar_get_client (calendar),
+                                e_cal_component_get_icalcomponent (component),
+                                (ECalObjModType) mod,
+                                E_CAL_OPERATION_FLAG_NONE,
+                                NULL,
+                                on_event_updated,
+                                task);
+  }
 
   GCAL_EXIT;
 }
@@ -727,6 +810,46 @@ on_event_removed (GObject      *source_object,
       g_task_return_boolean (task, TRUE);
     }
   g_object_unref (task);
+}
+
+/* Revolution #377: Löschen nach der Absage. */
+typedef struct
+{
+  ECalClient            *client;
+  gchar                 *uid;
+  gchar                 *rid;
+  GcalRecurrenceModType  mod;
+} RemoveData;
+
+static void
+remove_data_free (RemoveData *data)
+{
+  g_clear_object (&data->client);
+  g_free (data->uid);
+  g_free (data->rid);
+  g_free (data);
+}
+
+static void
+start_remove (GTask *task)
+{
+  RemoveData *data = g_task_get_task_data (task);
+
+  e_cal_client_remove_object (data->client, data->uid, data->rid, (ECalObjModType) data->mod, E_CAL_OPERATION_FLAG_NONE,
+                              NULL, on_event_removed, task);
+}
+
+static void
+on_cancel_sent (GObject      *source_object G_GNUC_UNUSED,
+                GAsyncResult *result,
+                gpointer      user_data)
+{
+  GTask *task = user_data;
+  g_autoptr (GError) error = NULL;
+
+  if (!revolution_mail_invitation_send_finish (result, &error))
+    report_error (g_task_get_source_object (task), _("Could not send meeting cancellation"), error->message);
+  start_remove (task);
 }
 
 /**
@@ -766,14 +889,22 @@ gcal_manager_remove_event (GcalManager           *self,
 
   g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: löschen %s %s rid %s mod %d", gcal_calendar_get_id (calendar), uid,
          mod == GCAL_RECURRENCE_MOD_ALL || rid == NULL ? "-" : rid, mod);
-  e_cal_client_remove_object (gcal_calendar_get_client (calendar),
-                              uid,
-                              mod == GCAL_RECURRENCE_MOD_ALL ? NULL : rid,
-                              (ECalObjModType) mod,
-                              E_CAL_OPERATION_FLAG_NONE,
-                              NULL,
-                              on_event_removed,
-                              g_task_new (self, NULL, callback, user_data));
+  {
+    GTask *task = g_task_new (self, NULL, callback, user_data);
+    RemoveData *data = g_new0 (RemoveData, 1);
+
+    data->client = g_object_ref (gcal_calendar_get_client (calendar));
+    data->uid = g_strdup (uid);
+    data->rid = mod == GCAL_RECURRENCE_MOD_ALL ? NULL : g_steal_pointer (&rid);
+    data->mod = mod;
+    g_task_set_task_data (task, data, (GDestroyNotify) remove_data_free);
+    /* Revolution #377: zuerst die Absage an die Teilnehmer, dann löschen (wie Evolution). */
+    if (e_cal_component_has_attendees (component))
+      send_invitation (self, data->client, component, NULL, I_CAL_METHOD_CANCEL,
+                       mod == GCAL_RECURRENCE_MOD_ALL && gcal_event_has_recurrence (event), on_cancel_sent, task);
+    else
+      start_remove (task);
+  }
 
   GCAL_EXIT;
 }

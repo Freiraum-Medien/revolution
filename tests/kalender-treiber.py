@@ -809,7 +809,7 @@ def woche():
 # ------------------------------------------------------------------ #375 Termine anlegen, bearbeiten, löschen, Erinnerung
 
 TASTEN = {' ': ('space',), '-': ('minus',), '.': ('period',), ',': ('comma',), ':': ('Shift_L', 'semicolon'),
-          '/': ('slash',)}
+          '/': ('slash',), '@': ('Shift_L', '2'), '+': ('Shift_L', 'equal')}
 
 
 def tippe(text):
@@ -1718,6 +1718,184 @@ def nur_lesend(lesend):
         return
     falsch('Nur lesend: kein Termin eines schreibgeschützten Kalenders in der Woche sichtbar')
 
+def texte(o):
+    """Namen aller Beschriftungen unter o (Titel/Untertitel der Teilnehmerzeilen)."""
+    return [x.get_name() or '' for x in alle(o, 'label')]
+
+
+def editor_fuer(name, uid):
+    """Editor des Termins mit dieser UID; gleichnamige Termine anderer Kalender (die über die #376-Karte angenommene
+    Kopie in „Persönlich“) werden übersprungen."""
+    if termin_widget(name) is None:
+        return None
+    for i in range(6):
+        knoepfe = sorted((b for b in alle(wurzel(), 'toggle button') if b.get_name() == name), key=mitte)
+        if i >= len(knoepfe):
+            return None
+        ab = marke()
+        klick(*mitte(knoepfe[i]))
+        m = warte(r'Kalender: Popover (\S+)$', ab, 5)
+        if m is None:
+            # Klick fiel in das Schließen des vorigen Popovers (verify-377/r3: „Popover None“): einmal wiederholen.
+            time.sleep(1.5)
+            ab = marke()
+            klick(*mitte(knoepfe[i]))
+            m = warte(r'Kalender: Popover (\S+)$', ab, 5)
+        wert('Termin %d/%d „%s“: Popover %s' % (i + 1, len(knoepfe), name[:30], m and m.group(1)[:60]))
+        if m and m.group(1).split(':', 1)[1] == uid:
+            time.sleep(0.8)
+            ab = marke()
+            taste('Return')
+            if warte(r'Kalender: Editor bearbeiten (\S+) (\S+)$', ab, 10):
+                return dialog()
+            return None
+        if m:
+            taste('Escape')
+        time.sleep(1.5)
+    return None
+
+
+def versand(e, ab, text):
+    """Mail der App über den Postausgang: vor dem Beenden auf „gesendet“ warten (Beenden bricht den Sendelauf ab,
+    main.c on_shutdown_network; die Mail bliebe bis zum nächsten Start im Postausgang)."""
+    if e and 'Postausgang' in e.group(1):
+        m = warte(r'Senden: \S+ (gesendet nach \d+ ms|fehlgeschlagen: .*)$', ab, 90)
+        (ok if m and m.group(1).startswith('gesendet') else falsch)('%s: Postausgang %s' % (text, m and m.group(1)))
+
+
+def einladung():
+    """#377 (tests/einladung.sh TEILE=377): SCHRITT anlegen | aendern | loeschen eines Termins mit Teilnehmer im Kalender
+    KAL. Teilnehmer per Alt+I, Adresse, Enter; Status je Zeile; Log „Einladung: REQUEST|CANCEL …“ (Server plant bzw.
+    Postausgang); Gegenprobe Python-GI und Server (Beginn wie im Editor)."""
+    schritt, kal, titel = os.environ['SCHRITT'], os.environ['KAL'], os.environ['TITEL']
+    teilnehmer, art = os.environ['TEILNEHMER'], os.environ['ART']
+    tag = datetime.date.fromisoformat(os.environ['TAG'])
+    heute = datetime.date.today()
+    wochen = ((tag - tag.weekday() * datetime.timedelta(days=1)) - (heute - datetime.timedelta(days=heute.weekday()))).days // 7
+    uid_datei = os.path.join(TERMINE, 'eigene-%s.uid' % art)
+    if schritt == 'anlegen':
+        ab = marke()
+        taste('Control_L', 'n')
+        dlg = dialog()
+        neuer_termin(dlg, os.environ['KAL_NAME'], titel, 'Testraum 377', 'Einladungstest 377', False, tag, '09:00', '09:30')
+        (ok if not finde(dlg, 'combo box', 'Organisator') else falsch)('Ohne Teilnehmer keine Organisator-Wahl')
+        # Feld per Maus (schließt das Zeit-Popover von neuer_termin), Alt+I danach aus dem Titel geprüft.
+        feld = finde(dlg, 'text', 'Teilnehmer hinzufügen')
+        zeigen(dlg, feld)
+        klick(*mitte(feld))
+        ab_t = marke()
+        tippe(teilnehmer)
+        taste('Return')
+        m = warte(r'Kalender: Teilnehmer (\d+)$', ab_t, 3)
+        if m is None:  # Enter übernahm zuerst den Vorschlag (#361), zweites Enter fügt hinzu
+            taste('Return')
+            m = warte(r'Kalender: Teilnehmer (\d+)$', ab_t, 3)
+        (ok if m and m.group(1) == '1' else falsch)('Feld per Maus, Adresse, Enter: 1 Teilnehmer (%s)' % (m and m.group(0)))
+        t = texte(dlg)
+        (ok if any(teilnehmer in x for x in t) and 'Keine Antwort' in ' '.join(t) else falsch)(
+            'Teilnehmerzeile mit Adresse und Status „Keine Antwort“')
+        knopf = finde(dlg, 'button', '%s entfernen' % teilnehmer)
+        (ok if knopf is not None and finde(dlg, 'button', None) is not None else falsch)(
+            'Entfernen-Knopf mit Barrierefreiheits-Name „%s“' % (knopf and knopf.get_name()))
+        if knopf is not None:
+            druecke(knopf)  # Entfernen, danach wieder hinzufügen
+            time.sleep(0.5)
+            (ok if not any(teilnehmer in x for x in texte(dlg)) else falsch)('Entfernen: Zeile weg')
+            ab_r = marke()
+            klick(*mitte(feld))
+            tippe(teilnehmer)
+            taste('Return')
+            if warte(r'Kalender: Teilnehmer 1$', ab_r, 3) is None:
+                taste('Return')
+            time.sleep(0.5)
+            (ok if any(teilnehmer in x for x in texte(dlg)) else falsch)('Wieder hinzugefügt')
+        titel_feld = finde(dlg, 'text', 'Titel')
+        zeigen(dlg, titel_feld)
+        klick(*mitte(titel_feld))
+        taste('Alt_L', 'i')
+        time.sleep(0.5)
+        feld = finde(dlg, 'text', 'Teilnehmer hinzufügen')
+        fokus = feld is not None and feld.get_state_set().contains(Atspi.StateType.FOCUSED)
+        (ok if fokus else falsch)('Alt+I: Fokus im Feld „Teilnehmer hinzufügen“')
+        if os.environ.get('ORGANISATOR'):
+            kombi_waehlen(dlg, 'Organisator', os.environ['ORGANISATOR'])
+            (ok if kombi_auswahl(dlg, 'Organisator') == os.environ['ORGANISATOR'] else falsch)(
+                'Organisator-Wahl (Kalender ohne eigene Adresse): Testkonto gewählt')
+        else:
+            (ok if not finde(dlg, 'combo box', 'Organisator') else falsch)(
+                'Keine Organisator-Wahl: Kalender hat eine eigene Adresse')
+        zeigen(dlg, finde(dlg, 'text', 'Teilnehmer hinzufügen'))
+        bild_beide('editor-teilnehmer-%s' % art)
+        ab = marke()
+        m = speichern_und_warten(kal, 'anlegen', ab)
+        if not m or m.group(1) != 'fertig':
+            falsch('Anlegen mit Teilnehmer: %s' % (m and m.group(0)))
+            return
+        uid = m.group(2)
+        with open(uid_datei, 'w') as f:
+            f.write(uid + '\n')
+        ok('Anlegen mit Teilnehmer in %s: %s' % (kal[:8], uid[:24]))
+        e = warte(r'Einladung: REQUEST (.*)$', ab, 60)
+        (ok if e else falsch)('Einladung nach dem Anlegen: %s' % (e and e.group(1)))
+        versand(e, ab, 'Einladung')
+        gegenprobe(kal, uid, {'titel': titel, 'beginn': zeit_utc(tag, 9, 0), 'ende': zeit_utc(tag, 9, 30)}, 'Einladung')
+        return
+    uid = open(uid_datei).read().strip()
+    zur_woche(heute, wochen)
+    dlg = editor_fuer(titel, uid)
+    if dlg is None:
+        falsch('Editor für %s nicht geöffnet' % uid[:24])
+        return
+    if schritt == 'aendern':
+        soll = os.environ.get('STATUS_SOLL')
+        t = texte(dlg)
+        if soll:
+            (ok if any(teilnehmer in x and soll in x for x in t) or (soll in t and any(teilnehmer in x for x in t))
+             else falsch)('Editor: Teilnehmer %s… mit Status „%s“ (%s)' % (teilnehmer[:4], soll,
+                                                                           [x for x in t if soll in x or '@' in x]))
+            zeigen(dlg, finde(dlg, 'text', 'Teilnehmer hinzufügen'))
+            bild_beide('editor-status-%s' % art)
+        feld_setzen(dlg, 'Endzeit', '10:30')
+        feld_setzen(dlg, 'Anfangszeit', '10:00')
+        ab = marke()
+        m = speichern_und_warten(kal, 'ändern', ab)
+        (ok if m and m.group(1) == 'fertig' else falsch)('Ändern (Beginn 10:00): %s' % (m and m.group(0)))
+        e = warte(r'Einladung: REQUEST (.*)$', ab, 60)
+        (ok if e else falsch)('Aktualisierung nach dem Ändern: %s' % (e and e.group(1)))
+        versand(e, ab, 'Aktualisierung')
+        gegenprobe(kal, uid, {'titel': titel, 'beginn': zeit_utc(tag, 10, 0), 'ende': zeit_utc(tag, 10, 30)},
+                   'Aktualisierung')
+        return
+    if schritt == 'rueckgaengig':
+        # Löschen über den Editor, dann „Rückgängig“ im Toast: kein CANCEL, nichts im Postausgang, Termin bleibt.
+        ab = marke()
+        knopf = finde(dlg, 'button', 'Termin löschen')
+        zeigen(dlg, knopf)
+        klick(*mitte(knopf))
+        r = warte_obj(lambda: finde(wurzel(), 'button', 'Rückgängig'), 4)
+        (ok if r else falsch)('Toast „Termin gelöscht“ mit „Rückgängig“')
+        if r:
+            klick(*mitte(r))
+        mr = warte(r'Kalender: Löschen rückgängig ', ab, 5)
+        time.sleep(12)
+        log = log_text()[ab:]
+        (ok if mr and 'Einladung: CANCEL' not in log and 'Postausgang: ' not in log and 'Kalender: löschen ' not in log
+         else falsch)('Rückgängig: kein CANCEL, Postausgang unberührt, kein Löschen (Log %s)' % (mr and mr.group(0)))
+        aus = testdaten('--termin-details', kal, uid)
+        (ok if re.search(r'^GI titel ', aus, re.M) else falsch)('Rückgängig: Termin weiter da (Python-GI)')
+        return
+    ab = marke()
+    app_schreibt(kal, 'löschen')
+    knopf = finde(dlg, 'button', 'Termin löschen')
+    zeigen(dlg, knopf)
+    klick(*mitte(knopf))
+    e = warte(r'Einladung: CANCEL (.*)$', ab, 60)
+    (ok if e else falsch)('Absage vor dem Löschen: %s' % (e and e.group(1)))
+    versand(e, ab, 'Absage')
+    m = warte(r'Kalender: löschen %s (fertig|Fehler)' % re.escape(kal), ab, 60)
+    (ok if m and m.group(1) == 'fertig' else falsch)('Löschen nach der Absage: %s' % (m and m.group(0)))
+
+
 def pruefen():
     soll = vergleich()
     if not starten():
@@ -1743,6 +1921,9 @@ def pruefen():
         return
     if MODUS == 'termine':
         termine()
+        return
+    if MODUS == 'einladung':
+        einladung()
         return
     # Erstes Laden ohne Blättern: aktueller Monat je Kalender = Python-GI (Änderungen während des ersten Ladens,
     # gcal-calendar-monitor.c, Revolution #373).

@@ -2584,6 +2584,67 @@ msgstr "Termin konnte nicht gelöscht werden"
 msgid "Could not move event"
 msgstr "Termin konnte nicht verschoben werden"
 
+#: src/calendar/gcal/gcal-event-editor-dialog.blp
+#: src/calendar/gcal/gcal-attendees-section.blp
+msgid "Attendees"
+msgstr "Teilnehmer"
+
+#: src/calendar/gcal/gcal-attendees-section.blp
+msgid "_Organizer"
+msgstr "_Organisator"
+
+#: src/calendar/gcal/gcal-attendees-section.blp
+msgid "Add attendee by name or email address"
+msgstr "Teilnehmer per Name oder E-Mail-Adresse hinzufügen"
+
+#: src/calendar/gcal/gcal-attendees-section.blp
+msgid "Add attendee"
+msgstr "Teilnehmer hinzufügen"
+
+#: src/calendar/gcal/gcal-attendees-section.blp
+msgid "Add Attendee"
+msgstr "Teilnehmer hinzufügen"
+
+#: src/calendar/gcal/gcal-attendees-section.c
+msgid "Delegated"
+msgstr "Delegiert"
+
+#: src/calendar/gcal/gcal-attendees-section.c
+msgid "Needs Action"
+msgstr "Keine Antwort"
+
+#: src/calendar/gcal/gcal-attendees-section.c
+msgid "Organizer"
+msgstr "Organisator"
+
+#: src/calendar/gcal/gcal-attendees-section.c
+#, c-format
+msgid "Remove %s"
+msgstr "%s entfernen"
+
+#: src/calendar/gcal/gcal-attendees-section.c
+msgid "Remove Attendee"
+msgstr "Teilnehmer entfernen"
+
+#: src/calendar/gcal/gcal-manager.c
+msgid "Could not send meeting invitation"
+msgstr "Einladung konnte nicht gesendet werden"
+
+#: src/calendar/gcal/gcal-manager.c
+msgid "Could not send meeting cancellation"
+msgstr "Absage konnte nicht gesendet werden"
+
+#: src/mail/mail-invitation.c
+#, c-format
+msgid "No identity for %s"
+msgstr "Keine Identität für %s"
+
+#. Übernommen aus Evolution 3.56.2 itip-utils.c:1274-1278.
+#: src/mail/mail-invitation.c
+msgctxt "Meeting"
+msgid "Cancel"
+msgstr "Abgesagt"
+
 #~ msgid "All-Day Events"
 #~ msgstr "Ganztägige Termine"
 

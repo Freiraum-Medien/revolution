@@ -25,8 +25,8 @@ KONTO, ORDNER, APP_DIR = os.environ['KONTO'], os.environ['ORDNER'], os.environ['
 LOGKEY = ORDNER.replace('/', ' ', 1)
 EINLADUNG = '[Revolution-Test] Einladung: Abstimmung Testdaten'
 IMAP = 'outlook' not in KONTO
-# Fenster 1200×760: erste Zeile der Liste, Stern-Knopf der Nachricht (Screenshot m4-353 probe.png).
-ZEILE = (420, 108)
+# Fenster 1200×760: erste Zeile der Liste (unter dem Listen-Titel, #454), Stern-Knopf der Nachricht (Screenshot m4-353 probe.png).
+ZEILE = (420, 156)
 STERN = (962, 25)
 ZEILE_HOEHE = 108
 

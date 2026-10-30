@@ -1,16 +1,14 @@
-/* style.css – eigenes CSS der App (#399, #400), lädt AdwApplication automatisch aus
+/* style.css – eigenes CSS der App (Task 399, Task 400), lädt AdwApplication automatisch aus
  * der GResource (/de/freiraum_medien/Revolution/style.css, Adw-1.gir Zeile 7362).
  *
- * Custom-CSS ausdrücklich gewünscht (Arnd, #400), Farben nur aus libadwaita-Variablen
- * (Palette --light-1 … --dark-4 und --blue-4 aus dem libadwaita-Stylesheet).
- * Ausnahme: avatar.color1 … color14 (Abschnitt „Flach, ohne Verläufe (#336)“) nutzt
- * feste Farbwerte aus libadwaita 1.9.1, da libadwaita dafür keine Variable bereitstellt.
- * Bei jedem libadwaita-Update gegen das neue Stylesheet prüfen.
+ * Custom-CSS ausdrücklich gewünscht (Arnd, Task 400). Farben nur aus libadwaita-Variablen
+ * (Palette --blue-1 … --dark-5, --accent-*, --window-bg-color usw.), keine festen Farbwerte
+ * (Arnd, Task 454), auch nicht für avatar.color1 … color14 („Flach, ohne Verläufe“).
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-/* #400 Punkt 1: Seitenleiste als schwebende Fläche (Vorbild 06/07). Der Bereich der
+/* Task 400 Punkt 1: Seitenleiste als schwebende Fläche (Vorbild 06/07). Der Bereich der
  * Seitenleiste selbst bleibt ohne eigene Farbe und ohne Trennlinie, dort zeigt sich
  * der Fensterhintergrund; darauf liegt die abgerundete Fläche mit Abstand rundum. */
 .mail-split > .sidebar-pane {
@@ -23,42 +21,100 @@
   background-color: var(--window-bg-color);
 }
 
+/* Task 454: Karte ohne Rahmen und Schatten. Ecken parallel zur Fensterecke: Fensterradius minus 8px
+ * Einzug (margin in mail-, calendar-, contacts-view.blp). Maximiert und angedockt setzt
+ * libadwaita --window-radius auf 0 (window.csd.maximized), max() verhindert dann den negativen Wert. */
 .floating-sidebar {
-  border-radius: 16px;
+  border-radius: max(calc(var(--window-radius) - 8px), 0px);
   background-color: var(--sidebar-bg-color);
-  box-shadow: 0 0 0 1px var(--border-color), 0 2px 6px var(--shade-color);
 }
 
-/* Eine Linie im Kopf (Arnd 22.10.2026, #340, Vorbild 25): alle Kopfleisten enden auf
- * derselben Höhe, 50px unter der Fensteroberkante (Mittelweg: libadwaita 47px, die
- * Seitenleiste lag mit 8px Abstand bei 55px). Seitenleiste 8px Abstand + 42px,
- * Liste und Nachricht 50px. Umschalter (34px) in der Seitenleiste mittig. */
-.floating-sidebar headerbar {
-  min-height: 42px;
+/* Task 454: Keine Linie zwischen den Spalten; der Griff zum Ziehen bleibt. */
+.mail-split paned.horizontal > separator {
+  background: none;
+  box-shadow: none;
 }
 
-.floating-sidebar headerbar > windowhandle > box {
-  padding-top: 4px;
-  padding-bottom: 4px;
+/* Task 454: Knopf links ohne Hintergrund wie die Knöpfe rechts, auch bei offener Seitenleiste. */
+button.sidebar-toggle:checked {
+  background: none;
 }
 
+button.sidebar-toggle:checked:hover {
+  background: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+/* Eine Linie im Kopf (Arnd 22.10.2026, Task 340, Vorbild 25): Kopfleisten von Liste und Nachricht
+ * 50px hoch. Task 454: Der Banner als zweite Leiste schaltet in AdwToolbarView .collapse-spacing ein
+ * (3px um jede Leiste, libadwaita 1.9.1), die Kopfleiste läge sonst 3px tiefer als die der Nachricht. */
 .mail-split > .content-pane headerbar {
   min-height: 50px;
 }
 
-/* Erster Inhalt jeder Spalte auf einer Linie 63px unter der Fensteroberkante
- * (gemessen, Ausgangswerte: „Favoriten“ 81, Avatar 65, Hinweis-Pille 56):
- * erster Abschnittskopf ohne den oberen Innenabstand von listview > header (18px,
- * libadwaita) – nur die Ordner-/Adressbuchliste im Viewport, nicht der Kalender;
- * Nachrichtenliste oben 2px statt 4px (.message-list), Pille 13px statt 6px (mail-view.blp).
- * Kontakte analog: erster Buchstabenkopf ohne 18px, Liste oben 3px statt 4px (.contact-list),
- * Pille 13px statt 6px (contacts-view.blp). */
+.mail-split toolbarview > .top-bar .collapse-spacing {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.mail-split toolbarview > .top-bar .collapse-spacing headerbar > windowhandle > box {
+  padding-top: 6px;
+  padding-bottom: 7px;
+}
+
+/* Task 454: Umschalter Mail | Kalender | Kontakte eng wie die Referenz (Design/Feedback/
+ * 2026-10-30-referenz-umschalter-claude-desktop*.png): Kasten liegt 1px um die Pille, aktive Pille
+ * mit Haarlinie statt Schatten, keine Trennstriche, inaktive Symbole leicht gedimmt.
+ * Standardwerte libadwaita 1.9.1: Padding 3px, Radius 9px, Pille 34px. */
+.app-switcher > toggle-group {
+  ---group-padding: 1px;
+  border-radius: 7px;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+inline-view-switcher.app-switcher > toggle-group.icons > toggle {
+  min-width: 31px;
+  min-height: 26px;
+  border-radius: 6px;
+}
+
+.app-switcher > toggle-group > toggle:checked {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.app-switcher > toggle-group > toggle:not(:checked) {
+  opacity: 0.75;
+}
+
+.app-switcher > toggle-group > separator {
+  min-width: 0;
+  margin: 0;
+  background: none;
+}
+
+/* Task 454: Titel der Liste, Oberkante auf der Linie (siehe „Eine Linie“). */
+.list-heading {
+  padding: 13px 16px 0;
+}
+
+.list-heading > .caption {
+  margin-top: 3px;
+}
+
+/* Eine Linie (Arnd 30.10.2026, Task 454): „Favoriten“, Listen-Titel und Absendername haben dieselbe
+ * Oberkante. Die Linie setzt der Nachrichtenkopf (mail-reader.blp header_grid margin-top 14 unter
+ * der 50px-Kopfleiste), die anderen Spalten richten sich danach: Seitenleiste über padding-top des
+ * ersten Abschnittskopfs (Fläche bleibt leer bis auf das schwebende Hauptmenü), Liste über
+ * .list-heading. Kontakte: erster Buchstabenkopf ohne 18px, Liste oben 3px statt 4px (.contact-list). */
+.floating-sidebar viewport > .navigation-sidebar {
+  padding-top: 53px;
+}
+
 .floating-sidebar viewport > .navigation-sidebar > header:first-child,
 .contact-list > header:first-child {
   padding-top: 0;
 }
 
-/* Seitenleiste kompakt wie Apple Mail (Arnd 22.10.2026, #340, Vorbild 22): Zeilen
+/* Seitenleiste kompakt wie Apple Mail (Arnd 22.10.2026, Task 340, Vorbild 22): Zeilen
  * 28px + 2px Abstand = 30px statt 36px + 2px (libadwaita .navigation-sidebar > row),
  * Abschnittsüberschriften etwas kleiner (caption-heading 82 %), Abstände in den
  * ListHeader-Labels (mail-, contacts-, calendar-view.blp). Symbole und Schrift unverändert. */
@@ -70,7 +126,7 @@
   font-size: 76%;
 }
 
-/* #400 Punkt 4: Nachrichtenliste wie 04/05 – ohne Trennlinien, ruhige Zeilen,
+/* Task 400 Punkt 4: Nachrichtenliste wie 04/05 – ohne Trennlinien, ruhige Zeilen,
  * Auswahl als abgerundete, kräftige Akzentfläche mit Abstand zum Rand. */
 .message-list {
   background: none;
@@ -94,7 +150,7 @@
   color: inherit;
 }
 
-/* #401: Büroklammer und Stern dezent wie Apple Mail (Vorbild 17): 12px statt 16px
+/* Task 401: Büroklammer und Stern dezent wie Apple Mail (Vorbild 17): 12px statt 16px
  * (pixel-size in mail-view.blp), Büroklammer grauer als .dimmed, Stern etwas zurück. */
 .message-list .list-icon.dimmed {
   opacity: 0.4;
@@ -104,7 +160,7 @@
   opacity: 0.8;
 }
 
-/* #400 Punkt 7: HTML-Mail behält ihren eigenen weißen Hintergrund, auch im
+/* Task 400 Punkt 7: HTML-Mail behält ihren eigenen weißen Hintergrund, auch im
  * Dunkelmodus (Vorbild 03). */
 .html-mail {
   border-radius: 12px;
@@ -117,23 +173,14 @@
   background-color: color-mix(in srgb, var(--blue-4) 25%, transparent);
 }
 
-/* Theme „Dunkel“ (#340, Arnd 22.10.2026): Klasse .content-dark am Fenster (main.c).
+/* Theme „Dunkel“ (Task 340, Arnd 22.10.2026): Klasse .content-dark am Fenster (main.c).
  * Mail-Karte in der Kartenfarbe des Designs, Text hell. */
 .content-dark .html-mail {
   background-color: var(--card-bg-color);
   color: var(--card-fg-color);
 }
 
-/* #401 Punkt 1: nur dunkel – Trennstrich zwischen Liste und Nachricht dunkler als
- * der Hintergrund (Vorbild 11). libadwaita zeichnet die Linie als box-shadow mit
- * currentColor (hell); hier --shade-color (dunkel, rgba(16,16,16,0.35) im Dunkel-Stylesheet).
- * Klasse .dark setzt mail-view.c nach AdwStyleManager:dark: die Media-Query
- * prefers-color-scheme griff im Test (ADW_DEBUG_COLOR_SCHEME=prefer-dark) nicht. */
-.dark .mail-split paned.horizontal > separator {
-  box-shadow: inset 1px 0 var(--shade-color);
-}
-
-/* #401 Punkt 2: Hauptmenü kompakter und edler. Trennlinien dunkel und über die volle
+/* Task 401 Punkt 2: Hauptmenü kompakter und edler. Trennlinien dunkel und über die volle
  * Breite, Einträge ohne Einzug nah am Rand (libadwaita: Innenabstand 6px, Zeile 32px). */
 menubutton.primary-menu popover.menu > contents > stack > box {
   padding: 4px 0;
@@ -151,7 +198,7 @@ menubutton.primary-menu popover.menu separator {
   background-color: var(--shade-color);
 }
 
-/* #401 Punkt 4: Hinweis als abgerundete Pille (Vorbild 12). */
+/* Task 401 Punkt 4: Hinweis als abgerundete Pille (Vorbild 12). */
 .mail-notice {
   padding: 5px 5px 5px 14px;
   border-radius: 999px;
@@ -163,13 +210,13 @@ menubutton.primary-menu popover.menu separator {
   color: var(--accent-color);
 }
 
-/* #408: Offline-Pille ohne Knopf, gleich hoch wie die Pille mit Knopf (26px + 2 × 5px). */
+/* Task 408: Offline-Pille ohne Knopf, gleich hoch wie die Pille mit Knopf (26px + 2 × 5px). */
 .offline-notice {
   min-height: 36px;
   padding-right: 14px;
 }
 
-/* #355: Knopf mit Menü (Adw.SplitButton): beide Hälften als eine Pille in Akzentfarbe. */
+/* Task 355: Knopf mit Menü (Adw.SplitButton): beide Hälften als eine Pille in Akzentfarbe. */
 .mail-notice-button > button,
 .mail-notice-button > menubutton > button {
   min-height: 26px;
@@ -192,7 +239,7 @@ menubutton.primary-menu popover.menu separator {
   background-color: color-mix(in srgb, var(--accent-bg-color) 24%, transparent);
 }
 
-/* #401 Punkt 5: Mailkopf graziler (Vorbild 13). */
+/* Task 401 Punkt 5: Mailkopf graziler (Vorbild 13). */
 .mail-sender {
   font-weight: 600;
 }
@@ -205,7 +252,7 @@ menubutton.primary-menu popover.menu separator {
   font-weight: 400;
 }
 
-/* #356: Anhänge als Pillen (Dokument #5, wie die Pillen im Composer, composer-hell.png) in einer
+/* Task 356: Anhänge als Pillen (Dokument #5, wie die Pillen im Composer, composer-hell.png) in einer
  * waagrechten Liste ohne Hintergrund; Auswahl als Akzentfläche wie die Hinweis-Pille. */
 .mail-attachments {
   background: none;
@@ -233,16 +280,16 @@ menubutton.primary-menu popover.menu separator {
   color: var(--accent-color);
 }
 
-/* Composer (#402) */
-/* Designsprache der Mail-Ansicht (#400, #401) auf das Fenster „Neue E-Mail“ übertragen.
+/* Composer (Task 402) */
+/* Designsprache der Mail-Ansicht (Task 400, Task 401) auf das Fenster „Neue E-Mail“ übertragen.
  * Klasse .composer am Fenster (composer.blp), .dark setzt composer.c wie mail-view.c. */
 
-/* Trennlinien der Felder: dunkel dunkler als der Hintergrund (wie #401 Punkt 1). */
+/* Trennlinien der Felder: dunkel dunkler als der Hintergrund (wie Task 401 Punkt 1). */
 .composer.dark .composer-fields > separator {
   background-color: var(--shade-color);
 }
 
-/* Werte normal, kaum Fett (Mailkopf #401 Punkt 5): Auswahlfelder Von/Signatur flach
+/* Werte normal, kaum Fett (Mailkopf Task 401 Punkt 5): Auswahlfelder Von/Signatur flach
  * ohne Fettschrift (libadwaita setzt Knopfbeschriftungen fett), Pfeil gedimmt. */
 .composer-dropdown > button {
   background: none;
@@ -262,7 +309,7 @@ menubutton.primary-menu popover.menu separator {
   opacity: 0.55;
 }
 
-/* Auswahllisten von Von/Signatur in Nautilus-Optik wie das Hauptmenü (#401 Punkt 2,
+/* Auswahllisten von Von/Signatur in Nautilus-Optik wie das Hauptmenü (Task 401 Punkt 2,
  * Vorbild 08): kompakte Zeilen nah am Rand, abgerundete Hervorhebung. */
 .composer-dropdown popover > contents {
   padding: 4px 0;
@@ -279,7 +326,7 @@ menubutton.primary-menu popover.menu separator {
   border-radius: 7px;
 }
 
-/* #360: Anhang-Pille im Composer mit Knopf „Entfernen“ am Ende (Prototyp composer-hell.png). */
+/* Task 360: Anhang-Pille im Composer mit Knopf „Entfernen“ am Ende (Prototyp composer-hell.png). */
 .composer-attachment {
   padding-right: 4px;
 }
@@ -290,7 +337,7 @@ menubutton.primary-menu popover.menu separator {
 }
 
 /* Schreibfläche als große abgerundete Karte mit Abstand wie die Mail-Karte (.html-mail,
- * #400 Punkt 7). Themes (#340): hell auch im Dunkelmodus wie die Mail-Karte, Schrift
+ * Task 400 Punkt 7). Themes (Task 340): hell auch im Dunkelmodus wie die Mail-Karte, Schrift
  * --dark-3 (Textfarbe des hellen Stylesheets); nur Theme „Dunkel“ (.content-dark am
  * Fenster, main.c) in der Kartenfarbe des Designs. */
 .composer-card {
@@ -310,9 +357,9 @@ menubutton.primary-menu popover.menu separator {
   background-color: transparent;
 }
 
-/* Kontakte (#402) */
+/* Kontakte (Task 402) */
 
-/* Kontaktliste wie .message-list (#400 Punkt 4): ohne Trennlinien, Auswahl als
+/* Kontaktliste wie .message-list (Task 400 Punkt 4): ohne Trennlinien, Auswahl als
  * abgerundete Akzentfläche mit Abstand zum Rand. Links ohne Platz für den
  * Ungelesen-Punkt, daher Zeile innen 12px wie rechts. */
 .contact-list {
@@ -333,7 +380,7 @@ menubutton.primary-menu popover.menu separator {
   color: var(--accent-fg-color);
 }
 
-/* #369: Name im Kopf des Details groß (title-1) und halbfett wie .mail-sender;
+/* Task 369: Name im Kopf des Details groß (title-1) und halbfett wie .mail-sender;
  * runde Schnellaktion, Tönung wie .mail-notice-button (aus dem Prototyp, Tag m2-prototyp). */
 .contact-name {
   font-weight: 600;
@@ -362,7 +409,7 @@ button.contact-action:hover {
   color: var(--accent-color);
 }
 
-/* Kalender (#402) – Designsprache der Mail auf die Kalender-Ansicht übertragen.
+/* Kalender (Task 402) – Designsprache der Mail auf die Kalender-Ansicht übertragen.
  * Seitenleiste und Hauptmenü nutzen die Klassen oben (.mail-split,
  * .floating-sidebar, .primary-menu); hier nur Ergänzungen. */
 
@@ -384,7 +431,7 @@ calendar.date-chooser {
   background-color: var(--shade-color);
 }
 
-/* #373: Monatsansicht und Termine. Übernommen aus gnome-calendar 50.0 src/theme/events.css:1-48 und
+/* Task 373: Monatsansicht und Termine. Übernommen aus gnome-calendar 50.0 src/theme/events.css:1-48 und
  * src/theme/style.css:3-20, 267-397 (GcalEventWidget „event“, GcalMonthCell „monthcell“, GcalMonthView
  * „calendar-view“, GcalMonthPopover „monthpopover“), angepasst an das Design (kalender-monat-hell.png,
  * Dokument #5: Termine schlank, schmaler Farbstreifen, Uhrzeit dezent; alles flach): Streifen 3px statt 6px,
@@ -557,9 +604,9 @@ monthpopover > box {
   background-color: var(--popover-bg-color);
 }
 
-/* #374: Woche und Tag. Übernommen aus gnome-calendar 50.0 src/theme/style.css:229-265 (GcalWeekHourBar
+/* Task 374: Woche und Tag. Übernommen aus gnome-calendar 50.0 src/theme/style.css:229-265 (GcalWeekHourBar
  * „weekhourbar“, GcalWeekGrid „weekgrid“, GcalWeekHeader „weekheader“), angepasst an das Design
- * (kalender-woche-hell.png, #402): Wochentag klein wie die Monatskopfzeile (statt .heading), Tagesnummer groß,
+ * (kalender-woche-hell.png, Task 402): Wochentag klein wie die Monatskopfzeile (statt .heading), Tagesnummer groß,
  * aber nicht fett, nur heute halbfett; Uhrzeit dezent wie in der Mail-Liste. */
 weekhourbar > label {
   font-size: 9pt;
@@ -603,83 +650,84 @@ button.week-header-expander:checked image {
   font-weight: 600;
 }
 
-/* Flach, ohne Verläufe (#336) – Arnd 22.10.2026: „alles flach“, Form unverändert.
+/* Flach, ohne Verläufe (Task 336) – Arnd 22.10.2026: „alles flach“, Form unverändert.
  * Einziger sichtbarer Verlauf in der App: AdwAvatar. libadwaita 1.9.1 setzt
  * avatar.color1 … color14 { background-image: linear-gradient(hell, dunkel) }
  * (Stylesheet default-{light,dark}-yaru-default.css, Zeilen 197–223, beide gleich).
- * Ersatz: flache Mitte des bisherigen Verlaufs (color-mix 50 %): Farbton bleibt wie
- * gewohnt, die hellen Initialen (color, unverändert) lagen bisher auf beiden Enden. */
+ * Ersatz: flache Fläche in der Mitte des bisherigen Verlaufs, gemischt aus Palette und
+ * Akzentfarben von libadwaita (Task 454, nächster Farbton je Klasse, gleiche Farbfamilie);
+ * die hellen Initialen (color, unverändert) lagen bisher auf beiden Enden. */
 avatar.color1 {
   background-image: none;
-  background-color: color-mix(in srgb, #83b6ec, #337fdc);
+  background-color: color-mix(in srgb, var(--blue-2) 60%, var(--accent-purple));
 }
 
 avatar.color2 {
   background-image: none;
-  background-color: color-mix(in srgb, #7ad9f1, #0f9ac8);
+  background-color: color-mix(in srgb, var(--blue-2) 80%, var(--accent-teal));
 }
 
 avatar.color3 {
   background-image: none;
-  background-color: color-mix(in srgb, #8de6b1, #29ae74);
+  background-color: color-mix(in srgb, var(--blue-1) 40%, var(--green-3));
 }
 
 avatar.color4 {
   background-image: none;
-  background-color: color-mix(in srgb, #b5e98a, #6ab85b);
+  background-color: color-mix(in srgb, var(--green-2) 60%, var(--yellow-1));
 }
 
 avatar.color5 {
   background-image: none;
-  background-color: color-mix(in srgb, #f8e359, #d29d09);
+  background-color: color-mix(in srgb, var(--green-1) 25%, var(--yellow-5));
 }
 
 avatar.color6 {
   background-image: none;
-  background-color: color-mix(in srgb, #ffcb62, #d68400);
+  background-color: color-mix(in srgb, var(--yellow-3) 65%, var(--accent-yellow));
 }
 
 avatar.color7 {
   background-image: none;
-  background-color: color-mix(in srgb, #ffa95a, #ed5b00);
+  background-color: color-mix(in srgb, var(--yellow-4) 50%, var(--orange-5));
 }
 
 avatar.color8 {
   background-image: none;
-  background-color: color-mix(in srgb, #f78773, #e62d42);
+  background-color: color-mix(in srgb, var(--orange-3) 30%, var(--red-1));
 }
 
 avatar.color9 {
   background-image: none;
-  background-color: color-mix(in srgb, #e973ab, #e33b6a);
+  background-color: color-mix(in srgb, var(--red-1) 65%, var(--accent-pink));
 }
 
 avatar.color10 {
   background-image: none;
-  background-color: color-mix(in srgb, #cb78d4, #9945b5);
+  background-color: color-mix(in srgb, var(--blue-1) 10%, var(--accent-pink));
 }
 
 avatar.color11 {
   background-image: none;
-  background-color: color-mix(in srgb, #9e91e8, #7a59ca);
+  background-color: color-mix(in srgb, var(--light-3) 15%, var(--accent-purple));
 }
 
 avatar.color12 {
   background-image: none;
-  background-color: color-mix(in srgb, #e3cf9c, #b08952);
+  background-color: color-mix(in srgb, var(--yellow-1) 35%, var(--brown-2));
 }
 
 avatar.color13 {
   background-image: none;
-  background-color: color-mix(in srgb, #be916d, #785336);
+  background-color: color-mix(in srgb, var(--brown-3) 85%, var(--dark-3));
 }
 
 avatar.color14 {
   background-image: none;
-  background-color: color-mix(in srgb, #c0bfbc, #6e6d71);
+  background-color: color-mix(in srgb, var(--light-3) 70%, var(--dark-4));
 }
 
-/* #357: Konversationen. Zahl der Nachrichten in der Zeile als kleine Pille (wie der Hinweis .mail-notice,
+/* Task 357: Konversationen. Zahl der Nachrichten in der Zeile als kleine Pille (wie der Hinweis .mail-notice,
  * nur kleiner); Kopf je Nachricht im Lesebereich der Konversation wie eine Zeile der Liste abgerundet. */
 .conversation-count {
   padding: 0 6px;
@@ -693,7 +741,7 @@ avatar.color14 {
   font-weight: normal;
 }
 
-/* #375: Termin-Popover und Erinnerungen. Übernommen aus gnome-calendar 50.0 src/theme/style.css:32-44 (popover.alarms),
+/* Task 375: Termin-Popover und Erinnerungen. Übernommen aus gnome-calendar 50.0 src/theme/style.css:32-44 (popover.alarms),
  * 51-55 (Event Popover), 426-428 (label.no-events). */
 popover.alarms modelbutton {
   outline: 0 solid transparent;
@@ -718,12 +766,12 @@ label.no-events {
   font-style: italic;
 }
 
-/* #376: Einladungskarte im Lesebereich (mail-invitation.blp), Innenabstand wie die Inhaltskarte. */
+/* Task 376: Einladungskarte im Lesebereich (mail-invitation.blp), Innenabstand wie die Inhaltskarte. */
 .mail-invitation {
   padding: 12px;
 }
 
-/* #376 R2: Termintitel in normaler Stärke, etwas größer (Design #5 „Betreffe und Werte normal“). */
+/* Task 376 R2: Termintitel in normaler Stärke, etwas größer (Design #5 „Betreffe und Werte normal“). */
 .mail-invitation-title {
   font-size: 1.2em;
 }

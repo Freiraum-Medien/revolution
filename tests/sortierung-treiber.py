@@ -30,8 +30,8 @@ KONTO_UID, APP_DIR, NEU = os.environ['KONTO_UID'], os.environ['APP_DIR'], os.env
 TIMEOUT = int(os.environ.get('TIMEOUT', '300'))
 LOG = os.path.join(OUT, NAME + '.log')
 # Fenster 1200×760 wie tests/sortierung.sh: Spalte der Liste (Avatare), Farbe der gewählten Zeile (wie
-# tests/flags-treiber.py), Liste unter der Kopfleiste ab y = 59.
-LISTE_X, LISTE_Y, ZEILE_Y = 300, 59, 400
+# tests/flags-treiber.py), Liste unter dem Listen-Titel ab y = 107 (#454).
+LISTE_X, LISTE_Y, ZEILE_Y = 300, 107, 400
 GEWAEHLT = (211, 70, 21)
 
 fehler = 0

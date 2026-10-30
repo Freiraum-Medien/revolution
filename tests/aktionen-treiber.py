@@ -31,7 +31,7 @@ KONTO, ORDNER, WAS = os.environ['KONTO'], os.environ['ORDNER'], os.environ['WAS'
 LOGKEY = ORDNER.replace('/', ' ', 1)
 HEIM = ORDNER.split('/', 1)[1]
 M365 = 'outlook' in KONTO
-ZEILE = (420, 108)
+ZEILE = (420, 156)
 LOG = os.path.join(OUT, NAME + '.log')
 ZEILE_RE = re.compile(r'^\(revolution:\d+\): revolution-DEBUG: \d\d:\d\d:\d\d\.\d+: (.*)$')
 

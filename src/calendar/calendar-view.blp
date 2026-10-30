@@ -153,26 +153,118 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
       ]
 
       // Seitenleiste: Monatsauswahl + Kalenderliste (gcal-window.blp:150-166).
-      child: Adw.ToolbarView {
-        [top]
-        Adw.HeaderBar {
-          // Umschalter Mail | Kalender | Kontakte oben in der Kopfleiste der Seitenleiste
-          // (Arnd 22.10.2026, #340, Vorbild 22/24): Segment-Umschalter, Standard-libadwaita
-          // (AdwInlineViewSwitcher = AdwToggleGroup am ViewStack, nur Symbole);
-          // Seitentitel als Tooltip setzt libadwaita (geprüft headless).
-          title-widget: Adw.InlineViewSwitcher {
-            stack: bind template.stack;
-            display-mode: icons;
+      // #454: GtkWindowHandle wie mail-view.blp: Fenster über die Seitenleiste ziehbar.
+      child: WindowHandle {
+        child: Overlay {
+          child: ScrolledWindow {
+            hscrollbar-policy: never;
+
+            child: Box {
+              orientation: vertical;
+
+              // GcalDateChooser ist ein eigenes C-Widget; hier Gtk.Calendar.
+              // #454: Monatsname auf der Linie, darüber frei für das Hauptmenü (style.css „Eine Linie“).
+              // #402: ohne eigenen Rahmen auf der Seitenleisten-Fläche (style.css .date-chooser).
+              // Ohne year/month/day zeigt Gtk.Calendar den heutigen Tag.
+              Calendar date_chooser {
+                // #373: Auswahl eines Tages blättert die Monatsansicht dorthin (gcal-window.blp:161).
+                day-selected => $on_day_selected() swapped;
+                margin-start: 12;
+                margin-end: 12;
+                margin-top: 48;
+                margin-bottom: 6;
+
+                accessibility {
+                  label: _("Select Date");
+                }
+
+                styles [
+                  "date-chooser",
+                ]
+              }
+
+              // Kalenderliste (gcal-calendar-list.blp:14-23), je Konto ein Abschnitt wie die
+              // Adressbücher in contacts-view.blp (lokal zuerst, calendar_section in calendar-view.c),
+              // darin nach Name. Farbe und Ein/Aus im Ankreuzfeld. #373: Kalender des GcalManager.
+              ListView calendar_list {
+                tab-behavior: item;
+
+                // calendar-list: Abstand Ankreuzfeld–Name wie Symbol–Name der Ordnerliste (style.css).
+                styles [
+                  "navigation-sidebar",
+                  "calendar-list",
+                ]
+
+                accessibility {
+                  label: _("Calendar");
+                }
+
+                model: NoSelection {
+                  model: SortListModel calendar_sorted {
+                    section-sorter: StringSorter {
+                      expression: expr $calendar_section(item as <$GcalCalendar>.parent-source) as <string>;
+                    };
+
+                    sorter: StringSorter {
+                      expression: expr item as <$GcalCalendar>.name;
+                    };
+                  };
+                };
+
+                header-factory: BuilderListItemFactory {
+                  template ListHeader {
+                    child: Label {
+                      label: bind template.item as <$GcalCalendar>.parent-source as <$ESource>.display-name;
+                      xalign: 0;
+                      margin-start: 14;
+                      margin-end: 14;
+                      margin-top: 4;
+                      margin-bottom: 2;
+                      ellipsize: end;
+
+                      styles [
+                        "caption-heading",
+                        "dimmed",
+                      ]
+                    };
+                  }
+                };
+
+                factory: BuilderListItemFactory {
+                  template ListItem {
+                    activatable: false;
+                    accessible-label: bind template.item as <$GcalCalendar>.name;
+
+                    // #373: Ein/Aus setzt GcalCalendar:visible (on_calendar_toggled), gespeichert in den
+                    // Einstellungen der App (gcal-manager.c), nie in der ESource. Farbe über den
+                    // Widget-Namen (calendar_color_name, CSS in calendar-view.c).
+                    child: CheckButton {
+                      label: bind template.item as <$GcalCalendar>.name;
+                      active: bind template.item as <$GcalCalendar>.visible;
+                      name: bind $calendar_color_name(template.item as <$GcalCalendar>.color) as <string>;
+                      toggled => $on_calendar_toggled(template);
+                      tooltip-text: _("Show or Hide Calendar");
+                    };
+                  }
+                };
+              }
+            };
           };
 
-          // #402: Hauptmenü wie Mail (mail-view.blp:88-106), Nautilus-Optik über .primary-menu.
-          [end]
+          // #454: Hauptmenü schwebt auf der Karte wie mail-view.blp (style.css .primary-menu).
+          [overlay]
           MenuButton {
+            halign: end;
+            valign: start;
+            margin-top: 6;
+            margin-end: 6;
             primary: true;
             icon-name: "open-menu-symbolic";
 
             styles [
               "primary-menu",
+              "flat",
+              "circular",
             ]
 
             tooltip-text: _("Main Menu");
@@ -182,101 +274,6 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
               label: _("Main Menu");
             }
           }
-        }
-
-        content: ScrolledWindow {
-          hscrollbar-policy: never;
-
-          child: Box {
-            orientation: vertical;
-
-            // GcalDateChooser ist ein eigenes C-Widget; hier Gtk.Calendar.
-            // #340: oben 2px statt 6px, Monatsname auf der Linie 63px (style.css „Eine Linie“).
-            // #402: ohne eigenen Rahmen auf der Seitenleisten-Fläche (style.css .date-chooser).
-            // Ohne year/month/day zeigt Gtk.Calendar den heutigen Tag.
-            Calendar date_chooser {
-              // #373: Auswahl eines Tages blättert die Monatsansicht dorthin (gcal-window.blp:161).
-              day-selected => $on_day_selected() swapped;
-              margin-start: 12;
-              margin-end: 12;
-              margin-top: 2;
-              margin-bottom: 6;
-
-              accessibility {
-                label: _("Select Date");
-              }
-
-              styles [
-                "date-chooser",
-              ]
-            }
-
-            // Kalenderliste (gcal-calendar-list.blp:14-23), je Konto ein Abschnitt wie die
-            // Adressbücher in contacts-view.blp (lokal zuerst, calendar_section in calendar-view.c),
-            // darin nach Name. Farbe und Ein/Aus im Ankreuzfeld. #373: Kalender des GcalManager.
-            ListView calendar_list {
-              tab-behavior: item;
-
-              // calendar-list: Abstand Ankreuzfeld–Name wie Symbol–Name der Ordnerliste (style.css).
-              styles [
-                "navigation-sidebar",
-                "calendar-list",
-              ]
-
-              accessibility {
-                label: _("Calendar");
-              }
-
-              model: NoSelection {
-                model: SortListModel calendar_sorted {
-                  section-sorter: StringSorter {
-                    expression: expr $calendar_section(item as <$GcalCalendar>.parent-source) as <string>;
-                  };
-
-                  sorter: StringSorter {
-                    expression: expr item as <$GcalCalendar>.name;
-                  };
-                };
-              };
-
-              header-factory: BuilderListItemFactory {
-                template ListHeader {
-                  child: Label {
-                    label: bind template.item as <$GcalCalendar>.parent-source as <$ESource>.display-name;
-                    xalign: 0;
-                    margin-start: 14;
-                    margin-end: 14;
-                    margin-top: 4;
-                    margin-bottom: 2;
-                    ellipsize: end;
-
-                    styles [
-                      "caption-heading",
-                      "dimmed",
-                    ]
-                  };
-                }
-              };
-
-              factory: BuilderListItemFactory {
-                template ListItem {
-                  activatable: false;
-                  accessible-label: bind template.item as <$GcalCalendar>.name;
-
-                  // #373: Ein/Aus setzt GcalCalendar:visible (on_calendar_toggled), gespeichert in den
-                  // Einstellungen der App (gcal-manager.c), nie in der ESource. Farbe über den
-                  // Widget-Namen (calendar_color_name, CSS in calendar-view.c).
-                  child: CheckButton {
-                    label: bind template.item as <$GcalCalendar>.name;
-                    active: bind template.item as <$GcalCalendar>.visible;
-                    name: bind $calendar_color_name(template.item as <$GcalCalendar>.color) as <string>;
-                    toggled => $on_calendar_toggled(template);
-                    tooltip-text: _("Show or Hide Calendar");
-                  };
-                }
-              };
-            }
-          };
         };
       };
 
@@ -292,21 +289,21 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
       // Kopfleiste (gcal-window.blp:174-211). Titel = Monat und Jahr
       // (gcal-calendar-navigation-button.c:106, „%B %Y“).
 
-      // #402: Aufbau wie die Kopfleiste der Mail-Nachricht (mail-view.blp:438-449): alles im
-      // Titel, damit der Titel linksbündig direkt neben dem Seitenleisten-Knopf steht wie in
-      // der Mail-Liste (mail-view.blp:233-262); Fensterknöpfe als Gtk.WindowControls.
+      // #402: Aufbau wie die Kopfleiste der Mail-Nachricht: alles im Titel, damit der Titel
+      // linksbündig direkt neben dem Seitenleisten-Knopf steht; Fensterknöpfe als
+      // Gtk.WindowControls. #454: CenterBox: Umschalter mittig (mail-view.blp, title-widget der Liste).
       [top]
       Adw.HeaderBar {
         show-start-title-buttons: false;
         show-end-title-buttons: false;
 
-        title-widget: Box {
+        title-widget: CenterBox {
           hexpand: true;
-          spacing: 6;
 
-          // #402 Runde 2: Suche wie Mail (mail-view.blp:438-604): „Lights off“, Gtk.Stack
-          // wechselt vom Knopf mit Titel zum Suchfeld über die ganze Breite bis zur Lupe.
-          // Umschalten in calendar-view.c.
+          // #402 Runde 2: Suche wie Mail: „Lights off“, Gtk.Stack wechselt vom Knopf mit Titel
+          // zum Suchfeld über die ganze Breite bis zur Lupe; dabei weicht der Umschalter
+          // (calendar-view.c on_search_toggled).
+          [start]
           Stack header_stack {
             hexpand: true;
             transition-type: over_left_right;
@@ -318,11 +315,15 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
               child: Box {
                 spacing: 6;
 
-                // #402: Knopf immer sichtbar wie Mail (mail-view.blp:208-218); F9 oben im Controller.
+                // #402: Knopf immer sichtbar wie Mail; F9 oben im Controller.
                 ToggleButton sidebar_button {
                   icon-name: "sidebar-show-symbolic";
                   tooltip-text: _("Toggle Sidebar");
                   active: bind split.show-sidebar bidirectional;
+
+                  styles [
+                    "sidebar-toggle",
+                  ]
 
                   accessibility {
                     label: _("Toggle Sidebar");
@@ -361,18 +362,34 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
             }
           }
 
-          ToggleButton search_button {
-            icon-name: "edit-find-symbolic";
-            tooltip-text: _("Search");
-            notify::active => $on_search_toggled() swapped;
+          [center]
+          Adw.InlineViewSwitcher app_switcher {
+            valign: center;
+            stack: bind template.stack;
+            display-mode: icons;
 
-            accessibility {
-              label: _("Search");
-            }
+            styles [
+              "app-switcher",
+            ]
           }
 
-          WindowControls {
-            side: end;
+          [end]
+          Box {
+            spacing: 6;
+
+            ToggleButton search_button {
+              icon-name: "edit-find-symbolic";
+              tooltip-text: _("Search");
+              notify::active => $on_search_toggled() swapped;
+
+              accessibility {
+                label: _("Search");
+              }
+            }
+
+            WindowControls {
+              side: end;
+            }
           }
         };
       }

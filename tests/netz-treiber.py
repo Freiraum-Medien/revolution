@@ -56,8 +56,8 @@ VORHER = os.environ.get('VORHER', '')
 ORDNER = os.environ['REVOLUTION_FOLDER']
 LOGKEY = ORDNER.replace('/', ' ', 1)
 EINLADUNG = '[Revolution-Test] Einladung: Abstimmung Testdaten'
-# Fenster 1200×1100, erste Zeile der Liste unter der Pille „Offline“ (m4-408-1-offline-start.png).
-ZEILE_OFFLINE = (420, 170)
+# Fenster 1200×1100, erste Zeile der Liste unter der Pille „Offline“ und dem Listen-Titel (#454).
+ZEILE_OFFLINE = (420, 218)
 
 fehler = 0
 app_pid = None

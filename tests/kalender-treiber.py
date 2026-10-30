@@ -1879,7 +1879,8 @@ def editor_fuer(name, uid):
             klick(*mitte(knoepfe[i]))
             m = warte(r'Kalender: Popover (\S+)$', ab, 5)
         wert('Termin %d/%d „%s“: Popover %s' % (i + 1, len(knoepfe), name[:30], m and m.group(1)[:60]))
-        if m and m.group(1).split(':', 1)[1] == uid:
+        # #452: Vorkommen einer Serie: <Kalender>:<UID>:<RECURRENCE-ID>.
+        if m and m.group(1).split(':')[1] == uid:
             time.sleep(0.8)
             ab = marke()
             taste('Return')

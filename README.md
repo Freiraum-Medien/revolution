@@ -16,7 +16,7 @@ Modern mail client for GNOME with mail, contacts and calendar; the accounts come
 | M3 | Scaffold | done |
 | M4 | Reading mail | done |
 | M5 | Handling mail | done |
-| M6 | Contacts | open |
+| M6 | Contacts | done |
 | M7 | Calendar | open |
 | M8 | Release | open |
 
@@ -51,4 +51,4 @@ Build, tests, architecture and workflow: [docs/ENTWICKLUNG.md](docs/ENTWICKLUNG.
 
 GPL-3.0-or-later, see [COPYING](COPYING). Copyright 2026 Arnd Messer.
 
-The calendar data layer and month view in `src/calendar/gcal/` are taken from GNOME Calendar 50.0 (GPL-3.0-or-later, copyright the GNOME Calendar authors); each file names its source.
+The calendar data layer, the month, week and day views and the event editor in `src/calendar/gcal/` are taken from GNOME Calendar 50.0 (GPL-3.0-or-later, copyright the GNOME Calendar authors); each file names its source.

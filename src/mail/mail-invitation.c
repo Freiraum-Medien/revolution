@@ -720,8 +720,9 @@ respond_thread (GTask        *task,
       if (!e_cal_client_receive_objects_sync (E_CAL_CLIENT (client), top, E_CAL_OPERATION_FLAG_NONE, cancellable, &error))
         {
           /* #449: Google-CalDAV (Host wie EDS e-cal-backend-caldav.c:106-109) lehnt das Schreiben mit HTTP 400 ab, wenn
-           * Google die Einladung schon versteckt übernommen hat (#447, Messung #376). Fehlerbereich und Code kommen über
-           * D-Bus unverändert an (e-webdav-session.c:1007-1044 E_SOUP_SESSION_ERROR, Code = HTTP-Status). */
+           * Google die Einladung schon versteckt übernommen hat (#447, Messung #376). E_SOUP_SESSION_ERROR mit dem
+           * HTTP-Status als Code (e-webdav-session.c:1007-1044), e-cal-backend-caldav.c:1633-1635 reicht ihn durch, GDBus
+           * trägt nicht registrierte Fehlerbereiche im Fehlernamen (…UnmappedGError.Quark…Code400). */
           ESourceWebdav *webdav = e_source_has_extension (response->calendar, E_SOURCE_EXTENSION_WEBDAV_BACKEND)
                                     ? e_source_get_extension (response->calendar, E_SOURCE_EXTENSION_WEBDAV_BACKEND) : NULL;
           g_autoptr (GUri) uri = webdav != NULL ? e_source_webdav_dup_uri (webdav) : NULL;

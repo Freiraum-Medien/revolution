@@ -3517,6 +3517,65 @@ def einladung_anlegen(registry, organisator, teilnehmer, datei, titel, beginn):
     return 0
 
 
+def einladung_privat(registry, datei, titel, beginn):
+    """#449 Fall G ohne outlook.com (Ausnahme PM 30.10.2026, nur Fall G): Einladung per SMTP von KONTO_IMAP_1 an
+    KONTO_GOOGLE, höchstens 2 je Ausgabeordner, Beginn +10 bis +90 Tage. Aufbau wie Exchange (multipart/alternative
+    aus text/plain und text/calendar method=REQUEST). Termin und Message-ID für warten/aufraeumen gemerkt."""
+    zaehler = os.path.join(os.path.dirname(datei), 'privat-einladungen.txt')
+    n = len(open(zaehler).readlines()) if os.path.exists(zaehler) else 0
+    start = datetime.datetime.strptime(beginn, '%Y-%m-%dT%H:%M').replace(tzinfo=datetime.timezone.utc)
+    heute = datetime.datetime.now(datetime.timezone.utc)
+    if n >= 2 or not titel.startswith('Revolution-Test 449') or \
+            not heute + datetime.timedelta(days=10) <= start <= heute + datetime.timedelta(days=90):
+        sys.exit('ABBRUCH: höchstens 2 Einladungen, Titel „Revolution-Test 449 …“, Beginn +10 bis +90 Tage')
+    konten = konten_finden(registry)
+    k = konten[KONTO_IMAP_1]
+    uid = 'revolution-test-449-%s@%s' % (hashlib.sha1((titel + beginn).encode()).hexdigest()[:12], MSGID_DOMAIN)
+    mid = '<revolution-test-449-%s@%s>' % (hashlib.sha1(titel.encode()).hexdigest()[:12], MSGID_DOMAIN)
+    zeit = lambda t: t.strftime('%Y%m%dT%H%M%SZ')
+    ics = '\r\n'.join(['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Revolution//Test 449//EN', 'METHOD:REQUEST',
+                        'BEGIN:VEVENT', 'UID:' + uid, 'DTSTAMP:' + zeit(heute), 'DTSTART:' + zeit(start),
+                        'DTEND:' + zeit(start + datetime.timedelta(minutes=30)), 'SUMMARY:' + titel,
+                        'LOCATION:Testraum 449', 'SEQUENCE:0', 'ORGANIZER;CN=Revolution Test:mailto:' + KONTO_IMAP_1,
+                        'ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:' + KONTO_GOOGLE,
+                        'END:VEVENT', 'END:VCALENDAR', ''])
+    m = EmailMessage(policy=email.policy.SMTP)
+    m['Subject'], m['From'], m['To'] = titel, KONTO_IMAP_1, KONTO_GOOGLE
+    m['Date'], m['Message-ID'] = email.utils.formatdate(localtime=True), mid
+    m.set_content(titel)
+    m.add_alternative(ics, subtype='calendar', params={'method': 'REQUEST'})
+    msg = Camel.MimeMessage.new()
+    msg.construct_from_stream_sync(Camel.StreamMem.new_with_buffer(m.as_bytes()), None)
+    session = TestSession(user_data_dir=os.path.join(CACHE, 'data'), user_cache_dir=os.path.join(CACHE, 'cache'))
+    session.setup({s.get_uid(): x.goa for x in konten.values() for s in (x.account, x.transport) if s})
+    session.set_online(True)
+    transport = dienst(session, k.transport, EDataServer.SOURCE_EXTENSION_MAIL_TRANSPORT, Camel.ProviderType.TRANSPORT)
+    von, an = Camel.InternetAddress.new(), Camel.InternetAddress.new()
+    von.add('', KONTO_IMAP_1)
+    an.add('', KONTO_GOOGLE)
+    transport.send_to_sync(msg, von, an, cancellable())
+    transport.disconnect_sync(True, None)
+    with open(zaehler, 'a') as f:
+        f.write(titel + '\n')
+    einladung_daten(datei, {'organisator': KONTO_IMAP_1, 'teilnehmer': KONTO_GOOGLE, 'titel': titel, 'mails': [],
+                            'kalender_teilnehmer': [], 'uid': uid, 'href': '', 'kal': kalender_schreibbar()[1]})
+    print('EINLADUNG %s' % titel, flush=True)
+    return 0
+
+
+def einladung_privat_loeschen(registry, datei):
+    """#449: kam kein HTTP 400, hat die App den Termin im Gmail-Kalender angelegt: genau 1 Treffer mit exakt der
+    gemerkten UID und SUMMARY „Revolution-Test 449…“, sonst Abbruch ohne DELETE."""
+    d = einladung_daten(datei)
+    konten, google = konten_finden(registry), kalender_schreibbar()[1]
+    treffer = caldav_uid(konten, caldav_basis(registry), d['uid'])
+    if len(treffer) != 1 or not caldav_summary(treffer[0][1], d['uid']).startswith('Revolution-Test 449'):
+        sys.exit('ABBRUCH: %d Treffer für UID %s, kein DELETE' % (len(treffer), d['uid']))
+    status, _ = caldav(konten, 'DELETE', treffer[0][0])
+    print('SCHREIBVORGANG %s (CalDAV DELETE Kopie, HTTP %d)' % (google, status), flush=True)
+    return 0
+
+
 # #449: „abgesagt“ nur Absagen, „aktualisiert“ keine Absagen (beide kommen nach dem Entfernen eines Teilnehmers).
 ABSAGE_ARTEN = {a: ('Abgesagt', 'Canceled', 'Cancelled', 'Termin abgesagt') for a in ('abgesagt', 'aktualisiert')}
 
@@ -3812,6 +3871,7 @@ def einladung_aufraeumen(registry, datei):
     konten = konten_finden(registry)
     m365, google, lokal = kalender_schreibbar()
     basis = caldav_basis(registry)
+    rc = 0
     # #376 R2: Kopie bei outlook.com zuerst, sonst benennt Exchange sie nach der Absage des Organisators um
     # („Termin abgesagt: …“) und sie bleibt liegen (gemessen Lauf 10300410).
     # Kopie bei outlook.com: nur genau ein Treffer, dessen iCalUId der gemerkten UID gleicht und dessen Betreff mit
@@ -3827,8 +3887,11 @@ def einladung_aufraeumen(registry, datei):
             print('MAIL-OUTLOOK 1 Absage (Exchange)')
         except urllib.error.HTTPError as f:
             # #449: nur 404 heißt weg; 429 ErrorExceededMessageLimit (Tageslimit Versand) lässt den Termin stehen.
-            print('ORGANISATOR schon weg HTTP 404' if f.code == 404 else
-                  'UEBRIG %s Organisator nicht gelöscht, HTTP %d %s' % (m365[:8], f.code, f.read()[:200]))
+            if f.code == 404:
+                print('ORGANISATOR schon weg HTTP 404')
+            else:
+                print('FEHLER  Organisator nicht gelöscht, HTTP %d %s' % (f.code, f.read()[:200]))
+                rc = 1
     # Google-CalDAV (Organisator oder Kopie): genau ein Treffer mit exakt der gemerkten UID und SUMMARY
     # „Revolution-Test…“ (PM 30.10.2026 nach dem Vorfall), sonst Abbruch ohne DELETE.
     treffer = caldav_uid(konten, basis, d['uid'])
@@ -3895,7 +3958,7 @@ def einladung_aufraeumen(registry, datei):
         finally:
             c.logout()
     sys.stdout.flush()
-    return 0
+    return rc
 
 
 def main():
@@ -4005,6 +4068,10 @@ def main():
             return einladung_pruefen(reg, *a[1:])
         if a[0] == 'eigene' and len(a) == 7:
             return einladung_eigene(reg, a[1], a[2], a[3], a[4].lower(), a[5].lower(), a[6])
+        if a[0] == 'privat' and len(a) == 4:
+            return einladung_privat(reg, *a[1:])
+        if a[0] == 'privat-loeschen' and len(a) == 2:
+            return einladung_privat_loeschen(reg, a[1])
         if a[0] == 'eds' and len(a) == 2:
             return einladung_eds(reg, a[1])
         if a[0] == 'kopie-loeschen' and len(a) == 2:

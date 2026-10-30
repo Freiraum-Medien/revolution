@@ -38,6 +38,8 @@
 #   P  wie L (Persönlich, Organisator Gmail, Teilnehmer outlook.com und seine Plus-Adresse): nur Erinnerung → keine
 #      Mail, SEQUENCE gleich (Python-GI), bei outlook.com nichts Neues; Titel → genau 1 Aktualisierung; Plus-Adresse
 #      entfernen → CANCEL nur an sie, REQUEST an den Verbliebenen (Postausgang; Graph, MIME-Empfänger).
+#   TEILE=449g: Fall G ohne outlook.com (Ausnahme PM 30.10.2026): Einladung per SMTP vom IMAP-Testkonto an Gmail,
+#      Annehmen im Gmail-Kalender, HTTP 400 → Bannertext. Kommt kein 400: Termin über die gemerkte UID löschen.
 #   Q  wie M (Kalender outlook.com, Teilnehmer Gmail und seine Plus-Adresse): Plus-Adresse entfernen → App sendet
 #      nichts („Server plant“), Absage und Aktualisierung von Exchange bei Gmail (IMAP). Den letzten Teilnehmer
 #      entfernen scheitert am Backend (Graph „attendees: null“, evolution-ews e-cal-backend-m365-utils.c:1254-1255).
@@ -416,13 +418,23 @@ for s in r.list_enabled(EDataServer.SOURCE_EXTENSION_MAIL_IDENTITY):
   unset SCHRITT KAL KAL_NAME TEILNEHMER TEILNEHMER2 TEILNEHMER_WEG ART TITEL TAG CANCEL_SOLL SEQUENZ
 fi
 
+if [[ " $TEILE " == *" 449g "* ]]; then
+  if tdp --einladung privat "$OUT/einladung-G.json" "Revolution-Test 449 $LAUF G" "$(date -d '+14 days' +%Y-%m-%d)T14:00" >/dev/null; then
+    if warten einladung G; then TITEL_JETZT="Revolution-Test 449 $LAUF G"
+      teil m7-449-g "$UID_GOOGLE" INBOX "$BETREFF" annehmen REQUEST "$KAL_GOOGLE" "$NAME_GOOGLE" nein prefer-light 0 1
+      grep -q 'Schreibfehler e-soup-session-error-quark 400, Google ja' "$OUT/m7-449-g.log" \
+        || tdp --einladung privat-loeschen "$OUT/einladung-G.json" >/dev/null
+    fi
+  else echo "FEHLER  G: Einladung nicht gesendet"; FEHLER=$((FEHLER + 1)); fi
+fi
+
 # Aufräumen über die gemerkten IDs.
 for fall in A B C D G M L P Q; do
   [ -f "$OUT/einladung-$fall.json" ] || continue
   tdp --einladung gesendet "$OUT/einladung-$fall.json" >/dev/null
   # Absagen nach dem Löschen des Organisator-Termins (Exchange und Google schicken sie) ebenfalls merken und löschen.
   if tdp --einladung aufraeumen "$OUT/einladung-$fall.json" >"$OUT/aufraeumen-$fall.txt" &&
-     { [ "$fall" = A ] || [ "$fall" = M ] || [ "$fall" = L ] || [ "$fall" = P ] || [ "$fall" = Q ] || WARTEN=300 tdp --einladung warten absage "$OUT/einladung-$fall.json" >/dev/null; } &&
+     { [ "$fall" = A ] || [ "$fall" = M ] || [ "$fall" = L ] || [ "$fall" = P ] || [ "$fall" = Q ] || [[ " $TEILE " == *" 449g "* ]] || WARTEN=300 tdp --einladung warten absage "$OUT/einladung-$fall.json" >/dev/null; } &&
      tdp --einladung aufraeumen "$OUT/einladung-$fall.json" >>"$OUT/aufraeumen-$fall.txt" &&
      tdp --einladung rest "$OUT/einladung-$fall.json" >/dev/null &&
      tdp --einladung aufraeumen "$OUT/einladung-$fall.json" >>"$OUT/aufraeumen-$fall.txt"; then

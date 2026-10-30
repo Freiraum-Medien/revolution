@@ -1,5 +1,6 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-month-view.c:1-1982 (ff4d7f7d, GPL-3.0-or-later).
- * Revolution #373: Termine im Log (revolution_log_event, Domäne revolution) für tests/kalender-treiber.py. */
+ * Revolution #373: Termine im Log (revolution_log_event, Domäne revolution) für tests/kalender-treiber.py. #375: Anlegen
+ * erst per Doppelklick (on_click_gesture_released_cb). */
 /*
  * gcal-month-view.c
  *
@@ -856,6 +857,15 @@ on_click_gesture_released_cb (GtkGestureClick *click_gesture,
   root = gtk_widget_get_root (GTK_WIDGET (self));
   cell = gcal_month_view_row_get_cell_at_x (GCAL_MONTH_VIEW_ROW (row), x);
   gtk_root_set_focus (root, cell);
+
+  /* Revolution #375 (PM): ein einfacher Klick ohne Ziehen legt nicht an, erst der Doppelklick (Evolution); Ziehen
+   * über einen Bereich wie Vorlage. */
+  if (n_press < 2 && (!self->selection.end ||
+                      gcal_date_time_compare_date (self->selection.start, self->selection.end) == 0))
+    {
+      gcal_view_clear_marks (GCAL_VIEW (self));
+      GCAL_RETURN ();
+    }
 
   selection_start = self->selection.start;
   selection_end = self->selection.end ?: selection_start;

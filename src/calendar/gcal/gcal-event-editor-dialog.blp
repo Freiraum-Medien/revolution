@@ -1,0 +1,123 @@
+// Übernommen aus gnome-calendar 50.0 src/gui/event-editor/gcal-event-editor-dialog.blp:1-120 (ff4d7f7d,
+// GPL-3.0-or-later). Revolution #375: ohne Teilnehmer (participants_group, attendee_details_page), Strg+Enter speichert.
+using Gtk 4.0;
+using Adw 1;
+
+template $GcalEventEditorDialog: Adw.Dialog {
+  content-width: 700;
+  content-height: 1000;
+
+  Adw.NavigationView nav_view {
+    Adw.NavigationPage main_page {
+      Adw.ToolbarView {
+        [top]
+        Adw.HeaderBar {
+          show-start-title-buttons: false;
+          show-end-title-buttons: false;
+
+          Button cancel_button {
+            use-underline: true;
+            label: _("_Cancel");
+            clicked => $on_cancel_button_clicked_cb(template) not-swapped;
+          }
+
+          [end]
+          Button done_button {
+            use-underline: true;
+            label: _("_Done");
+            action-name: "event-editor.save";
+
+            styles [
+              "suggested-action",
+            ]
+          }
+        }
+
+        content: Box {
+          orientation: vertical;
+
+          Adw.Banner {
+            title: _("This event is in a read-only calendar. It cannot be edited or deleted.");
+            revealed: bind template.writable inverted;
+          }
+
+          Adw.PreferencesPage {
+            vexpand: true;
+
+            Adw.PreferencesGroup {
+              $GcalSummarySection summary_section {
+                sensitive: bind template.writable;
+              }
+            }
+
+            Adw.PreferencesGroup {
+              $GcalCalendarComboRow calendar_combo_row {
+                sensitive: bind template.writable;
+              }
+            }
+
+            Adw.PreferencesGroup {
+              $GcalScheduleSection schedule_section {
+                sensitive: bind template.writable;
+              }
+            }
+
+            Adw.PreferencesGroup {
+              title: _("Reminders");
+
+              $GcalRemindersSection reminders_section {
+                sensitive: bind template.writable;
+              }
+            }
+
+            Adw.PreferencesGroup {
+              title: _("Notes");
+
+              $GcalNotesSection notes_section {
+                sensitive: bind template.writable;
+                vexpand: true;
+              }
+            }
+
+            Adw.PreferencesGroup delete_group {
+              Adw.ButtonRow {
+                activated => $on_delete_row_activated_cb(template) not-swapped;
+                title: _("_Delete Event");
+                use-underline: true;
+
+                styles [
+                  "destructive-action",
+                ]
+              }
+            }
+          }
+        };
+      }
+    }
+  }
+
+  // Revolution #375: Fangphase, damit Strg+Enter/Strg+S auch im Notizfeld (Gtk.TextView) speichern.
+  ShortcutController {
+    propagation-phase: capture;
+
+    Shortcut {
+      trigger: "<Control>s";
+      action: "action(event-editor.save)";
+    }
+
+    // Revolution #375: Strg+Enter speichert wie Senden im Composer (Design #5 „Strg+Enter senden“).
+    Shortcut {
+      trigger: "<Control>Return";
+      action: "action(event-editor.save)";
+    }
+  }
+}
+
+SizeGroup {
+  mode: vertical;
+
+  widgets [
+    cancel_button,
+    done_button,
+  ]
+}

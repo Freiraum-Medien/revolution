@@ -1,5 +1,6 @@
 /* Übernommen aus gnome-calendar 50.0 src/core/gcal-event.c:1-1867 (ff4d7f7d, GPL-3.0-or-later). Revolution
- * #373: ohne gcal_event_format_date (Zeitformat über GcalApplication, 1733-1800). */
+ * #373: ohne gcal_event_format_date (Zeitformat über GcalApplication, 1733-1800). #375: im UI-Thread Zeitzonen nur aus
+ * dem ETimezoneCache des Clients (get_timezone_from_ical, Vorlage 180-190), kein e_cal_client_get_timezone_sync. */
 /* gcal-event.c
  *
  * Copyright (C) 2016-2020 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>
@@ -188,7 +189,12 @@ get_timezone_from_ical (GcalEvent             *self,
 
           client = gcal_calendar_get_client (self->calendar);
 
-          if (client && e_cal_client_get_timezone_sync (client, original_tzid, &tzone, NULL, NULL))
+          /* Revolution #375: im UI-Thread (Editor, gcal_event_new_from_event) nur der Zeitzonen-Speicher des Clients
+           * (ETimezoneCache, ohne D-Bus); die Monitore (eigener Thread) haben die Zeitzonen der Termine dort
+           * schon abgelegt (e_cal_client_get_timezone_sync, e-cal-client.c:6503-6507). */
+          if (client && g_main_context_is_owner (g_main_context_default ()))
+            zone = e_timezone_cache_get_timezone (E_TIMEZONE_CACHE (client), original_tzid);
+          else if (client && e_cal_client_get_timezone_sync (client, original_tzid, &tzone, NULL, NULL))
             zone = tzone;
         }
     }

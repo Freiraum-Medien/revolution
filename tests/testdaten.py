@@ -2396,6 +2396,161 @@ def termin_live(registry, aktion, kal, datei, wann=None):
     return 0
 
 
+def termin_felder(ICalGLib, ev):
+    """#375: (Titel, Ort, Beginn, Ende, ganztags, RRULE FREQ/COUNT, Erinnerung in Minuten, Notiz) einer VEVENT."""
+    s, e = ev.get_dtstart(), ev.get_dtend()
+    rr = ev.get_first_property(ICalGLib.PropertyKind.RRULE_PROPERTY)
+    regel = '-'
+    if rr is not None:
+        teile = dict(x.split('=', 1) for x in rr.get_value_as_string().split(';') if '=' in x)
+        regel = 'FREQ=%s%s%s' % (teile.get('FREQ', '?'), ';COUNT=%s' % teile['COUNT'] if 'COUNT' in teile else '',
+                                 ';UNTIL=%s' % teile['UNTIL'] if 'UNTIL' in teile else '')
+    erinnerungen = []
+    a = ev.get_first_component(ICalGLib.ComponentKind.VALARM_COMPONENT)
+    while a is not None:
+        t = a.get_first_property(ICalGLib.PropertyKind.TRIGGER_PROPERTY)
+        m = re.match(r'^-P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:\d+S)?)?$', t.get_value_as_string() if t else '')
+        if m:
+            w, dd, h, mi = (int(x or 0) for x in m.groups())
+            erinnerungen.append(str(((w * 7 + dd) * 24 + h) * 60 + mi))
+        else:
+            erinnerungen.append(t.get_value_as_string() if t else '?')
+        a = ev.get_next_component(ICalGLib.ComponentKind.VALARM_COMPONENT)
+    notiz = (ev.get_description() or '').strip().splitlines()
+    return (ev.get_summary() or '', ev.get_location() or '', ical_zeit(s), ical_zeit(e), int(s.is_date()), regel,
+            ','.join(sorted(erinnerungen)) or '-', notiz[0] if notiz else '-')
+
+
+FELDNAMEN = ('titel', 'ort', 'beginn', 'ende', 'ganztags', 'rrule', 'erinnerung', 'notiz')
+
+
+def termin_ausgabe(kopf, felder, ausnahmen):
+    for n, v in zip(FELDNAMEN, felder):
+        print('%s %s %s' % (kopf, n, v))
+    for rid, titel, beginn in sorted(ausnahmen):
+        print('%s ausnahme %s titel %s beginn %s' % (kopf, rid, titel, beginn))
+    sys.stdout.flush()
+
+
+def termin_details(registry, kal, uid):
+    """#375: nur lesend Felder eines Termins über EDS (Python-GI, zweiter Prozess neben der App): Hauptkomponente und
+    Ausnahmen (RECURRENCE-ID) über e_cal_client_get_objects_for_uid."""
+    ECal, ICalGLib = ecal()
+    c = kalender_verbinden(registry, kal)
+    c.refresh_sync(cancellable()) if c.check_refresh_supported() else None
+    try:
+        comps = c.get_objects_for_uid_sync(uid, cancellable())[1]
+    except GLib.Error as e:
+        if 'not found' in e.message.lower() or 'nicht gefunden' in e.message.lower():
+            print('GI-FEHLT %s' % uid, flush=True)
+            return 0
+        raise
+    haupt, ausnahmen = None, []
+    for comp in comps:
+        ev = comp.get_icalcomponent()
+        if ev.get_recurrenceid().is_null_time():
+            haupt = ev
+        else:
+            ausnahmen.append((ical_zeit(ev.get_recurrenceid()), ev.get_summary() or '', ical_zeit(ev.get_dtstart())))
+    if haupt is None:
+        print('GI-FEHLT %s' % uid, flush=True)
+        return 0
+    termin_ausgabe('GI', termin_felder(ICalGLib, haupt), ausnahmen)
+    # #375 Runde 2: Vorkommen (Beginn, Titel) über e_cal_client_generate_instances_for_uid (Nachfolgende Termine)
+    jetzt = datetime.datetime.now(datetime.timezone.utc)
+    vork = []
+
+    def vorkommen(icomp, start, end, *rest):
+        vork.append((ical_zeit(start), icomp.get_summary() or ''))
+        return True
+
+    c.generate_instances_for_uid_sync(uid, int((jetzt - datetime.timedelta(days=30)).timestamp()),
+                                      int((jetzt + datetime.timedelta(days=95)).timestamp()), cancellable(), vorkommen)
+    for beginn, titel in sorted(vork):
+        print('GI vorkommen %s titel %s' % (beginn, titel), flush=True)
+    return 0
+
+
+def termin_server(registry, kal, uid):
+    """#375: nur lesend derselbe Termin am Server ohne EDS: Graph GET /me/events/{id} (M365: UID = Ereignis-ID, siehe
+    --kalender-server) bzw. CalDAV REPORT calendar-query mit prop-filter UID (RFC 4791 9.7.5). 404/leer → SERVER-FEHLT."""
+    _, ICalGLib = ecal()
+    if kal not in kalender_schreibbar():
+        sys.exit('ABBRUCH: --termin-server nur für die freigegebenen Kalender')
+    quelle = registry.ref_source(kal)
+    backend = quelle.get_extension(EDataServer.SOURCE_EXTENSION_CALENDAR).get_backend_name()
+    konten = konten_finden(registry)
+    if backend == 'local':
+        print('SERVER lokal', flush=True)
+        return 0
+    if backend == 'microsoft365':
+        k = konten[KONTO_M365]
+        token = k.goa.get_oauth2_based().call_get_access_token_sync(None)[0]
+        req = urllib.request.Request(GRAPH + '/me/events/%s?$select=subject,location,start,end,isAllDay,recurrence,'
+                                     'isReminderOn,reminderMinutesBeforeStart,body' % urllib.parse.quote(uid, safe=''),
+                                     headers={'Authorization': 'Bearer ' + token, 'Prefer': 'outlook.timezone="UTC", '
+                                              'outlook.body-content-type="text"'})
+        try:
+            with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+                e = json.loads(r.read())
+        except urllib.error.HTTPError as f:
+            print('SERVER-FEHLT %s HTTP %d' % (uid[:12], f.code), flush=True)
+            return 0
+        if e['isAllDay']:
+            beginn, ende = e['start']['dateTime'][:10], e['end']['dateTime'][:10]
+        else:
+            beginn, ende = (datetime.datetime.fromisoformat(e[x]['dateTime'][:19]).strftime('%Y-%m-%dT%H:%M:%SZ')
+                            for x in ('start', 'end'))
+        regel = '-'
+        if e.get('recurrence'):
+            arten = {'daily': 'DAILY', 'weekly': 'WEEKLY', 'absoluteMonthly': 'MONTHLY', 'relativeMonthly': 'MONTHLY',
+                     'absoluteYearly': 'YEARLY', 'relativeYearly': 'YEARLY'}
+            bereich = e['recurrence']['range']
+            regel = 'FREQ=%s%s' % (arten.get(e['recurrence']['pattern']['type'], '?'),
+                                   ';COUNT=%d' % bereich['numberOfOccurrences'] if bereich['type'] == 'numbered' else '')
+        notiz = (e.get('body') or {}).get('content', '').strip().splitlines()
+        termin_ausgabe('SERVER', (e['subject'], (e.get('location') or {}).get('displayName', ''), beginn, ende,
+                                  int(e['isAllDay']), regel,
+                                  str(e['reminderMinutesBeforeStart']) if e['isReminderOn'] else '-',
+                                  notiz[0].strip() if notiz else '-'), [])
+        return 0
+    g = quelle.get_extension(EDataServer.SOURCE_EXTENSION_WEBDAV_BACKEND).dup_uri()
+    url = 'https://%s%s' % (g.get_host(), g.get_path())
+    body = ('<?xml version="1.0" encoding="utf-8"?>'
+            '<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">'
+            '<D:prop><C:calendar-data/></D:prop>'
+            '<C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT">'
+            '<C:prop-filter name="UID"><C:text-match collation="i;octet">%s</C:text-match></C:prop-filter>'
+            '</C:comp-filter></C:comp-filter></C:filter></C:calendar-query>' % uid)
+    token = konten[KONTO_GOOGLE].goa.get_oauth2_based().call_get_access_token_sync(None)[0]
+    req = urllib.request.Request(url, data=body.encode(), method='REPORT',
+                                 headers={'Authorization': 'Bearer ' + token, 'Depth': '1',
+                                          'Content-Type': 'application/xml; charset=utf-8'})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        xml = r.read().decode()
+    import xml.etree.ElementTree as ET
+    haupt, ausnahmen = None, []
+    for daten in ET.fromstring(xml).iter('{urn:ietf:params:xml:ns:caldav}calendar-data'):
+        vcal = ICalGLib.Component.new_from_string(daten.text)
+        ev = vcal.get_first_component(ICalGLib.ComponentKind.VEVENT_COMPONENT)
+        while ev is not None:
+            if ev.get_uid() == uid:
+                if ev.get_recurrenceid().is_null_time():
+                    haupt = ev
+                else:
+                    ausnahmen.append((ical_zeit(ev.get_recurrenceid()), ev.get_summary() or '', ical_zeit(ev.get_dtstart())))
+            ev = vcal.get_next_component(ICalGLib.ComponentKind.VEVENT_COMPONENT)
+    if haupt is None and ausnahmen:
+        print('SERVER ohne Hauptkomponente %s' % uid, flush=True)
+        for rid, titel, beginn in sorted(ausnahmen):
+            print('SERVER ausnahme %s titel %s beginn %s' % (rid, titel, beginn))
+        return 0
+    if haupt is None:
+        print('SERVER-FEHLT %s' % uid, flush=True)
+        return 0
+    termin_ausgabe('SERVER', termin_felder(ICalGLib, haupt), ausnahmen)
+    return 0
+
 def kalender_server(registry, kal, monat):
     """#373: siehe Kopf (--kalender-server), nur lesend, am Server ohne EDS."""
     _, ICalGLib = ecal()
@@ -3231,6 +3386,11 @@ def main():
                     metavar='anlegen|woechentlich|ganztags|mehrtaegig|aendern|loeschen|pruefen KALENDER DATEI [ZEIT]',
                     help='#373: Testtermin von außen über EDS (nur freigegebene Kalender); #374 ganztags (ein Tag), '
                          'mehrtaegig (ZEIT + 2 Tage 2 Stunden), Name mit TERMIN_TASK (Umgebung)')
+    ap.add_argument('--termin-details', nargs=2, metavar=('KALENDER', 'UID'),
+                    help='#375: nur lesend Felder eines Termins (Titel, Ort, Zeit, ganztags, RRULE, VALARM, Notiz, '
+                         'Ausnahmen) über EDS (Python-GI)')
+    ap.add_argument('--termin-server', nargs=2, metavar=('KALENDER', 'UID'),
+                    help='#375: nur lesend dieselben Felder am Server ohne EDS (Graph GET bzw. CalDAV REPORT)')
     ap.add_argument('--live-flags', metavar='KONTO', help='#351: nur lesend Flags der Live-Mails im Posteingang')
     ap.add_argument('--antwort', action='store_true',
                     help='#359: Testmail für Antworten per APPEND in den Posteingang von %s' % ANTWORT_KONTO)
@@ -3314,6 +3474,10 @@ def main():
         return kalender_hash(EDataServer.SourceRegistry.new_sync(None), args.kalender_hash)
     if args.kalender_server:
         return kalender_server(EDataServer.SourceRegistry.new_sync(None), *args.kalender_server)
+    if args.termin_details:
+        return termin_details(EDataServer.SourceRegistry.new_sync(None), *args.termin_details)
+    if args.termin_server:
+        return termin_server(EDataServer.SourceRegistry.new_sync(None), *args.termin_server)
     if args.termin_live:
         if len(args.termin_live) not in (3, 4):
             ap.error('--termin-live AKTION KALENDER DATEI [ZEIT]')

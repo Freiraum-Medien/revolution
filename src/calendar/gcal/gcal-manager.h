@@ -1,5 +1,6 @@
 /* Übernommen aus gnome-calendar 50.0 src/core/gcal-manager.h:1-84 (ff4d7f7d, GPL-3.0-or-later). Revolution
- * #373: wie gcal-manager.c gekürzt. */
+ * #373: wie gcal-manager.c gekürzt. #375: Schreib-API und Standardkalender (Vorlage 51-74), remove_event mit
+ * Rückmeldung (callback). */
 /* gcal-manager.h
  *
  * Copyright (C) 2015 Erick Pérez Castellanos <erickpc@gnome.org>
@@ -42,6 +43,25 @@ GList*               gcal_manager_get_calendars                  (GcalManager   
 GListModel*          gcal_manager_get_calendars_model            (GcalManager        *self);
 
 GcalTimeline*        gcal_manager_get_timeline                   (GcalManager        *self);
+
+GcalCalendar*        gcal_manager_get_default_calendar           (GcalManager        *self);
+
+void                 gcal_manager_create_event                   (GcalManager        *self,
+                                                                  GcalEvent          *event);
+
+void                 gcal_manager_update_event                   (GcalManager           *self,
+                                                                  GcalEvent             *event,
+                                                                  GcalRecurrenceModType  mod);
+
+void                 gcal_manager_remove_event                   (GcalManager           *self,
+                                                                  GcalEvent             *event,
+                                                                  GcalRecurrenceModType  mod,
+                                                                  GAsyncReadyCallback    callback,
+                                                                  gpointer               user_data);
+
+void                 gcal_manager_move_event_to_source           (GcalManager        *self,
+                                                                  GcalEvent          *event,
+                                                                  ESource            *dest);
 
 GPtrArray*           gcal_manager_get_events                     (GcalManager        *self,
                                                                   GDateTime          *range_start,

@@ -1,7 +1,7 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-week-header.c:1-1853 (ff4d7f7d, GPL-3.0-or-later).
- * Revolution #374: ohne Wetter (WeatherInfoDay, gcal_context_get_weather_service) und ohne Ablegen per Ziehen
- * (Drop-Ziel, move_event_to_cell; Schreiben folgt mit #375); Tagesansicht: Spaltenzahl n_days (1 oder 7),
- * Beginn und Ende über gcal_week_view_common_get_start/_end. */
+ * Revolution #374: ohne Wetter (WeatherInfoDay, gcal_context_get_weather_service); #375: Ablegen per Ziehen wieder
+ * wie Vorlage (64-69, 1123-1298, 1593-1598; Spalten n_days, Beginn gcal_week_view_common_get_start); Tagesansicht: Spaltenzahl n_days (1 oder 7),
+ * Beginn und Ende über gcal_week_view_common_get_start/_end; #375 Anlegen erst per Doppelklick (on_button_released). */
 /* gcal-week-header.c
  *
  * Copyright (C) 2016-2020 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>
@@ -45,6 +45,13 @@ typedef struct
   GtkWidget          *day_number_label;
   GtkWidget          *weekday_name_label;
 } WeekdayHeader;
+
+typedef struct
+{
+  GcalWeekHeader     *self;
+  GcalEvent          *event;
+  gint                drop_cell;
+} DropData;
 
 struct _GcalWeekHeader
 {
@@ -230,6 +237,15 @@ on_button_released (GtkGestureClick *click_gesture,
       start = start + end;
       end = start - end;
       start = start - end;
+    }
+
+  /* Revolution #375 (PM): ein einfacher Klick ohne Ziehen legt nicht an, erst der Doppelklick (Evolution); Ziehen
+   * über einen Bereich wie Vorlage. */
+  if (n_press < 2 && start == end)
+    {
+      gtk_event_controller_set_propagation_phase (self->motion_controller, GTK_PHASE_NONE);
+      gcal_week_header_clear_marks (self);
+      return;
     }
 
   week_start = gcal_week_view_common_get_start (self->active_date, self->n_days);
@@ -999,6 +1015,182 @@ on_expand_action_activated (GcalWeekHeader *self,
     header_expand (self);
 }
 
+static gint
+get_dnd_cell (GcalWeekHeader *self,
+              gint            x,
+              gint            y)
+{
+  gdouble column_width;
+
+  column_width = gtk_widget_get_width (GTK_WIDGET (self)) / (float) self->n_days;
+
+  return x / column_width;
+}
+
+static void
+move_event_to_cell (GcalWeekHeader        *self,
+                    GcalEvent             *event,
+                    guint                  cell,
+                    GcalRecurrenceModType  mod_type)
+{
+  g_autoptr (GDateTime) week_start = NULL;
+  g_autoptr (GDateTime) dnd_date = NULL;
+  g_autoptr (GDateTime) new_end = NULL;
+  g_autoptr (GDateTime) tmp_dt = NULL;
+  g_autoptr (GcalEvent) changed_event = NULL;
+  GDateTime *start_date;
+  GDateTime *end_date;
+  GTimeSpan difference;
+
+  GCAL_ENTRY;
+
+  /* RTL languages swap the drop cell column */
+  if (gtk_widget_get_direction (GTK_WIDGET (self)) == GTK_TEXT_DIR_RTL)
+    cell = self->n_days - 1 - cell;
+
+  changed_event = gcal_event_new_from_event (event);
+  start_date = gcal_event_get_date_start (changed_event);
+  end_date = gcal_event_get_date_end (changed_event);
+  week_start = gcal_week_view_common_get_start (self->active_date, self->n_days);
+
+  if (!gcal_event_get_all_day (changed_event))
+    {
+      /*
+       * The only case where we don't touch the timezone is for
+       * timed, multiday events.
+       */
+      tmp_dt = g_date_time_new (g_date_time_get_timezone (start_date),
+                                g_date_time_get_year (week_start),
+                                g_date_time_get_month (week_start),
+                                g_date_time_get_day_of_month (week_start),
+                                g_date_time_get_hour (start_date),
+                                g_date_time_get_minute (start_date),
+                                0);
+    }
+  else
+    {
+      tmp_dt = g_date_time_new_utc (g_date_time_get_year (week_start),
+                                    g_date_time_get_month (week_start),
+                                    g_date_time_get_day_of_month (week_start),
+                                    0, 0, 0);
+    }
+  dnd_date = g_date_time_add_days (tmp_dt, cell);
+
+  /* End date */
+  difference = g_date_time_difference (end_date, start_date) / G_TIME_SPAN_MINUTE;
+
+  new_end = g_date_time_add_minutes (dnd_date, difference);
+  gcal_event_set_date_end (changed_event, new_end);
+
+  /*
+   * Set the start date ~after~ the end date, so we can compare
+   * the event's start and end dates above
+   */
+  gcal_event_set_date_start (changed_event, dnd_date);
+
+  /* Commit the changes */
+  gcal_manager_update_event (gcal_context_get_manager (self->context), changed_event, mod_type);
+}
+
+static void
+on_ask_recurrence_response_cb (GcalEvent             *event,
+                               GcalRecurrenceModType  mod_type,
+                               gpointer               user_data)
+{
+  DropData *data = user_data;
+
+  if (mod_type != GCAL_RECURRENCE_MOD_NONE)
+    move_event_to_cell (data->self, data->event, data->drop_cell, mod_type);
+
+  g_clear_object (&data->event);
+  g_clear_pointer (&data, g_free);
+}
+
+static gboolean
+on_drop_target_drop_cb (GtkDropTarget  *drop_target,
+                        const GValue   *value,
+                        gdouble         x,
+                        gdouble         y,
+                        GcalWeekHeader *self)
+{
+  GcalEventWidget *event_widget;
+  GcalEvent *event;
+  gint cell;
+
+  GCAL_ENTRY;
+
+  if (!G_VALUE_HOLDS (value, GCAL_TYPE_EVENT_WIDGET))
+    GCAL_RETURN (FALSE);
+
+  cell = get_dnd_cell (self, x, y);
+  event_widget = g_value_get_object (value);
+  event = gcal_event_widget_get_event (event_widget);
+
+  if (gcal_event_has_recurrence (event))
+    {
+      DropData *data;
+
+      data = g_new0 (DropData, 1);
+      data->self = self;
+      data->event = g_object_ref (event);
+      data->drop_cell = cell;
+
+      gcal_utils_ask_recurrence_modification_type (GTK_WIDGET (self),
+                                                   event,
+                                                   FALSE,
+                                                   on_ask_recurrence_response_cb,
+                                                   data);
+    }
+  else
+    {
+      move_event_to_cell (self, event, cell, GCAL_RECURRENCE_MOD_THIS_ONLY);
+    }
+
+  GCAL_RETURN (TRUE);
+}
+
+static GdkDragAction
+on_drop_target_enter_cb (GtkDropTarget  *drop_target,
+                         gdouble         x,
+                         gdouble         y,
+                         GcalWeekHeader *self)
+{
+
+  GCAL_ENTRY;
+
+  self->dnd.cell = get_dnd_cell (self, x, y);
+  gtk_widget_set_visible (self->dnd.widget, self->dnd.cell != -1);
+
+  GCAL_RETURN (self->dnd.cell != -1 ? GDK_ACTION_COPY : 0);
+}
+
+static void
+on_drop_target_leave_cb (GtkDropTarget  *drop_target,
+                         GcalWeekHeader *self)
+{
+  GCAL_ENTRY;
+
+  self->dnd.cell = -1;
+  gtk_widget_set_visible (self->dnd.widget, FALSE);
+
+  GCAL_EXIT;
+}
+
+static GdkDragAction
+on_drop_target_motion_cb (GtkDropTarget  *drop_target,
+                          gdouble         x,
+                          gdouble         y,
+                          GcalWeekHeader *self)
+{
+  GCAL_ENTRY;
+
+  self->dnd.cell = get_dnd_cell (self, x, y);
+  gtk_widget_set_visible (self->dnd.widget, self->dnd.cell != -1);
+  gtk_widget_queue_allocate (GTK_WIDGET (self));
+
+  GCAL_RETURN (self->dnd.cell != -1 ? GDK_ACTION_COPY : 0);
+}
+
 /* Drawing area content and size */
 
 static void
@@ -1242,6 +1434,7 @@ gcal_week_header_class_init (GcalWeekHeaderClass *kclass)
 static void
 gcal_week_header_init (GcalWeekHeader *self)
 {
+  GtkDropTarget *drop_target;
   gint i;
 
   self->expanded = FALSE;
@@ -1289,6 +1482,13 @@ gcal_week_header_init (GcalWeekHeader *self)
       /* Add N_WEEKDAYS empty widget to the grid to ensure proper spacing */
       gtk_grid_attach (self->grid, gtk_box_new (GTK_ORIENTATION_VERTICAL, 0), i, 0, 1, 1);
     }
+
+  drop_target = gtk_drop_target_new (GCAL_TYPE_EVENT_WIDGET, GDK_ACTION_COPY);
+  g_signal_connect (drop_target, "drop", G_CALLBACK (on_drop_target_drop_cb), self);
+  g_signal_connect (drop_target, "enter", G_CALLBACK (on_drop_target_enter_cb), self);
+  g_signal_connect (drop_target, "leave", G_CALLBACK (on_drop_target_leave_cb), self);
+  g_signal_connect (drop_target, "motion", G_CALLBACK (on_drop_target_motion_cb), self);
+  gtk_widget_add_controller (GTK_WIDGET (self), GTK_EVENT_CONTROLLER (drop_target));
 }
 
 void

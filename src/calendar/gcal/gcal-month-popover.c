@@ -1,5 +1,5 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/views/gcal-month-popover.c:1-582 (ff4d7f7d, GPL-3.0-or-later).
- * Revolution #373: „Neuer Termin …“ über calendar.new-event statt win.new-event. */
+ * Revolution #373: „Neuer Termin …“ über calendar.new-event statt win.new-event; #375 mit dem Tag des Popovers. */
 /* gcal-month-popover.c
  *
  * Copyright © 2017 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>
@@ -265,7 +265,12 @@ new_event_button_clicked_cb (GtkWidget        *button,
   GCAL_ENTRY;
 
   gcal_month_popover_popdown (self);
-  gtk_widget_activate_action (GTK_WIDGET (self),  "calendar.new-event",  NULL); /* Revolution #373: statt win.new-event */
+  {
+    /* Revolution #375: Tag des Popovers als Ziel (calendar.new-event „s“), statt win.new-event am aktiven Tag. */
+    g_autofree gchar *day = g_date_time_format (self->date, "%Y-%m-%dT00:00:00Z");
+
+    gtk_widget_activate_action (GTK_WIDGET (self), "calendar.new-event", "s", day);
+  }
 
   GCAL_EXIT;
 }

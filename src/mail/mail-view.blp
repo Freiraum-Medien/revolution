@@ -165,43 +165,10 @@ template $RevolutionMailView: Adw.BreakpointBin {
     // Seitenleiste: Ordnerbaum als GtkListView + GtkTreeListModel (CR #397),
     // Vorlage stamp-folder-list.blp:5-8.
     [sidebar]
-    Adw.ToolbarView {
-      [top]
-      Adw.HeaderBar {
-        // Umschalter Mail | Kalender | Kontakte oben in der Kopfleiste der Seitenleiste
-        // (Arnd 22.10.2026, #340, Vorbild 22/24): Segment-Umschalter, Standard-libadwaita
-        // (AdwInlineViewSwitcher = AdwToggleGroup am ViewStack, nur Symbole);
-        // Seitentitel als Tooltip setzt libadwaita (geprüft headless).
-        title-widget: Adw.InlineViewSwitcher {
-          stack: bind template.stack;
-          display-mode: icons;
-        };
-
-        // #399 Punkt 3: Primärmenü in der Seitenleisten-Kopfleiste wie Nautilus (Briefing N).
-        // HIG Menus: „The button for primary menus should use the open-menu-symbolic icon“.
-        // primary: F10 öffnet das Menü (GtkMenuButton:primary).
-        [end]
-        MenuButton {
-          primary: true;
-          icon-name: "open-menu-symbolic";
-
-          // #401 Punkt 2: kompaktes Menü ohne Einzug (style.css .primary-menu).
-          styles [
-            "primary-menu",
-          ]
-
-          tooltip-text: _("Main Menu");
-          menu-model: primary_menu;
-
-          accessibility {
-            label: _("Main Menu");
-          }
-        }
-      }
-
+    Overlay {
       // #345: Konten aus der ESourceRegistry (mail-view.c). Ohne Konten Leerzustand
       // wie Stamp (stamp-window.blp:50-80, Seite „welcome“), hier in der Seitenleiste.
-      content: Stack sidebar_stack {
+      child: Stack sidebar_stack {
         // Erste Seite „list“ ist sichtbar, bis die Registry geladen ist (leere Liste).
         StackPage {
           name: "list";
@@ -213,122 +180,133 @@ template $RevolutionMailView: Adw.BreakpointBin {
             // Abschnittskopf („Favoriten“) aus, erst Hochscrollen zeigt ihn.
             // Ursache klären in #350, Virtualisierung geht verloren.
             child: Viewport {
-              child: ListView folder_list {
-                tab-behavior: item;
+              child: Box {
+                orientation: vertical;
 
-                // #364: Kürzel wie GNOME Dateien, nur im Ordnerbaum; Entf/⌫: on_folder_delete_key (mail-view.c).
-                ShortcutController {
-                  Shortcut {
-                    trigger: "Menu|<shift>F10";
-                    action: "action(list.context-menu)";
-                  }
-
-                  Shortcut {
-                    trigger: "F2";
-                    action: "action(folder.rename)";
-                  }
-
-                  Shortcut {
-                    trigger: "<primary><shift>n";
-                    action: "action(folder.new)";
-                  }
+                // #454: Griff nur im leeren Kopfbereich (Entscheidung PM): scrollt mit weg, Zeilen bleiben bedienbar.
+                WindowHandle {
+                  styles [
+                    "sidebar-grip",
+                  ]
                 }
 
-                styles [
-                  "navigation-sidebar",
-                ]
+                ListView folder_list {
+                  tab-behavior: item;
 
-                accessibility {
-                  label: _("Folders");
-                }
+                  // #364: Kürzel wie GNOME Dateien, nur im Ordnerbaum; Entf/⌫: on_folder_delete_key (mail-view.c).
+                  ShortcutController {
+                    Shortcut {
+                      trigger: "Menu|<shift>F10";
+                      action: "action(list.context-menu)";
+                    }
 
-                // Modell (mail-view.c): je Konto ein GtkTreeListModel über seinen Ordnern,
-                // zusammengefügt als Abschnitte (GtkFlattenListModel), #348.
-                // #350: keine automatische Auswahl, die Erstauswahl trifft mail-view.c
-                // (select_initial_folder), sonst würde der erste geladene Ordner geladen.
-                model: SingleSelection folder_selection {
-                  autoselect: false;
-                };
+                    Shortcut {
+                      trigger: "F2";
+                      action: "action(folder.rename)";
+                    }
 
-                // Konten als nicht auswählbare Abschnittsköpfe wie der abgenommene Prototyp
-                // (Tag m2-prototyp, mail-view.blp:137-154, Design/Prototyp/mail-hell.png
-                // „Privat“, „Arbeit“). Kopf = Konto des ersten Ordners im Abschnitt.
-                header-factory: BuilderListItemFactory {
-                  template ListHeader {
-                    child: Label {
-                      label: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.account as <$RevolutionMailAccount>.display-name;
-                      // #366: microsoft365 ohne Push, Abruf alle n Minuten (mail-account.c).
-                      tooltip-text: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.account as <$RevolutionMailAccount>.note;
-                      xalign: 0;
-                      margin-start: 14;
-                      margin-end: 14;
-                      margin-top: 4;
-                      margin-bottom: 2;
-                      ellipsize: end;
-
-                      styles [
-                        "caption-heading",
-                        "dimmed",
-                      ]
-                    };
+                    Shortcut {
+                      trigger: "<primary><shift>n";
+                      action: "action(folder.new)";
+                    }
                   }
-                };
 
-                // Ordnerzeile wie der Prototyp (mail-view.blp:156-193), Unterordner mit
-                // Ausklapp-Pfeil, #350 mit Ungelesen-Zähler.
-                factory: BuilderListItemFactory {
-                  template ListItem {
-                    // Zugänglicher Name der Zeile = Ordnername, #350 mit Zahl der ungelesenen
-                    // (Architektur 8).
-                    accessible-label: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.accessible-label;
+                  styles [
+                    "navigation-sidebar",
+                  ]
 
-                    child: TreeExpander {
-                      list-row: bind template.item as <TreeListRow>;
+                  accessibility {
+                    label: _("Folders");
+                  }
 
-                      // #364: Rechtsklick auf die ganze Zeile öffnet folder_menu.
-                      GestureClick {
-                        button: 3;
-                        pressed => $on_folder_secondary_click(template);
-                      }
+                  // Modell (mail-view.c): je Konto ein GtkTreeListModel über seinen Ordnern,
+                  // zusammengefügt als Abschnitte (GtkFlattenListModel), #348.
+                  // #350: keine automatische Auswahl, die Erstauswahl trifft mail-view.c
+                  // (select_initial_folder), sonst würde der erste geladene Ordner geladen.
+                  model: SingleSelection folder_selection {
+                    autoselect: false;
+                  };
 
-                      // #363: Nachricht hierher ziehen = verschieben (mail-view.c, on_folder_drop).
-                      DropTarget {
-                        actions: move;
-                        formats: "gchararray";
-                        drop => $on_folder_drop(template);
-                      }
+                  // Konten als nicht auswählbare Abschnittsköpfe wie der abgenommene Prototyp
+                  // (Tag m2-prototyp, mail-view.blp:137-154, Design/Prototyp/mail-hell.png
+                  // „Privat“, „Arbeit“). Kopf = Konto des ersten Ordners im Abschnitt.
+                  header-factory: BuilderListItemFactory {
+                    template ListHeader {
+                      child: Label {
+                        label: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.account as <$RevolutionMailAccount>.display-name;
+                        // #366: microsoft365 ohne Push, Abruf alle n Minuten (mail-account.c).
+                        tooltip-text: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.account as <$RevolutionMailAccount>.note;
+                        xalign: 0;
+                        margin-start: 14;
+                        margin-end: 14;
+                        margin-top: 4;
+                        margin-bottom: 2;
+                        ellipsize: end;
 
-                      child: Box {
-                        spacing: 12;
-
-                        Image {
-                          icon-name: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.icon-name;
-                          accessible-role: presentation;
-                        }
-
-                        Label {
-                          label: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.display-name;
-                          hexpand: true;
-                          xalign: 0;
-                          ellipsize: end;
-                        }
-
-                        // #350: Ungelesen-Zähler wie der Prototyp (Tag m2-prototyp,
-                        // mail-view.blp:176-189), leer bei 0.
-                        Label {
-                          label: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.unread-label;
-                          tooltip-text: _("Unread Messages");
-                          accessible-role: presentation;
-
-                          styles [
-                            "dimmed",
-                            "numeric",
-                          ]
-                        }
+                        styles [
+                          "caption-heading",
+                          "dimmed",
+                        ]
                       };
-                    };
-                  }
-                };
+                    }
+                  };
+
+                  // Ordnerzeile wie der Prototyp (mail-view.blp:156-193), Unterordner mit
+                  // Ausklapp-Pfeil, #350 mit Ungelesen-Zähler.
+                  factory: BuilderListItemFactory {
+                    template ListItem {
+                      // Zugänglicher Name der Zeile = Ordnername, #350 mit Zahl der ungelesenen
+                      // (Architektur 8).
+                      accessible-label: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.accessible-label;
+
+                      child: TreeExpander {
+                        list-row: bind template.item as <TreeListRow>;
+
+                        // #364: Rechtsklick auf die ganze Zeile öffnet folder_menu.
+                        GestureClick {
+                          button: 3;
+                          pressed => $on_folder_secondary_click(template);
+                        }
+
+                        // #363: Nachricht hierher ziehen = verschieben (mail-view.c, on_folder_drop).
+                        DropTarget {
+                          actions: move;
+                          formats: "gchararray";
+                          drop => $on_folder_drop(template);
+                        }
+
+                        child: Box {
+                          spacing: 12;
+
+                          Image {
+                            icon-name: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.icon-name;
+                            accessible-role: presentation;
+                          }
+
+                          Label {
+                            label: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.display-name;
+                            hexpand: true;
+                            xalign: 0;
+                            ellipsize: end;
+                          }
+
+                          // #350: Ungelesen-Zähler wie der Prototyp (Tag m2-prototyp,
+                          // mail-view.blp:176-189), leer bei 0.
+                          Label {
+                            label: bind template.item as <TreeListRow>.item as <$RevolutionMailFolder>.unread-label;
+                            tooltip-text: _("Unread Messages");
+                            accessible-role: presentation;
+
+                            styles [
+                              "dimmed",
+                              "numeric",
+                            ]
+                          }
+                        };
+                      };
+                    }
+                  };
+                }
               };
             };
           };
@@ -348,6 +326,33 @@ template $RevolutionMailView: Adw.BreakpointBin {
           };
         }
       };
+
+      // #454: Keine Kopfleiste mehr: das Hauptmenü schwebt oben rechts auf der Karte.
+      // #399 Punkt 3: Primärmenü wie Nautilus (Briefing N). HIG Menus: „The button for
+      // primary menus should use the open-menu-symbolic icon“. primary: F10 öffnet das Menü.
+      [overlay]
+      MenuButton {
+        halign: end;
+        valign: start;
+        margin-top: 6;
+        margin-end: 6;
+        primary: true;
+        icon-name: "open-menu-symbolic";
+
+        // #401 Punkt 2: kompaktes Menü ohne Einzug (style.css .primary-menu).
+        styles [
+          "primary-menu",
+          "flat",
+          "circular",
+        ]
+
+        tooltip-text: _("Main Menu");
+        menu-model: primary_menu;
+
+        accessibility {
+          label: _("Main Menu");
+        }
+      }
     }
 
     // Nachrichtenliste, Zeile nach stamp-conversation-row.blp:72-224.
@@ -367,6 +372,10 @@ template $RevolutionMailView: Adw.BreakpointBin {
           tooltip-text: _("Toggle Sidebar");
           active: bind split.show-sidebar bidirectional;
 
+          styles [
+            "sidebar-toggle",
+          ]
+
           accessibility {
             label: _("Toggle Sidebar");
           }
@@ -385,35 +394,17 @@ template $RevolutionMailView: Adw.BreakpointBin {
           }
         }
 
-        // #399 Punkt 7: Titel linksbündig wie Apple (Briefing V7). Adw.WindowTitle
-        // zentriert, daher zwei Labels mit den Stilklassen aus HIG-TY.
-        title-widget: Box {
-          orientation: vertical;
+        // #454: Umschalter Mail | Kalender | Kontakte mittig über der Liste (Arnd), Segment-Umschalter,
+        // AdwInlineViewSwitcher = AdwToggleGroup am ViewStack, nur Symbole; Seitentitel als Tooltip
+        // setzt libadwaita (geprüft headless). Optik style.css .app-switcher.
+        title-widget: Adw.InlineViewSwitcher {
           valign: center;
-          hexpand: true;
+          stack: bind template.stack;
+          display-mode: icons;
 
-          // #352: Name des gewählten Ordners (mail-view.c, on_folder_selected).
-          Label list_title {
-            label: _("Mail");
-            xalign: 0;
-            ellipsize: end;
-
-            styles [
-              "heading",
-            ]
-          }
-
-          // #352: Anzahl wie der Prototyp „10 E-Mails, 4 ungelesen“ (set_list_subtitle).
-          Label list_subtitle {
-            visible: false;
-            xalign: 0;
-            ellipsize: end;
-
-            styles [
-              "caption",
-              "dimmed",
-            ]
-          }
+          styles [
+            "app-switcher",
+          ]
         };
 
         [end]
@@ -473,6 +464,40 @@ template $RevolutionMailView: Adw.BreakpointBin {
           hexpand: true;
           xalign: 0;
           ellipsize: end;
+        }
+      }
+
+      // #454: Titel der Liste linksbündig im Listenbereich (Oberkante auf der Linie „Favoriten“,
+      // Absendername, style.css „Eine Linie“). #399 Punkt 7: zwei Labels statt Adw.WindowTitle.
+      [top]
+      Box {
+        orientation: vertical;
+
+        styles [
+          "list-heading",
+        ]
+
+        // #352: Name des gewählten Ordners (mail-view.c, on_folder_selected).
+        Label list_title {
+          label: _("Mail");
+          xalign: 0;
+          ellipsize: end;
+
+          styles [
+            "title-4",
+          ]
+        }
+
+        // #352: Anzahl wie der Prototyp „10 E-Mails, 4 ungelesen“ (set_list_subtitle).
+        Label list_subtitle {
+          visible: false;
+          xalign: 0;
+          ellipsize: end;
+
+          styles [
+            "caption",
+            "dimmed",
+          ]
         }
       }
 
@@ -952,9 +977,21 @@ template $RevolutionMailView: Adw.BreakpointBin {
         }
 
         // #354: Lesebereich (Kopf und Inhalt) in eigenen Dateien mail-reader.{blp,c}.
+        // #454: Ohne Breite gemessen melden die umbrechenden Labels des Kopfs ihre Höhe bei kleinster
+        // Breite (Details mit vielen Empfängern: 1471 px, „exceeds RevolutionMailView height“), AdwBreakpointBin
+        // gibt dem Kind dann mehr Höhe als das Fenster und alle Spalten laufen unten hinaus. Der
+        // ScrolledWindow fängt diese Mindesthöhe ab; passt der Kopf nicht, scrollt er.
         StackPage {
           name: "content";
-          child: $RevolutionMailReader reader {};
+
+          child: ScrolledWindow {
+            hscrollbar-policy: never;
+            vscrollbar-policy: automatic;
+
+            child: Viewport {
+              child: $RevolutionMailReader reader {};
+            };
+          };
         }
 
         // #357: Konversation: alle Nachrichten untereinander (mail-conversation.{blp,c}).

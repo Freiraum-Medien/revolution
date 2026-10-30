@@ -81,129 +81,134 @@ template $RevolutionContactsView: Adw.BreakpointBin {
     // gleich wie die Ordnerliste in mail-view.blp (CR #397) und Stamp
     // stamp-book-list.blp:5-8.
     [sidebar]
-    Adw.ToolbarView {
-      [top]
-      Adw.HeaderBar {
-        // Umschalter Mail | Kalender | Kontakte oben in der Kopfleiste der Seitenleiste
-        // (Arnd 22.10.2026, #340, Vorbild 22/24): Segment-Umschalter, Standard-libadwaita
-        // (AdwInlineViewSwitcher = AdwToggleGroup am ViewStack, nur Symbole);
-        // Seitentitel als Tooltip setzt libadwaita (geprüft headless).
-        title-widget: Adw.InlineViewSwitcher {
-          stack: bind template.stack;
-          display-mode: icons;
-        };
-
-        // #402: Primärmenü wie mail-view.blp (Nautilus-Optik, style.css .primary-menu).
-        [end]
-        MenuButton {
-          primary: true;
-          icon-name: "open-menu-symbolic";
-
-          styles [
-            "primary-menu",
-          ]
-
-          tooltip-text: _("Main Menu");
-          menu-model: primary_menu;
-
-          accessibility {
-            label: _("Main Menu");
-          }
-        }
-      }
-
-      content: ScrolledWindow {
+    Overlay {
+      child: ScrolledWindow {
         hscrollbar-policy: never;
 
         // Viewport wie mail-view.blp: sonst fehlt beim Start der erste Abschnittskopf.
         child: Viewport {
-          child: ListView book_list {
-            tab-behavior: item;
+          child: Box {
+            orientation: vertical;
 
-            styles [
-              "navigation-sidebar",
-            ]
-
-            accessibility {
-              label: _("Address Books");
+            // #454: Griff nur im leeren Kopfbereich (Entscheidung PM): scrollt mit weg, Zeilen bleiben bedienbar.
+            WindowHandle {
+              styles [
+                "sidebar-grip",
+              ]
             }
 
-            // #368: Abschnitt je Konto (contacts-book.c „section“: lokal zuerst), darin nach Name.
-            model: SingleSelection book_selection {
-              notify::selected-item => $on_book_selected() swapped;
+            ListView book_list {
+              tab-behavior: item;
 
-              model: SortListModel book_sorted {
-                section-sorter: StringSorter {
-                  expression: expr item as <$RevolutionContactsBook>.section;
-                };
+              styles [
+                "navigation-sidebar",
+              ]
 
-                sorter: StringSorter {
-                  expression: expr item as <$RevolutionContactsBook>.title;
+              accessibility {
+                label: _("Address Books");
+              }
+
+              // #368: Abschnitt je Konto (contacts-book.c „section“: lokal zuerst), darin nach Name.
+              model: SingleSelection book_selection {
+                notify::selected-item => $on_book_selected() swapped;
+
+                model: SortListModel book_sorted {
+                  section-sorter: StringSorter {
+                    expression: expr item as <$RevolutionContactsBook>.section;
+                  };
+
+                  sorter: StringSorter {
+                    expression: expr item as <$RevolutionContactsBook>.title;
+                  };
                 };
               };
-            };
 
-            header-factory: BuilderListItemFactory {
-              template ListHeader {
-                child: Label {
-                  label: bind template.item as <$RevolutionContactsBook>.group;
-                  xalign: 0;
-                  margin-start: 14;
-                  margin-end: 14;
-                  margin-top: 4;
-                  margin-bottom: 2;
-                  ellipsize: end;
-
-                  styles [
-                    "caption-heading",
-                    "dimmed",
-                  ]
-                };
-              }
-            };
-
-            factory: BuilderListItemFactory {
-              template ListItem {
-                accessible-label: bind template.item as <$RevolutionContactsBook>.title;
-
-                child: Box {
-                  spacing: 12;
-
-                  // Symbol wie im Prototyp (kontakte-hell.png), Adwaita x-office-address-book.
-                  Image {
-                    icon-name: "x-office-address-book-symbolic";
-                    accessible-role: presentation;
-                  }
-
-                  Label {
-                    label: bind template.item as <$RevolutionContactsBook>.title;
-                    hexpand: true;
+              header-factory: BuilderListItemFactory {
+                template ListHeader {
+                  child: Label {
+                    label: bind template.item as <$RevolutionContactsBook>.group;
                     xalign: 0;
+                    margin-start: 14;
+                    margin-end: 14;
+                    margin-top: 4;
+                    margin-bottom: 2;
                     ellipsize: end;
-                  }
-
-                  // #368: Nur-lesend-Bücher (e_client_is_readonly) mit kleinem grauen Schloss
-                  // (Dokument #5: Zusatz-Icons klein und grau), Tooltip erklärt es.
-                  Image {
-                    icon-name: "changes-prevent-symbolic";
-                    pixel-size: 12;
-                    visible: bind template.item as <$RevolutionContactsBook>.readonly;
-                    tooltip-text: _("Read-Only");
 
                     styles [
+                      "caption-heading",
                       "dimmed",
                     ]
+                  };
+                }
+              };
 
-                    accessibility {
-                      label: _("Read-Only");
+              factory: BuilderListItemFactory {
+                template ListItem {
+                  accessible-label: bind template.item as <$RevolutionContactsBook>.title;
+
+                  child: Box {
+                    spacing: 12;
+
+                    // Symbol wie im Prototyp (kontakte-hell.png), Adwaita x-office-address-book.
+                    Image {
+                      icon-name: "x-office-address-book-symbolic";
+                      accessible-role: presentation;
                     }
-                  }
-                };
-              }
-            };
+
+                    Label {
+                      label: bind template.item as <$RevolutionContactsBook>.title;
+                      hexpand: true;
+                      xalign: 0;
+                      ellipsize: end;
+                    }
+
+                    // #368: Nur-lesend-Bücher (e_client_is_readonly) mit kleinem grauen Schloss
+                    // (Dokument #5: Zusatz-Icons klein und grau), Tooltip erklärt es.
+                    Image {
+                      icon-name: "changes-prevent-symbolic";
+                      pixel-size: 12;
+                      visible: bind template.item as <$RevolutionContactsBook>.readonly;
+                      tooltip-text: _("Read-Only");
+
+                      styles [
+                        "dimmed",
+                      ]
+
+                      accessibility {
+                        label: _("Read-Only");
+                      }
+                    }
+                  };
+                }
+              };
+            }
           };
         };
       };
+
+      // #454: Hauptmenü schwebt auf der Karte wie mail-view.blp (style.css .primary-menu).
+      [overlay]
+      MenuButton {
+        halign: end;
+        valign: start;
+        margin-top: 6;
+        margin-end: 6;
+        primary: true;
+        icon-name: "open-menu-symbolic";
+
+        styles [
+          "primary-menu",
+          "flat",
+          "circular",
+        ]
+
+        tooltip-text: _("Main Menu");
+        menu-model: primary_menu;
+
+        accessibility {
+          label: _("Main Menu");
+        }
+      }
     }
 
     // Kontaktliste: Avatar + Name (stamp-contact-row.blp:15-18), Abschnitte je
@@ -222,6 +227,10 @@ template $RevolutionContactsView: Adw.BreakpointBin {
           icon-name: "sidebar-show-symbolic";
           tooltip-text: _("Toggle Sidebar");
           active: bind split.show-sidebar bidirectional;
+
+          styles [
+            "sidebar-toggle",
+          ]
 
           accessibility {
             label: _("Toggle Sidebar");
@@ -242,33 +251,15 @@ template $RevolutionContactsView: Adw.BreakpointBin {
           }
         }
 
-        // Titel linksbündig wie mail-view.blp (zwei Labels, Stilklassen aus HIG-TY).
-        title-widget: Box {
-          orientation: vertical;
+        // #454: Umschalter mittig über der Liste wie mail-view.blp.
+        title-widget: Adw.InlineViewSwitcher {
           valign: center;
-          hexpand: true;
+          stack: bind template.stack;
+          display-mode: icons;
 
-          Label title_label {
-            label: _("Contacts");
-            xalign: 0;
-            ellipsize: end;
-
-            styles [
-              "heading",
-            ]
-          }
-
-          // Anzahl der Kontakte (contacts-view.c update_state).
-          Label subtitle_label {
-            visible: false;
-            xalign: 0;
-            ellipsize: end;
-
-            styles [
-              "caption",
-              "dimmed",
-            ]
-          }
+          styles [
+            "app-switcher",
+          ]
         };
       }
 
@@ -277,6 +268,38 @@ template $RevolutionContactsView: Adw.BreakpointBin {
       [top]
       Adw.Banner banner {
         use-markup: false;
+      }
+
+      // #454: Titel linksbündig im Listenbereich wie mail-view.blp (zwei Labels, Stilklassen aus HIG-TY).
+      [top]
+      Box {
+        orientation: vertical;
+
+        styles [
+          "list-heading",
+        ]
+
+        Label title_label {
+          label: _("Contacts");
+          xalign: 0;
+          ellipsize: end;
+
+          styles [
+            "title-4",
+          ]
+        }
+
+        // Anzahl der Kontakte (contacts-view.c update_state).
+        Label subtitle_label {
+          visible: false;
+          xalign: 0;
+          ellipsize: end;
+
+          styles [
+            "caption",
+            "dimmed",
+          ]
+        }
       }
 
       // Ohne Adressbuch: Leerzustand wie Stamp (stamp-contact-list.blp:126-133).
@@ -427,18 +450,28 @@ template $RevolutionContactsView: Adw.BreakpointBin {
                 };
             }
 
-            Box letter_bar {
-              orientation: vertical;
-              valign: center;
-              margin-end: 4;
+            // #454: Die Leiste ist mit ihren 26 Knöpfen 364 px hoch; mit dem Listen-Titel läge die Mindesthöhe
+            // der Ansicht sonst bei 468 px (main 420, „exceeds RevolutionContactsView height“). Der
+            // ScrolledWindow fängt das ab; zu niedrig: Mausrad, kein Balken.
+            ScrolledWindow {
+              hscrollbar-policy: never;
+              vscrollbar-policy: external;
 
-              styles [
-                "letter-bar",
-              ]
+              child: Viewport {
+                child: Box letter_bar {
+                  orientation: vertical;
+                  valign: center;
+                  margin-end: 4;
 
-              accessibility {
-                label: _("Jump to Initial Letter");
-              }
+                  styles [
+                    "letter-bar",
+                  ]
+
+                  accessibility {
+                    label: _("Jump to Initial Letter");
+                  }
+                };
+              };
             }
           };
         }

@@ -208,7 +208,7 @@ EOF
 # Klick auf die erste Zeile der Liste (Fenster 1200×760, Liste ab x≈270, erste Zeile y≈110).
 PAGE_DOWN="$(printf 'Page_Down %.0s' $(seq 480))"
 lauf m4-352-oben "" ""
-lauf m4-352-unten "420,110" "${PAGE_DOWN}End"
+lauf m4-352-unten "420,156" "${PAGE_DOWN}End"
 
 # #353: mark-seen=false wirksam (kein Gelesen-Timer im Log)?
 if debug "$OUT/m4-352-oben.log" "$OUT/m4-352-unten.log" 2>/dev/null | grep -q '^Gelesen: '; then

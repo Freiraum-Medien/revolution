@@ -25,8 +25,8 @@ KONTO, ORDNER, APP_DIR = os.environ['KONTO'], os.environ['ORDNER'], os.environ['
 LOGKEY = ORDNER.replace('/', ' ', 1)
 EINLADUNG = '[Revolution-Test] Einladung: Abstimmung Testdaten'
 IMAP = 'outlook' not in KONTO
-# Fenster 1200×760: erste Zeile der Liste, Stern-Knopf der Nachricht (Screenshot m4-353 probe.png).
-ZEILE = (420, 108)
+# Fenster 1200×760: erste Zeile der Liste (unter dem Listen-Titel, #454), Stern-Knopf der Nachricht (Screenshot m4-353 probe.png).
+ZEILE = (420, 156)
 STERN = (962, 25)
 ZEILE_HOEHE = 108
 
@@ -353,7 +353,7 @@ def lastordner():
     for name, text in (('-2-nachher.png', 'ungelesen'), ('-4-zurueck.png', 'wieder gelesen')):
         b = Image.open(os.path.join(OUT, NAME + name)).convert('RGB')
         gleich = all(a.crop((270, y0, 558, y1)).tobytes() == b.crop((270, y0, 558, y1)).tobytes()
-                     for y0, y1 in ((50, oben), (unten, 760)))
+                     for y0, y1 in ((104, oben), (unten, 760)))  # ab 104: ohne Listen-Titel und Untertitel (Zähler)
         (ok if gleich else falsch)('Scrollposition: übrige Zeilen vorher = %s pixelgleich' % text)
         auswahl = a.getpixel(punkt) == b.getpixel(punkt) != a.getpixel((268, zeile[1]))
         (ok if auswahl else falsch)('Auswahl: gewählte Zeile vorher und %s markiert (Farbe %s bei %s)'

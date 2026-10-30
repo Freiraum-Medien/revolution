@@ -129,6 +129,22 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
     }
   }
 
+  // #454: Sehr schmal ist kein Platz für den Ausgleich links vom Umschalter (Kopfleiste). Es gilt nur der
+  // zuletzt passende Breakpoint (mail-view.blp), daher die Werte von oben noch einmal.
+  Adw.Breakpoint {
+    condition ("max-width: 500sp")
+
+    setters {
+      split.collapsed: true;
+      split.show-sidebar: false;
+      split.sidebar-width-fraction: 0.28;
+      split.min-sidebar-width: 276;
+      split.max-sidebar-width: 336;
+      view_switcher.policy: narrow;
+      header_spacer.visible: false;
+    }
+  }
+
   // #402: Breiten und Klasse mail-split wie Mail (mail-view.blp:1033-1040, style.css).
   child: Adw.OverlaySplitView split {
     sidebar-width-fraction: 0.22;
@@ -153,45 +169,22 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
       ]
 
       // Seitenleiste: Monatsauswahl + Kalenderliste (gcal-window.blp:150-166).
-      child: Adw.ToolbarView {
-        [top]
-        Adw.HeaderBar {
-          // Umschalter Mail | Kalender | Kontakte oben in der Kopfleiste der Seitenleiste
-          // (Arnd 22.10.2026, #340, Vorbild 22/24): Segment-Umschalter, Standard-libadwaita
-          // (AdwInlineViewSwitcher = AdwToggleGroup am ViewStack, nur Symbole);
-          // Seitentitel als Tooltip setzt libadwaita (geprüft headless).
-          title-widget: Adw.InlineViewSwitcher {
-            stack: bind template.stack;
-            display-mode: icons;
-          };
-
-          // #402: Hauptmenü wie Mail (mail-view.blp:88-106), Nautilus-Optik über .primary-menu.
-          [end]
-          MenuButton {
-            primary: true;
-            icon-name: "open-menu-symbolic";
-
-            styles [
-              "primary-menu",
-            ]
-
-            tooltip-text: _("Main Menu");
-            menu-model: primary_menu;
-
-            accessibility {
-              label: _("Main Menu");
-            }
-          }
-        }
-
-        content: ScrolledWindow {
+      child: Overlay {
+        child: ScrolledWindow {
           hscrollbar-policy: never;
 
           child: Box {
             orientation: vertical;
 
+            // #454: Griff nur im leeren Kopfbereich (mail-view.blp), darüber das Hauptmenü.
+            WindowHandle {
+              styles [
+                "sidebar-grip",
+              ]
+            }
+
             // GcalDateChooser ist ein eigenes C-Widget; hier Gtk.Calendar.
-            // #340: oben 2px statt 6px, Monatsname auf der Linie 63px (style.css „Eine Linie“).
+            // #340: oben 2px statt 6px, Monatsname auf der Linie (style.css „Eine Linie“).
             // #402: ohne eigenen Rahmen auf der Seitenleisten-Fläche (style.css .date-chooser).
             // Ohne year/month/day zeigt Gtk.Calendar den heutigen Tag.
             Calendar date_chooser {
@@ -278,6 +271,30 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
             }
           };
         };
+
+        // #454: Hauptmenü schwebt auf der Karte wie mail-view.blp (style.css .primary-menu).
+        [overlay]
+        MenuButton {
+          halign: end;
+          valign: start;
+          margin-top: 6;
+          margin-end: 6;
+          primary: true;
+          icon-name: "open-menu-symbolic";
+
+          styles [
+            "primary-menu",
+            "flat",
+            "circular",
+          ]
+
+          tooltip-text: _("Main Menu");
+          menu-model: primary_menu;
+
+          accessibility {
+            label: _("Main Menu");
+          }
+        }
       };
 
     };
@@ -292,9 +309,9 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
       // Kopfleiste (gcal-window.blp:174-211). Titel = Monat und Jahr
       // (gcal-calendar-navigation-button.c:106, „%B %Y“).
 
-      // #402: Aufbau wie die Kopfleiste der Mail-Nachricht (mail-view.blp:438-449): alles im
-      // Titel, damit der Titel linksbündig direkt neben dem Seitenleisten-Knopf steht wie in
-      // der Mail-Liste (mail-view.blp:233-262); Fensterknöpfe als Gtk.WindowControls.
+      // #402: Aufbau wie die Kopfleiste der Mail-Nachricht: alles im Titel, damit der Titel
+      // linksbündig direkt neben dem Seitenleisten-Knopf steht; Fensterknöpfe als
+      // Gtk.WindowControls. #454: CenterBox: Umschalter mittig (mail-view.blp, title-widget der Liste).
       [top]
       Adw.HeaderBar {
         show-start-title-buttons: false;
@@ -304,9 +321,8 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
           hexpand: true;
           spacing: 6;
 
-          // #402 Runde 2: Suche wie Mail (mail-view.blp:438-604): „Lights off“, Gtk.Stack
-          // wechselt vom Knopf mit Titel zum Suchfeld über die ganze Breite bis zur Lupe.
-          // Umschalten in calendar-view.c.
+          // #402 Runde 2: Suche wie Mail: „Lights off“, Gtk.Stack wechselt vom Knopf mit Titel
+          // zum Suchfeld über die ganze Breite bis zur Lupe. Umschalten in calendar-view.c.
           Stack header_stack {
             hexpand: true;
             transition-type: over_left_right;
@@ -315,29 +331,56 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
             StackPage {
               name: "actions";
 
-              child: Box {
-                spacing: 6;
+              // #454: Umschalter mittig wie die Liste in mail-view.blp. Die Seite endet vor Lupe und
+              // Fensterknöpfen; header_spacer (SizeGroup unten, gleich breit) rückt ihn in die
+              // Mitte der ganzen Kopfleiste.
+              child: CenterBox {
+                [start]
+                Box {
+                  spacing: 6;
 
-                // #402: Knopf immer sichtbar wie Mail (mail-view.blp:208-218); F9 oben im Controller.
-                ToggleButton sidebar_button {
-                  icon-name: "sidebar-show-symbolic";
-                  tooltip-text: _("Toggle Sidebar");
-                  active: bind split.show-sidebar bidirectional;
+                  // #402: Knopf immer sichtbar wie Mail; F9 oben im Controller.
+                  ToggleButton sidebar_button {
+                    icon-name: "sidebar-show-symbolic";
+                    tooltip-text: _("Toggle Sidebar");
+                    active: bind split.show-sidebar bidirectional;
 
-                  accessibility {
-                    label: _("Toggle Sidebar");
+                    styles [
+                      "sidebar-toggle",
+                    ]
+
+                    accessibility {
+                      label: _("Toggle Sidebar");
+                    }
+                  }
+
+                  // Monat und Jahr setzt calendar-view.c (heute).
+                  Label month_title {
+                    hexpand: true;
+                    xalign: 0;
+                    ellipsize: end;
+
+                    styles [
+                      "heading",
+                    ]
                   }
                 }
 
-                // Monat und Jahr setzt calendar-view.c (heute).
-                Label month_title {
-                  hexpand: true;
-                  xalign: 0;
-                  ellipsize: end;
+                [center]
+                Box {
+                  spacing: 6;
 
-                  styles [
-                    "heading",
-                  ]
+                  Box header_spacer {}
+
+                  Adw.InlineViewSwitcher {
+                    valign: center;
+                    stack: bind template.stack;
+                    display-mode: icons;
+
+                    styles [
+                      "app-switcher",
+                    ]
+                  }
                 }
               };
             }
@@ -361,18 +404,22 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
             }
           }
 
-          ToggleButton search_button {
-            icon-name: "edit-find-symbolic";
-            tooltip-text: _("Search");
-            notify::active => $on_search_toggled() swapped;
+          Box header_end {
+            spacing: 6;
 
-            accessibility {
-              label: _("Search");
+            ToggleButton search_button {
+              icon-name: "edit-find-symbolic";
+              tooltip-text: _("Search");
+              notify::active => $on_search_toggled() swapped;
+
+              accessibility {
+                label: _("Search");
+              }
             }
-          }
 
-          WindowControls {
-            side: end;
+            WindowControls {
+              side: end;
+            }
           }
         };
       }
@@ -516,6 +563,15 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
       }
     };
   };
+}
+
+SizeGroup {
+  mode: horizontal;
+
+  widgets [
+    header_spacer,
+    header_end,
+  ]
 }
 
 // #402: Hauptmenü mit Inhalt wie Mail (mail-view.blp:1199-1243); erster Eintrag Neuer Termin

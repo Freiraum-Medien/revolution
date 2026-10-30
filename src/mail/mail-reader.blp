@@ -30,7 +30,7 @@ template $RevolutionMailReader: Adw.Bin {
       spacing: 12;
       margin-start: 12;
       margin-end: 12;
-      // #340: 13px, Oberkante auf der Linie 63px (style.css „Eine Linie“).
+      // #340: 13px unter der Kopfleiste.
       margin-top: 13;
 
       styles [
@@ -351,6 +351,8 @@ template $RevolutionMailReader: Adw.Bin {
     // #357: in der Konversation nicht ausgedehnt, Höhe nach dem Inhalt (mail-reader.c fit_content).
     Adw.Bin content_card {
       vexpand: true;
+      // #454: Sonst bleibt bei niedrigem Fenster unter großem Kopf nichts vom Mailtext übrig.
+      height-request: 150;
       overflow: hidden;
       margin-start: 12;
       margin-end: 12;

@@ -8,6 +8,7 @@
 #pragma once
 
 #include <adwaita.h>
+#include <libecal/libecal.h>
 
 G_BEGIN_DECLS
 
@@ -17,5 +18,16 @@ G_DECLARE_FINAL_TYPE (RevolutionMailInvitation, revolution_mail_invitation, REVO
 void revolution_mail_invitation_set (RevolutionMailInvitation *self,
                                      const char               *account_uid,
                                      const char               *ical);
+
+/* #377: iTIP REQUEST/CANCEL des Organisators an die Teilnehmer, wenn der Server nicht selbst einlädt. Nimmt comp.
+ * master: mit dem Hauptdatensatz der Serie statt der Instanz („alle Termine“). */
+void     revolution_mail_invitation_send        (ECalClient          *client,
+                                                 ICalComponent       *comp,
+                                                 ICalPropertyMethod   method,
+                                                 gboolean             master,
+                                                 GAsyncReadyCallback  callback,
+                                                 gpointer             user_data);
+gboolean revolution_mail_invitation_send_finish (GAsyncResult        *result,
+                                                 GError             **error);
 
 G_END_DECLS

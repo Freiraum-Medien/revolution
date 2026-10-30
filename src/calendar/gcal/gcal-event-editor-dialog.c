@@ -2,7 +2,9 @@
  * GPL-3.0-or-later). Revolution #375: ohne Teilnehmer (attendees-section, attendee-details-page; Anzeige und
  * Bearbeiten mit #377), „Alle Termine“ ändern: Hauptkomponente im GTask-Worker holen statt
  * e_cal_client_get_object_sync/gcal_event_new im UI-Thread (424-440), Fehler dort als Banner (Signal „error“ des
- * GcalManager) statt g_warning; Speichern übernimmt zuerst getippte Datums-/Zeitfelder (Fokus auf „Speichern“). */
+ * GcalManager) statt g_warning; Speichern übernimmt zuerst getippte Datums-/Zeitfelder (Fokus auf „Speichern“).
+ * #377: Teilnehmer-Sektion (eigener Code gcal-attendees-section.c) statt attendees-section/attendee-details-page;
+ * Kalender eines neuen Termins vor dem Übernehmen der Sektionen setzen (Organisator = Adresse dieses Kalenders). */
 /* gcal-ediat-dialog.c
  *
  * Copyright (C) 2015 Erick Pérez Castellanos <erickpc@gnome.org>
@@ -24,6 +26,7 @@
 
 #define G_LOG_DOMAIN "GcalEventEditorDialog"
 
+#include "gcal-attendees-section.h"
 #include "gcal-calendar-combo-row.h"
 #include "gcal-context.h"
 #include "gcal-debug.h"
@@ -56,6 +59,8 @@ struct _GcalEventEditorDialog
 {
   AdwDialog               parent;
 
+  GcalEventEditorSection   *attendees_section;
+
   GcalCalendarComboRow     *calendar_combo_row;
   GtkWidget                *cancel_button;
   GtkWidget                *delete_group;
@@ -69,7 +74,7 @@ struct _GcalEventEditorDialog
   GtkWidget                *main_page;
 
 
-  GcalEventEditorSection *sections[4];
+  GcalEventEditorSection *sections[5];
 
 
   GMenu              *sources_menu;
@@ -261,6 +266,10 @@ save_event_and_close_dialog (GcalEventEditorDialog *self)
    */
   was_recurrent = gcal_event_has_recurrence (self->event);
 
+  /* Revolution #377: neuer Termin vor dem Übernehmen im gewählten Kalender (Vorlage setzt ihn danach). */
+  if (calendar_changed && self->event_is_new)
+    gcal_event_set_calendar (self->event, selected_calendar);
+
   for (i = 0; i < G_N_ELEMENTS (self->sections); i++)
     {
       if (gcal_event_editor_section_changed (self->sections[i]))
@@ -321,6 +330,17 @@ on_event_editor_save_action_activated_cb (GSimpleAction *action,
    * dem Zeitfeld verlor sie sonst). */
   gtk_widget_grab_focus (self->done_button);
   save_event_and_close_dialog (self);
+}
+
+/* Revolution #377 */
+static void
+on_add_attendee_action_activated_cb (GSimpleAction *action,
+                                     GVariant      *param,
+                                     gpointer       user_data)
+{
+  GcalEventEditorDialog *self = GCAL_EVENT_EDITOR_DIALOG (user_data);
+
+  gtk_widget_activate_action (GTK_WIDGET (self->attendees_section), "attendees.focus", NULL);
 }
 
 static void
@@ -463,6 +483,17 @@ on_ask_recurrence_response_save_cb (GcalEvent             *event,
 }
 
 
+/* Revolution #377 */
+static void
+on_calendar_selected_cb (GcalEventEditorDialog *self)
+{
+  GcalCalendar *calendar = gcal_calendar_combo_row_get_calendar (self->calendar_combo_row);
+
+  if (self->event != NULL && calendar != NULL)
+    gcal_attendees_section_set_calendar (GCAL_ATTENDEES_SECTION (self->attendees_section), calendar);
+}
+
+
 /*
  * Gobject overrides
  */
@@ -546,6 +577,7 @@ gcal_event_editor_dialog_class_init (GcalEventEditorDialogClass *klass)
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (klass);
 
+  g_type_ensure (GCAL_TYPE_ATTENDEES_SECTION);
   g_type_ensure (GCAL_TYPE_CALENDAR_COMBO_ROW);
   g_type_ensure (GCAL_TYPE_NOTES_SECTION);
   g_type_ensure (GCAL_TYPE_REMINDERS_SECTION);
@@ -602,6 +634,7 @@ gcal_event_editor_dialog_class_init (GcalEventEditorDialogClass *klass)
 
   gtk_widget_class_set_template_from_resource (widget_class, "/org/gnome/calendar/ui/event-editor/gcal-event-editor-dialog.ui");
 
+  gtk_widget_class_bind_template_child (widget_class, GcalEventEditorDialog, attendees_section);
   gtk_widget_class_bind_template_child (widget_class, GcalEventEditorDialog, calendar_combo_row);
   gtk_widget_class_bind_template_child (widget_class, GcalEventEditorDialog, cancel_button);
   gtk_widget_class_bind_template_child (widget_class, GcalEventEditorDialog, delete_group);
@@ -623,6 +656,7 @@ gcal_event_editor_dialog_init (GcalEventEditorDialog *self)
 {
   static const GActionEntry actions[] = {
     { "save", on_event_editor_save_action_activated_cb },
+    { "add-attendee", on_add_attendee_action_activated_cb },
   };
 
   gint i = 0;
@@ -634,6 +668,7 @@ gcal_event_editor_dialog_init (GcalEventEditorDialog *self)
 
   gtk_widget_init_template (GTK_WIDGET (self));
 
+  self->sections[i++] = self->attendees_section;
   self->sections[i++] = self->notes_section;
   self->sections[i++] = self->reminders_section;
   self->sections[i++] = self->schedule_section;
@@ -641,6 +676,10 @@ gcal_event_editor_dialog_init (GcalEventEditorDialog *self)
 
   for (i = 0; i < G_N_ELEMENTS (self->sections); i++)
     g_object_bind_property (self, "context", self->sections[i], "context", G_BINDING_DEFAULT);
+
+  /* Revolution #377: Organisator folgt der Kalenderwahl. */
+  g_signal_connect_object (self->calendar_combo_row, "notify::selected-item", G_CALLBACK (on_calendar_selected_cb), self,
+                           G_CONNECT_SWAPPED);
 }
 
 /**

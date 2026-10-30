@@ -43,6 +43,7 @@
     <file alias="gui/gcal-event-popover.ui" compressed="true">gcal-event-popover.ui</file>
     <file alias="event-editor/gcal-event-editor-dialog.ui" compressed="true">gcal-event-editor-dialog.ui</file>
     <file alias="event-editor/gcal-summary-section.ui" compressed="true">gcal-summary-section.ui</file>
+    <file alias="event-editor/gcal-attendees-section.ui" compressed="true">gcal-attendees-section.ui</file>
     <file alias="event-editor/gcal-notes-section.ui" compressed="true">gcal-notes-section.ui</file>
     <file alias="event-editor/gcal-schedule-section.ui" compressed="true">gcal-schedule-section.ui</file>
     <file alias="event-editor/gcal-date-time-chooser.ui" compressed="true">gcal-date-time-chooser.ui</file>

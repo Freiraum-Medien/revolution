@@ -28,6 +28,8 @@ gcal_deps = [
   dependency('libadwaita-1', version: '>= 1.9'),
   dependency('libedataserver-1.2', version: '>= 3.56'),
   dependency('libecal-2.0', version: '>= 3.56'),
+  # #377: Adressen der Teilnehmer zerlegen (camel_internet_address, wie der Composer)
+  dependency('camel-1.2', version: '>= 3.56'),
   meson.get_compiler('c').find_library('m', required: false),
 ]
 
@@ -66,6 +68,8 @@ gcal_lib = static_library('gcal',
   'gcal-week-view-common.c',
   # #375: Termin-Popover und Editor
   'gcal-alarm-row.c',
+  # #377: Teilnehmer
+  'gcal-attendees-section.c',
   'gcal-calendar-combo-row.c',
   'gcal-calendar-row.c',
   'gcal-date-chooser-row.c',

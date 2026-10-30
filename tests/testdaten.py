@@ -3522,8 +3522,9 @@ def einladung_warten(registry, art, datei):
     while time.monotonic() < ende:
         if konto == KONTO_M365:
             for ordner in ('inbox', 'junkemail'):
-                mails = graph(k, 'GET', '/me/mailFolders/%s/messages?$search=%s&$select=id,subject,internetMessageId'
-                              % (ordner, urllib.parse.quote('"%s"' % d['titel'])))['value']
+                # #377: neueste 50 statt $search (der Suchindex von Exchange hinkt neuen Mails Minuten hinterher).
+                mails = graph(k, 'GET', '/me/mailFolders/%s/messages?$top=50&$orderby=receivedDateTime%%20desc'
+                              '&$select=id,subject,internetMessageId' % ordner)['value']
                 mails = [m for m in mails if d['titel'] in (m['subject'] or '') and
                          m['id'] not in [x.get('id') for x in d['mails']] and
                          (art != 'antwort' or not m['subject'].startswith(('Einladung', 'Invitation')))]
@@ -3677,6 +3678,81 @@ def einladung_absagen(registry, datei):
     return 0
 
 
+def einladung_eigene(registry, datei, kal, uid, organisator, teilnehmer, titel):
+    """#377: Termin, den die App mit Teilnehmer angelegt hat, für warten/pruefen/aufraeumen merken. microsoft365: UID
+    in EDS = Graph-ID, die Mails tragen die iCalUId (Graph GET über die ID)."""
+    if sorted((organisator, teilnehmer)) != sorted(EINLADUNG_KONTEN) or not titel.startswith('Revolution-Test') or \
+            kal not in kalender_schreibbar():
+        sys.exit('ABBRUCH: nur Testkonten, Testkalender, Titel „Revolution-Test …“')
+    d = {'organisator': organisator, 'teilnehmer': teilnehmer, 'titel': titel, 'mails': [], 'kal': kal, 'href': '',
+         'eds_uid': uid, 'uid': uid}
+    if kal == kalender_schreibbar()[0]:
+        ev = graph(konten_finden(registry)[KONTO_M365], 'GET', '/me/events/%s?$select=iCalUId,subject' % uid)
+        if ev['subject'] != titel:
+            sys.exit('ABBRUCH: Graph-Termin %s trägt nicht den Titel des Laufs' % uid)
+        d.update(uid=ev['iCalUId'], id=uid)
+    einladung_daten(datei, d)
+    print('EIGENE %s %s' % (kal[:8], d['uid'][:24]), flush=True)
+    return 0
+
+
+def einladung_eds(registry, datei):
+    """#377 nur lesend: PARTSTAT des Teilnehmers im Termin des Organisators, zweiter EDS-Leser (Python-GI ECal)."""
+    d = einladung_daten(datei)
+    c = kalender_verbinden(registry, d['kal'])
+    for _ in range(12):
+        try:
+            c.refresh_sync(cancellable())
+        except GLib.Error:
+            pass
+        time.sleep(5)
+        try:
+            _, comp = c.get_object_sync(d['eds_uid'], None, cancellable())
+        except GLib.Error:
+            print('ORGANISATOR-EDS FEHLT', flush=True)
+            return 1
+        st = ical_partstat(comp.as_ical_string(), d['teilnehmer'])
+        if st == 'ACCEPTED':
+            break
+    print('ORGANISATOR-EDS %s' % st, flush=True)
+    return 0
+
+
+def einladung_kopie(registry, datei):
+    """#377 nur lesend: Kopie beim Teilnehmer outlook.com (Graph, iCalUId): Anzahl, Beginn (UTC), abgesagt."""
+    d = einladung_daten(datei)
+    k = konten_finden(registry)[KONTO_M365]
+    # Betreff statt iCalUId-Filter (Exchange packt fremde UIDs um, graph_ical_uid), geprüft über die dekodierte UID.
+    f = urllib.parse.quote("startswith(subject,'%s')" % d['titel'])
+    evs = [e for e in graph(k, 'GET', '/me/events?$filter=%s&$select=id,iCalUId,subject,start,isCancelled' % f)['value']
+           if graph_ical_uid(e.get('iCalUId')) == d['uid']] if d['teilnehmer'] == KONTO_M365 else []
+    if d['teilnehmer'] == KONTO_M365:
+        for ordner in ('inbox', 'junkemail', 'deleteditems'):
+            for m in graph(k, 'GET', '/me/mailFolders/%s/messages?$top=50&$orderby=receivedDateTime%%20desc'
+                           '&$select=id,subject' % ordner)['value']:
+                if d['titel'] in (m['subject'] or ''):
+                    print('MAILTYP %s %s „%s“' % (ordner, m.get('@odata.type', '?'), m['subject']))
+                    # Beleg: MIME der empfangenen Mail neben der JSON-Datei (nur lesend, Graph $value).
+                    token = k.goa.get_oauth2_based().call_get_access_token_sync(None)[0]
+                    req = urllib.request.Request(GRAPH + '/me/messages/%s/$value' % urllib.parse.quote(m['id'], safe=''),
+                                                 headers={'Authorization': 'Bearer ' + token})
+                    try:
+                        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+                            mime = r.read()
+                    except urllib.error.HTTPError as f:
+                        print('MIME HTTP %d' % f.code)
+                        continue
+                    with open('%s-%s.eml' % (datei[:-5], hashlib.sha1(m['id'].encode()).hexdigest()[:8]), 'wb') as f:
+                        f.write(mime)
+                    meth = re.search(rb'^METHOD:(\S+)', mime.replace(b'=\r\n', b''), re.M)
+                    print('MIME %s text/calendar METHOD %s' % (ordner, meth.group(1).decode() if meth else '-'))
+    for ev in evs:
+        print('KOPIE %s %s abgesagt %s' % (ev['start']['dateTime'][:16], ev['start']['timeZone'],
+                                           'ja' if ev.get('isCancelled') else 'nein'))
+    print('KOPIEN %d' % len(evs), flush=True)
+    return 0
+
+
 def einladung_imap_uids(c, mid):
     """UIDs im gewählten Ordner, deren Message-ID genau mid ist und deren Betreff „Revolution-Test“ enthält (Suche
     des Servers nur als Vorauswahl, PM 30.10.2026)."""
@@ -3689,19 +3765,18 @@ def einladung_imap_uids(c, mid):
     return out
 
 
-def einladung_aufraeumen(registry, datei):
-    ECal, _ = ecal()
-    d = einladung_daten(datei)
-    konten = konten_finden(registry)
-    m365, google, lokal = kalender_schreibbar()
-    basis = caldav_basis(registry)
-    # #376 R2: Kopie bei outlook.com zuerst, sonst benennt Exchange sie nach der Absage des Organisators um
-    # („Termin abgesagt: …“) und sie bleibt liegen (gemessen Lauf 10300410).
-    # Kopie bei outlook.com: nur genau ein Treffer, dessen iCalUId der gemerkten UID gleicht und dessen Betreff mit
-    # „Revolution-Test“ beginnt (PM #376 R2; exec-377 schreibt parallel in denselben Kalender), sonst Abbruch.
+def einladung_kopie_loeschen(d, konten):
+    """Kopie bei outlook.com (Teilnehmer) über die gemerkte UID löschen (#376 R2; #377 R3: auch vor der Absage in Teil L)."""
+    m365 = kalender_schreibbar()[0]
     if d['teilnehmer'] == KONTO_M365:
         f = urllib.parse.quote("iCalUId eq '%s'" % d['uid'])
         roh = graph(konten[KONTO_M365], 'GET', '/me/events?$filter=%s&$select=id,iCalUId,subject' % f)['value']
+        if not roh:
+            # #377 R3: Exchange packt fremde UIDs um (graph_ical_uid), der Filter trifft sie dann nicht; Vorauswahl über
+            # den Lauftitel, entschieden wird über die dekodierte iCalUId.
+            f = urllib.parse.quote("startswith(subject,'%s')" % d['titel'])
+            roh = [e for e in graph(konten[KONTO_M365], 'GET', '/me/events?$filter=%s&$select=id,iCalUId,subject' % f)['value']
+                   if graph_ical_uid(e.get('iCalUId')) == d['uid']]
         evs = [e for e in roh if graph_ical_uid(e.get('iCalUId')) == d['uid']]
         if len(evs) != len(roh) or len(evs) > 1:
             sys.exit('ABBRUCH: Graph lieferte %d Treffer, %d mit gleicher iCalUId, kein DELETE' % (len(roh), len(evs)))
@@ -3713,6 +3788,19 @@ def einladung_aufraeumen(registry, datei):
                 continue
             graph(konten[KONTO_M365], 'DELETE', '/me/events/%s' % ev['id'])
             print('SCHREIBVORGANG %s (Graph DELETE Kopie)' % m365)
+
+
+def einladung_aufraeumen(registry, datei):
+    ECal, _ = ecal()
+    d = einladung_daten(datei)
+    konten = konten_finden(registry)
+    m365, google, lokal = kalender_schreibbar()
+    basis = caldav_basis(registry)
+    # #376 R2: Kopie bei outlook.com zuerst, sonst benennt Exchange sie nach der Absage des Organisators um
+    # („Termin abgesagt: …“) und sie bleibt liegen (gemessen Lauf 10300410).
+    # Kopie bei outlook.com: nur genau ein Treffer, dessen iCalUId der gemerkten UID gleicht und dessen Betreff mit
+    # „Revolution-Test“ beginnt (PM #376 R2; exec-377 schreibt parallel in denselben Kalender), sonst Abbruch.
+    einladung_kopie_loeschen(d, konten)
     # Termin des Organisators über die gemerkte ID bzw. href (Graph DELETE schickt Exchange eine Absage, Google ebenso).
     if d['organisator'] == KONTO_M365 and d.get('abgesagt'):
         print('ORGANISATOR schon abgesagt')
@@ -3893,10 +3981,19 @@ def main():
         reg, a = EDataServer.SourceRegistry.new_sync(None), args.einladung
         if a[0] == 'anlegen' and len(a) == 6:
             return einladung_anlegen(reg, a[1].lower(), a[2].lower(), *a[3:])
-        if a[0] == 'warten' and len(a) == 3 and a[1] in ('einladung', 'absage', 'antwort'):
+        if a[0] == 'warten' and len(a) == 3 and a[1] in ('einladung', 'absage', 'antwort', 'aktualisierung'):
             return einladung_warten(reg, a[1], a[2])
         if a[0] == 'pruefen' and len(a) in (2, 3):
             return einladung_pruefen(reg, *a[1:])
+        if a[0] == 'eigene' and len(a) == 7:
+            return einladung_eigene(reg, a[1], a[2], a[3], a[4].lower(), a[5].lower(), a[6])
+        if a[0] == 'eds' and len(a) == 2:
+            return einladung_eds(reg, a[1])
+        if a[0] == 'kopie-loeschen' and len(a) == 2:
+            einladung_kopie_loeschen(einladung_daten(a[1]), konten_finden(reg))
+            return 0
+        if a[0] == 'kopie' and len(a) == 2:
+            return einladung_kopie(reg, a[1])
         if a[0] == 'absagen' and len(a) == 2:
             return einladung_absagen(reg, a[1])
         if a[0] == 'gesendet' and len(a) == 2:

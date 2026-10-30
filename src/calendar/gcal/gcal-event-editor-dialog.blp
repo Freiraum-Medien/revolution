@@ -1,5 +1,6 @@
 // Übernommen aus gnome-calendar 50.0 src/gui/event-editor/gcal-event-editor-dialog.blp:1-120 (ff4d7f7d,
 // GPL-3.0-or-later). Revolution #375: ohne Teilnehmer (participants_group, attendee_details_page), Strg+Enter speichert.
+// #377: eigene Teilnehmer-Gruppe (gcal-attendees-section.blp) statt participants_group.
 using Gtk 4.0;
 using Adw 1;
 
@@ -62,6 +63,15 @@ template $GcalEventEditorDialog: Adw.Dialog {
               }
             }
 
+            // Revolution #377
+            Adw.PreferencesGroup {
+              title: _("Attendees");
+
+              $GcalAttendeesSection attendees_section {
+                sensitive: bind template.writable;
+              }
+            }
+
             Adw.PreferencesGroup {
               title: _("Reminders");
 
@@ -103,6 +113,12 @@ template $GcalEventEditorDialog: Adw.Dialog {
     Shortcut {
       trigger: "<Control>s";
       action: "action(event-editor.save)";
+    }
+
+    // Revolution #377: Alt+I ins Feld „Teilnehmer hinzufügen“.
+    Shortcut {
+      trigger: "<Alt>i";
+      action: "action(event-editor.add-attendee)";
     }
 
     // Revolution #375: Strg+Enter speichert wie Senden im Composer (Design #5 „Strg+Enter senden“).

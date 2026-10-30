@@ -25,6 +25,15 @@
 #   E  CANCEL: outlook.com sagt A ab (Graph DELETE), Revolution (Gmail) „Aus Kalender entfernen“: Termin aus „Persönlich“ weg.
 #   F  REPLY (vor E): Revolution (Gmail, Organisator von C und D) öffnet die Antworten von outlook.com, „Teilnehmerstatus
 #      aktualisieren“: PARTSTAT ACCEPTED bzw. DECLINED im Gmail-Termin (Gmail übernimmt sie nicht selbst, Spam).
+# #377 (TEILE=377; Standard TEILE=376, je Teil ein eigener Lauf wegen ≤ 10 Mails über outlook.com): eigene Einladungen aus dem Editor (tests/kalender-treiber.py MODUS=einladung)
+#   M  Termin in „Kalender“ (outlook.com) mit Gmail als Teilnehmer: Exchange lädt ein (Server plant, keine Mail der
+#      App), Gmail nimmt über die #376-Karte an (Kalender „Persönlich“), Status „Angenommen“ beim Organisator (Graph GET,
+#      Python-GI ECal, Editor mit Bild hell/dunkel), Ändern (Beginn 10:00, Graph = Editor) → Aktualisierung kommt an,
+#      Löschen → Absage (Backend: Graph cancel) kommt an.
+#      TEILE=377m bzw. 377l: nur M bzw. nur L.
+#   L  Termin in „Persönlich“ (ohne eigene Adresse), Organisator-Wahl Gmail, Teilnehmer outlook.com: Revolution
+#      verschickt REQUEST, Aktualisierung und CANCEL selbst über den Postausgang des Gmail-Kontos; Ankunft und
+#      Kopie bei outlook.com (Graph, Beginn, abgesagt).
 # Grenzen: Schreibvorgänge je Kalender ≤ 20 (gezählt „SCHREIBVORGANG“), Mails über outlook.com ≤ 10 („MAIL-OUTLOOK“).
 # Am Ende: Termine und Mails des Laufs über die gemerkten IDs gelöscht (--einladung aufraeumen), fremde Kalender
 # unverändert (--kalender-hash), ~/.config/evolution/sources unverändert. Zeilen „OK …“/„FEHLER …“, Exit 0 ohne Fehler.
@@ -40,6 +49,7 @@ APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="${BUILD:-$APP_DIR/build-devel}"
 BIN="$BUILD/src/revolution"
 OUT="${1:-$BUILD/m7-376}"
+TEILE="${TEILE:-376}"
 LAUF_TIMEOUT="${LAUF_TIMEOUT:-600}"
 export TD_TIMEOUT="${TD_TIMEOUT:-700}"
 FEHLER=0
@@ -157,7 +167,8 @@ warten () {  # ART FALL
   else echo "FEHLER  $2: Mail $1 nicht angekommen"; FEHLER=$((FEHLER + 1)); BETREFF=""; return 1; fi
 }
 
-for fall in A B C D G; do rm -f "$OUT/einladung-$fall.json"; done
+for fall in A B C D G M L; do rm -f "$OUT/einladung-$fall.json"; done
+if [[ " $TEILE " == *" 376 "* ]]; then
 anlegen A "$KONTO_M365" "$KONTO_GOOGLE" 09
 anlegen B "$KONTO_M365" "$KONTO_GOOGLE" 10
 anlegen C "$KONTO_GOOGLE" "$KONTO_M365" 11
@@ -207,16 +218,141 @@ if tdp --einladung absagen "$OUT/einladung-A.json" >/dev/null && warten absage A
   else echo "FEHLER  E: Termin noch da: $(tr '\n' ' ' <"$OUT/pruefen-E.txt")"; FEHLER=$((FEHLER + 1)); fi
 fi
 
-# Aufräumen über die gemerkten IDs.
 # G: keine Antwort beim Organisator (Graph GET, Status unverändert).
 [ -f "$OUT/einladung-G.json" ] && soll G "$KAL_GOOGLE" NEEDS-ACTION "(0 -|1 .*)" "(0 -|1 .*)"
+fi
 
-for fall in A B C D G; do
+# #377: App-Lauf mit dem Kalender-Treiber (wie tests/kalender.sh lauf).
+MONAT="$(date -d "$(date +%Y-%m-01) +1 month" +%Y-%m)"
+kal_lauf () {  # NAME SKIP-KONTEN SCHEMA, weitere Umgebung über env
+  local name="$1" skip="$2" schema="$3" rundir confdir rc=0
+  bus_frei || { echo "FEHLER  $name: Session-Bus: $APP_ID läuft schon"; return 1; }
+  rundir="$(mktemp -d)"
+  confdir="$OUT/$name-config"
+  rm -rf "$confdir"
+  mkdir -p "$OUT/$name-schema"
+  cp "$APP_DIR/data/"*.gschema.xml "$OUT/$name-schema/"
+  printf '[de.freiraum_medien.Revolution]\nwindow-width=1200\nwindow-height=820\n' >"$OUT/$name-schema/90_test.gschema.override"
+  glib-compile-schemas --strict "$OUT/$name-schema" || { echo "FEHLER  $name: Schema"; return 1; }
+  timeout -k 10 "$LAUF_TIMEOUT" env -u WAYLAND_DISPLAY -u DISPLAY -u GNOME_KEYRING_CONTROL -u SSH_AUTH_SOCK -u M365_DEBUG \
+    XDG_RUNTIME_DIR="$rundir" XDG_CONFIG_HOME="$confdir" GSETTINGS_SCHEMA_DIR="$OUT/$name-schema" GSETTINGS_BACKEND=keyfile \
+    GDK_BACKEND=x11 GDK_DEBUG=no-portals ADW_DISABLE_PORTAL=1 GIO_USE_VFS=local GSK_RENDERER=cairo \
+    ADW_DEBUG_COLOR_SCHEME="$schema" G_MESSAGES_DEBUG=revolution G_DEBUG=fatal-criticals \
+    REVOLUTION_TEST_HOOKS=1 REVOLUTION_SKIP_ACCOUNTS="$skip" \
+    APP_ID="$APP_ID" BIN="$BIN" OUT="$OUT" NAME="$name" MODUS=einladung VERGLEICH="$OUT/kalender.txt" MONAT="$MONAT" \
+    SCHREIBBAR="$KAL_GOOGLE $KAL_M365 $KAL_LOKAL" TERMINE="$OUT" TESTDATEN="$APP_DIR/tests/testdaten.py" \
+    xvfb-run -a -s "-screen 0 1200x820x24" python3 -I "$APP_DIR/tests/kalender-treiber.py" || rc=$?
+  rm -rf "$rundir"
+  for _ in $(seq 10); do [ "$(bus_hat_app)" = "(false,)" ] && break; sleep 1; done
+  [ "$(bus_hat_app)" = "(false,)" ] || echo "FEHLER  $name: App nach dem Lauf noch auf dem Bus"
+  return "$rc"
+}
+kal_teil () {  # NAME SKIP SCHEMA (Umgebung SCHRITT KAL KAL_NAME TEILNEHMER ART TITEL TAG …)
+  local name="$1"; shift
+  kal_lauf "$name" "$@" | tee "$OUT/$name.txt"
+  teilschritt "$name" "${PIPESTATUS[0]}" "$OUT/$name.txt"
+  grep '^SCHREIBVORGANG' "$OUT/$name.txt" | sed "s/(App:/(App $name:/" >>"$PROTOKOLL"
+  FEHLER=$((FEHLER + $(grep -c '^FEHLER' "$OUT/$name.txt")))
+}
+pruefe () {  # TEXT DATEI MUSTER
+  if grep -q -E "$3" "$2"; then echo "OK      $1: $(grep -E "$3" "$2" | head -1)"
+  else echo "FEHLER  $1: erwartet „$3“, ist: $(tr '\n' ' ' <"$2")"; FEHLER=$((FEHLER + 1)); fi
+}
+
+if [[ " $TEILE " == *" 377"* ]]; then
+  TAG7="$(date -d '+13 days' +%Y-%m-%d)"
+  titel7 () { echo "Revolution-Test 377 $LAUF $1"; }
+  # Anzeigetext der Gmail-Identität in der Organisator-Wahl („Name <Adresse>“, Registry, nicht im Repo).
+  ORG_GOOGLE="$(python3 -c '
+import sys, gi; gi.require_version("EDataServer", "1.2")
+from gi.repository import EDataServer
+r = EDataServer.SourceRegistry.new_sync(None)
+for s in r.list_enabled(EDataServer.SOURCE_EXTENSION_MAIL_IDENTITY):
+    e = s.get_extension(EDataServer.SOURCE_EXTENSION_MAIL_IDENTITY)
+    if (e.get_address() or "").lower() == sys.argv[1]:
+        print("%s <%s>" % (e.get_name(), e.get_address()) if e.get_name() else e.get_address()); break' "$KONTO_GOOGLE")"
+
+  # M: Organisator outlook.com (microsoft365, Server plant).
+  # Grenze vor dem Versand (PM R2): M verschickt über outlook.com 3 Mails (Einladung, Aktualisierung, Absage).
+  schon="$(grep -c '^MAIL-OUTLOOK' "$PROTOKOLL")"
+  [[ " $TEILE " == *" 376 "* ]] && schon=$((schon + 2))
+  if [[ " $TEILE " != *" 377l "* ]] && [ $((schon + 3)) -gt 10 ]; then
+    echo "FEHLER  M: übersprungen, $schon + 3 Mails über outlook.com > 10 (TEILE=377 als eigenen Lauf)"; FEHLER=$((FEHLER + 1))
+  elif [[ " $TEILE " != *" 377l "* ]]; then
+  export SCHRITT=anlegen KAL="$KAL_M365" KAL_NAME="$NAME_M365" TEILNEHMER="$KONTO_GOOGLE" ART=m TITEL="$(titel7 M)" TAG="$TAG7"
+  kal_teil m7-377-m-anlegen "$ALLE_MAILKONTEN" prefer-light
+  if [ -s "$OUT/eigene-m.uid" ] && tdp --einladung eigene "$OUT/einladung-M.json" "$KAL_M365" "$(cat "$OUT/eigene-m.uid")" \
+       "$KONTO_M365" "$KONTO_GOOGLE" "$TITEL" >/dev/null; then
+    echo "MAIL-OUTLOOK 1 Einladung M (Exchange)" >>"$PROTOKOLL"
+    pruefe "M: App schickt keine eigene Mail (Server plant)" "$OUT/m7-377-m-anlegen.log" "Einladung: REQUEST Server plant"
+    if warten einladung M; then
+      TITEL_JETZT="$TITEL"
+      teil m7-377-m-annehmen "$UID_GOOGLE" INBOX "$BETREFF" annehmen REQUEST "$KAL_LOKAL" "$NAME_LOKAL" ja prefer-light
+      warten antwort M && soll M "$KAL_LOKAL" ACCEPTED "(0 -|1 .*)" "1 ACCEPTED STATUS .*"
+      td --einladung eds "$OUT/einladung-M.json" >"$OUT/eds-M.txt" 2>&1
+      pruefe "M: Status beim Organisator, zweiter EDS-Leser (Python-GI ECal)" "$OUT/eds-M.txt" "^ORGANISATOR-EDS ACCEPTED$"
+    fi
+    export SCHRITT=aendern STATUS_SOLL=Angenommen
+    kal_teil m7-377-m-aendern "$ALLE_MAILKONTEN" prefer-light
+    unset STATUS_SOLL
+    echo "MAIL-OUTLOOK 1 Aktualisierung M (Exchange)" >>"$PROTOKOLL"
+    warten aktualisierung M
+    export SCHRITT=loeschen
+    kal_teil m7-377-m-loeschen "$ALLE_MAILKONTEN" prefer-light
+    echo "MAIL-OUTLOOK 1 Absage M (Exchange)" >>"$PROTOKOLL"
+    pruefe "M: Absage über das Backend (Graph cancel), keine Mail der App" "$OUT/m7-377-m-loeschen.log" "Einladung: CANCEL vom Server verschickt"
+    if grep -q '^OK      Löschen nach der Absage' "$OUT/m7-377-m-loeschen.txt"; then
+      python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["abgesagt"]=True; json.dump(d,open(sys.argv[1],"w"),indent=1)' "$OUT/einladung-M.json"
+    fi
+    warten absage M
+  else echo "FEHLER  M: Termin nicht angelegt/gemerkt"; FEHLER=$((FEHLER + 1)); fi
+  fi
+
+  if [[ " $TEILE " != *" 377m "* ]]; then
+  # L: Organisator Gmail-Identität in „Persönlich“ (kein Server-Scheduling): Mails der App über den Postausgang.
+  export SCHRITT=anlegen KAL="$KAL_LOKAL" KAL_NAME="$NAME_LOKAL" TEILNEHMER="$KONTO_M365" ART=l TITEL="$(titel7 L)" TAG="$TAG7" ORGANISATOR="$ORG_GOOGLE"
+  kal_teil m7-377-l-anlegen "$(ohne "$UID_GOOGLE")" prefer-light
+  unset ORGANISATOR
+  if [ -s "$OUT/eigene-l.uid" ] && tdp --einladung eigene "$OUT/einladung-L.json" "$KAL_LOKAL" "$(cat "$OUT/eigene-l.uid")" \
+       "$KONTO_GOOGLE" "$KONTO_M365" "$TITEL" >/dev/null; then
+    pruefe "L: REQUEST über den Postausgang" "$OUT/m7-377-l-anlegen.log" "Einladung: REQUEST an 1 Teilnehmer über den Postausgang"
+    warten einladung L
+    sleep 30
+    td --einladung kopie "$OUT/einladung-L.json" >"$OUT/kopie-L1.txt" 2>&1
+    # Exchange trägt die Einladung der App bisher nicht in den Kalender ein (Messung 30.10., Folgepunkt): nur Wert.
+    grep -E "^(KOPIE|MAILTYP|MIME)" "$OUT/kopie-L1.txt" | sed "s/^/WERT    L: /"
+    export SCHRITT=aendern
+    kal_teil m7-377-l-aendern "$(ohne "$UID_GOOGLE")" prefer-light
+    pruefe "L: Aktualisierung über den Postausgang" "$OUT/m7-377-l-aendern.log" "Einladung: REQUEST an 1 Teilnehmer über den Postausgang"
+    warten aktualisierung L
+    sleep 30
+    td --einladung kopie "$OUT/einladung-L.json" >"$OUT/kopie-L2.txt" 2>&1
+    grep -E "^(KOPIE|MAILTYP|MIME)" "$OUT/kopie-L2.txt" | sed "s/^/WERT    L: /"
+    # Kopie bei outlook.com vor der Absage über die gemerkte UID löschen (PM R3), sonst benennt Exchange sie um.
+    tdp --einladung kopie-loeschen "$OUT/einladung-L.json" >/dev/null
+    # Rückgängig beim Löschen: keine Absage (PM Runde 2).
+    export SCHRITT=rueckgaengig
+    kal_teil m7-377-l-rueckgaengig "$(ohne "$UID_GOOGLE")" prefer-light
+    export SCHRITT=loeschen
+    kal_teil m7-377-l-loeschen "$(ohne "$UID_GOOGLE")" prefer-light
+    pruefe "L: CANCEL über den Postausgang" "$OUT/m7-377-l-loeschen.log" "Einladung: CANCEL an 1 Teilnehmer über den Postausgang"
+    warten absage L
+    sleep 30
+    td --einladung kopie "$OUT/einladung-L.json" >"$OUT/kopie-L3.txt" 2>&1
+    pruefe "L: Absage bei outlook.com mit Betreff „Abgesagt: …“ (Graph)" "$OUT/kopie-L3.txt" "^MAILTYP inbox .* „Abgesagt: "
+    grep -E "^(KOPIE|MIME)" "$OUT/kopie-L3.txt" | sed "s/^/WERT    L: /"
+  else echo "FEHLER  L: Termin nicht angelegt/gemerkt"; FEHLER=$((FEHLER + 1)); fi
+  fi
+  unset SCHRITT KAL KAL_NAME TEILNEHMER ART TITEL TAG
+fi
+
+# Aufräumen über die gemerkten IDs.
+for fall in A B C D G M L; do
   [ -f "$OUT/einladung-$fall.json" ] || continue
   tdp --einladung gesendet "$OUT/einladung-$fall.json" >/dev/null
   # Absagen nach dem Löschen des Organisator-Termins (Exchange und Google schicken sie) ebenfalls merken und löschen.
   if tdp --einladung aufraeumen "$OUT/einladung-$fall.json" >"$OUT/aufraeumen-$fall.txt" &&
-     { [ "$fall" = A ] || WARTEN=300 tdp --einladung warten absage "$OUT/einladung-$fall.json" >/dev/null; } &&
+     { [ "$fall" = A ] || [ "$fall" = M ] || [ "$fall" = L ] || WARTEN=300 tdp --einladung warten absage "$OUT/einladung-$fall.json" >/dev/null; } &&
      tdp --einladung aufraeumen "$OUT/einladung-$fall.json" >>"$OUT/aufraeumen-$fall.txt" &&
      tdp --einladung rest "$OUT/einladung-$fall.json" >/dev/null &&
      tdp --einladung aufraeumen "$OUT/einladung-$fall.json" >>"$OUT/aufraeumen-$fall.txt"; then
@@ -233,7 +369,7 @@ for kal in "$KAL_M365" "$KAL_GOOGLE" "$KAL_LOKAL"; do
 done
 n="$(grep -c '^MAIL-OUTLOOK' "$PROTOKOLL")"
 # Exchange antwortet in C und D selbst (je eine Mail über outlook.com).
-n=$((n + 2))
+[[ " $TEILE " == *" 376 "* ]] && n=$((n + 2))
 if [ "$n" -le 10 ]; then echo "OK      $n Mails über outlook.com (Einladungen, Absagen, 2 Antworten von Exchange; ≤ 10)"
 else echo "FEHLER  $n Mails über outlook.com (> 10)"; FEHLER=$((FEHLER + 1)); fi
 

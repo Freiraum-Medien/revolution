@@ -1,0 +1,64 @@
+// gcal-attendees-section.blp – Teilnehmer im Termin-Editor (#377), eigener Code.
+// gnome-calendar 50.0 zeigt Teilnehmer nur an (gcal-attendees-section.c:87-97), daher nicht übernommen.
+using Gtk 4.0;
+using Adw 1;
+
+template $GcalAttendeesSection: Adw.Bin {
+  Box {
+    orientation: vertical;
+    spacing: 12;
+
+    ListBox organizer_list {
+      selection-mode: none;
+      visible: false;
+
+      styles [
+        "boxed-list",
+      ]
+
+      // Nur bei Kalendern ohne eigene Adresse (lokal), wie die Organisator-Wahl in Evolution.
+      Adw.ComboRow organizer_row {
+        title: _("_Organizer");
+        use-underline: true;
+      }
+    }
+
+    ListBox attendees_list {
+      selection-mode: none;
+      visible: false;
+
+      accessibility {
+        label: _("Attendees");
+      }
+
+      styles [
+        "boxed-list",
+      ]
+    }
+
+    Box add_box {
+      spacing: 6;
+
+      Entry add_entry {
+        hexpand: true;
+        placeholder-text: _("Add attendee by name or email address");
+        activate => $on_add_cb(template) not-swapped;
+
+        accessibility {
+          label: _("Add attendee");
+        }
+      }
+
+      Button {
+        icon-name: "list-add-symbolic";
+        tooltip-text: _("Add Attendee");
+        clicked => $on_add_cb(template) not-swapped;
+
+        accessibility {
+          label: _("Add attendee");
+        }
+      }
+    }
+  }
+
+}

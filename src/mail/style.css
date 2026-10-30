@@ -82,7 +82,7 @@ inline-view-switcher.app-switcher > toggle-group.icons > toggle {
 }
 
 .app-switcher > toggle-group > toggle:not(:checked) {
-  opacity: 0.75;
+  opacity: 0.8;
 }
 
 .app-switcher > toggle-group > separator {
@@ -106,7 +106,7 @@ inline-view-switcher.app-switcher > toggle-group.icons > toggle {
  * ersten Abschnittskopfs (Fläche bleibt leer bis auf das schwebende Hauptmenü), Liste über
  * .list-heading. Kontakte: erster Buchstabenkopf ohne 18px, Liste oben 3px statt 4px (.contact-list). */
 .floating-sidebar viewport > .navigation-sidebar {
-  padding-top: 53px;
+  padding-top: 52px;
 }
 
 .floating-sidebar viewport > .navigation-sidebar > header:first-child,

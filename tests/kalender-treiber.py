@@ -1653,7 +1653,7 @@ def gesperrt(dlg, soll, text):
     (ok if ist == soll else falsch)('Kalenderwahl %s: %s' % (text, 'gesperrt' if ist else 'wählbar'))
 
 
-def editor_zu():
+def editor_schliessen():
     for _ in range(4):
         if dialog(1) is None:
             return
@@ -1672,7 +1672,7 @@ def serie():
     # Gegenkontrolle S1: neuer Termin wählbar.
     taste('Control_L', 'n')
     gesperrt(dialog(), False, 'neuer Termin')
-    editor_zu()
+    editor_schliessen()
 
     aus = testdaten('--termin-live', 'woechentlich', G, datei(G, 'serie'), '%sT10:00' % di[0].isoformat())
     m = re.search(r'^ANGELEGT (\S+) \S+ (.*)$', aus, re.M)
@@ -1721,7 +1721,7 @@ def serie():
     zur_woche(heute, 3)
     dlg, _ = bearbeiten(neu, eigene)
     gesperrt(dlg, True, 'geänderte Ausnahme')
-    editor_zu()
+    editor_schliessen()
     time.sleep(1)
     popover_oeffnen(neu, eigene)
     ab = marke()

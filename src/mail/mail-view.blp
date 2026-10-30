@@ -969,9 +969,21 @@ template $RevolutionMailView: Adw.BreakpointBin {
         }
 
         // #354: Lesebereich (Kopf und Inhalt) in eigenen Dateien mail-reader.{blp,c}.
+        // #454: Ohne Breite gemessen melden die umbrechenden Labels des Kopfs ihre Höhe bei kleinster
+        // Breite (Details mit vielen Empfängern: 1471 px, „exceeds RevolutionMailView height“), AdwBreakpointBin
+        // gibt dem Kind dann mehr Höhe als das Fenster und alle Spalten laufen unten hinaus. Der
+        // ScrolledWindow fängt diese Mindesthöhe ab; „external“: ohne Balken.
         StackPage {
           name: "content";
-          child: $RevolutionMailReader reader {};
+
+          child: ScrolledWindow {
+            hscrollbar-policy: never;
+            vscrollbar-policy: external;
+
+            child: Viewport {
+              child: $RevolutionMailReader reader {};
+            };
+          };
         }
 
         // #357: Konversation: alle Nachrichten untereinander (mail-conversation.{blp,c}).

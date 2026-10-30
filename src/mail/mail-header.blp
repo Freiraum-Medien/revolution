@@ -1,0 +1,361 @@
+// Nachrichtenkopf (#455), gemeinsam für Einzelansicht (mail-reader.blp) und Konversation
+// (mail-conversation.c). Aus mail-reader.blp verschoben, Vorlage stamp-message-header.blp:4-150.
+// #401 Punkt 5: nur der Absender halbfett, Betreff gleich groß. Mockups
+// Design/Mockup/2026-10-30-design1-start.png und -kopf.png: Name, Betreff, An, Kopie an einer linken
+// Kante, Ordner und Datum rechts oben zweizeilig (Kommentare 1296, 1297). Zeilen setzt mail-header.c.
+using Gtk 4.0;
+using Adw 1;
+
+template $RevolutionMailHeader: Widget {
+  // Rand oben: die gemeinsame Linie mit „Favoriten“ und Listen-Titel (style.css „Eine Linie“, #454).
+  Grid grid {
+    column-spacing: 12;
+    margin-start: 24;
+    margin-end: 18;
+    margin-top: 14;
+    margin-bottom: 14;
+
+    // Am Raster, nicht an der Vorlage: Popover und Menü (Kinder der Vorlage) erben die Schrift nicht.
+    styles [
+      "mail-header",
+    ]
+
+    Adw.Avatar avatar {
+      size: 48;
+      valign: start;
+      show-initials: true;
+
+      layout {
+        column: 0;
+        row: 0;
+        row-span: 5;
+      }
+    }
+
+    // halign start: Der Rest der Zeile bleibt in der Konversation Klickfläche zum Zuklappen.
+    Label sender_label {
+      hexpand: true;
+      halign: start;
+      xalign: 0;
+      ellipsize: end;
+      selectable: true;
+
+      layout {
+        column: 1;
+        row: 0;
+      }
+
+      styles [
+        "mail-sender",
+      ]
+    }
+
+    // Rechts oben zweizeilig, beide Zeilen an der linken Kante des Ordnernamens.
+    Grid {
+      column-spacing: 6;
+      halign: end;
+      valign: start;
+
+      layout {
+        column: 2;
+        row: 0;
+        row-span: 2;
+      }
+
+      Image folder_icon {
+        accessible-role: presentation;
+
+        layout {
+          column: 0;
+          row: 0;
+        }
+
+        styles [
+          "dimmed",
+        ]
+      }
+
+      // „Eingang — Privat“ wie der Prototyp: Ordner und Konto.
+      Label folder_label {
+        xalign: 0;
+        ellipsize: end;
+
+        layout {
+          column: 1;
+          row: 0;
+        }
+
+        styles [
+          "dimmed",
+        ]
+      }
+
+      Label date_label {
+        xalign: 0;
+
+        layout {
+          column: 1;
+          row: 1;
+        }
+
+        styles [
+          "numeric",
+          "dimmed",
+        ]
+      }
+    }
+
+    Label subject_label {
+      halign: start;
+      xalign: 0;
+      wrap: true;
+      wrap-mode: word_char;
+      selectable: true;
+
+      layout {
+        column: 1;
+        row: 1;
+      }
+
+      styles [
+        "mail-subject",
+      ]
+    }
+
+    // Nur zugeklappt in der Konversation, statt des Betreffs.
+    Label preview_label {
+      visible: false;
+      xalign: 0;
+      ellipsize: end;
+      single-line-mode: true;
+
+      layout {
+        column: 1;
+        row: 1;
+      }
+
+      styles [
+        "dimmed",
+      ]
+    }
+
+    // Namen setzt mail-header.c (AdwWrapBox: ein Knopf je Name, fokussierbar, eigenes a11y-Label).
+    // Die Zeile bleibt ohne Empfänger stehen: „Details“ hängt daran.
+    Box to_row {
+      spacing: 6;
+      margin-top: 6;
+
+      layout {
+        column: 1;
+        row: 2;
+        column-span: 2;
+      }
+
+      Label to_caption {
+        label: _("To:");
+        valign: start;
+
+        styles [
+          "dimmed",
+        ]
+      }
+
+      Adw.WrapBox to_box {
+        hexpand: true;
+        child-spacing: 3;
+
+        accessibility {
+          labelled-by: to_caption;
+        }
+
+        // Textlink am Ende der An-Zeile (Kommentar 1296), bleibt beim Neuaufbau der Namen stehen.
+        Box details_tail {
+          spacing: 4;
+
+          // Offen steht „Details“ oft am Zeilenanfang.
+          Label {
+            label: "·";
+            visible: bind details_button.active inverted;
+            accessible-role: presentation;
+
+            styles [
+              "dimmed",
+            ]
+          }
+
+          ToggleButton details_button {
+            label: _("Details");
+            tooltip-text: _("Show All Headers");
+            toggled => $on_details_toggled() swapped;
+
+            accessibility {
+              description: _("Show All Headers");
+            }
+
+            styles [
+              "mail-link",
+            ]
+          }
+        }
+      }
+    }
+
+    Box cc_row {
+      visible: false;
+      spacing: 6;
+
+      layout {
+        column: 1;
+        row: 3;
+        column-span: 2;
+      }
+
+      Label cc_caption {
+        label: _("Cc:");
+        valign: start;
+
+        styles [
+          "dimmed",
+        ]
+      }
+
+      Adw.WrapBox cc_box {
+        hexpand: true;
+        child-spacing: 3;
+
+        accessibility {
+          labelled-by: cc_caption;
+        }
+      }
+    }
+
+    // „Details“ zeigt An und Kopie vollständig in ihren Zeilen, hier den Rest (Kommentar 1293).
+    Revealer details_revealer {
+      transition-type: slide_down;
+
+      layout {
+        column: 1;
+        row: 4;
+        column-span: 2;
+      }
+
+      child: Box {
+        orientation: vertical;
+
+        Box bcc_row {
+          visible: false;
+          spacing: 6;
+
+          Label bcc_caption {
+            label: _("Bcc:");
+            valign: start;
+
+            styles [
+              "dimmed",
+            ]
+          }
+
+          Adw.WrapBox bcc_box {
+            hexpand: true;
+            child-spacing: 3;
+
+            accessibility {
+              labelled-by: bcc_caption;
+            }
+          }
+        }
+
+        Box {
+          spacing: 6;
+
+          Label from_caption {
+            label: _("From:");
+            valign: start;
+
+            styles [
+              "dimmed",
+            ]
+          }
+
+          Adw.WrapBox from_box {
+            hexpand: true;
+            child-spacing: 3;
+
+            accessibility {
+              labelled-by: from_caption;
+            }
+          }
+        }
+
+        Box {
+          spacing: 6;
+
+          Label date_caption {
+            label: _("Date:");
+            valign: start;
+
+            styles [
+              "dimmed",
+            ]
+          }
+
+          Label date_full {
+            hexpand: true;
+            xalign: 0;
+            wrap: true;
+            selectable: true;
+
+            accessibility {
+              labelled-by: date_caption;
+            }
+
+            styles [
+              "dimmed",
+            ]
+          }
+        }
+
+        // Sichtbar nach der Prüfung beim ersten Öffnen (mail-header.c, check_warnings).
+        Box external_row {
+          visible: false;
+          spacing: 6;
+          margin-top: 4;
+
+          styles [
+            "warning",
+          ]
+
+          Image {
+            icon-name: "dialog-warning-symbolic";
+            accessible-role: presentation;
+          }
+
+          Label {
+            label: _("External sender");
+            xalign: 0;
+          }
+        }
+
+        Box signature_row {
+          visible: false;
+          spacing: 6;
+          margin-top: 4;
+
+          styles [
+            "warning",
+          ]
+
+          Image {
+            icon-name: "dialog-warning-symbolic";
+            accessible-role: presentation;
+          }
+
+          Label {
+            label: _("Invalid signature");
+            xalign: 0;
+          }
+        }
+      };
+    }
+  }
+}

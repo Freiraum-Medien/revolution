@@ -349,7 +349,7 @@ on_write_mail (GSimpleAction *action G_GNUC_UNUSED,
 
   g_debug ("Kontakt-Detail: Mail an %s", g_variant_get_string (parameter, NULL));
   gtk_window_present (revolution_composer_new_mailto (application, g_object_get_data (G_OBJECT (application), "registry"),
-                                                      g_object_get_data (G_OBJECT (application), "session"), mailto));
+                                                      g_object_get_data (G_OBJECT (application), "session"), NULL, mailto));
 }
 
 static const GActionEntry detail_actions[] = {

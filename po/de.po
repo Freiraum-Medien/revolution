@@ -548,10 +548,17 @@ msgstr "Heute, %s"
 msgid "Yesterday, %s"
 msgstr "Gestern, %s"
 
-#. Translators: date in the message header (g_date_time_format), e.g. “10/17/2026, 14:05”.
-#: src/mail/mail-reader.c:1577
-msgid "%m/%d/%Y, %H:%M"
-msgstr "%d.%m.%Y, %H:%M"
+#. Translators: date in the message header (g_date_time_format), e.g. “10/17/2026”.
+#: src/mail/mail-header.c
+msgid "%m/%d/%Y"
+msgstr "%d.%m.%Y"
+
+#. Translators: time of day in the message header, %s is e.g. “13:46”; German “%s Uhr”.
+#: src/mail/mail-header.c
+#, c-format
+msgctxt "message header"
+msgid "%s"
+msgstr "%s Uhr"
 
 #. Translators: full date in the details (g_date_time_format).
 #: src/mail/mail-reader.c:1587
@@ -2677,3 +2684,69 @@ msgstr "Abgesagt"
 
 #~ msgid "SU"
 #~ msgstr "SO"
+
+#: src/mail/mail-header.blp
+msgid "Bcc:"
+msgstr "Blindkopie:"
+
+#. Translators: context menu of a name in the message header, %s is the name.
+#: src/mail/mail-header.c
+#, c-format
+msgid "New Message to %s"
+msgstr "Neue Nachricht an %s"
+
+#: src/mail/mail-header.c src/mail/mail-contact-popover.blp
+msgid "Save Contact"
+msgstr "Kontakt speichern"
+
+#: src/mail/mail-header.c
+msgid "Copy Address"
+msgstr "Adresse kopieren"
+
+#. Translators: end of the recipients line in the message header, after the last name, e.g. “and 5 more”.
+#: src/mail/mail-header.c
+#, c-format
+msgid "and %u more"
+msgid_plural "and %u more"
+msgstr[0] "und %u weiterer"
+msgstr[1] "und %u weitere"
+
+#: src/mail/mail-contact-popover.blp src/mail/mail-contact-popover.c
+msgid "Write Mail"
+msgstr "Mail schreiben"
+
+#: src/mail/mail-contact-popover.blp src/mail/mail-contact-popover.c
+msgid "Call"
+msgstr "Anrufen"
+
+#: src/mail/mail-contact-popover.blp src/mail/mail-contact-popover.c
+msgid "Navigation"
+msgstr "Navigation"
+
+#: src/mail/mail-contact-popover.blp
+msgid "Searching Address Books"
+msgstr "Adressbücher werden durchsucht"
+
+#: src/mail/mail-contact-popover.blp
+msgid "Open in Address Book"
+msgstr "Im Adressbuch öffnen"
+
+#: src/mail/mail-contact-popover.c
+msgid "Could Not Open the App"
+msgstr "App konnte nicht geöffnet werden"
+
+#: src/mail/mail-contact-popover.c
+msgid "No App for Phone Calls"
+msgstr "Keine App für Anrufe"
+
+#: src/mail/mail-contact-popover.c
+msgid "No App for Maps"
+msgstr "Keine App für Karten"
+
+#: src/mail/mail-header.blp
+msgid "External sender"
+msgstr "Externer Absender"
+
+#: src/mail/mail-header.blp
+msgid "Invalid signature"
+msgstr "Ungültige Signatur"

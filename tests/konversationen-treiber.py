@@ -32,7 +32,7 @@ BREITE, HOEHE = 1400, 900
 # Kopf je Nachricht im Lesebereich der Konversation (neueste oben, nur Nr. 5 aufgeklappt, kurzer Text),
 # Knöpfe Gelesen und Markieren rechts daneben (Kalibrierung: NAME-0-kalibrierung.png).
 KOPF_X, GELESEN_X, STERN_X = 900, 1332, 1366
-KOPF_Y = {5: 145, 4: 321, 3: 383, 2: 445, 1: 507}
+KOPF_Y = {5: 141, 4: 293, 3: 357, 2: 421, 1: 485}
 
 fehler = 0
 d = display.Display()

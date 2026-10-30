@@ -187,8 +187,8 @@ load_registry_thread (GTask        *task,
  * und Stamp (stamp-session.c:326); es baut noch keine Verbindung auf.
  * #347: Vorher camel_init wie Evolution (e-mail-backend.c:1301), aber im Worker wie Stamp
  * (stamp-session.c:334-356), denn es lädt die Zertifikatsdatenbank camel-cert.db
- * (EDS camel.c:224-233) aus ~/.local/share/revolution. Ohne NSS: TLS läuft über GIO
- * (camel-network-service.c:978); NSS braucht erst S/MIME. */
+ * (EDS camel.c:224-233) aus ~/.local/share/revolution. TLS läuft über GIO (camel-network-service.c:978);
+ * NSS braucht S/MIME (#455, Prüfung der Signatur in mail-header.c), wie dort mit nss_init TRUE. */
 static void
 load_session_thread (GTask        *task,
                      gpointer      source_object G_GNUC_UNUSED,
@@ -199,7 +199,7 @@ load_session_thread (GTask        *task,
   RevolutionMailSession *session;
   g_autoptr (GError) error = NULL;
 
-  camel_init (camel_dir, FALSE);
+  camel_init (camel_dir, TRUE);
   session = revolution_mail_session_new (task_data);
   /* #351: Suchordner der Favoriten, bevor die Konten ihre Quellen melden (on_store_noted). */
   if (!revolution_mail_favorites_setup (CAMEL_SESSION (session), &error))
@@ -1207,7 +1207,7 @@ open_mailto (GApplication *app,
 {
   g_debug ("mailto: Composer für %s", uri);
   gtk_window_present (revolution_composer_new_mailto (GTK_APPLICATION (app), g_object_get_data (G_OBJECT (app), "registry"),
-                                                      g_object_get_data (G_OBJECT (app), "session"), uri));
+                                                      g_object_get_data (G_OBJECT (app), "session"), NULL, uri));
 }
 
 static void

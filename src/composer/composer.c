@@ -2318,6 +2318,7 @@ GtkWindow *
 revolution_composer_new_mailto (GtkApplication  *application,
                                 ESourceRegistry *registry,
                                 CamelSession    *session,
+                                const char      *account_uid,
                                 const char      *mailto)
 {
   RevolutionComposer *self;
@@ -2330,7 +2331,7 @@ revolution_composer_new_mailto (GtkApplication  *application,
 
   g_return_val_if_fail (g_ascii_strncasecmp (mailto, "mailto:", 7) == 0, NULL);
 
-  self = REVOLUTION_COMPOSER (revolution_composer_new (application, registry, session, REVOLUTION_COMPOSER_NEW, NULL,
+  self = REVOLUTION_COMPOSER (revolution_composer_new (application, registry, session, REVOLUTION_COMPOSER_NEW, account_uid,
                                                        NULL, NULL, NULL));
   buf = g_strdup (mailto);
 

@@ -192,6 +192,73 @@ on_add_sender (GSimpleAction *action G_GNUC_UNUSED,
   revolution_contacts_view_add_sender (contacts, from);
 }
 
+/* #455: Aktionen zu einem Namen im Nachrichtenkopf (mail-header.c, mail-contact-popover.c). */
+ESourceRegistry *
+revolution_mail_view_get_registry (RevolutionMailView *self)
+{
+  g_return_val_if_fail (REVOLUTION_IS_MAIL_VIEW (self), NULL);
+
+  return self->registry;
+}
+
+/* „Name <Adresse>“; ohne eigenen Namen (mail-header.c zeigt dann die Adresse) nur die Adresse. */
+static char *
+format_recipient (const char *name,
+                  const char *address)
+{
+  return camel_internet_address_format_address (g_ascii_strcasecmp (name, address) != 0 ? name : NULL, address);
+}
+
+/* Neue Nachricht wie ein mailto-Link (RFC 6068, composer.c revolution_composer_new_mailto), Absender das Konto der
+ * Mail wie Evolution (e-mail-display.c:324-326, em-composer-utils.c:2098). */
+void
+revolution_mail_view_compose_to (RevolutionMailView *self,
+                                 const char         *account_uid,
+                                 const char         *name,
+                                 const char         *address)
+{
+  g_autofree char *formatted = format_recipient (name, address);
+  g_autofree char *escaped = g_uri_escape_string (formatted, NULL, FALSE);
+  g_autofree char *mailto = g_strconcat ("mailto:", escaped, NULL);
+
+  g_return_if_fail (REVOLUTION_IS_MAIL_VIEW (self));
+
+  if (self->registry == NULL || self->session == NULL)
+    return;
+  g_debug ("Mail: Nachricht an %s", address);
+  gtk_window_present (revolution_composer_new_mailto (gtk_window_get_application (GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (self)))),
+                                                      self->registry, self->session, account_uid, mailto));
+}
+
+void
+revolution_mail_view_save_contact (RevolutionMailView *self,
+                                   const char         *name,
+                                   const char         *address)
+{
+  gpointer contacts = g_object_get_data (G_OBJECT (gtk_widget_get_root (GTK_WIDGET (self))), "contacts-view");
+  g_autofree char *from = format_recipient (name, address);
+
+  if (contacts == NULL)
+    return;
+  g_debug ("Mail: Kontakt speichern %s", address);
+  adw_view_stack_set_visible_child_name (self->stack, "contacts");
+  revolution_contacts_view_add_sender (contacts, from);
+}
+
+void
+revolution_mail_view_open_contact (RevolutionMailView *self,
+                                   const char         *book_uid,
+                                   const char         *contact_uid)
+{
+  gpointer contacts = g_object_get_data (G_OBJECT (gtk_widget_get_root (GTK_WIDGET (self))), "contacts-view");
+
+  if (contacts == NULL)
+    return;
+  g_debug ("Mail: Kontakt %s in %s öffnen", contact_uid, book_uid);
+  adw_view_stack_set_visible_child_name (self->stack, "contacts");
+  revolution_contacts_view_show_contact (contacts, book_uid, contact_uid);
+}
+
 /* Nur die passenden Aktionen sind aktiv wie Evolution (Gelesen nur bei ungelesener Auswahl,
  * e-mail-reader.c mail_reader_update_actions); Menüeinträge mit hidden-when blenden die
  * übrigen aus. */

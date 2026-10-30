@@ -1,11 +1,11 @@
 /* mail-conversation.c – Lesebereich einer Konversation (#357)
  *
  * Die Auswahl einer Konversation in der Liste (mail-view.c) zeigt hier alle Nachrichten des Threads
- * untereinander, neueste oben. Je Nachricht ein Kopf (Bild, Absender, Ort, Datum, Vorschau, Knöpfe
- * für Markieren und Gelesen); ein Klick oder Eingabe/Leertaste klappt die Nachricht auf bzw. zu.
- * Aufgeklappt zeigt sie ein eigener Lesebereich (RevolutionMailReader, mail-reader.c, ohne eigenen
- * Kopf und so hoch wie der Inhalt), mit Anhängen (#356) und Sperre entfernter Inhalte (#355) je
- * Nachricht. Zugeklappt gibt es keinen Lesebereich und keine WebView (Speicher): beim Zuklappen wird er
+ * untereinander, neueste oben. Je Nachricht derselbe Kopf wie in der Einzelansicht (mail-header.c, #455:
+ * Bild 32, zugeklappt mit Vorschau statt Betreff und Empfängern) und Knöpfe für Markieren und Gelesen; ein
+ * Klick oder Eingabe/Leertaste klappt die Nachricht auf bzw. zu. Aufgeklappt zeigt sie ein eigener Lesebereich
+ * (RevolutionMailReader, mail-reader.c, füllt den Kopf des Eintrags, so hoch wie der Inhalt), mit Anhängen
+ * (#356) und Sperre entfernter Inhalte (#355) je Nachricht. Zugeklappt gibt es keinen Lesebereich und keine WebView (Speicher): beim Zuklappen wird er
  * entfernt. Beim Öffnen sind die neueste und alle ungelesenen Nachrichten offen, die übrigen zu, wie
  * Stamp (stamp-message-list.c:465-470, 551-553: ungelesene aufgeklappt) und Apple Mail (neueste offen,
  * Dokument #10 „#357“).
@@ -58,9 +58,6 @@ typedef struct
   GtkWidget                  *box;
   GtkWidget                  *header;
   GtkWidget                  *dot;
-  GtkWidget                  *sender;
-  GtkWidget                  *date;
-  GtkWidget                  *preview;
   GtkWidget                  *star;
   GtkWidget                  *read;
   GtkWidget                  *reader;
@@ -92,10 +89,6 @@ entry_update (Entry *entry)
 
   g_object_get (entry->member, "sender", &sender, "date", &date, NULL);
   gtk_widget_set_visible (entry->dot, unread);
-  if (unread)
-    gtk_widget_add_css_class (entry->sender, "heading");
-  else
-    gtk_widget_remove_css_class (entry->sender, "heading");
 
   gtk_button_set_icon_name (GTK_BUTTON (entry->star), starred ? "starred-symbolic" : "non-starred-symbolic");
   gtk_widget_set_tooltip_text (entry->star, starred ? _("Remove Flag") : _("Flag"));
@@ -132,9 +125,11 @@ entry_set_expanded (Entry    *entry,
                     gboolean  expanded)
 {
   RevolutionMailConversation *self = entry->self;
+  g_autofree char *preview = NULL;
 
+  g_object_get (entry->member, "preview", &preview, NULL);
   entry->expanded = expanded;
-  gtk_widget_set_visible (entry->preview, !expanded);
+  revolution_mail_header_set_collapsed (REVOLUTION_MAIL_HEADER (entry->header), !expanded, preview);
   gtk_accessible_update_state (GTK_ACCESSIBLE (entry->header), GTK_ACCESSIBLE_STATE_EXPANDED, expanded, -1);
 
   if (expanded && entry->reader == NULL && self->session != NULL && self->folder != NULL)
@@ -144,7 +139,7 @@ entry_set_expanded (Entry    *entry,
                                                             : NULL;
 
       entry->reader = g_object_new (REVOLUTION_TYPE_MAIL_READER, NULL);
-      revolution_mail_reader_set_compact (REVOLUTION_MAIL_READER (entry->reader), TRUE);
+      revolution_mail_reader_set_compact (REVOLUTION_MAIL_READER (entry->reader), REVOLUTION_MAIL_HEADER (entry->header));
       g_signal_connect (entry->reader, "shown", G_CALLBACK (on_reader_shown), entry);
       gtk_box_append (GTK_BOX (entry->box), entry->reader);
       revolution_mail_reader_show (REVOLUTION_MAIL_READER (entry->reader), self->session, self->folder,
@@ -155,13 +150,14 @@ entry_set_expanded (Entry    *entry,
     {
       gtk_box_remove (GTK_BOX (entry->box), entry->reader);
       entry->reader = NULL;
+      revolution_mail_header_set_date (REVOLUTION_MAIL_HEADER (entry->header), revolution_mail_message_get_timestamp (entry->member));
       g_debug ("Konversation: %s zugeklappt", revolution_mail_message_get_uid (entry->member));
     }
 }
 
 static void
-on_header_clicked (GtkButton *button G_GNUC_UNUSED,
-                   Entry     *entry)
+on_header_activated (RevolutionMailHeader *header G_GNUC_UNUSED,
+                     Entry                *entry)
 {
   entry_set_expanded (entry, !entry->expanded);
 }
@@ -193,12 +189,12 @@ entry_new (RevolutionMailConversation *self,
            RevolutionMailMessage      *member)
 {
   Entry *entry = g_new0 (Entry, 1);
-  GtkWidget *row, *content, *top, *avatar, *place_label, *dot_box;
+  GtkWidget *row, *dot_box;
   g_autoptr (RevolutionMailFolder) place = NULL;
   GtkWidget *view = gtk_widget_get_ancestor (GTK_WIDGET (self), REVOLUTION_TYPE_MAIL_VIEW);
-  g_autofree char *sender = NULL, *avatar_text = NULL, *date = NULL, *preview = NULL, *place_name = NULL;
+  g_autofree char *sender = NULL, *avatar = NULL, *subject = NULL, *place_name = NULL, *icon = NULL;
 
-  g_object_get (member, "sender", &sender, "avatar", &avatar_text, "date", &date, "preview", &preview, NULL);
+  g_object_get (member, "sender", &sender, "avatar", &avatar, "subject", &subject, NULL);
   entry->self = self;
   entry->member = g_object_ref (member);
 
@@ -206,84 +202,48 @@ entry_new (RevolutionMailConversation *self,
   gtk_widget_add_css_class (entry->box, "conversation-entry");
   g_object_set_data_full (G_OBJECT (entry->box), "revolution-entry", entry, (GDestroyNotify) entry_free);
 
-  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+  /* GtkGrid statt GtkBox: eine waagrechte GtkBox misst die Höhe auch für die Mindestbreite des Kopfs, die umbrechenden
+   * Namen (AdwWrapBox) trieben sie auf Hunderte Pixel. */
+  row = gtk_grid_new ();
+  gtk_widget_add_css_class (row, "conversation-row");
   gtk_box_append (GTK_BOX (entry->box), row);
-
-  /* Kopf als flacher Knopf: Tastatur (Tab, Eingabe, Leertaste) und Zeiger. */
-  entry->header = gtk_button_new ();
-  gtk_widget_set_hexpand (entry->header, TRUE);
-  gtk_widget_add_css_class (entry->header, "flat");
-  gtk_widget_add_css_class (entry->header, "conversation-header");
-  gtk_widget_set_tooltip_text (entry->header, _("Expand or Collapse Message"));
-  g_signal_connect (entry->header, "clicked", G_CALLBACK (on_header_clicked), entry);
-  gtk_box_append (GTK_BOX (row), entry->header);
-
-  content = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-  gtk_button_set_child (GTK_BUTTON (entry->header), content);
 
   dot_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_widget_set_size_request (dot_box, 10, -1);
   gtk_widget_set_valign (dot_box, GTK_ALIGN_START);
   gtk_widget_set_margin_top (dot_box, 4);
+  gtk_widget_set_margin_end (dot_box, 6);
   entry->dot = gtk_image_new_from_icon_name ("media-record-symbolic");
   gtk_image_set_pixel_size (GTK_IMAGE (entry->dot), 10);
   gtk_widget_add_css_class (entry->dot, "accent");
   gtk_accessible_update_property (GTK_ACCESSIBLE (entry->dot), GTK_ACCESSIBLE_PROPERTY_LABEL, _("Unread"), -1);
   gtk_box_append (GTK_BOX (dot_box), entry->dot);
-  gtk_box_append (GTK_BOX (content), dot_box);
+  gtk_grid_attach (GTK_GRID (row), dot_box, 0, 0, 1, 1);
 
-  avatar = adw_avatar_new (32, avatar_text != NULL ? avatar_text : sender, TRUE);
-  gtk_widget_set_valign (avatar, GTK_ALIGN_START);
-  gtk_widget_set_margin_end (avatar, 6);
-  gtk_box_append (GTK_BOX (content), avatar);
+  /* #455: derselbe Kopf wie die Einzelansicht. Fläche als Knopf: Tastatur (Tab, Eingabe, Leertaste) und Zeiger. */
+  entry->header = g_object_new (REVOLUTION_TYPE_MAIL_HEADER, "accessible-role", GTK_ACCESSIBLE_ROLE_BUTTON, NULL);
+  gtk_widget_set_hexpand (entry->header, TRUE);
+  gtk_widget_set_margin_end (entry->header, 6);
+  gtk_accessible_update_property (GTK_ACCESSIBLE (entry->header), GTK_ACCESSIBLE_PROPERTY_DESCRIPTION,
+                                  _("Expand or Collapse Message"), -1);
+  revolution_mail_header_set_compact (REVOLUTION_MAIL_HEADER (entry->header), TRUE);
+  g_signal_connect (entry->header, "activated", G_CALLBACK (on_header_activated), entry);
+  gtk_grid_attach (GTK_GRID (row), entry->header, 1, 0, 1, 1);
 
-  top = gtk_box_new (GTK_ORIENTATION_VERTICAL, 2);
-  gtk_widget_set_hexpand (top, TRUE);
-  gtk_box_append (GTK_BOX (content), top);
+  /* Ort (Ordner — Konto) wie der Kopf des Lesebereichs (mail-reader.c), z. B. „Gesendet — Privat“. */
+  place = view != NULL ? revolution_mail_view_find_place (REVOLUTION_MAIL_VIEW (view), member) : NULL;
+  if (place != NULL)
+    {
+      g_autoptr (RevolutionMailAccount) account = NULL;
+      g_autofree char *folder_name = NULL, *account_name = NULL;
 
-  {
-    GtkWidget *line = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-
-    entry->sender = gtk_label_new (sender);
-    gtk_label_set_xalign (GTK_LABEL (entry->sender), 0);
-    gtk_label_set_ellipsize (GTK_LABEL (entry->sender), PANGO_ELLIPSIZE_END);
-    gtk_widget_set_hexpand (entry->sender, TRUE);
-    gtk_box_append (GTK_BOX (line), entry->sender);
-
-    /* Ort (Ordner — Konto) wie der Kopf des Lesebereichs (mail-reader.c), z. B. „Gesendet — geops@…“. */
-    place = view != NULL ? revolution_mail_view_find_place (REVOLUTION_MAIL_VIEW (view), member) : NULL;
-    if (place != NULL)
-      {
-        g_autoptr (RevolutionMailAccount) account = NULL;
-        g_autofree char *folder_name = NULL, *account_name = NULL;
-
-        g_object_get (place, "account", &account, "display-name", &folder_name, NULL);
-        g_object_get (account, "display-name", &account_name, NULL);
-        /* Translators: folder and account in the message header, e.g. “Inbox — Private”. */
-        place_name = g_strdup_printf (_("%s — %s"), folder_name, account_name);
-      }
-    place_label = gtk_label_new (place_name);
-    gtk_label_set_ellipsize (GTK_LABEL (place_label), PANGO_ELLIPSIZE_END);
-    gtk_label_set_max_width_chars (GTK_LABEL (place_label), 28);
-    gtk_widget_set_visible (place_label, place_name != NULL);
-    gtk_widget_add_css_class (place_label, "caption");
-    gtk_widget_add_css_class (place_label, "dimmed");
-    gtk_box_append (GTK_BOX (line), place_label);
-
-    entry->date = gtk_label_new (date);
-    gtk_widget_add_css_class (entry->date, "caption");
-    gtk_widget_add_css_class (entry->date, "numeric");
-    gtk_widget_add_css_class (entry->date, "dimmed");
-    gtk_box_append (GTK_BOX (line), entry->date);
-    gtk_box_append (GTK_BOX (top), line);
-  }
-
-  entry->preview = gtk_label_new (preview);
-  gtk_label_set_xalign (GTK_LABEL (entry->preview), 0);
-  gtk_label_set_ellipsize (GTK_LABEL (entry->preview), PANGO_ELLIPSIZE_END);
-  gtk_label_set_single_line_mode (GTK_LABEL (entry->preview), TRUE);
-  gtk_widget_add_css_class (entry->preview, "dimmed");
-  gtk_box_append (GTK_BOX (top), entry->preview);
+      g_object_get (place, "account", &account, "display-name", &folder_name, "icon-name", &icon, NULL);
+      g_object_get (account, "display-name", &account_name, NULL);
+      /* Translators: folder and account in the message header, e.g. “Inbox — Private”. */
+      place_name = g_strdup_printf (_("%s — %s"), folder_name, account_name);
+    }
+  revolution_mail_header_set_summary (REVOLUTION_MAIL_HEADER (entry->header), sender, avatar, subject, icon, place_name);
+  revolution_mail_header_set_date (REVOLUTION_MAIL_HEADER (entry->header), revolution_mail_message_get_timestamp (member));
 
   /* Knöpfe je Nachricht neben dem Kopf (nicht darin: keine Knöpfe in Knöpfen). */
   entry->read = gtk_button_new ();
@@ -291,14 +251,14 @@ entry_new (RevolutionMailConversation *self,
   gtk_widget_add_css_class (entry->read, "flat");
   gtk_widget_add_css_class (entry->read, "circular");
   g_signal_connect (entry->read, "clicked", G_CALLBACK (on_read_clicked), entry);
-  gtk_box_append (GTK_BOX (row), entry->read);
+  gtk_grid_attach (GTK_GRID (row), entry->read, 2, 0, 1, 1);
 
   entry->star = gtk_button_new ();
   gtk_widget_set_valign (entry->star, GTK_ALIGN_START);
   gtk_widget_add_css_class (entry->star, "flat");
   gtk_widget_add_css_class (entry->star, "circular");
   g_signal_connect (entry->star, "clicked", G_CALLBACK (on_star_clicked), entry);
-  gtk_box_append (GTK_BOX (row), entry->star);
+  gtk_grid_attach (GTK_GRID (row), entry->star, 3, 0, 1, 1);
 
   entry->notify_handler = g_signal_connect_swapped (member, "notify", G_CALLBACK (entry_update), entry);
   entry_update (entry);

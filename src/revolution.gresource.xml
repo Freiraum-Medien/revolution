@@ -4,6 +4,8 @@
     <file>window.ui</file>
     <file>mail-view.ui</file>
     <file>mail-reader.ui</file>
+    <file>mail-header.ui</file>
+    <file>mail-contact-popover.ui</file>
     <file>mail-conversation.ui</file>
     <file>mail-attachment.ui</file>
     <file>mail-invitation.ui</file>

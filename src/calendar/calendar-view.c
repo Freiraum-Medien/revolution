@@ -59,7 +59,6 @@ struct _RevolutionCalendarView
   GtkLabel            *month_title;
   GtkCssProvider      *colors;
   GtkStack            *header_stack;
-  GtkWidget           *app_switcher;
   GtkSearchEntry      *search_entry;
   GtkToggleButton     *search_button;
   GcalContext         *context;
@@ -103,12 +102,7 @@ focus_search_entry (RevolutionCalendarView *self)
 static void
 on_search_toggled (RevolutionCalendarView *self)
 {
-  gboolean active = gtk_toggle_button_get_active (self->search_button);
-
-  /* #454: Das Suchfeld braucht die ganze Breite, der Umschalter steht sonst mittig im Weg. */
-  gtk_widget_set_visible (self->app_switcher, !active);
-
-  if (active)
+  if (gtk_toggle_button_get_active (self->search_button))
     {
       gtk_stack_set_visible_child_name (self->header_stack, "search");
       focus_search_entry (self);
@@ -823,7 +817,6 @@ revolution_calendar_view_class_init (RevolutionCalendarViewClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, date_chooser);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, month_title);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, header_stack);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, app_switcher);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, search_entry);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, search_button);
   gtk_widget_class_bind_template_child (widget_class, RevolutionCalendarView, banner);

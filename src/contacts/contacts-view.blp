@@ -81,15 +81,23 @@ template $RevolutionContactsView: Adw.BreakpointBin {
     // gleich wie die Ordnerliste in mail-view.blp (CR #397) und Stamp
     // stamp-book-list.blp:5-8.
     [sidebar]
-    // #454: GtkWindowHandle wie mail-view.blp: Fenster über die Seitenleiste ziehbar.
-    WindowHandle {
-      child: Overlay {
-        child: ScrolledWindow {
-          hscrollbar-policy: never;
+    Overlay {
+      child: ScrolledWindow {
+        hscrollbar-policy: never;
 
-          // Viewport wie mail-view.blp: sonst fehlt beim Start der erste Abschnittskopf.
-          child: Viewport {
-            child: ListView book_list {
+        // Viewport wie mail-view.blp: sonst fehlt beim Start der erste Abschnittskopf.
+        child: Viewport {
+          child: Box {
+            orientation: vertical;
+
+            // #454: Griff nur im leeren Kopfbereich (Entscheidung PM): scrollt mit weg, Zeilen bleiben bedienbar.
+            WindowHandle {
+              styles [
+                "sidebar-grip",
+              ]
+            }
+
+            ListView book_list {
               tab-behavior: item;
 
               styles [
@@ -173,34 +181,34 @@ template $RevolutionContactsView: Adw.BreakpointBin {
                   };
                 }
               };
-            };
+            }
           };
         };
-
-        // #454: Hauptmenü schwebt auf der Karte wie mail-view.blp (style.css .primary-menu).
-        [overlay]
-        MenuButton {
-          halign: end;
-          valign: start;
-          margin-top: 6;
-          margin-end: 6;
-          primary: true;
-          icon-name: "open-menu-symbolic";
-
-          styles [
-            "primary-menu",
-            "flat",
-            "circular",
-          ]
-
-          tooltip-text: _("Main Menu");
-          menu-model: primary_menu;
-
-          accessibility {
-            label: _("Main Menu");
-          }
-        }
       };
+
+      // #454: Hauptmenü schwebt auf der Karte wie mail-view.blp (style.css .primary-menu).
+      [overlay]
+      MenuButton {
+        halign: end;
+        valign: start;
+        margin-top: 6;
+        margin-end: 6;
+        primary: true;
+        icon-name: "open-menu-symbolic";
+
+        styles [
+          "primary-menu",
+          "flat",
+          "circular",
+        ]
+
+        tooltip-text: _("Main Menu");
+        menu-model: primary_menu;
+
+        accessibility {
+          label: _("Main Menu");
+        }
+      }
     }
 
     // Kontaktliste: Avatar + Name (stamp-contact-row.blp:15-18), Abschnitte je
@@ -442,18 +450,28 @@ template $RevolutionContactsView: Adw.BreakpointBin {
                 };
             }
 
-            Box letter_bar {
-              orientation: vertical;
-              valign: center;
-              margin-end: 4;
+            // #454: Die Leiste ist mit ihren 26 Knöpfen 364 px hoch; mit dem Listen-Titel läge die Mindesthöhe
+            // der Ansicht sonst bei 468 px (main 420, „exceeds RevolutionContactsView height“). Der
+            // ScrolledWindow fängt das ab; zu niedrig: Mausrad, kein Balken.
+            ScrolledWindow {
+              hscrollbar-policy: never;
+              vscrollbar-policy: external;
 
-              styles [
-                "letter-bar",
-              ]
+              child: Viewport {
+                child: Box letter_bar {
+                  orientation: vertical;
+                  valign: center;
+                  margin-end: 4;
 
-              accessibility {
-                label: _("Jump to Initial Letter");
-              }
+                  styles [
+                    "letter-bar",
+                  ]
+
+                  accessibility {
+                    label: _("Jump to Initial Letter");
+                  }
+                };
+              };
             }
           };
         }

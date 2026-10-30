@@ -102,14 +102,14 @@ inline-view-switcher.app-switcher > toggle-group.icons > toggle {
 
 /* Eine Linie (Arnd 30.10.2026, Task 454): „Favoriten“, Listen-Titel und Absendername haben dieselbe
  * Oberkante. Die Linie setzt der Nachrichtenkopf (mail-reader.blp header_grid margin-top 14 unter
- * der 50px-Kopfleiste), die anderen Spalten richten sich danach: Seitenleiste über padding-top des
- * ersten Abschnittskopfs (Fläche bleibt leer bis auf das schwebende Hauptmenü), Liste über
- * .list-heading. Kontakte: erster Buchstabenkopf ohne 18px, Liste oben 3px statt 4px (.contact-list). */
-.floating-sidebar viewport > .navigation-sidebar {
-  padding-top: 52px;
+ * der 50px-Kopfleiste), die anderen Spalten richten sich danach: Seitenleiste über .sidebar-grip,
+ * einen leeren GtkWindowHandle über der Liste (Fläche bleibt frei bis auf das schwebende Hauptmenü,
+ * scrollt mit), Liste über .list-heading. Kontakte: erster Buchstabenkopf ohne 18px, Liste oben 3px statt 4px (.contact-list). */
+.floating-sidebar .sidebar-grip {
+  min-height: 46px;
 }
 
-.floating-sidebar viewport > .navigation-sidebar > header:first-child,
+.floating-sidebar .sidebar-grip + .navigation-sidebar > header:first-child,
 .contact-list > header:first-child {
   padding-top: 0;
 }

@@ -905,13 +905,9 @@ on_reply_sent (GObject      *source G_GNUC_UNUSED,
   g_autoptr (GError) error = NULL;
 
   if (!revolution_mail_send_message_finish (result, &error))
-    {
-      if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-        show_error (self, _("Could not send meeting response"), error->message);
-      g_application_release (g_application_get_default ());
-      return;
-    }
-  g_debug ("Einladung: Antwort im Postausgang");
+    show_error (self, _("Could not send meeting response"), error->message);
+  else
+    g_debug ("Einladung: Antwort im Postausgang");
   g_application_release (g_application_get_default ());
 }
 

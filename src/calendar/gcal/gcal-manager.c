@@ -10,7 +10,7 @@
  * (e-comp-editor.c:590-640) bzw. vor dem Entfernen (e-calendar-view.c:684-686, delete_event). #449: Aktualisierung
  * nur bei Änderungen für die Teilnehmer (attendee_text), CANCEL an entfernte Teilnehmer (removed_attendees).
  * #452: Löschen einer geänderten Ausnahme nur mit ihrer RECURRENCE-ID (Vorlage: nur gcal_event_has_recurrence, 1159-1160,
- * EDS löscht ohne rid die ganze Serie), Absage und Aktualisierung „Nachfolgende“ mit RANGE=THISANDFUTURE, Verschieben
+ * EDS löscht ohne rid die ganze Serie), Absage „Nachfolgende“ mit RANGE=THISANDFUTURE, Verschieben
  * ohne iTIP-Nachricht, Kalender-Ein/Aus der Registry (source-enabled/-disabled), g_object_ref für asynchrone Rückrufe,
  * g_application_hold bis zum Ende der Kette Schreiben + Einladung. */
 /* gcal-manager.c
@@ -655,20 +655,6 @@ on_invitation_sent (GObject      *source_object G_GNUC_UNUSED,
   g_application_release (g_application_get_default ());
 }
 
-/* Revolution #452: Absage oder Aktualisierung gilt ab diesem Vorkommen (RFC 5546 RECURRENCE-ID;RANGE=THISANDFUTURE), wie
- * Evolution comp-util.c:3335-3341. */
-static void
-set_range_this_and_future (ECalComponent *component)
-{
-  ECalComponentRange *range = e_cal_component_get_recurid (component);
-
-  if (range == NULL)
-    return;
-  e_cal_component_range_set_kind (range, E_CAL_COMPONENT_RANGE_THISFUTURE);
-  e_cal_component_set_recurid (component, range);
-  e_cal_component_range_free (range);
-}
-
 static void
 send_invitation (GcalManager        *self,
                  ECalClient         *client,
@@ -822,7 +808,6 @@ typedef struct
   ECalComponent *component;
   ICalComponent *cancel;
   gboolean       notify;
-  gboolean       future;   /* Revolution #452 */
 } UpdateData;
 
 static void
@@ -854,16 +839,9 @@ on_event_updated (GObject      *source_object,
 
   g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: ändern %s fertig", e_source_get_uid (source));
   if (data->notify && e_cal_component_has_attendees (data->component))
-    {
-      g_autoptr (ECalComponent) request = e_cal_component_clone (data->component);
-
-      /* #452: „Nachfolgende“: EDS teilt die Serie mit neuer UID, die der Client nicht erfährt (e-cal-meta-backend.c:2040-2053,
-       * e_cal_client_modify_object ohne UID); Teilnehmer erhalten die alte UID ab diesem Vorkommen, ihr EDS
-       * wertet RANGE aus (e-cal-meta-backend.c:2610-2612). Evolution sendet hier ohne RANGE (e-comp-editor.c:538-551). */
-      if (data->future)
-        set_range_this_and_future (request);
-      send_invitation (self, E_CAL_CLIENT (source_object), request, NULL, I_CAL_METHOD_REQUEST, FALSE, NULL, NULL);
-    }
+    /* #452: „Nachfolgende“ ohne RANGE wie Evolution (e-comp-editor.c:538-551): Beim Empfänger ändert sich nur dieses
+     * Vorkommen. Mit RANGE kürzt das Datei-Backend die Serie, spätere Vorkommen gingen verloren (gemessen #452). */
+    send_invitation (self, E_CAL_CLIENT (source_object), data->component, NULL, I_CAL_METHOD_REQUEST, FALSE, NULL, NULL);
   /* #449: Plant der Server, sagt er den Entfernten selbst ab; ein CANCEL über das Backend (microsoft365: Graph
    * „cancel“, e-cal-backend-m365.c:1737-1828) sagte den ganzen Termin ab. */
   if (data->cancel != NULL && e_cal_client_check_save_schedules (E_CAL_CLIENT (source_object)))
@@ -907,7 +885,6 @@ gcal_manager_update_event (GcalManager           *self,
   data = g_new0 (UpdateData, 1);
   data->component = g_object_ref (component);
   data->notify = TRUE;
-  data->future = mod == GCAL_RECURRENCE_MOD_THIS_AND_FUTURE;
   if (original != NULL)
     {
       g_autofree gchar *before = attendee_text (e_cal_component_get_icalcomponent (original));
@@ -1065,8 +1042,15 @@ gcal_manager_remove_event (GcalManager           *self,
       {
         g_autoptr (ECalComponent) cancel = e_cal_component_clone (component);
 
-        if (mod == GCAL_RECURRENCE_MOD_THIS_AND_FUTURE)
-          set_range_this_and_future (cancel);
+        /* Revolution #452: Absage ab diesem Vorkommen, wie Evolution comp-util.c:3335-3341. */
+        if (mod == GCAL_RECURRENCE_MOD_THIS_AND_FUTURE && e_cal_component_is_instance (cancel))
+          {
+            ECalComponentRange *range = e_cal_component_get_recurid (cancel);
+
+            e_cal_component_range_set_kind (range, E_CAL_COMPONENT_RANGE_THISFUTURE);
+            e_cal_component_set_recurid (cancel, range);
+            e_cal_component_range_free (range);
+          }
         send_invitation (self, data->client, cancel, NULL, I_CAL_METHOD_CANCEL, mod == GCAL_RECURRENCE_MOD_ALL && series,
                          on_cancel_sent, task);
       }

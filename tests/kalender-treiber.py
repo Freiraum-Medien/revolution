@@ -2079,7 +2079,7 @@ def einladung():
         gegenprobe(kal, uid, soll, '#449 %s (SEQUENCE vorher %s)' % (schritt, vorher.get('sequenz')), mit_server=False)
         return
     if schritt in ('folgende-loeschen', 'folgende-aendern'):
-        # #452: Serie, „Nachfolgende Termine“: CANCEL bzw. REQUEST mit RECURRENCE-ID;RANGE=THISANDFUTURE (Beleg im
+        # #452: Serie, „Nachfolgende Termine“: CANCEL mit RANGE=THISANDFUTURE, REQUEST ohne RANGE (Beleg im
         # Gesendet-Ordner, tests/testdaten.py --einladung serie), Serie geteilt mit neuer UID (eigene-<ART>-neu.uid).
         aendern = schritt == 'folgende-aendern'
         ab = marke()

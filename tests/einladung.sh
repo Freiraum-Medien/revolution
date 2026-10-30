@@ -45,7 +45,9 @@
 #      entfernen scheitert am Backend (Graph „attendees: null“, evolution-ews e-cal-backend-m365-utils.c:1254-1255).
 # #452 (TEILE=452, eigener Lauf, nichts über outlook.com): Serie in „Persönlich“, Organisator Gmail, Teilnehmer IMAP-Testkonto
 #   S  Löschen „Nachfolgende“ am dritten Vorkommen: CANCEL mit RECURRENCE-ID;RANGE=THISANDFUTURE; Ändern „Nachfolgende“ am
-#      zweiten: REQUEST ebenso, EDS teilt die Serie. Beleg: gesendete und empfangene Mail per IMAP (--einladung serie).
+#      zweiten: REQUEST mit RECURRENCE-ID ohne RANGE (wie Evolution), EDS teilt die Serie beim Organisator. Beleg: gesendete
+#      und empfangene Mail per IMAP (--einladung serie); Gegenprobe Empfänger (--einladung empfaenger): beide empfangenen
+#      REQUEST in „Persönlich“: alle 3 Vorkommen bleiben, nur das zweite geändert.
 # Grenzen: Schreibvorgänge je Kalender ≤ 20 (gezählt „SCHREIBVORGANG“), Mails über outlook.com ≤ 10 („MAIL-OUTLOOK“).
 # Am Ende: Termine und Mails des Laufs über die gemerkten IDs gelöscht (--einladung aufraeumen), fremde Kalender
 # unverändert (--kalender-hash), ~/.config/evolution/sources unverändert. Zeilen „OK …“/„FEHLER …“, Exit 0 ohne Fehler.
@@ -458,8 +460,8 @@ for s in r.list_enabled(EDataServer.SOURCE_EXTENSION_MAIL_IDENTITY):
     done
     pruefe "S: CANCEL „Nachfolgende“ gesendet" "$OUT/serie-mails.txt" '^SERIE-MAIL gesendet METHOD CANCEL RECURRENCE-ID .*RANGE=THISANDFUTURE'
     pruefe "S: CANCEL „Nachfolgende“ angekommen" "$OUT/serie-mails.txt" '^SERIE-MAIL eingang METHOD CANCEL RECURRENCE-ID .*RANGE=THISANDFUTURE'
-    pruefe "S: REQUEST „Nachfolgende“ gesendet" "$OUT/serie-mails.txt" '^SERIE-MAIL gesendet METHOD REQUEST RECURRENCE-ID .*RANGE=THISANDFUTURE'
-    pruefe "S: REQUEST „Nachfolgende“ angekommen" "$OUT/serie-mails.txt" '^SERIE-MAIL eingang METHOD REQUEST RECURRENCE-ID .*RANGE=THISANDFUTURE'
+    pruefe "S: REQUEST „Nachfolgende“ gesendet, ohne RANGE" "$OUT/serie-mails.txt" '^SERIE-MAIL gesendet METHOD REQUEST RECURRENCE-ID :[0-9TZ]+$'
+    pruefe "S: REQUEST „Nachfolgende“ angekommen, ohne RANGE" "$OUT/serie-mails.txt" '^SERIE-MAIL eingang METHOD REQUEST RECURRENCE-ID :[0-9TZ]+$'
     pruefe "S: Einladung der Serie ohne RECURRENCE-ID" "$OUT/serie-mails.txt" '^SERIE-MAIL eingang METHOD REQUEST RECURRENCE-ID -$'
     tdp --einladung serie "$OUT/serie-mails.json" >"$OUT/serie-aufraeumen.txt"
     for f in s s-neu; do
@@ -469,6 +471,10 @@ for s in r.list_enabled(EDataServer.SOURCE_EXTENSION_MAIL_IDENTITY):
       td --termin-live pruefen "$KAL_LOKAL" "$OUT/termin-$f.txt" | grep -q '^VORHANDEN 0' \
         && echo "OK      S: Termin $f gelöscht" || { echo "FEHLER  S: Termin $f noch da"; FEHLER=$((FEHLER + 1)); }
     done
+    # Nach dem Löschen beim Organisator: dieselbe UID kommt beim Empfänger neu an.
+    tdp --einladung empfaenger "$OUT/serie-mails.json" >"$OUT/serie-empfaenger.txt"
+    pruefe "S: Empfänger: 3 Vorkommen, nur das zweite geändert" "$OUT/serie-empfaenger.txt" '^EMPFAENGER vorkommen 3 titel alt neu alt$'
+    pruefe "S: Empfänger-Testtermin gelöscht" "$OUT/serie-empfaenger.txt" '^EMPFAENGER geloescht$'
   else echo "FEHLER  S: Termin nicht angelegt"; FEHLER=$((FEHLER + 1)); fi
   unset SCHRITT KAL KAL_NAME TEILNEHMER ART TITEL TAG TITEL_NEU
 fi

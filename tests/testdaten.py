@@ -3898,6 +3898,9 @@ def einladung_serie(registry, datei, titel=None):
                     rid = re.search(r'^RECURRENCE-ID(.*?)$', ics, re.M)
                     print('SERIE-MAIL %s METHOD %s RECURRENCE-ID %s' % (rolle, methode.group(1) if methode else '-',
                                                                         rid.group(1).strip() if rid else '-'))
+                    if rolle == 'eingang' and methode and methode.group(1) == 'REQUEST':
+                        with open('%s.%s.ics' % (datei, 'aenderung' if rid else 'einladung'), 'w') as f:
+                            f.write(ics)
             finally:
                 c.logout()
         with open(datei, 'w') as f:
@@ -3927,6 +3930,39 @@ def einladung_serie(registry, datei, titel=None):
         finally:
             c.logout()
     sys.stdout.flush()
+    return 0
+
+
+def einladung_empfaenger(registry, datei):
+    """#452: Gegenprobe Empfänger im lokalen Kalender: die beiden empfangenen REQUEST aus --einladung serie (Einladung der
+    Serie, Änderung „Nachfolgende“) wie die Einladungskarte über e_cal_client_receive_objects, Vorkommen ausgeben,
+    Testtermin über die UID der Mail löschen."""
+    ECal, ICalGLib = ecal()
+    c = kalender_verbinden(registry, kalender_schreibbar()[2])
+    uid = None
+    for art in ('einladung', 'aenderung'):
+        top = ICalGLib.Component.new_from_string(open('%s.%s.ics' % (datei, art)).read())
+        ev = top.get_first_component(ICalGLib.ComponentKind.VEVENT_COMPONENT)
+        if not (ev.get_summary() or '').startswith('Revolution-Test 452') or (uid is not None and ev.get_uid() != uid):
+            sys.exit('ABBRUCH: REQUEST nicht aus diesem Lauf')
+        uid = ev.get_uid()
+        c.receive_objects_sync(top, ECal.OperationFlags.NONE, cancellable())
+        print('SCHREIBVORGANG %s (Empfänger %s)' % (kalender_schreibbar()[2], art))
+    vork = []
+    jetzt = datetime.datetime.now(datetime.timezone.utc)
+
+    def vorkommen(icomp, start, end, *rest):
+        vork.append((ical_zeit(start), 'neu' if (icomp.get_summary() or '').endswith(' neu') else 'alt'))
+        return True
+
+    c.generate_instances_for_uid_sync(uid, int(jetzt.timestamp()), int((jetzt + datetime.timedelta(days=95)).timestamp()),
+                                      cancellable(), vorkommen)
+    vork.sort()
+    print('EMPFAENGER beginn %s' % ' '.join(z for z, _ in vork))
+    print('EMPFAENGER vorkommen %d titel %s' % (len(vork), ' '.join(t for _, t in vork)))
+    c.remove_object_sync(uid, None, ECal.ObjModType.ALL, ECal.OperationFlags.DISABLE_ITIP_MESSAGE, cancellable())
+    print('SCHREIBVORGANG %s (Empfänger löschen)' % kalender_schreibbar()[2])
+    print('EMPFAENGER geloescht', flush=True)
     return 0
 
 
@@ -4154,6 +4190,8 @@ def main():
             return einladung_aufraeumen(reg, a[1])
         if a[0] == 'serie' and len(a) in (2, 3):
             return einladung_serie(reg, *a[1:])
+        if a[0] == 'empfaenger' and len(a) == 2:
+            return einladung_empfaenger(reg, a[1])
         ap.error('--einladung: siehe Kopf von tests/testdaten.py')
     if args.zustellung or args.aufraeumen:
         adresse = (args.zustellung or args.aufraeumen)[0].lower()

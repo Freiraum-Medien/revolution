@@ -1,6 +1,8 @@
 /* Übernommen aus gnome-calendar 50.0 src/utils/gcal-utils.c:1-1451 (ff4d7f7d, GPL-3.0-or-later). Revolution
  * #373: nur die benutzten Funktionen (Zeilen 1-62, 107-119, 204-249, 371-431, 706-784, 855-1017, 1309-1355),
- * erster Wochentag nur aus der Locale (ohne Portal), ohne gweather/libsoup. */
+ * erster Wochentag nur aus der Locale (ohne Portal), ohne gweather/libsoup. #375 dazu 434-523
+ * (build_component_from_details, Zeitzone des Systems), 155-182 (get_circle_paintable_from_color), 1160-1233 (gcal_utils_ask_recurrence_modification_type),
+ * 1294-1307 (gcal_is_valid_event_name), 1383-1410 (gcal_create_writable_calendars_model). */
 /* gcal-utils.c
  *
  * Copyright (C) 2012 - Erick Pérez Castellanos
@@ -32,6 +34,7 @@
 
 #include <libecal/libecal.h>
 #include <libedataserver/libedataserver.h>
+#include <adwaita.h>
 
 #include <glib/gi18n.h>
 
@@ -470,4 +473,232 @@ gcal_get_service_name_from_url (const gchar *url)
     }
 
   return NULL;
+}
+
+/**
+ * build_component_from_details:
+ * @summary:
+ * @initial_date:
+ * @final_date:
+ *
+ * Create a component with the provided details
+ *
+ * Returns: (transfer full): an {@link ECalComponent} object
+ **/
+ECalComponent*
+build_component_from_details (const gchar *summary,
+                              GDateTime   *initial_date,
+                              GDateTime   *final_date)
+{
+  ECalComponent *event = NULL;
+  ECalComponentDateTime *dt = NULL;
+  ECalComponentText *summ = NULL;
+  ICalTimezone *tz = NULL;
+  ICalTime *itt = NULL;
+  gboolean all_day = FALSE;
+
+  event = e_cal_component_new ();
+  e_cal_component_set_new_vtype (event, E_CAL_COMPONENT_EVENT);
+
+  /*
+   * Check if the event is all day. Notice that it can be all day even
+   * without the final date.
+   */
+  all_day = gcal_date_time_is_date (initial_date) && (final_date ? gcal_date_time_is_date (final_date) : TRUE);
+
+  /*
+   * When the event is all day, we consider UTC timezone by default. Otherwise,
+   * we always use the system timezone to create new events
+   */
+  if (all_day)
+    {
+      tz = i_cal_timezone_get_utc_timezone ();
+    }
+  else
+    {
+      g_autoptr (GTimeZone) zone = NULL;
+      /* Revolution #375: Zeitzone des Systems (gcal_util_get_app_timezone_or_local braucht GcalApplication). */
+      zone = g_time_zone_new_local ();
+      tz = gcal_timezone_to_icaltimezone (zone);
+    }
+
+  /* Start date */
+  itt = gcal_date_time_to_icaltime (initial_date);
+  i_cal_time_set_timezone (itt, tz);
+  i_cal_time_set_is_date (itt, all_day);
+  dt = e_cal_component_datetime_new_take (itt, tz ? g_strdup (i_cal_timezone_get_tzid (tz)) : NULL);
+  e_cal_component_set_dtstart (event, dt);
+
+  e_cal_component_datetime_free (dt);
+
+  /* End date */
+  if (!final_date)
+    final_date = g_date_time_add_days (initial_date, 1);
+
+  itt = gcal_date_time_to_icaltime (final_date);
+  i_cal_time_set_timezone (itt, tz);
+  i_cal_time_set_is_date (itt, all_day);
+  dt = e_cal_component_datetime_new_take (itt, tz ? g_strdup (i_cal_timezone_get_tzid (tz)) : NULL);
+  e_cal_component_set_dtend (event, dt);
+
+  e_cal_component_datetime_free (dt);
+
+  /* Summary */
+  summ = e_cal_component_text_new (summary, NULL);
+  e_cal_component_set_summary (event, summ);
+  e_cal_component_text_free (summ);
+
+  e_cal_component_commit_sequence (event);
+
+  return event;
+}
+
+typedef struct
+{
+  GcalEvent                 *event;
+  GcalAskRecurrenceCallback  callback;
+  gpointer                   user_data;
+} AskRecurrenceData;
+
+static void
+on_message_dialog_response_cb (GObject      *source_object,
+                               GAsyncResult *result,
+                               gpointer      user_data)
+{
+  GcalRecurrenceModType mod_type;
+  AskRecurrenceData *data;
+  const char *response;
+
+  response = adw_alert_dialog_choose_finish (ADW_ALERT_DIALOG (source_object), result);
+
+  if (g_strcmp0 (response, "this-only") == 0)
+    mod_type = GCAL_RECURRENCE_MOD_THIS_ONLY;
+  else if (g_strcmp0 (response, "subsequent-events") == 0)
+    mod_type = GCAL_RECURRENCE_MOD_THIS_AND_FUTURE;
+  else if (g_strcmp0 (response, "all-events") == 0)
+    mod_type = GCAL_RECURRENCE_MOD_ALL;
+  else
+    mod_type = GCAL_RECURRENCE_MOD_NONE;
+
+  data = (AskRecurrenceData *) user_data;
+  data->callback (data->event, mod_type, data->user_data);
+  g_clear_object (&data->event);
+  g_clear_pointer (&data, g_free);
+}
+
+void
+gcal_utils_ask_recurrence_modification_type (GtkWidget                 *parent,
+                                             GcalEvent                 *event,
+                                             gboolean                   show_mod_all,
+                                             GcalAskRecurrenceCallback  callback,
+                                             gpointer                   user_data)
+{
+  AskRecurrenceData *data;
+  ECalClient *client;
+  AdwDialog *dialog;
+
+  data = g_new0 (AskRecurrenceData, 1);
+  data->event = g_object_ref (event);
+  data->callback = callback;
+  data->user_data = user_data;
+
+  dialog = adw_alert_dialog_new (_("Modify Multiple Events?"),
+                                 _("The event you are trying to modify is recurring. The changes you have selected should be applied to:"));
+
+  adw_alert_dialog_add_responses (ADW_ALERT_DIALOG (dialog),
+                                  "close", _("_Cancel"),
+                                  "this-only", _("_Only This Event"),
+                                  NULL);
+
+  client = gcal_calendar_get_client (gcal_event_get_calendar (event));
+
+  if (!e_client_check_capability (E_CLIENT (client), E_CAL_STATIC_CAPABILITY_NO_THISANDFUTURE))
+    adw_alert_dialog_add_response (ADW_ALERT_DIALOG (dialog), "subsequent-events", _("_Subsequent Events"));
+
+  if (show_mod_all)
+    adw_alert_dialog_add_response (ADW_ALERT_DIALOG (dialog), "all-events",  _("_All Events"));
+
+  adw_alert_dialog_set_default_response (ADW_ALERT_DIALOG (dialog), "cancel");
+  adw_alert_dialog_set_close_response (ADW_ALERT_DIALOG (dialog), "cancel");
+
+  adw_alert_dialog_choose (ADW_ALERT_DIALOG (dialog),
+                           parent,
+                           NULL,
+                           on_message_dialog_response_cb,
+                           data);
+}
+
+/**
+ * gcal_is_valid_event_name:
+ * @event_name: the name of the event to check
+ *
+ * Check if the event name is valid
+ *
+ * Returns: %TRUE if the name is valid, %FALSE otherwise.
+ */
+gboolean
+gcal_is_valid_event_name (const gchar *event_name)
+{
+  g_autofree gchar *aux = g_strstrip (g_strdup (event_name));
+  return g_utf8_strlen (aux, -1) > 0;
+}
+
+/**
+ * gcal_create_writable_calendars_model:
+ * @manager: a #GcalManager
+ *
+ * Retrieves a model with all available read-write #GcalCalendar.
+ * This is useful for binding to combo rows.
+ *
+ * Returns: (transfer full): a #GListModel with all available read-write #GcalCalendar
+ */
+GListModel*
+gcal_create_writable_calendars_model (GcalManager *manager)
+{
+  g_autoptr (GtkFilterListModel) filter_model = NULL;
+  GtkBoolFilter *bool_filter;
+  GListModel *calendars;
+
+  g_return_val_if_fail (GCAL_IS_MANAGER (manager), NULL);
+
+  calendars = gcal_manager_get_calendars_model (manager);
+
+  bool_filter = gtk_bool_filter_new (gtk_property_expression_new (GCAL_TYPE_CALENDAR, NULL, "read-only"));
+  gtk_bool_filter_set_invert (bool_filter, TRUE);
+
+  filter_model = gtk_filter_list_model_new (g_object_ref (calendars), GTK_FILTER (bool_filter));
+  gtk_filter_list_model_set_watch_items (filter_model, TRUE);
+
+  return G_LIST_MODEL (g_steal_pointer (&filter_model));
+}
+
+/**
+ * get_circle_paintable_from_color:
+ * @color: a #GdkRGBA
+ * @size: the size of the surface
+ *
+ * Creates a circular surface filled with @color. The
+ * surface is always @size x @size.
+ *
+ * Returns: (transfer full): a #cairo_surface_t
+ */
+GdkPaintable*
+get_circle_paintable_from_color (const GdkRGBA *color,
+                                 gint           size)
+{
+  g_autoptr (GtkSnapshot) snapshot = NULL;
+  GskRoundedRect rect;
+
+  snapshot = gtk_snapshot_new ();
+
+  gtk_snapshot_push_rounded_clip (snapshot,
+                                  gsk_rounded_rect_init_from_rect (&rect,
+                                                                   &GRAPHENE_RECT_INIT (0, 0, size, size),
+                                                                   size / 2.0));
+
+  gtk_snapshot_append_color (snapshot, color, &GRAPHENE_RECT_INIT (0, 0, size, size));
+
+  gtk_snapshot_pop (snapshot);
+
+  return gtk_snapshot_to_paintable (snapshot, &GRAPHENE_SIZE_INIT (size, size));
 }

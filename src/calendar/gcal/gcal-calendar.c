@@ -1,6 +1,7 @@
 /* Übernommen aus gnome-calendar 50.0 src/core/gcal-calendar.c:1-801 (ff4d7f7d, GPL-3.0-or-later). Revolution
  * #373: ohne e_source_write (save_calendar, set_color, set_name), Sichtbarkeit nur im Speicher (Einstellungen
- * der App in gcal-manager.c), Farbe nur gelesen. */
+ * der App in gcal-manager.c), Farbe nur gelesen. #375: Signal „error“ (Fehler des ECalClientView aus
+ * gcal-calendar-monitor.c, im UI-Thread) für das Banner. */
 /* gcal-calendar.c
  *
  * Copyright 2019 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>
@@ -78,6 +79,10 @@ enum
 };
 
 static GParamSpec *properties [N_PROPS];
+
+/* Revolution #375 */
+enum { ERROR, N_SIGNALS };
+static guint signals [N_SIGNALS];
 
 
 /*
@@ -459,6 +464,10 @@ gcal_calendar_class_init (GcalCalendarClass *klass)
                                                    G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | G_PARAM_EXPLICIT_NOTIFY);
 
   g_object_class_install_properties (object_class, N_PROPS, properties);
+
+  /* Revolution #375: Fehler der Termin-Ansicht (gcal-calendar-monitor.c), im UI-Thread ausgelöst. */
+  signals[ERROR] = g_signal_new ("error", GCAL_TYPE_CALENDAR, G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
+                                 G_TYPE_NONE, 1, G_TYPE_STRING);
 }
 
 static void

@@ -1,0 +1,38 @@
+// Übernommen aus gnome-calendar 50.0 src/gui/common/gcal-calendar-row.blp:1-37 (ff4d7f7d, GPL-3.0-or-later). Unverändert.
+using Gtk 4.0;
+using Adw 1;
+
+template $GcalCalendarRow: Adw.PreferencesRow {
+  child: Box header_box {
+    spacing: 6;
+
+    Image color_image {
+      accessible-role: presentation;
+
+      styles [
+        "calendar-color-image",
+      ]
+    }
+
+    Label title_label {
+      ellipsize: end;
+      xalign: 0.0;
+      label: bind template.title;
+    }
+
+    Box {
+      spacing: 6;
+      halign: end;
+      hexpand: true;
+
+      Image visibility_image {
+        icon-name: "eye-not-looking-symbolic";
+      }
+
+      Box suffix {
+        spacing: 6;
+        visible: false;
+      }
+    }
+  };
+}

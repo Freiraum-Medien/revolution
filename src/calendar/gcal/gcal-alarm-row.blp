@@ -1,0 +1,16 @@
+// Übernommen aus gnome-calendar 50.0 src/gui/event-editor/gcal-alarm-row.blp:1-15 (ff4d7f7d, GPL-3.0-or-later). Unverändert.
+using Gtk 4.0;
+using Adw 1;
+
+template $GcalAlarmRow: Adw.ActionRow {
+  Button remove_button {
+    valign: center;
+    icon-name: "edit-delete-symbolic";
+    tooltip-text: _("Remove Alarm");
+    clicked => $on_remove_button_clicked_cb(template) not-swapped;
+
+    styles [
+      "flat",
+    ]
+  }
+}

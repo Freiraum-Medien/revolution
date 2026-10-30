@@ -692,3 +692,28 @@ avatar.color14 {
   border-radius: 12px;
   font-weight: normal;
 }
+
+/* #375: Termin-Popover und Erinnerungen. Übernommen aus gnome-calendar 50.0 src/theme/style.css:32-44 (popover.alarms),
+ * 51-55 (Event Popover), 426-428 (label.no-events). */
+popover.alarms modelbutton {
+  outline: 0 solid transparent;
+  outline-offset: 3px;
+  transition: var(--focus-ring-transition);
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+popover.alarms modelbutton:focus:focus-visible {
+  outline-color: var(--focus-ring-color);
+  outline-width: 2px;
+  outline-offset: -2px;
+}
+
+popover.event-popover,
+popover.event-popover > contents {
+  padding: 0;
+}
+
+label.no-events {
+  font-style: italic;
+}

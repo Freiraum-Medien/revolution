@@ -1,0 +1,28 @@
+// Übernommen aus gnome-calendar 50.0 src/gui/event-editor/gcal-date-selector.blp:1-28 (ff4d7f7d, GPL-3.0-or-later).
+// Revolution #375: Gtk.Calendar statt GcalDateChooser.
+using Gtk 4.0;
+
+template $GcalDateSelector: Entry {
+  width-chars: 11;
+  max-width-chars: 11;
+  secondary-icon-name: "pan-down-symbolic";
+  input-hints: no_emoji;
+  icon-press => $icon_pressed_cb(template) not-swapped;
+
+  EventControllerFocus {
+    notify::contains-focus => $on_contains_focus_changed_cb(template) not-swapped;
+  }
+
+  Popover date_selector_popover {
+    position: bottom;
+    margin-top: 12;
+    margin-bottom: 12;
+    margin-start: 12;
+    margin-end: 12;
+
+    Calendar date_chooser {
+      show-week-numbers: true;
+      day-selected => $calendar_day_selected(template);
+    }
+  }
+}

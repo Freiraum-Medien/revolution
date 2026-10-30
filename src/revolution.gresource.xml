@@ -12,6 +12,10 @@
     <file>contacts-editor.ui</file>
     <file>calendar-view.ui</file>
     <file alias="style.css">mail/style.css</file>
+    <!-- #375: aus gnome-calendar 50.0 src/gui/icons -->
+    <file>icons/scalable/actions/add-reminder-symbolic.svg</file>
+    <file>icons/scalable/actions/clock-alt-symbolic.svg</file>
+    <file>icons/scalable/actions/info-outline-symbolic.svg</file>
     <file>icons/scalable/actions/archive-symbolic.svg</file>
     <file>icons/scalable/actions/birthday-symbolic.svg</file>
     <file>icons/scalable/actions/building-symbolic.svg</file>
@@ -34,5 +38,18 @@
     <file alias="views/gcal-month-view.ui" compressed="true">gcal-month-view.ui</file>
     <file alias="views/gcal-week-header.ui" compressed="true">gcal-week-header.ui</file>
     <file alias="views/gcal-week-view.ui" compressed="true">gcal-week-view.ui</file>
+    <!-- #375 -->
+    <file alias="gui/gcal-event-popover.ui" compressed="true">gcal-event-popover.ui</file>
+    <file alias="event-editor/gcal-event-editor-dialog.ui" compressed="true">gcal-event-editor-dialog.ui</file>
+    <file alias="event-editor/gcal-summary-section.ui" compressed="true">gcal-summary-section.ui</file>
+    <file alias="event-editor/gcal-notes-section.ui" compressed="true">gcal-notes-section.ui</file>
+    <file alias="event-editor/gcal-schedule-section.ui" compressed="true">gcal-schedule-section.ui</file>
+    <file alias="event-editor/gcal-date-time-chooser.ui" compressed="true">gcal-date-time-chooser.ui</file>
+    <file alias="event-editor/gcal-date-chooser-row.ui" compressed="true">gcal-date-chooser-row.ui</file>
+    <file alias="event-editor/gcal-date-selector.ui" compressed="true">gcal-date-selector.ui</file>
+    <file alias="event-editor/gcal-reminders-section.ui" compressed="true">gcal-reminders-section.ui</file>
+    <file alias="event-editor/gcal-alarm-row.ui" compressed="true">gcal-alarm-row.ui</file>
+    <file alias="common/gcal-calendar-combo-row.ui" compressed="true">gcal-calendar-combo-row.ui</file>
+    <file alias="common/gcal-calendar-row.ui" compressed="true">gcal-calendar-row.ui</file>
   </gresource>
 </gresources>

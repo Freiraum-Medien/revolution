@@ -1,5 +1,5 @@
 /* Übernommen aus gnome-calendar 50.0 src/gui/gcal-event-widget.h:1-82 (ff4d7f7d, GPL-3.0-or-later). Revolution
- * #373: ohne gcal_event_widget_show_preview. */
+ * #373 ohne, #375 wieder mit gcal_event_widget_show_preview (unverändert). */
 /* gcal-event-widget.h
  *
  * Copyright (C) 2015 Erick Pérez Castellanos <erickpc@gnome.org>
@@ -28,8 +28,18 @@
 
 G_BEGIN_DECLS
 
+typedef enum
+{
+  GCAL_EVENT_PREVIEW_ACTION_NONE,
+  GCAL_EVENT_PREVIEW_ACTION_EDIT,
+} GcalEventPreviewAction;
+
 #define GCAL_TYPE_EVENT_WIDGET                    (gcal_event_widget_get_type ())
 G_DECLARE_FINAL_TYPE (GcalEventWidget, gcal_event_widget, GCAL, EVENT_WIDGET, GtkWidget)
+
+typedef void         (*GcalEventPreviewCallback)                 (GcalEventWidget        *event_widget,
+                                                                  GcalEventPreviewAction  action,
+                                                                  gpointer                user_data);
 
 GtkWidget*           gcal_event_widget_new                       (GcalContext        *context,
                                                                   GcalEvent          *event);
@@ -48,6 +58,10 @@ void                 gcal_event_widget_set_date_end              (GcalEventWidge
 
 void                 gcal_event_widget_set_timestamp_policy      (GcalEventWidget     *event,
                                                                   GcalTimestampPolicy  timestamp_policy);
+
+void                 gcal_event_widget_show_preview              (GcalEventWidget          *self,
+                                                                  GcalEventPreviewCallback  callback,
+                                                                  gpointer                  user_data);
 
 /* Utilities */
 

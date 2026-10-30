@@ -1,5 +1,6 @@
 /* Übernommen aus gnome-calendar 50.0 src/core/gcal-calendar-monitor.c:1-1466 (ff4d7f7d, GPL-3.0-or-later).
- * Unverändert. */
+ * Revolution #375: Fehler beim Erzeugen/Starten der ECalClientView (772, 792) als Signal GcalCalendar::error im
+ * UI-Thread statt g_warning (Banner der Ansicht). */
 /* gcal-calendar-monitor.c
  *
  * Copyright 2020 Georges Basile Stavracas Neto <georges.stavracas@gmail.com>
@@ -258,6 +259,29 @@ set_complete_in_idle (GcalCalendarMonitor *self,
                               G_PRIORITY_DEFAULT_IDLE,
                               complete_in_idle_cb,
                               idle_data,
+                              (GDestroyNotify) idle_data_free);
+}
+
+/* Revolution #375: Fehler im UI-Thread an den Kalender melden (Banner, gcal-manager.c on_calendar_error_cb). */
+static gboolean
+report_error_cb (gpointer user_data)
+{
+  IdleData *idle_data = user_data;
+
+  g_signal_emit_by_name (idle_data->monitor->calendar, "error", g_ptr_array_index (idle_data->event_ids, 0));
+  return G_SOURCE_REMOVE;
+}
+
+static void
+report_error_in_idle (GcalCalendarMonitor *self,
+                      const GError        *error)
+{
+  IdleData *idle_data = g_new0 (IdleData, 1);
+
+  idle_data->monitor = g_object_ref (self);
+  idle_data->event_ids = g_ptr_array_new_with_free_func (g_free);
+  g_ptr_array_add (idle_data->event_ids, g_strdup (error->message));
+  g_main_context_invoke_full (self->main_context, G_PRIORITY_DEFAULT_IDLE, report_error_cb, idle_data,
                               (GDestroyNotify) idle_data_free);
 }
 
@@ -769,7 +793,7 @@ create_view (GcalCalendarMonitor *self)
   if (error)
     {
       if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-        g_warning ("Error creating view: %s", error->message);
+        report_error_in_idle (self, error);
       GCAL_RETURN ();
     }
 
@@ -789,7 +813,7 @@ create_view (GcalCalendarMonitor *self)
 
   if (error)
     {
-      g_warning ("Error starting up view: %s", error->message);
+      report_error_in_idle (self, error);
       g_clear_object (&view);
       GCAL_RETURN ();
     }

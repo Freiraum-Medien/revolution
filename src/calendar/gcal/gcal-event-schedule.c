@@ -1,0 +1,448 @@
+/* Übernommen aus gnome-calendar 50.0 src/gui/event-editor/gcal-event-schedule.c:1-682 (ff4d7f7d, GPL-3.0-or-later).
+ * Revolution #375: ohne Testcode (447-682: values_with_date_times, gcal_event_schedule_with_date_times, test_*, add_tests). */
+/* gcal-event-schedule.c - immutable struct for the date and recurrence values of an event
+ *
+ * Copyright 2025 Federico Mena Quintero <federico@gnome.org>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+#define G_LOG_DOMAIN "GcalEventSchedule"
+
+#include "gcal-date-time-utils.h"
+#include "gcal-debug.h"
+#include "gcal-event.h"
+#include "gcal-recurrence.h"
+#include "gcal-event-schedule.h"
+
+GcalScheduleValues
+gcal_schedule_values_copy (const GcalScheduleValues *values)
+{
+  GcalScheduleValues copy;
+
+  copy.all_day = values->all_day;
+  copy.date_start = values->date_start ? g_date_time_ref (values->date_start) : NULL;
+  copy.date_end = values->date_end ? g_date_time_ref (values->date_end) : NULL;
+  copy.recur = values->recur ? gcal_recurrence_copy (values->recur) : NULL;
+
+  return copy;
+}
+
+static GcalEventSchedule *
+gcal_event_schedule_copy (const GcalEventSchedule *values)
+{
+  GcalEventSchedule *copy = g_new0 (GcalEventSchedule, 1);
+
+  copy->orig = gcal_schedule_values_copy (&values->orig);
+  copy->curr = gcal_schedule_values_copy (&values->curr);
+  copy->time_format = values->time_format;
+
+  return copy;
+}
+
+static void
+gcal_schedule_values_free (GcalScheduleValues *values)
+{
+  values->all_day = FALSE;
+
+  g_clear_pointer (&values->date_start, g_date_time_unref);
+  g_clear_pointer (&values->date_end, g_date_time_unref);
+  g_clear_pointer (&values->recur, gcal_recurrence_unref);
+}
+
+/**
+ * gcal_event_schedule_free():
+ *
+ * Frees the contents of @values.
+ */
+void
+gcal_event_schedule_free (GcalEventSchedule *values)
+{
+  gcal_schedule_values_free (&values->orig);
+  gcal_schedule_values_free (&values->curr);
+  g_free (values);
+}
+
+GcalEventSchedule*
+gcal_event_schedule_set_all_day (const GcalEventSchedule *values, gboolean all_day)
+{
+  GcalEventSchedule *copy = gcal_event_schedule_copy (values);
+
+  if (all_day == values->curr.all_day)
+    {
+      return copy;
+    }
+
+  if (all_day)
+    {
+      /* We are switching from a time-slot event to an all-day one.  If we had
+       *
+       *   date_start = $day1 + $time
+       *   date_end   = $day2 + $time
+       *
+       * we want to switch to
+       *
+       *   date_start = $day1 + 00:00 (midnight)
+       *   date_end   = $day2 + 1 day + 00:00 (midnight of the next day)
+       */
+
+      GDateTime *start = values->curr.date_start;
+      GDateTime *end = values->curr.date_end;
+
+      g_autoptr (GDateTime) new_start = g_date_time_new (g_date_time_get_timezone (start),
+                                                         g_date_time_get_year (start),
+                                                         g_date_time_get_month (start),
+                                                         g_date_time_get_day_of_month (start),
+                                                         0,
+                                                         0,
+                                                         0.0);
+
+      g_autoptr (GDateTime) tmp = g_date_time_new (g_date_time_get_timezone (end),
+                                                   g_date_time_get_year (end),
+                                                   g_date_time_get_month (end),
+                                                   g_date_time_get_day_of_month (end),
+                                                   0,
+                                                   0,
+                                                   0.0);
+      g_autoptr (GDateTime) new_end = g_date_time_add_days (tmp, 1);
+
+      gcal_set_date_time (&copy->curr.date_start, new_start);
+      gcal_set_date_time (&copy->curr.date_end, new_end);
+    }
+  else
+    {
+      /* We are switching from an all-day event to a time-slot one.  In this case,
+       * we want to preserve the current dates but if the original event was
+       * time-slot, restore the times of the latter.
+       */
+
+      GDateTime *start = values->curr.date_start;
+      GDateTime *end = values->curr.date_end;
+
+      g_autoptr (GDateTime) new_start = NULL;
+      g_autoptr (GDateTime) new_end = NULL;
+      g_autoptr (GDateTime) tmp_end = g_date_time_add_days (end, -1);
+
+      if (values->orig.all_day)
+        {
+          gint end_hour = 0;
+
+          new_start = g_date_time_new_local (g_date_time_get_year (start),
+                                             g_date_time_get_month (start),
+                                             g_date_time_get_day_of_month (start),
+                                             0,
+                                             0,
+                                             0.0);
+
+          if (g_date_time_get_year (start) == g_date_time_get_year (tmp_end) &&
+              g_date_time_get_month (start) == g_date_time_get_month (tmp_end) &&
+              g_date_time_get_day_of_month (start) == g_date_time_get_day_of_month (tmp_end))
+            end_hour = 1;
+
+          new_end = g_date_time_new_local (g_date_time_get_year (tmp_end),
+                                           g_date_time_get_month (tmp_end),
+                                           g_date_time_get_day_of_month (tmp_end),
+                                           end_hour,
+                                           0,
+                                           0.0);
+        }
+      else
+        {
+          new_start = g_date_time_new (g_date_time_get_timezone (start),
+                                       g_date_time_get_year (start),
+                                       g_date_time_get_month (start),
+                                       g_date_time_get_day_of_month (start),
+                                       g_date_time_get_hour (values->orig.date_start),
+                                       g_date_time_get_minute (values->orig.date_start),
+                                       g_date_time_get_seconds (values->orig.date_start));
+
+          new_end = g_date_time_new (g_date_time_get_timezone (tmp_end),
+                                     g_date_time_get_year (tmp_end),
+                                     g_date_time_get_month (tmp_end),
+                                     g_date_time_get_day_of_month (tmp_end),
+                                     g_date_time_get_hour (values->orig.date_end),
+                                     g_date_time_get_minute (values->orig.date_end),
+                                     g_date_time_get_seconds (values->orig.date_end));
+        }
+
+      gcal_set_date_time (&copy->curr.date_start, new_start);
+      gcal_set_date_time (&copy->curr.date_end, new_end);
+    }
+
+  copy->curr.all_day = all_day;
+  return copy;
+}
+
+GcalEventSchedule *
+gcal_event_schedule_set_time_format (const GcalEventSchedule *values, GcalTimeFormat time_format)
+{
+  GcalEventSchedule *copy = gcal_event_schedule_copy (values);
+
+  copy->time_format = time_format;
+  return copy;
+}
+
+/* The start_date_row widget has changed.  We need to sync it to the values and
+ * adjust the other values based on it.
+ */
+GcalEventSchedule *
+gcal_event_schedule_set_start_date (const GcalEventSchedule *values, GDateTime *start)
+{
+  GcalEventSchedule *copy = gcal_event_schedule_copy (values);
+
+  gcal_set_date_time (&copy->curr.date_start, start);
+
+  if (g_date_time_compare (start, copy->curr.date_end) == 1)
+    {
+      gcal_set_date_time (&copy->curr.date_end, start);
+    }
+
+  return copy;
+}
+
+/* The end_date_row widget has changed.  We need to sync it to the values and
+ * adjust the other values based on it.
+ */
+GcalEventSchedule *
+gcal_event_schedule_set_end_date (const GcalEventSchedule *values, GDateTime *end)
+{
+  GcalEventSchedule *copy = gcal_event_schedule_copy (values);
+
+  if (copy->curr.all_day)
+    {
+      /* See the comment "While in iCalendar..." in widget_state_from_values().  Here we
+       * take the human-readable end-date, and turn it into the appropriate value for
+       * iCalendar.
+       */
+      g_autoptr (GDateTime) fake_end_date = g_date_time_add_days (end, 1);
+      gcal_set_date_time (&copy->curr.date_end, fake_end_date);
+    }
+  else
+    {
+      gcal_set_date_time (&copy->curr.date_end, end);
+    }
+
+  if (g_date_time_compare (copy->curr.date_start, end) == 1)
+    {
+      gcal_set_date_time (&copy->curr.date_start, end);
+    }
+
+  return copy;
+}
+
+GcalEventSchedule *
+gcal_event_schedule_set_start_date_time (const GcalEventSchedule *values, GDateTime *start)
+{
+  GcalEventSchedule *copy = gcal_event_schedule_copy (values);
+
+  gcal_set_date_time (&copy->curr.date_start, start);
+
+  if (g_date_time_compare (start, copy->curr.date_end) == 1)
+    {
+      GTimeZone *end_tz = g_date_time_get_timezone (copy->curr.date_end);
+      g_autoptr (GDateTime) new_end = g_date_time_add_hours (start, 1);
+      g_autoptr (GDateTime) new_end_in_end_tz = g_date_time_to_timezone (new_end, end_tz);
+
+      gcal_set_date_time (&copy->curr.date_end, new_end_in_end_tz);
+    }
+
+  return copy;
+}
+
+GcalEventSchedule *
+gcal_event_schedule_set_end_date_time (const GcalEventSchedule *values, GDateTime *end)
+{
+  GcalEventSchedule *copy = gcal_event_schedule_copy (values);
+
+  gcal_set_date_time (&copy->curr.date_end, end);
+
+  if (g_date_time_compare (copy->curr.date_start, end) == 1)
+    {
+      GTimeZone *start_tz = g_date_time_get_timezone (copy->curr.date_start);
+      g_autoptr (GDateTime) new_start = g_date_time_add_hours (end, -1);
+      g_autoptr (GDateTime) new_start_in_start_tz = g_date_time_to_timezone (new_start, start_tz);
+
+      gcal_set_date_time (&copy->curr.date_start, new_start_in_start_tz);
+    }
+
+  return copy;
+}
+
+static GcalRecurrence *
+recur_change_frequency (GcalRecurrence *old_recur, GcalRecurrenceFrequency frequency)
+{
+  if (frequency == GCAL_RECURRENCE_NO_REPEAT)
+    {
+      /* Invariant: GCAL_RECURRENCE_NO_REPEAT is reduced to a NULL recurrence */
+      return NULL;
+    }
+  else
+    {
+      GcalRecurrence *new_recur;
+
+      if (old_recur)
+        {
+          new_recur = gcal_recurrence_copy (old_recur);
+        }
+      else
+        {
+          new_recur = gcal_recurrence_new ();
+        }
+
+      new_recur->frequency = frequency;
+
+      return new_recur;
+    }
+}
+
+static GcalRecurrence *
+recur_change_limit_type (GcalRecurrence *old_recur, GcalRecurrenceLimitType limit_type, GDateTime *date_start)
+{
+  /* An old recurrence would already be present with something other than GCAL_RECURRENCE_NO_REPEAT */
+  g_assert (old_recur != NULL);
+  g_assert (old_recur->frequency != GCAL_RECURRENCE_NO_REPEAT);
+
+  GcalRecurrence *new_recur = gcal_recurrence_copy (old_recur);
+
+  if (limit_type == old_recur->limit_type)
+    {
+      return new_recur;
+    }
+  else
+    {
+      new_recur->limit_type = limit_type;
+
+      switch (limit_type)
+        {
+        case GCAL_RECURRENCE_FOREVER:
+          break;
+
+        case GCAL_RECURRENCE_COUNT:
+          /* Other policies are possible.  This is just "more than once". */
+          new_recur->limit.count = 2;
+          break;
+
+        case GCAL_RECURRENCE_UNTIL:
+          /* Again, other policies are possible.  For now, leave the decision to the user. */
+          g_assert (date_start != NULL);
+          new_recur->limit.until = g_date_time_ref (date_start);
+          break;
+
+        default:
+          g_assert_not_reached ();
+        }
+    }
+
+  return new_recur;
+}
+
+GcalEventSchedule *
+gcal_event_schedule_set_recur_frequency (const GcalEventSchedule *values,
+                                         GcalRecurrenceFrequency frequency)
+{
+  GcalEventSchedule *copy = gcal_event_schedule_copy (values);
+  GcalRecurrence *new_recur = recur_change_frequency (copy->curr.recur, frequency);
+  g_clear_pointer (&copy->curr.recur, gcal_recurrence_unref);
+  copy->curr.recur = new_recur;
+
+  return copy;
+}
+
+GcalEventSchedule *
+gcal_event_schedule_set_recur_limit_type (const GcalEventSchedule *values,
+                                          GcalRecurrenceLimitType limit_type)
+{
+  GcalEventSchedule *copy = gcal_event_schedule_copy (values);
+  GcalRecurrence *new_recur = recur_change_limit_type (copy->curr.recur, limit_type, values->curr.date_start);
+  g_clear_pointer (&copy->curr.recur, gcal_recurrence_unref);
+  copy->curr.recur = new_recur;
+
+  return copy;
+}
+
+GcalEventSchedule *
+gcal_event_schedule_set_recurrence_count (const GcalEventSchedule *values,
+                                          guint count)
+{
+  GcalEventSchedule *copy = gcal_event_schedule_copy (values);
+
+  /* An old recurrence would already be present */
+  g_assert (copy->curr.recur != NULL);
+  g_assert (copy->curr.recur->frequency != GCAL_RECURRENCE_NO_REPEAT);
+  g_assert (copy->curr.recur->limit_type == GCAL_RECURRENCE_COUNT);
+
+  copy->curr.recur->limit.count = count;
+
+  return copy;
+}
+
+GcalEventSchedule *
+gcal_event_schedule_set_recurrence_until (const GcalEventSchedule *values,
+                                          GDateTime *until)
+{
+  GcalEventSchedule *copy = gcal_event_schedule_copy (values);
+
+  /* An old recurrence would already be present */
+  g_assert (copy->curr.recur != NULL);
+  g_assert (copy->curr.recur->frequency != GCAL_RECURRENCE_NO_REPEAT);
+  g_assert (copy->curr.recur->limit_type == GCAL_RECURRENCE_UNTIL);
+
+  gcal_set_date_time (&copy->curr.recur->limit.until, until);
+
+  return copy;
+}
+
+/**
+ * Extracts the values from @event that are needed to populate #GcalScheduleSection.
+ *
+ * Returns: a #GcalEventSchedule ready for use.  Free it with
+ * gcal_event_schedule_free().
+ */
+GcalEventSchedule *
+gcal_event_schedule_from_event (GcalEvent      *event,
+                                GcalTimeFormat  time_format)
+{
+  GcalScheduleValues values;
+  memset (&values, 0, sizeof (values));
+
+  if (event)
+    {
+      GcalRecurrence *recur = gcal_event_get_recurrence (event);
+
+      values.all_day = gcal_event_get_all_day (event);
+      values.date_start = g_date_time_ref (gcal_event_get_date_start (event));
+      values.date_end = g_date_time_ref (gcal_event_get_date_end (event));
+
+      if (recur)
+        {
+          values.recur = gcal_recurrence_copy (recur);
+        }
+      else
+        {
+          values.recur = NULL;
+        }
+    }
+
+  GcalEventSchedule *section_values = g_new0 (GcalEventSchedule, 1);
+
+  *section_values = (GcalEventSchedule) {
+    .orig = gcal_schedule_values_copy (&values),
+    .curr = values,
+    .time_format = time_format,
+  };
+
+  return section_values;
+}

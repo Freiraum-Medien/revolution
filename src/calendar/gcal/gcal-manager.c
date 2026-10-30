@@ -1,7 +1,10 @@
 /* Übernommen aus gnome-calendar 50.0 src/core/gcal-manager.c:1-1394 (ff4d7f7d, GPL-3.0-or-later). Revolution
  * #373: ohne Credential-Prompter (500-620), ohne Quellen-Commit beim Laden (296-310), ohne add/save_source,
- * refresh, Standardkalender und Schreib-API (create/update/remove/move_event, folgen mit #375); Registry der
- * App statt e_source_registry_new_sync (1299); Sichtbarkeit in den Einstellungen der App („hidden-calendars“). */
+ * refresh und Standardkalender; Registry der App statt e_source_registry_new_sync (1299); Sichtbarkeit in den
+ * Einstellungen der App („hidden-calendars“). #375: Schreib-API 1033-1230 (create/update/remove_event asynchron wie
+ * Vorlage, move_event_to_source im GTask-Worker statt *_sync im UI-Thread), Standardkalender 835-850 nur gelesen
+ * (ohne gcal_manager_set_default_calendar: schriebe die Evolution-Einstellung), Fehler als Signal „error“ für das
+ * Banner der Ansicht statt g_warning (241, 381, 417, 452; Monitor über GcalCalendar::error), Log für die Tests. */
 /* gcal-manager.c
  *
  * Copyright (C) 2015 Erick Pérez Castellanos <erickpc@gnome.org>
@@ -28,6 +31,8 @@
 #include "gcal-timeline.h"
 #include "gcal-timeline-subscriber.h"
 #include "gcal-utils.h"
+
+#include <glib/gi18n.h>
 
 /**
  * SECTION:gcal-manager
@@ -76,11 +81,32 @@ enum
   CALENDAR_ADDED,
   CALENDAR_CHANGED,
   CALENDAR_REMOVED,
+  ERROR,
   NUM_SIGNALS
 };
 
 static guint       signals[NUM_SIGNALS] = { 0, };
 static GParamSpec *properties[NUM_PROPS] = { NULL, };
+
+/* Revolution #375: Fehler für das Sammel-Banner der Ansicht (Architektur 3) und das Log der Tests. */
+static void
+report_error (GcalManager *self,
+              const gchar *title,
+              const gchar *detail)
+{
+  g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: Fehler: %s: %s", title, detail);
+  g_signal_emit (self, signals[ERROR], 0, title, detail);
+}
+
+static void
+on_calendar_error_cb (GcalCalendar *calendar,
+                      const gchar  *detail,
+                      GcalManager  *self)
+{
+  g_autofree gchar *title = g_strdup_printf (_("Could not load calendar “%s”"), gcal_calendar_get_name (calendar));
+
+  report_error (self, title, detail);
+}
 
 static void
 remove_source (GcalManager  *self,
@@ -238,7 +264,11 @@ on_calendar_created_cb (GObject      *source_object,
       if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED) &&
           !g_error_matches (error, GCAL_CALENDAR_ERROR, GCAL_CALENDAR_ERROR_NOT_CALENDAR))
         {
-          g_warning ("Failed to open/connect to calendar: %s", error->message);
+          ESource *source = gcal_calendar_get_source (GCAL_CALENDAR (source_object));
+          g_autofree gchar *title = g_strdup_printf (_("Could not connect to calendar “%s”"),
+                                                     e_source_get_display_name (source));
+
+          report_error (self, title, error->message);
         }
       return;
     }
@@ -261,6 +291,7 @@ on_calendar_created_cb (GObject      *source_object,
   g_hash_table_insert (self->clients, g_object_ref (source), calendar);
   g_list_store_insert_sorted (self->calendars_model, calendar, sort_calendar_by_name_cb, self);
   g_signal_connect (calendar, "notify::name", G_CALLBACK (on_calendar_name_changed_cb), self);
+  g_signal_connect (calendar, "error", G_CALLBACK (on_calendar_error_cb), self);
 
   gcal_timeline_add_calendar (self->timeline, calendar);
 
@@ -436,6 +467,16 @@ gcal_manager_class_init (GcalManagerClass *klass)
                                             G_TYPE_NONE,
                                             1,
                                             GCAL_TYPE_CALENDAR);
+
+  /* Revolution #375: Titel und Einzelheiten eines Fehlers beim Verbinden oder Schreiben (Banner). */
+  signals[ERROR] = g_signal_new ("error",
+                                 GCAL_TYPE_MANAGER,
+                                 G_SIGNAL_RUN_LAST,
+                                 0, NULL, NULL, NULL,
+                                 G_TYPE_NONE,
+                                 2,
+                                 G_TYPE_STRING,
+                                 G_TYPE_STRING);
 }
 
 static void
@@ -520,6 +561,320 @@ gcal_manager_get_timeline (GcalManager *self)
   g_return_val_if_fail (GCAL_IS_MANAGER (self), NULL);
 
   return self->timeline;
+}
+
+/**
+ * gcal_manager_get_default_calendar:
+ * @self: a #GcalManager
+ *
+ * Returns: (transfer none): a #GcalCalendar.
+ */
+GcalCalendar*
+gcal_manager_get_default_calendar (GcalManager *self)
+{
+  g_autoptr (ESource) default_source = NULL;
+  GcalCalendar *calendar;
+  guint n;
+
+  g_return_val_if_fail (GCAL_IS_MANAGER (self), NULL);
+
+  default_source = e_source_registry_ref_default_calendar (self->source_registry);
+  calendar = default_source != NULL ? g_hash_table_lookup (self->clients, default_source) : NULL;
+
+  /* Revolution #375: Standardkalender nur gelesen; ist er nicht schreibbar oder (noch) nicht verbunden, der erste
+   * schreibbare der Liste (Evolution: e_cal_ops_new_component_editor nimmt ebenso den ersten schreibbaren). */
+  n = g_list_model_get_n_items (G_LIST_MODEL (self->calendars_model));
+  for (guint i = 0; (calendar == NULL || gcal_calendar_is_read_only (calendar)) && i < n; i++)
+    {
+      g_autoptr (GcalCalendar) candidate = g_list_model_get_item (G_LIST_MODEL (self->calendars_model), i);
+
+      if (!gcal_calendar_is_read_only (candidate))
+        calendar = candidate;
+    }
+
+  return calendar;
+}
+
+static void
+on_event_created (GObject      *source_object,
+                  GAsyncResult *result,
+                  gpointer      user_data)
+{
+  g_autoptr (GcalManager) self = user_data;
+  g_autofree gchar *new_uid = NULL;
+  g_autoptr (GError) error = NULL;
+  ESource *source = e_client_get_source (E_CLIENT (source_object));
+
+  if (!e_cal_client_create_object_finish (E_CAL_CLIENT (source_object), result, &new_uid, &error))
+    {
+      g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: anlegen %s Fehler", e_source_get_uid (source));
+      report_error (self, _("Could not create event"), error->message);
+      return;
+    }
+
+  g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: anlegen %s fertig %s", e_source_get_uid (source), new_uid);
+}
+
+/**
+ * gcal_manager_create_event:
+ * @self: a #GcalManager
+ * @event: a #GcalEvent
+ *
+ * Creates @event.
+ */
+void
+gcal_manager_create_event (GcalManager *self,
+                           GcalEvent   *event)
+{
+  ECalComponent *component;
+  GcalCalendar *calendar;
+
+  GCAL_ENTRY;
+
+  g_return_if_fail (GCAL_IS_MANAGER (self));
+  g_return_if_fail (GCAL_IS_EVENT (event));
+
+  component = gcal_event_get_component (event);
+  calendar = gcal_event_get_calendar (event);
+
+  g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: anlegen %s „%s“", gcal_calendar_get_id (calendar),
+         gcal_event_get_summary (event));
+  e_cal_client_create_object (gcal_calendar_get_client (calendar),
+                              e_cal_component_get_icalcomponent (component),
+                              E_CAL_OPERATION_FLAG_NONE,
+                              NULL,
+                              on_event_created,
+                              g_object_ref (self));
+
+  GCAL_EXIT;
+}
+
+static void
+on_event_updated (GObject      *source_object,
+                  GAsyncResult *result,
+                  gpointer      user_data)
+{
+  g_autoptr (GcalManager) self = user_data;
+  g_autoptr (GError) error = NULL;
+  ESource *source = e_client_get_source (E_CLIENT (source_object));
+
+  if (!e_cal_client_modify_object_finish (E_CAL_CLIENT (source_object), result, &error))
+    {
+      g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: ändern %s Fehler", e_source_get_uid (source));
+      report_error (self, _("Could not save event"), error->message);
+      return;
+    }
+
+  g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: ändern %s fertig", e_source_get_uid (source));
+}
+
+/**
+ * gcal_manager_update_event:
+ * @self: a #GcalManager
+ * @event: a #GcalEvent
+ * @mod: an #GcalRecurrenceModType
+ *
+ * Saves all changes made to @event persistently.
+ */
+void
+gcal_manager_update_event (GcalManager           *self,
+                           GcalEvent             *event,
+                           GcalRecurrenceModType  mod)
+{
+  ECalComponent *component;
+  GcalCalendar *calendar;
+
+  GCAL_ENTRY;
+
+  g_return_if_fail (GCAL_IS_MANAGER (self));
+  g_return_if_fail (GCAL_IS_EVENT (event));
+
+  calendar = gcal_event_get_calendar (event);
+  component = gcal_event_get_component (event);
+
+  g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: ändern %s %s mod %d „%s“", gcal_calendar_get_id (calendar),
+         e_cal_component_get_uid (component), mod, gcal_event_get_summary (event));
+  e_cal_client_modify_object (gcal_calendar_get_client (calendar),
+                              e_cal_component_get_icalcomponent (component),
+                              (ECalObjModType) mod,
+                              E_CAL_OPERATION_FLAG_NONE,
+                              NULL,
+                              on_event_updated,
+                              g_object_ref (self));
+
+  GCAL_EXIT;
+}
+
+static void
+on_event_removed (GObject      *source_object,
+                  GAsyncResult *result,
+                  gpointer      user_data)
+{
+  GTask *task = user_data;
+  g_autoptr (GError) error = NULL;
+  GcalManager *self = g_task_get_source_object (task);
+  ESource *source = e_client_get_source (E_CLIENT (source_object));
+
+  if (!e_cal_client_remove_object_finish (E_CAL_CLIENT (source_object), result, &error))
+    {
+      g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: löschen %s Fehler", e_source_get_uid (source));
+      report_error (self, _("Could not delete event"), error->message);
+      g_task_return_error (task, g_steal_pointer (&error));
+    }
+  else
+    {
+      g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: löschen %s fertig", e_source_get_uid (source));
+      g_task_return_boolean (task, TRUE);
+    }
+  g_object_unref (task);
+}
+
+/**
+ * gcal_manager_remove_event:
+ * @self: a #GcalManager
+ * @event: a #GcalEvent
+ * @mod: an #GcalRecurrenceModType
+ * @callback: (nullable): Revolution #375: wird nach dem Schreiben gerufen (Beenden wartet darauf)
+ * @user_data: Daten für @callback
+ *
+ * Deletes @event.
+ */
+void
+gcal_manager_remove_event (GcalManager           *self,
+                           GcalEvent             *event,
+                           GcalRecurrenceModType  mod,
+                           GAsyncReadyCallback    callback,
+                           gpointer               user_data)
+{
+  ECalComponent *component;
+  GcalCalendar *calendar;
+  g_autofree gchar *rid = NULL;
+  const gchar *uid;
+
+  GCAL_ENTRY;
+
+  g_return_if_fail (GCAL_IS_MANAGER (self));
+  g_return_if_fail (GCAL_IS_EVENT (event));
+
+  component = gcal_event_get_component (event);
+  calendar = gcal_event_get_calendar (event);
+
+  uid = e_cal_component_get_uid (component);
+
+  if (gcal_event_has_recurrence (event))
+    rid = e_cal_component_get_recurid_as_string (component);
+
+  g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: löschen %s %s rid %s mod %d", gcal_calendar_get_id (calendar), uid,
+         mod == GCAL_RECURRENCE_MOD_ALL || rid == NULL ? "-" : rid, mod);
+  e_cal_client_remove_object (gcal_calendar_get_client (calendar),
+                              uid,
+                              mod == GCAL_RECURRENCE_MOD_ALL ? NULL : rid,
+                              (ECalObjModType) mod,
+                              E_CAL_OPERATION_FLAG_NONE,
+                              NULL,
+                              on_event_removed,
+                              g_task_new (self, NULL, callback, user_data));
+
+  GCAL_EXIT;
+}
+
+/* Revolution #375: Verschieben in einen anderen Kalender im Worker (Vorlage: create/remove_object_sync im
+ * UI-Thread, gcal-manager.c:1194, 1218); Reihenfolge wie Vorlage: erst anlegen, dann im alten löschen. */
+typedef struct
+{
+  ECalClient      *from;
+  ECalClient      *to;
+  ECalComponent   *component;
+} MoveData;
+
+static void
+move_data_free (MoveData *data)
+{
+  g_clear_object (&data->from);
+  g_clear_object (&data->to);
+  g_clear_object (&data->component);
+  g_free (data);
+}
+
+static void
+move_event_thread (GTask        *task,
+                   gpointer      source_object,
+                   gpointer      task_data,
+                   GCancellable *cancellable)
+{
+  MoveData *data = task_data;
+  g_autoptr (ECalComponent) clone = e_cal_component_clone (data->component);
+  ECalComponentId *id = e_cal_component_get_id (data->component);
+  g_autofree gchar *new_uid = NULL;
+  GError *error = NULL;
+
+  if (e_cal_client_create_object_sync (data->to, e_cal_component_get_icalcomponent (clone), E_CAL_OPERATION_FLAG_NONE,
+                                       &new_uid, cancellable, &error) &&
+      e_cal_client_remove_object_sync (data->from, e_cal_component_id_get_uid (id), e_cal_component_id_get_rid (id),
+                                       E_CAL_OBJ_MOD_THIS, E_CAL_OPERATION_FLAG_NONE, cancellable, &error))
+    g_task_return_pointer (task, g_steal_pointer (&new_uid), g_free);
+  else
+    g_task_return_error (task, error);
+  e_cal_component_id_free (id);
+}
+
+static void
+on_event_moved (GObject      *source_object,
+                GAsyncResult *result,
+                gpointer      user_data)
+{
+  GcalManager *self = GCAL_MANAGER (source_object);
+  g_autoptr (GError) error = NULL;
+  g_autofree gchar *new_uid = g_task_propagate_pointer (G_TASK (result), &error);
+
+  if (new_uid == NULL)
+    {
+      g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: verschieben Fehler");
+      report_error (self, _("Could not move event"), error != NULL ? error->message : "");
+      return;
+    }
+  g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: verschieben fertig %s", new_uid);
+}
+
+/**
+ * gcal_manager_move_event_to_source:
+ * @self: a #GcalManager
+ * @event: a #GcalEvent
+ * @dest: the destination calendar
+ *
+ * Moves @event to @dest calendar. This is a fail-safe operation:
+ * worst case, the user will have two duplicated events, and we
+ * guarantee to never loose any data.
+ */
+void
+gcal_manager_move_event_to_source (GcalManager *self,
+                                   GcalEvent   *event,
+                                   ESource     *dest)
+{
+  g_autoptr (GTask) task = NULL;
+  GcalCalendar *calendar;
+  MoveData *data;
+
+  GCAL_ENTRY;
+
+  g_return_if_fail (GCAL_IS_MANAGER (self));
+  g_return_if_fail (GCAL_IS_EVENT (event));
+  g_return_if_fail (E_IS_SOURCE (dest));
+
+  calendar = g_hash_table_lookup (self->clients, dest);
+  g_return_if_fail (calendar != NULL);
+
+  data = g_new0 (MoveData, 1);
+  data->to = g_object_ref (gcal_calendar_get_client (calendar));
+  data->from = g_object_ref (gcal_calendar_get_client (gcal_event_get_calendar (event)));
+  data->component = g_object_ref (gcal_event_get_component (event));
+  g_log ("revolution", G_LOG_LEVEL_DEBUG, "Kalender: verschieben %s %s nach %s",
+         gcal_calendar_get_id (gcal_event_get_calendar (event)), gcal_event_get_uid (event), e_source_get_uid (dest));
+  task = g_task_new (self, NULL, on_event_moved, NULL);
+  g_task_set_task_data (task, data, (GDestroyNotify) move_data_free);
+  g_task_run_in_thread (task, move_event_thread);
+
+  GCAL_EXIT;
 }
 
 /**

@@ -1,5 +1,5 @@
 /* Übernommen aus gnome-calendar 50.0 src/utils/gcal-utils.h:1-141 (ff4d7f7d, GPL-3.0-or-later). Revolution
- * #373: nur die benutzten Deklarationen und Makros, ohne gweather. */
+ * #373: nur die benutzten Deklarationen und Makros, ohne gweather. #375 dazu 47-49, 60-61, 74-76, 122-126, 132, 138. */
 /*
  * gcal-window.h
  * Copyright (C) 2015 Erick Pérez Castellanos <erickpc@gnome.org>
@@ -35,6 +35,10 @@
 #define gcal_clear_timeout(pp) { if (pp && *pp) { g_source_remove (*pp); *pp = 0; } }
 #define gcal_clear_signal_handler(pp,instance) { if (pp && *pp > 0) { g_signal_handler_disconnect (instance, *pp); *pp = 0; } }
 
+typedef void (*GcalAskRecurrenceCallback) (GcalEvent             *event,
+                                           GcalRecurrenceModType  modtype,
+                                           gpointer               user_data);
+
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (ECalComponent, g_object_unref)
 
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (ICalTime, g_object_unref)
@@ -58,5 +62,22 @@ GList*               filter_children_by_uid_and_modtype          (GtkWidget     
                                                                   const gchar           *uid);
 
 const gchar*         gcal_get_service_name_from_url              (const gchar        *url);
+
+ECalComponent*       build_component_from_details                (const gchar        *summary,
+                                                                  GDateTime          *initial_date,
+                                                                  GDateTime          *final_date);
+
+void                 gcal_utils_ask_recurrence_modification_type (GtkWidget                 *parent,
+                                                                  GcalEvent                 *event,
+                                                                  gboolean                   show_mod_all,
+                                                                  GcalAskRecurrenceCallback  callback,
+                                                                  gpointer                   user_data);
+
+gboolean             gcal_is_valid_event_name                    (const gchar          *event_name);
+
+GListModel *         gcal_create_writable_calendars_model        (GcalManager        *manager);
+
+GdkPaintable*        get_circle_paintable_from_color             (const GdkRGBA      *color,
+                                                                  gint                size);
 
 #endif /* __GCAL_UTILS_H__ */

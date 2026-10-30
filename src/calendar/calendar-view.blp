@@ -82,6 +82,13 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
     Shortcut {
       trigger: "<Control>n";
       action: "action(calendar.new-event)";
+      arguments: "''";
+    }
+
+    // #375: Entf löscht den Termin mit offenem Popover bzw. Fokus (calendar-view.c on_delete_event).
+    Shortcut {
+      trigger: "Delete";
+      action: "action(calendar.delete-event)";
     }
 
     Shortcut {
@@ -370,6 +377,16 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
         };
       }
 
+      // #375: Fehler beim Verbinden eines Kalenders oder beim Schreiben als AdwBanner wie contacts-view.blp
+      // (Architektur 3), kurzer Titel, Einzelheiten im Tooltip (calendar-view.c on_manager_error).
+      [top]
+      Adw.Banner banner {
+        use-markup: false;
+        // #375 (PM): Schließen blendet aus (wie contacts-view.c adw_banner_set_revealed FALSE).
+        button-label: _("_Close");
+        button-clicked => $on_banner_close() swapped;
+      }
+
       // Monat, Woche und Tag (gcal-window.blp:213-247).
       content: Adw.ViewStack views {
         hexpand: true;
@@ -384,6 +401,11 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
           // #373: GcalMonthView (gnome-calendar 50.0) mit Wochentagen, flüssigem Scrollen und
           // „+N“-Popover; Kontext und Timeline setzt calendar-view.c.
           child: $GcalMonthView month_view {
+            // #375: Klick öffnet das Popover, Doppelklick/Ziehen legt an (calendar-view.c).
+            event-activated => $on_event_activated();
+            create-event => $on_create_event_at();
+            create-event-detailed => $on_create_event();
+
             hexpand: true;
             vexpand: true;
 
@@ -402,6 +424,11 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
           // #374: GcalWeekView (gnome-calendar 50.0) mit Zeitraster, Ganztagsleiste, Überlappungen
           // nebeneinander und Heute-Linie; Kontext und Timeline setzt calendar-view.c.
           child: $GcalWeekView week_view {
+            // #375: Klick öffnet das Popover, Doppelklick/Ziehen legt an (calendar-view.c).
+            event-activated => $on_event_activated();
+            create-event => $on_create_event_at();
+            create-event-detailed => $on_create_event();
+
             accessibility {
               label: _("Week");
             }
@@ -417,6 +444,11 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
           icon-name: "calendar-today-symbolic";
 
           child: $GcalWeekView day_view {
+            // #375: Klick öffnet das Popover, Doppelklick/Ziehen legt an (calendar-view.c).
+            event-activated => $on_event_activated();
+            create-event => $on_create_event_at();
+            create-event-detailed => $on_create_event();
+
             n-days: 1;
 
             accessibility {
@@ -475,6 +507,7 @@ template $RevolutionCalendarView: Adw.BreakpointBin {
           icon-name: "list-add-symbolic";
           tooltip-text: _("Add Event");
           action-name: "calendar.new-event";
+          action-target: "''";
 
           accessibility {
             label: _("Add Event");
@@ -492,6 +525,7 @@ menu primary_menu {
     item {
       label: _("_New Event");
       action: "calendar.new-event";
+      target: "";
       accel: "<primary>n";
     }
 

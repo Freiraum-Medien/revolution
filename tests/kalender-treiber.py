@@ -39,7 +39,7 @@ import traceback
 
 import gi
 gi.require_version('Atspi', '2.0')
-from gi.repository import Atspi  # noqa: E402
+from gi.repository import Atspi, GLib  # noqa: E402
 from PIL import Image  # noqa: E402
 from Xlib import X, XK, display, protocol  # noqa: E402
 from Xlib.ext import xtest  # noqa: E402
@@ -66,6 +66,8 @@ app = None
 log_datei = None
 log_start = 0  # Beginn des Logs des laufenden App-Starts (Neustart hängt an)
 schreibvorgaenge = {}
+# #375: Schreibvorgänge der vorigen Teile desselben kalender.sh-Laufs („UID=n …“), Grenze 20 je Kalender und Lauf.
+SCHREIB_VORHER = {k: int(v) for k, v in (x.split('=') for x in os.environ.get('SCHREIB_VORHER', '').split() if '=' in x)}
 
 
 def ok(text):
@@ -105,8 +107,9 @@ def testdaten(*args):
     """tests/testdaten.py in eigenem Prozess; Ausgabe zurück, Abbruch → FEHLER. Höchstens 20 Schreibvorgänge je
     Kalender und Lauf (Briefing Zusatz M7): vor dem 21. bricht der Treiber ab."""
     if args[0] == '--termin-live' and args[1] != 'pruefen':
-        if schreibvorgaenge.get(args[2], 0) >= 20:
-            raise RuntimeError('20 Schreibvorgänge in %s erreicht' % args[2])
+        # #375: Grenze je Lauf über alle Teile (kalender.sh: SCHREIB_VORHER aus den vorigen Teilen).
+        if schreibvorgaenge.get(args[2], 0) + SCHREIB_VORHER.get(args[2], 0) >= 20:
+            raise RuntimeError('20 Schreibvorgänge in %s erreicht (Lauf)' % args[2])
     r = subprocess.run([sys.executable, TESTDATEN] + list(args), capture_output=True, text=True, timeout=300)
     for z in (r.stdout + r.stderr).splitlines():
         print('        testdaten %s: %s' % (args[0], z), flush=True)
@@ -626,21 +629,27 @@ NSPALTEN = [7]
 def warte_termine(seite, namen, zeit=60, weg=False):
     ende = time.monotonic() + zeit
     while True:
-        v, g = raster(seite)
-        t = termine_in(v, g) if v is not None else {}
+        try:
+            v, g = raster(seite)
+            t = termine_in(v, g) if v is not None else {}
+        except GLib.Error:
+            # #375: Termin-Widget verschwand während der Abfrage (Live-Änderung), neu lesen.
+            v, g, t = None, None, {}
         if all((n in t) != weg for n in namen) or time.monotonic() > ende:
             return v, g, t
         time.sleep(0.2)
 
 
-def testwoche_anlegen(kal, montag):
-    """Drei überlappende (Di 10:00, 10:30, 10:45, je 1 h), ganztägig (Mi), mehrtägig (Do 14:00 – Sa 16:00)."""
+def testwoche_anlegen(kal, montag, kal_kopf=None):
+    """Drei überlappende (Di 10:00, 10:30, 10:45, je 1 h), ganztägig (Mi), mehrtägig (Do 14:00 – Sa 16:00).
+    #375: überlappende in kal, ganztägig/mehrtägig in kal_kopf (Schreibvorgänge auf zwei Kalender verteilt)."""
     namen = {}
     di, mi, do = (montag + datetime.timedelta(days=i) for i in (1, 2, 3))
     for art, aktion, wann in (('ueber1', 'anlegen', '%sT10:00' % di), ('ueber2', 'anlegen', '%sT10:30' % di),
                               ('ueber3', 'anlegen', '%sT10:45' % di), ('ganztags', 'ganztags', '%sT00:00' % mi),
                               ('mehrtaegig', 'mehrtaegig', '%sT14:00' % do)):
-        aus = testdaten('--termin-live', aktion, kal, datei(kal, art), wann)
+        k = kal_kopf if kal_kopf and art in ('ganztags', 'mehrtaegig') else kal
+        aus = testdaten('--termin-live', aktion, k, datei(k, art), wann)
         namen[art] = re.search(r'^ANGELEGT \S+ \S+ (.+)$', aus, re.M).group(1)
     return namen
 
@@ -703,11 +712,13 @@ def heute_linie(seite, spalte_heute):
 
 
 def woche():
-    kal = SCHREIBBAR[0]
+    # #375: Testwoche und Live im lokalen Kalender (ohne Server), ganztägig/mehrtägig im ersten (Gmail): ein voller Lauf
+    # bleibt so unter 20 Schreibvorgängen je Kalender (PM 29.10.).
+    kal = SCHREIBBAR[-1]
     heute = datetime.date.today()
     montag_heute = heute - datetime.timedelta(days=heute.weekday())
     montag = montag_heute + datetime.timedelta(days=7)
-    namen = testwoche_anlegen(kal, montag)
+    namen = testwoche_anlegen(kal, montag, SCHREIBBAR[0])
     taste_ansicht(('Alt_L', '2'), 'week', heute, 'Alt+2')
     taste_ansicht(('Alt_L', 'Right'), 'week', heute + datetime.timedelta(days=7), 'Woche Alt+Rechts')
     v = finde(wurzel(), 'panel', 'Woche')
@@ -721,9 +732,13 @@ def woche():
                        for e in es if e[4] and spalte(g, e[0] + 2) == 1) if g else []
     kopf_di = sorted(n for n, es in t.items() for e in es if not e[4] and g and
                      spalte(g, e[0] + 2) <= 1 <= spalte(g, e[0] + e[2] - 2))
-    # Tag: Alt+3 zeigt den gewählten Tag (Donnerstag der Testwoche), Alt+Links 2× = Dienstag.
+    # Tag: Alt+3 zeigt den gewählten Tag (heute + 7), dann zum Donnerstag der Testwoche, Alt+Links, Bild auf = Dienstag.
+    # #375: unabhängig vom Wochentag des Laufs (vorher nur donnerstags richtig).
     taste_ansicht(('Alt_L', '3'), 'day', heute + datetime.timedelta(days=7), 'Alt+3')
     di = montag + datetime.timedelta(days=1)
+    schritte = (heute + datetime.timedelta(days=7) - (di + datetime.timedelta(days=2))).days
+    for _ in range(abs(schritte)):
+        taste('Alt_L', 'Left' if schritte > 0 else 'Right')
     taste_ansicht(('Alt_L', 'Left'), 'day', di + datetime.timedelta(days=1), 'Tag Alt+Links')
     taste_ansicht(('Prior',), 'day', di, 'Tag Bild auf')
     v2, g2, t2 = lage_pruefen('Tag', {a: n for a, n in namen.items() if a.startswith('ueber')}, 0, 1)
@@ -754,7 +769,8 @@ def woche():
     (ok if warte(r'Kalender: Ansicht month Datum ', ab, 10) else falsch)('Alt+1: Ansicht month (Log)')
     taste_ansicht(('Alt_L', '2'), 'week', heute, 'Alt+2 aus dem Monat')
     taste_ansicht(('Alt_L', 'Right'), 'week', heute + datetime.timedelta(days=7), 'Woche Alt+Rechts (Testwoche)')
-    # Live von außen (zweiter Python-GI-Prozess), Mittwoch 15:00 der Testwoche.
+    # Live von außen (zweiter Python-GI-Prozess), Mittwoch 15:00 der Testwoche (lokal; in outlook.com kam die neue Zeit
+    # in der Woche nicht an, nur der Titel: m7-375-r3-final/-final2, offen als Folgepunkt).
     pfad = datei(kal, 'live')
     aus = testdaten('--termin-live', 'anlegen', kal, pfad, '%sT15:00' % (montag + datetime.timedelta(days=2)))
     name = re.search(r'^ANGELEGT \S+ \S+ (.+)$', aus, re.M).group(1)
@@ -767,10 +783,19 @@ def woche():
             sp, dauer, LIVE_GRENZE))
     testdaten('--termin-live', 'aendern', kal, pfad)
     t0 = time.monotonic()
-    _, g, t = warte_termine('Woche', [name + ' geändert'], 30)
+    # #375 Runde 3: Titel und Zeit können getrennt ankommen (outlook.com: erst der Titel, gemessen m7-375-r3-final);
+    # gewartet wird auf beides.
+    while True:
+        _, g, t = warte_termine('Woche', [name + ' geändert'], 30)
+        e = t.get(name + ' geändert', [None])[0]
+        try:
+            beginn = round((e[1] - ausdehnung(g)[1]) / ausdehnung(g)[3] * 1440) if e else None
+        except GLib.Error:
+            beginn = None
+        if (beginn is not None and abs(beginn - 16 * 60) <= 3) or time.monotonic() - t0 > 30:
+            break
+        time.sleep(0.2)
     dauer = time.monotonic() - t0
-    e = t.get(name + ' geändert', [None])[0]
-    beginn = round((e[1] - ausdehnung(g)[1]) / ausdehnung(g)[3] * 1440) if e else None
     (ok if e and dauer <= LIVE_GRENZE and abs(beginn - 16 * 60) <= 3 and name not in t else falsch)(
         'Live ändern: neuer Titel und Beginn %s min (soll 960 = 16:00) nach %.1f s' % (beginn, dauer))
     testdaten('--termin-live', 'loeschen', kal, pfad)
@@ -780,6 +805,918 @@ def woche():
     (ok if name + ' geändert' not in t and dauer <= LIVE_GRENZE else falsch)(
         'Live löschen: aus der Woche nach %.1f s' % dauer)
 
+
+# ------------------------------------------------------------------ #375 Termine anlegen, bearbeiten, löschen, Erinnerung
+
+TASTEN = {' ': ('space',), '-': ('minus',), '.': ('period',), ',': ('comma',), ':': ('Shift_L', 'semicolon'),
+          '/': ('slash',)}
+
+
+def tippe(text):
+    """Text über die Tastatur (XTEST, US-Belegung des Xvfb)."""
+    for ch in text:
+        namen = TASTEN.get(ch) or (('Shift_L', ch.lower()) if ch.isupper() else (ch,))
+        codes = [d.keysym_to_keycode(XK.string_to_keysym(n)) for n in namen]
+        for c in codes:
+            xtest.fake_input(d, X.KeyPress, c)
+        for c in reversed(codes):
+            xtest.fake_input(d, X.KeyRelease, c)
+        d.sync()
+        time.sleep(0.03)
+    time.sleep(0.3)
+
+
+def app_schreibt(kal, was):
+    """Vor jedem Schreibvorgang der App: nur freigegebene Kalender, höchstens 20 je Kalender und Lauf (alle Teile)."""
+    if kal not in SCHREIBBAR:
+        raise RuntimeError('Schreiben in %s nicht freigegeben (%s)' % (kal, was))
+    if schreibvorgaenge.get(kal, 0) + SCHREIB_VORHER.get(kal, 0) >= 20:
+        raise RuntimeError('20 Schreibvorgänge in %s erreicht (Lauf)' % kal)
+    schreibvorgaenge[kal] = schreibvorgaenge.get(kal, 0) + 1
+    print('SCHREIBVORGANG %s (App: %s)' % (kal, was), flush=True)
+
+
+def warte_obj(fn, zeit=10):
+    ende = time.monotonic() + zeit
+    while time.monotonic() < ende:
+        o = fn()
+        if o is not None:
+            return o
+        time.sleep(0.2)
+    return None
+
+
+def dialog(zeit=10):
+    """Editor (Adw.Dialog), erst wenn sein Inhalt im Barrierefreiheitsbaum steht (Kalenderwahl)."""
+    def fertig():
+        dlg = finde(wurzel(), 'dialog', None)
+        return dlg if dlg is not None and finde(dlg, 'combo box', 'Kalender') is not None else None
+    return warte_obj(fertig, zeit)
+
+
+def druecke(o):
+    """Knopf über AT-SPI auslösen (Popover-Flächen haben eigene Koordinaten), sonst Klick."""
+    try:
+        a = o.get_action_iface()
+        if a is not None and a.get_n_actions() > 0:
+            a.do_action(0)
+            time.sleep(0.5)
+            return
+    except Exception:
+        pass
+    klick(*mitte(o))
+
+
+def zeigen(dlg, o):
+    """Element in den sichtbaren Teil des Editors scrollen (Mausrad über dem Inhalt), sonst träfe der Klick daneben."""
+    sp = warte_obj(lambda: finde(dlg, 'scroll pane', None), 5)
+    for _ in range(30 if sp is not None else 0):
+        sx, sy, sb, sh = ausdehnung(sp)
+        ox, oy, ob, oh = ausdehnung(o)
+        if oy >= sy and oy + oh <= sy + sh:
+            return
+        xtest.fake_input(d, X.MotionNotify, x=sx + sb // 2 + VERSATZ, y=sy + sh // 2 + VERSATZ)
+        knopf = 5 if oy + oh > sy + sh else 4
+        xtest.fake_input(d, X.ButtonPress, knopf)
+        xtest.fake_input(d, X.ButtonRelease, knopf)
+        d.sync()
+        time.sleep(0.15)
+    time.sleep(0.3)
+
+
+def feld_setzen(dlg, name, text):
+    """Textfeld per Maus wählen, Inhalt per Tastatur ersetzen, Tab (Datum/Zeit werten beim Verlassen aus)."""
+    o = finde(dlg, 'text', name)
+    if o is None:
+        raise RuntimeError('Feld „%s“ nicht gefunden' % name)
+    zeigen(dlg, o)
+    klick(*mitte(o))
+    taste('Control_L', 'a')
+    tippe(text)
+    taste('Tab')
+
+
+def kombi_auswahl(dlg, name):
+    c = finde(dlg, 'combo box', name)
+    lst = c and finde(c, 'list', None)
+    namen = [x.get_name() for x in alle(lst, 'label')] if lst else []
+    return namen[0] if namen else None
+
+
+def kombi_eintraege(c):
+    """Einträge (ohne Abschnittsköpfe) des offenen Popovers einer Adw.ComboRow in Reihenfolge."""
+    sp = finde(c, 'scroll pane', None)
+    out = []
+    for lab in alle(sp, 'label') if sp else []:
+        p, eintrag = lab.get_parent(), False
+        for _ in range(5):
+            if p is None:
+                break
+            if p.get_role_name() == 'list item':
+                eintrag = True
+                break
+            p = p.get_parent()
+        if eintrag:
+            out.append(lab.get_name())
+    return out
+
+
+def kombi_waehlen(dlg, name, ziel, nummer=0):
+    """Adw.ComboRow: Popover per Maus öffnen, Eintrag per Tastatur (Pos1, Ab, Eingabe); nummer = n-ter gleichnamiger."""
+    c = finde(dlg, 'combo box', name)
+    zeigen(dlg, c)
+    klick(*mitte(c))
+    time.sleep(1)
+    eintraege = kombi_eintraege(c)
+    treffer = [i for i, n in enumerate(eintraege) if n == ziel]
+    if len(treffer) <= nummer:
+        taste('Escape')
+        raise RuntimeError('„%s“ nicht in %s: %s' % (ziel, name, eintraege))
+    taste('Home')
+    for _ in range(treffer[nummer]):
+        taste('Down')
+    taste('Return')
+    time.sleep(0.5)
+    return eintraege
+
+
+def erinnerung_waehlen(dlg, text):
+    knopf = finde(dlg, 'button', 'Erinnerung hinzufügen')
+    zeigen(dlg, knopf)
+    klick(*mitte(knopf))  # Gtk.ListBox::row-activated (Klick)
+    time.sleep(1)
+    o = warte_obj(lambda: finde(wurzel(), 'menu item', text), 5)
+    if o is None:
+        raise RuntimeError('Erinnerung „%s“ nicht im Popover' % text)
+    druecke(o)
+    time.sleep(0.5)
+
+
+def speichern_und_warten(kal, art, ab, zeit=60):
+    """Strg+Enter im Editor; Log „Kalender: <art> <kal> fertig“ bzw. „Fehler“."""
+    app_schreibt(kal, art)
+    taste('Control_L', 'Return')
+    return warte(r'Kalender: %s %s (fertig|Fehler)(?: (\S+))?$' % (art, re.escape(kal)), ab, zeit)
+
+
+def zeit_utc(tag, hh, mm):
+    return datetime.datetime(tag.year, tag.month, tag.day, hh, mm).astimezone().astimezone(
+        datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def felder(text, kopf):
+    return {m.group(1): m.group(2) for m in re.finditer(r'^%s (\S+) (.*)$' % kopf, text, re.M) if m.group(1) != 'ausnahme'}
+
+
+def ausnahmen(text, kopf):
+    return sorted(re.findall(r'^%s ausnahme (\S+) titel (.*) beginn (\S+)$' % kopf, text, re.M))
+
+
+def gegenprobe(kal, uid, soll, text, mit_server=True, ausnahme_soll=None):
+    """Zweiter Prozess (Python-GI) und Server ohne EDS zeigen die Felder wie im Editor."""
+    t0 = time.monotonic()
+    while True:
+        gi = testdaten('--termin-details', kal, uid)
+        ist = felder(gi, 'GI')
+        if all(ist.get(k) == v for k, v in soll.items()) or time.monotonic() - t0 > 60:
+            break
+        time.sleep(3)
+    abw = {k: (ist.get(k), v) for k, v in soll.items() if ist.get(k) != v}
+    (ok if not abw else falsch)('%s %s: Python-GI = Editor (%s)%s' % (text, kal[:8], ', '.join(sorted(soll)),
+                                                                      '' if not abw else ': %s' % abw))
+    if ausnahme_soll is not None:
+        a = [(r, t) for r, t, _ in ausnahmen(gi, 'GI')]
+        (ok if a == ausnahme_soll else falsch)('%s %s: Python-GI Ausnahmen %s (soll %s)' % (text, kal[:8], a, ausnahme_soll))
+    if not mit_server or kal == 'system-calendar':
+        return
+    t0 = time.monotonic()
+    while True:
+        srv = testdaten('--termin-server', kal, uid)
+        ist = felder(srv, 'SERVER')
+        if all(ist.get(k) == v for k, v in soll.items()) or time.monotonic() - t0 > 90:
+            break
+        time.sleep(5)
+    abw = {k: (ist.get(k), v) for k, v in soll.items() if ist.get(k) != v}
+    (ok if not abw else falsch)('%s %s: Server ohne EDS = Editor%s' % (text, kal[:8], '' if not abw else ': %s' % abw))
+    if ausnahme_soll is not None:
+        a = [(r, t) for r, t, _ in ausnahmen(srv, 'SERVER')]
+        (ok if a == ausnahme_soll else falsch)('%s %s: Server Ausnahmen %s (soll %s)' % (text, kal[:8], a, ausnahme_soll))
+
+
+def termin_widget(name, zeit=30):
+    return warte_obj(lambda: next((b for b in alle(wurzel(), 'toggle button') if b.get_name() == name), None), zeit)
+
+
+def popover_oeffnen(name, eigene=None, zeit=30):
+    """Klick auf den Termin; Log „Kalender: Popover <UID>“. eigene: erlaubte Termin-UIDs (Komponenten-UID)."""
+    w = termin_widget(name, zeit)
+    if w is None:
+        raise RuntimeError('Termin „%s“ nicht sichtbar' % name)
+    ab = marke()
+    klick(*mitte(w))
+    m = warte(r'Kalender: Popover (\S+)$', ab, 10)
+    if m is None:
+        raise RuntimeError('kein Popover für „%s“' % name)
+    if eigene is not None and m.group(1).split(':')[1] not in eigene:
+        taste('Escape')
+        raise RuntimeError('Popover zeigt fremden Termin %s' % m.group(1))
+    time.sleep(0.8)
+    return m.group(1)
+
+
+def bearbeiten(name, eigene, bilder=None):
+    """Popover, „Bearbeiten“ (Fokus liegt auf dem Knopf, gcal-event-popover.c set_event_internal) → Editor."""
+    termin = popover_oeffnen(name, eigene)
+    if bilder:
+        bild_beide(bilder)
+    ab = marke()
+    taste('Return')
+    m = warte(r'Kalender: Editor bearbeiten (\S+) (\S+)$', ab, 10)
+    if m is None or m.group(1) not in SCHREIBBAR or m.group(2) != termin:
+        raise RuntimeError('Editor nicht für %s geöffnet (%s)' % (termin, m and m.group(0)))
+    return dialog(), m.group(1)
+
+
+def neuer_termin(dlg, kal_name, titel, ort, notiz, ganztags, tag, von=None, bis=None, erinnerung=None, woechentlich=False,
+                 per_tastatur=True):
+    """Felder im Editor setzen (Titel/Ort per Tastatur bzw. Maus, Kalender, Zeit, Wiederholung, Erinnerung, Notiz)."""
+    if per_tastatur:
+        tippe(titel)          # Fokus steht im Titel (gcal-summary-section)
+        taste('Tab')
+        tippe(ort)
+    else:
+        feld_setzen(dlg, 'Titel', titel)
+        feld_setzen(dlg, 'Ort', ort)
+    kombi_waehlen(dlg, 'Kalender', kal_name)
+    if not ganztags:
+        klick(*mitte(finde(dlg, 'radio button', 'Zeitfenster')))
+        time.sleep(0.5)
+        # Reihenfolge: Daten, Ende, Beginn (GcalEventSchedule verschiebt sonst das Ende bzw. den Beginn mit).
+        feld_setzen(dlg, 'Anfangsdatum', tag.strftime('%d.%m.%Y'))
+        feld_setzen(dlg, 'Enddatum', tag.strftime('%d.%m.%Y'))
+        feld_setzen(dlg, 'Endzeit', bis)
+        feld_setzen(dlg, 'Anfangszeit', von)
+    else:
+        feld_setzen(dlg, 'Anfangsdatum', tag.strftime('%d.%m.%Y'))
+        feld_setzen(dlg, 'Enddatum', tag.strftime('%d.%m.%Y'))
+    if woechentlich:
+        kombi_waehlen(dlg, 'Wiederholen', 'Wöchentlich')
+        kombi_waehlen(dlg, 'Wiederholung beenden', 'Anzahl Wiederholungen')
+        # Runde 2: 3 Vorkommen (Spinbutton „Anzahl Wiederholungen“, Vorgabe 2), für „Nachfolgende Termine“.
+        spin = finde(dlg, 'spin button', None)
+        zeigen(dlg, spin)
+        klick(*mitte(spin))
+        taste('Control_L', 'a')
+        tippe('3')
+        taste('Tab')
+    if erinnerung:
+        erinnerung_waehlen(dlg, erinnerung)
+    # Notiz über AT-SPI (EditableText), das Feld liegt meist unter dem sichtbaren Teil.
+    finde(dlg, 'text', 'Notizen').get_editable_text_iface().set_text_contents(notiz)
+    gewaehlt = kombi_auswahl(dlg, 'Kalender')
+    if gewaehlt != kal_name:
+        taste('Escape')
+        raise RuntimeError('Kalenderwahl „%s“ statt „%s“, nicht gespeichert' % (gewaehlt, kal_name))
+
+
+def eigene_datei(kal, art, uid, titel):
+    with open(datei(kal, art), 'w') as f:
+        f.write('TERMIN %s %s %s\n' % (kal, uid, titel))
+
+
+def notify_mitschnitt():
+    """dbus-monitor nur lesend auf Notify (fdo) und AddNotification (org.gtk.Notifications, GNotification von
+    evolution-alarm-notify, e-alarm-notify.c:345)."""
+    pfad = os.path.join(OUT, NAME + '-notify.txt')
+    f = open(pfad, 'w')
+    p = subprocess.Popen(['dbus-monitor', '--session', "interface='org.freedesktop.Notifications',member='Notify'",
+                          "interface='org.gtk.Notifications',member='AddNotification'"], stdout=f, stderr=subprocess.STDOUT)
+    return p, f, pfad
+
+
+def zur_woche(heute, wochen=0):
+    """Woche von heute (+ wochen): Monat, Strg+T, Woche, Alt+Rechts (Log je Schritt nicht nötig)."""
+    taste('Alt_L', '1')
+    taste('Control_L', 't')
+    taste('Alt_L', '2')
+    for _ in range(wochen):
+        taste('Alt_L', 'Right')
+    ab = marke()
+    time.sleep(1.5)
+    return ab
+
+
+def thema(name):
+    """Design der laufenden Test-App umschalten (app.theme über org.gtk.Actions, nur die Devel-Instanz dieses Laufs)."""
+    app_id = os.environ['APP_ID']
+    subprocess.run(['gdbus', 'call', '--session', '-d', app_id, '-o', '/' + app_id.replace('.', '/'), '-m',
+                    'org.gtk.Actions.Activate', 'theme', "[<'%s'>]" % name, '{}'], capture_output=True, timeout=10)
+    time.sleep(1.2)
+
+
+def bild_beide(schritt):
+    """Bild hell und dunkel (#375 DoD Screenshots), danach wieder hell."""
+    bild(schritt + '-hell')
+    thema('dunkel')
+    bild(schritt + '-dunkel')
+    thema('hell')
+
+
+def doppelklick(x, y):
+    xtest.fake_input(d, X.MotionNotify, x=x, y=y)
+    d.sync()
+    time.sleep(0.2)
+    for _ in range(2):
+        xtest.fake_input(d, X.ButtonPress, 1)
+        xtest.fake_input(d, X.ButtonRelease, 1)
+        d.sync()
+        time.sleep(0.08)
+    time.sleep(1)
+
+
+def editor_felder():
+    """Anfangsdatum, Enddatum, Anfangszeit, Endzeit (Text) des offenen Editors."""
+    dlg = dialog()
+    out = {}
+    for name in ('Anfangsdatum', 'Enddatum', 'Anfangszeit', 'Endzeit'):
+        o = finde(dlg, 'text', name) if dlg else None
+        out[name] = Atspi.Text.get_text(o, 0, -1) if o else None
+    return out
+
+
+def editor_zu(ab, text):
+    for _ in range(3):
+        if dialog(1) is None:
+            break
+        taste('Escape')
+    (ok if not warte(r'Kalender: anlegen ', ab, 1) else falsch)('%s: Escape, nichts geschrieben' % text)
+
+
+def einfach_doppel(heute, montag):
+    """Runde 2/3 (PM): leere Flächen der Testwoche (Samstag): Einfachklick öffnet keinen Editor, Doppelklick öffnet
+    „Neuer Termin“ mit dem Tag (Raster, Kopfleiste, Monat); Ziehen über einen Bereich öffnet ihn mit dem Bereich
+    (Raster 07:30–09:00, Monat Fr–Sa). Jeweils Escape, nichts geschrieben."""
+    sa = montag + datetime.timedelta(days=5)
+    fr = montag + datetime.timedelta(days=4)
+    zur_woche(heute, 2)
+    v, g = raster('Woche')
+    gx, gy, gb, gh = ausdehnung(g)
+    xs = tag_x(v, sa)
+    zeile = lambda minuten: int(gy + minuten * gh / 1440.0) + VERSATZ
+    lab = next((x for x in alle(v, 'label') if x.get_name() == str(sa.day)), None)
+    kopf_y = ausdehnung(lab)[1] + ausdehnung(lab)[3] + 22 + VERSATZ
+    faelle = [('Raster', xs, zeile(450) + 10), ('Kopfleiste', xs, kopf_y), ('Monat', None, None)]
+    for ansicht, x, y in faelle:
+        if ansicht == 'Monat':
+            taste('Alt_L', '1')
+            time.sleep(2)
+            zellen = {c.get_name(): c for c in alle(finde(wurzel(), 'table', 'Monat'), 'table cell')}
+            if str(sa.day) not in zellen or str(fr.day) not in zellen:
+                falsch('Monat: Zellen %s/%s nicht gefunden' % (fr, sa))
+                break
+            cx, cy, cb, ch = ausdehnung(zellen[str(sa.day)])
+            x, y = cx + cb // 2 + VERSATZ, cy + ch - 12 + VERSATZ
+            fx = ausdehnung(zellen[str(fr.day)])[0] + cb // 2 + VERSATZ
+        ab = marke()
+        klick(x, y)
+        time.sleep(1.5)
+        (ok if not warte(r'Kalender: Editor neu', ab, 1) and dialog(1) is None else falsch)(
+            '%s: Einfachklick auf leere Fläche öffnet keinen Editor' % ansicht)
+        ab = marke()
+        doppelklick(x, y)
+        f = editor_felder()
+        (ok if warte(r'Kalender: Editor neu', ab, 5) and f['Anfangsdatum'] == sa.strftime('%d.%m.%Y') else falsch)(
+            '%s: Doppelklick öffnet „Neuer Termin“ am %s (Anfangsdatum %s)' % (ansicht, sa, f['Anfangsdatum']))
+        bild('doppelklick-%s' % ansicht.lower())
+        editor_zu(ab, ansicht + ' Doppelklick')
+        if ansicht == 'Kopfleiste':
+            continue
+        # Ziehen über einen Bereich (Vorlage): Raster Sa 07:30 bis 08:45 (Ende der Zelle 09:00), Monat Sa → Fr.
+        ab = marke()
+        ziehen((x, y), (x, zeile(525) + 10) if ansicht == 'Raster' else (fx, y))
+        f = editor_felder()
+        if ansicht == 'Raster':
+            soll = {'Anfangsdatum': sa.strftime('%d.%m.%Y'), 'Anfangszeit': '07:30', 'Endzeit': '09:00'}
+        else:
+            soll = {'Anfangsdatum': fr.strftime('%d.%m.%Y'), 'Enddatum': sa.strftime('%d.%m.%Y')}
+        (ok if warte(r'Kalender: Editor neu', ab, 5) and all(f.get(k) == w for k, w in soll.items()) else falsch)(
+            '%s: Ziehen über einen Bereich öffnet „Neuer Termin“ %s (soll %s)' % (
+                ansicht, {k: f.get(k) for k in soll}, soll))
+        bild('bereich-%s' % ansicht.lower())
+        editor_zu(ab, ansicht + ' Bereich')
+    taste('Alt_L', '2')
+    time.sleep(1)
+
+
+def monat_ziehen(kal, uid, titel, montag):
+    """Runde 2 (PM): Termin in der Monatsansicht auf einen anderen Tag ziehen (gcal-month-cell.c move_event)."""
+    so = montag + datetime.timedelta(days=6)
+    taste('Alt_L', '1')
+    time.sleep(2)
+    tab = finde(wurzel(), 'table', 'Monat')
+    w = next((b for b in alle(tab, 'toggle button') if b.get_name() == titel), None)
+    zelle = None
+    for c in alle(tab, 'table cell'):
+        if c.get_name() == str(so.day):
+            zelle = c
+    if w is None or zelle is None:
+        falsch('Ziehen im Monat: Termin oder Zelle nicht gefunden')
+        taste('Alt_L', '2')
+        return
+    cx, cy, cb, ch = ausdehnung(zelle)
+    ab = marke()
+    app_schreibt(kal, 'verschieben Monat')
+    ziehen(mitte(w), (cx + cb // 2 + VERSATZ, cy + ch - 12 + VERSATZ))
+    m = warte(r'Kalender: ändern %s (fertig|Fehler)' % re.escape(kal), ab, 60)
+    (ok if m and m.group(1) == 'fertig' else falsch)('Ziehen im Monat nach So: %s' % (m and m.group(0)))
+    xtest.fake_input(d, X.MotionNotify, x=150, y=310)  # Zeiger weg: kein Tooltip im Bild
+    d.sync()
+    time.sleep(1)
+    bild('monat-gezogen')
+    gegenprobe(kal, uid, {'beginn': so.isoformat(), 'ende': (so + datetime.timedelta(days=1)).isoformat()}, 'Ziehen Monat')
+    taste('Alt_L', '2')
+    time.sleep(1)
+
+
+def termine():
+    soll_kal = vergleich()
+    G, M, L = SCHREIBBAR[0], SCHREIBBAR[1], SCHREIBBAR[-1]
+    name_von = {u: v[0].split(' / ', 1)[1] for u, v in soll_kal.items()}
+    stamp = datetime.datetime.now().strftime('%H%M%S')
+    heute = datetime.date.today()
+    montag = heute - datetime.timedelta(days=heute.weekday()) + datetime.timedelta(days=14)
+    eigene = set()
+
+    # 1. Kalenderwahl nur schreibbare Kalender (EDS readonly), Escape schließt ohne Schreiben.
+    ab = marke()
+    taste('Control_L', 'n')
+    dlg = dialog()
+    (ok if dlg is not None and warte(r'Kalender: Editor neu ', ab, 5) else falsch)('Strg+N: Editor „Neuer Termin“')
+    c = finde(dlg, 'combo box', 'Kalender')
+    klick(*mitte(c))
+    time.sleep(1)
+    liste = sorted(kombi_eintraege(c))
+    soll = sorted(name_von[u] for u, v in soll_kal.items() if not v[2])
+    (ok if liste == soll else falsch)('Kalenderwahl = %d schreibbare Kalender (ohne %s)%s' % (
+        len(liste), sorted(name_von[u] for u, v in soll_kal.items() if v[2]), '' if liste == soll else ': %s' % liste))
+    bild('kalenderwahl')
+    taste('Escape')
+    taste('Escape')
+    time.sleep(1)
+    (ok if dialog(1) is None and not warte(r'Kalender: anlegen ', ab, 1) else falsch)('Escape schließt den Editor ohne Schreiben')
+
+    # 1b. Runde 2 (PM): Einfachklick auf leere Fläche legt nicht an, Doppelklick öffnet den Editor (Raster, Monat).
+    einfach_doppel(heute, montag)
+
+    # 2. Erinnerung: Termin heute im lokalen Kalender, Beginn in 7 min, Erinnerung 5 min vorher (≈ 2 min).
+    #    ERINNERUNG=0 (Umgebung) lässt Erinnerung und Schließen-Test aus (Entwicklung).
+    mit_erinnerung = os.environ.get('ERINNERUNG', '1') != '0'
+    mon, mon_f, mon_pfad = notify_mitschnitt() if mit_erinnerung else (None, None, None)
+    jetzt = datetime.datetime.now() + datetime.timedelta(minutes=7)
+    titel_e = 'Revolution-Test 375 erinnerung %s' % stamp
+    ab = marke()
+    m = None
+    if mit_erinnerung:
+        taste('Control_L', 'n')
+        dlg = dialog()
+        neuer_termin(dlg, name_von[L], titel_e, 'Testort', 'Erinnerungstest', False, jetzt.date(), jetzt.strftime('%H:%M'),
+                     (jetzt + datetime.timedelta(minutes=30)).strftime('%H:%M'), '5 Minuten')
+        m = speichern_und_warten(L, 'anlegen', ab)
+    erinnerung_um = jetzt - datetime.timedelta(minutes=5)
+    if m and m.group(1) == 'fertig':
+        eigene.add(m.group(2))
+        uid_e = m.group(2)
+        eigene_datei(L, 'erinnerung', m.group(2), titel_e)
+        ok('Erinnerung: Testtermin lokal angelegt (Beginn %s, Erinnerung %s)' % (jetzt.strftime('%H:%M'),
+                                                                                 erinnerung_um.strftime('%H:%M')))
+        gegenprobe(L, m.group(2), {'titel': titel_e, 'erinnerung': '5', 'ganztags': '0'}, 'Erinnerung')
+    elif mit_erinnerung:
+        falsch('Erinnerung: anlegen %s' % (m and m.group(0)))
+
+    # 3. Anlegen: lokal ganztägig (Tastatur), Gmail wöchentlich 3× (Maus), outlook.com Zeitfenster (Tastatur).
+    zur_woche(heute, 2)
+    faelle = (
+        # Runde 3: lokal ohne Erinnerung (dieser Termin wechselt später nach outlook.com; kein Termin mit Erinnerung
+        # gelangt per Wechsel an einen Server).
+        (L, 'lokal', True, montag, None, None, None, False, True, {'ganztags': '1', 'beginn': montag.isoformat(),
+         'ende': (montag + datetime.timedelta(days=1)).isoformat(), 'erinnerung': '-', 'rrule': '-'}),
+        (G, 'gmail', False, montag + datetime.timedelta(days=1), '10:00', '11:00', '10 Minuten', True, False,
+         {'ganztags': '0', 'beginn': zeit_utc(montag + datetime.timedelta(days=1), 10, 0),
+          'ende': zeit_utc(montag + datetime.timedelta(days=1), 11, 0), 'erinnerung': '10', 'rrule': 'FREQ=WEEKLY;COUNT=3'}),
+        (M, 'outlook', False, montag + datetime.timedelta(days=2), '09:00', '10:00', '30 Minuten', False, True,
+         {'ganztags': '0', 'beginn': zeit_utc(montag + datetime.timedelta(days=2), 9, 0),
+          'ende': zeit_utc(montag + datetime.timedelta(days=2), 10, 0), 'erinnerung': '30', 'rrule': '-'}),
+    )
+    titel = {}
+    for kal, art, ganz, tag, von, bis, erin, woe, tast, soll in faelle:
+        t = 'Revolution-Test 375 %s %s' % (art, stamp)
+        titel[kal] = t
+        ab = marke()
+        if tast:
+            taste('Control_L', 'n')
+        else:
+            klick(*mitte(finde(wurzel(), 'button', 'Termin hinzufügen')))
+        dlg = dialog()
+        try:
+            neuer_termin(dlg, name_von[kal], t, 'Ort %s' % art, 'Notiz %s' % art, ganz, tag, von, bis, erin, woe, tast)
+        except RuntimeError as e:
+            falsch('Anlegen %s: %s' % (art, e))
+            bild('fehler-%s' % art)
+            for _ in range(3):
+                if dialog(1) is None:
+                    break
+                taste('Escape')
+            continue
+        bild_beide('editor-neu-%s' % art) if art == 'outlook' else bild('editor-neu-%s' % art)
+        if tast:
+            m = speichern_und_warten(kal, 'anlegen', ab)
+        else:
+            app_schreibt(kal, 'anlegen')
+            druecke(finde(dlg, 'button', 'Speichern'))
+            m = warte(r'Kalender: anlegen %s (fertig|Fehler)(?: (\S+))?$' % re.escape(kal), ab, 60)
+        if not m or m.group(1) != 'fertig':
+            falsch('Anlegen %s: %s' % (art, m and m.group(0)))
+            bild('fehler-%s' % art)
+            for _ in range(3):
+                if dialog(1) is None:
+                    break
+                taste('Escape')
+            continue
+        eigene.add(m.group(2))
+        eigene_datei(kal, 'editor', m.group(2), t)
+        ok('Anlegen %s per %s: %s' % (art, 'Tastatur' if tast else 'Maus', m.group(2)[:24]))
+        soll = dict(soll, titel=t, ort='Ort %s' % art, notiz='Notiz %s' % art)
+        gegenprobe(kal, m.group(2), soll, 'Anlegen')
+        mt = warte(r'Termin: \+ %s %s:%s' % (re.escape(kal), re.escape(kal), re.escape(m.group(2))), ab, 30)
+        (ok if mt else falsch)('Anlegen %s: Termin in der Ansicht (Log, ECalClientView)' % art)
+    bild('woche-neu')
+    uid = {kal: open(datei(kal, 'editor')).read().split()[2] for kal in (L, G, M) if os.path.exists(datei(kal, 'editor'))}
+
+    # 4. Ändern: Zeit und Titel (outlook.com), Wiederholung „nur dieser“ und „alle“ (Gmail).
+    if M in uid:
+        dlg, _ = bearbeiten(titel[M], eigene, 'popover')
+        time.sleep(0.5)
+        bild_beide('editor-bearbeiten')
+        neu = titel[M] + ' geaendert'
+        feld_setzen(dlg, 'Titel', neu)
+        feld_setzen(dlg, 'Endzeit', '12:00')
+        feld_setzen(dlg, 'Anfangszeit', '11:00')
+        ab = marke()
+        m = speichern_und_warten(M, 'ändern', ab)
+        (ok if m and m.group(1) == 'fertig' else falsch)('Ändern outlook.com (Titel, Zeit): %s' % (m and m.group(0)))
+        tag = montag + datetime.timedelta(days=2)
+        gegenprobe(M, uid[M], {'titel': neu, 'beginn': zeit_utc(tag, 11, 0), 'ende': zeit_utc(tag, 12, 0)}, 'Ändern')
+        titel[M] = neu
+    if G in uid:
+        di1 = montag + datetime.timedelta(days=1)
+        di2 = di1 + datetime.timedelta(days=7)
+        taste('Alt_L', 'Right')
+        dlg, _ = bearbeiten(titel[G], eigene)
+        feld_setzen(dlg, 'Titel', titel[G] + ' nur dieser')
+        ab = marke()
+        app_schreibt(G, 'ändern nur dieser')
+        taste('Control_L', 'Return')
+        frage = warte_obj(lambda: finde(wurzel(), 'button', 'Nur diesen Termin'), 10)
+        bild_beide('wiederholung-frage')
+        (ok if frage else falsch)('Wiederholung: Abfrage „Nur diesen Termin / Nachfolgende / Alle“ (AdwAlertDialog)')
+        if frage:
+            druecke(frage)
+        m = warte(r'Kalender: ändern %s (fertig|Fehler)' % re.escape(G), ab, 60)
+        mm = warte(r'Kalender: ändern %s \S+ mod (\d+) ' % re.escape(G), ab, 1)
+        (ok if m and m.group(1) == 'fertig' and mm and mm.group(1) == '1' else falsch)(
+            'Wiederholung „nur dieser“: %s, mod %s (E_CAL_OBJ_MOD_THIS = 1)' % (m and m.group(1), mm and mm.group(1)))
+        gegenprobe(G, uid[G], {'titel': titel[G], 'rrule': 'FREQ=WEEKLY;COUNT=3'}, 'Nur dieser',
+                   ausnahme_soll=[(zeit_utc(di2, 10, 0), titel[G] + ' nur dieser')])
+        taste('Alt_L', 'Left')
+        dlg, _ = bearbeiten(titel[G], eigene)
+        feld_setzen(dlg, 'Titel', titel[G] + ' alle')
+        ab = marke()
+        app_schreibt(G, 'ändern alle')
+        taste('Control_L', 'Return')
+        frage = warte_obj(lambda: finde(wurzel(), 'button', 'Alle Termine'), 10)
+        if frage:
+            druecke(frage)
+        m = warte(r'Kalender: ändern %s (fertig|Fehler)' % re.escape(G), ab, 60)
+        mm = warte(r'Kalender: ändern %s \S+ mod (\d+) ' % re.escape(G), ab, 1)
+        (ok if m and m.group(1) == 'fertig' and mm and mm.group(1) == '7' else falsch)(
+            'Wiederholung „alle“: %s, mod %s (E_CAL_OBJ_MOD_ALL = 7, Hauptkomponente im Worker)' % (
+                m and m.group(1), mm and mm.group(1)))
+        titel[G] += ' alle'
+        gegenprobe(G, uid[G], {'titel': titel[G], 'rrule': 'FREQ=WEEKLY;COUNT=3'}, 'Alle')
+        # Runde 2: „Nachfolgende Termine“ (E_CAL_OBJ_MOD_THIS_AND_FUTURE = 4) am dritten Vorkommen.
+        di3 = di1 + datetime.timedelta(days=14)
+        for _ in range(2):
+            taste('Alt_L', 'Right')
+        dlg, _ = bearbeiten(titel[G], eigene)
+        feld_setzen(dlg, 'Titel', titel[G] + ' folgende')
+        ab = marke()
+        app_schreibt(G, 'ändern nachfolgende (alte Serie kürzen)')
+        app_schreibt(G, 'ändern nachfolgende (neue Serie anlegen, e-cal-meta-backend.c:2033/2052)')
+        taste('Control_L', 'Return')
+        frage = warte_obj(lambda: finde(wurzel(), 'button', 'Nachfolgende Termine'), 10)
+        if frage:
+            druecke(frage)
+        m = warte(r'Kalender: ändern %s (fertig|Fehler)' % re.escape(G), ab, 60)
+        mm = warte(r'Kalender: ändern %s \S+ mod (\d+) ' % re.escape(G), ab, 1)
+        (ok if frage and m and m.group(1) == 'fertig' and mm and mm.group(1) == '4' else falsch)(
+            'Wiederholung „Nachfolgende Termine“: %s, mod %s (E_CAL_OBJ_MOD_THIS_AND_FUTURE = 4)' % (
+                m and m.group(1), mm and mm.group(1)))
+        # EDS teilt die Serie (e-cal-meta-backend.c:2041-2053): alte Serie endet vor dem Vorkommen, ab dort neue Serie mit
+        # neuer UID. Deren UID aus dem Log der App (Termin: + …, von dieser Änderung), gespeichert fürs Aufräumen.
+        mt = warte(r'Termin: \+ %s %s:(\S+):\S+ %s ' % (re.escape(G), re.escape(G), zeit_utc(di3, 10, 0)), ab, 60)
+        neu = mt.group(1) if mt and mt.group(1) != uid[G] else None
+        (ok if neu else falsch)('Nachfolgende: neue Serie ab %s in der Ansicht (UID %s)' % (di3, neu and neu[:16]))
+        if neu:
+            eigene.add(neu)
+            eigene_datei(G, 'geteilt', neu, titel[G] + ' folgende')
+            gegenprobe(G, neu, {'titel': titel[G] + ' folgende', 'beginn': zeit_utc(di3, 10, 0),
+                                'ende': zeit_utc(di3, 11, 0)}, 'Nachfolgende (neue Serie)')
+        gi = testdaten('--termin-details', G, uid[G])
+        vork = sorted(re.findall(r'^GI vorkommen (\S+) titel', gi, re.M))
+        (ok if vork == [zeit_utc(di1, 10, 0), zeit_utc(di1 + datetime.timedelta(days=7), 10, 0)] else falsch)(
+            'Nachfolgende: alte Serie endet vor dem dritten Vorkommen (Python-GI %s)' % vork)
+        srv = testdaten('--termin-server', G, uid[G])
+        regel = re.findall(r'^SERVER rrule (.*)$', srv, re.M)
+        # Genau zwei Vorkommen: COUNT=2 oder UNTIL vor dem dritten Vorkommen (e_cal_recur_ensure_end_dates).
+        until = re.match(r'^FREQ=WEEKLY;UNTIL=(\d{8})', regel[0]) if regel else None
+        (ok if regel == ['FREQ=WEEKLY;COUNT=2'] or (until and until.group(1) < di3.strftime('%Y%m%d')) else falsch)(
+            'Nachfolgende: alte Serie am Server (CalDAV) noch da, Regel %s' % re.findall(r'^SERVER rrule (.*)$', srv, re.M))
+        for _ in range(2):
+            taste('Alt_L', 'Left')
+
+    # 5. Verschieben per Ziehen: outlook.com im Raster (Mi 11:00 → Do 08:00), lokal in der Kopfleiste (Mo → Fr).
+    if M in uid:
+        v, g = raster('Woche')
+        w = termin_widget(titel[M])
+        if g is not None and w is not None:
+            gx, gy, gb, gh = ausdehnung(g)
+            zx = tag_x(v, montag + datetime.timedelta(days=3))
+            zy = int(gy + (8 * 60 + 10) * gh / 1440.0) + VERSATZ
+            ab = marke()
+            app_schreibt(M, 'verschieben')
+            ziehen(mitte(w), (zx, zy))
+            m = warte(r'Kalender: ändern %s (fertig|Fehler)' % re.escape(M), ab, 60)
+            (ok if m and m.group(1) == 'fertig' else falsch)('Ziehen outlook.com im Raster nach Do 08:00: %s' % (m and m.group(0)))
+            do = montag + datetime.timedelta(days=3)
+            gegenprobe(M, uid[M], {'beginn': zeit_utc(do, 8, 0), 'ende': zeit_utc(do, 9, 0)}, 'Ziehen')
+        else:
+            falsch('Ziehen: Raster oder Termin nicht gefunden')
+    if L in uid:
+        v, g = raster('Woche')
+        w = termin_widget(titel[L])
+        if g is not None and w is not None:
+            gx, gy, gb, gh = ausdehnung(g)
+            wx, wy = mitte(w)
+            ab = marke()
+            app_schreibt(L, 'verschieben')
+            ziehen((wx, wy), (tag_x(v, montag + datetime.timedelta(days=4)), wy))
+            m = warte(r'Kalender: ändern %s (fertig|Fehler)' % re.escape(L), ab, 60)
+            (ok if m and m.group(1) == 'fertig' else falsch)('Ziehen lokal (ganztägig) in der Kopfleiste nach Fr: %s' % (
+                m and m.group(0)))
+            fr = montag + datetime.timedelta(days=4)
+            gegenprobe(L, uid[L], {'beginn': fr.isoformat(), 'ende': (fr + datetime.timedelta(days=1)).isoformat()}, 'Ziehen')
+    bild('woche-gezogen')
+    if L in uid:
+        monat_ziehen(L, uid[L], titel[L], montag)
+
+    # 5b. Runde 3: Kalender im Editor wechseln outlook.com → lokal (gcal_manager_move_event_to_source im Worker). Ziel lokal:
+    #     kein Termin mit Erinnerung gelangt per Wechsel an einen Server (outlook.com setzt bei neuen Terminen ohne VALARM
+    #     selbst 15 min, gemessen Runde 3, m7-375-r3a).
+    wechsel = None
+    if M in uid:
+        zur_woche(heute, 2)
+        dlg, _ = bearbeiten(titel[M], eigene)
+        kombi_waehlen(dlg, 'Kalender', name_von[L])
+        if kombi_auswahl(dlg, 'Kalender') == name_von[L]:
+            ab = marke()
+            app_schreibt(L, 'verschieben anlegen')
+            app_schreibt(M, 'verschieben löschen')
+            taste('Control_L', 'Return')
+            m = warte(r'Kalender: verschieben (fertig (\S+)|Fehler)$', ab, 60)
+            v = warte(r'Kalender: verschieben %s \S+ nach %s$' % (re.escape(M), re.escape(L)), ab, 1)
+            (ok if m and m.group(2) and v else falsch)('Kalender wechseln outlook.com → lokal: %s' % (m and m.group(0)))
+            if m and m.group(2):
+                wechsel = m.group(2)
+                eigene.add(wechsel)
+                eigene_datei(L, 'wechsel', wechsel, titel[M])
+                do = montag + datetime.timedelta(days=3)
+                gegenprobe(L, wechsel, {'titel': titel[M], 'beginn': zeit_utc(do, 8, 0), 'ende': zeit_utc(do, 9, 0),
+                                        'erinnerung': '30'}, 'Kalender wechseln')
+                aus = testdaten('--termin-live', 'pruefen', M, datei(M, 'editor'))
+                srv = testdaten('--termin-server', M, uid[M])
+                (ok if 'VORHANDEN 0' in aus and 'HTTP 404' in srv else falsch)(
+                    'Kalender wechseln: in outlook.com weg (Python-GI fehlt, Graph 404)')
+                os.remove(datei(M, 'editor'))
+        else:
+            falsch('Kalender wechseln: Kalenderwahl nicht „%s“, nicht gespeichert' % name_von[L])
+            for _ in range(3):
+                if dialog(1) is None:
+                    break
+                taste('Escape')
+
+    # 6. Nur lesend: Termin eines EDS-schreibgeschützten Kalenders (Feiertage Gmail und Arnds Konto): Popover ohne Bearbeiten,
+    # Entf ohne Wirkung, Editor zeigt Details ohne Löschen.
+    lesend = [u for u, v in soll_kal.items() if v[2]]
+    zur_woche(heute)
+    nur_lesend(lesend)
+
+    # 7. Banner: Schreiben gegen einen inzwischen gelöschten Termin (lokal, von außen gelöscht, Editor noch offen).
+    bk, bdatei = L, datei(L, 'editor')
+    if L in uid:
+        zur_woche(heute, 2)
+        dlg, _ = bearbeiten(titel[L], eigene)
+        testdaten('--termin-live', 'loeschen', bk, bdatei)
+        aus = testdaten('--termin-live', 'pruefen', bk, bdatei)
+        (ok if 'VORHANDEN 0' in aus else falsch)('Banner: Testtermin von außen gelöscht (Python-GI), Editor noch offen')
+        feld_setzen(dlg, 'Titel', titel[L] + ' banner')
+        ab = marke()
+        m = speichern_und_warten(bk, 'ändern', ab)
+        b = warte(r'Kalender: Banner: (.*?): (.*)$', ab, 10)
+        (ok if m and m.group(1) == 'Fehler' and b else falsch)('Banner bei Schreibfehler: %s' % (b and b.group(0)))
+        time.sleep(1)
+        banner = finde(wurzel(), None, b.group(1)) if b else None
+        (ok if banner is not None else falsch)('Banner sichtbar (AT-SPI „%s“)' % (b and b.group(1)))
+        xtest.fake_input(d, X.MotionNotify, x=150, y=310)  # Zeiger auf die Seitenleiste: kein fremder Tooltip im Bild
+        d.sync()
+        time.sleep(1)
+        bild_beide('banner')
+        # „Schließen“ nur innerhalb der Fläche des Banners (die Fensterknöpfe heißen ebenso).
+        bx, by, bb, bh = ausdehnung(banner) if banner else (0, 0, 0, 0)
+        zu = next((k for k in alle(wurzel(), 'button') if k.get_name() == 'Schließen' and
+                   by - 20 <= ausdehnung(k)[1] and ausdehnung(k)[1] + ausdehnung(k)[3] <= by + bh + 20), None)
+        ab = marke()
+        y_vorher = ausdehnung(finde(wurzel(), 'panel', 'Woche'))[1]
+        if zu is not None:
+            klick(*mitte(zu))
+        time.sleep(1.5)
+        y_nachher = ausdehnung(finde(wurzel(), 'panel', 'Woche'))[1]
+        # Ausgeblendet: Log und die Woche rückt um die Höhe des Banners nach oben (AT-SPI).
+        (ok if zu is not None and warte(r'Kalender: Banner ausgeblendet', ab, 3) and y_nachher < y_vorher else falsch)(
+            'Banner: „Schließen“ blendet es aus (Woche y %d → %d)' % (y_vorher, y_nachher))
+
+    # 8. Löschen Gmail (Wiederholung, „alle“): Entf im Popover, Rückgängig ohne Schreiben; dann löschen, nach Ablauf weg.
+    if G in uid:
+        zur_woche(heute, 2)
+        for runde in ('rueckgaengig', 'loeschen'):
+            popover_oeffnen(titel[G], eigene)
+            ab = marke()
+            taste('Delete')
+            frage = warte_obj(lambda: finde(wurzel(), 'button', 'Alle Termine'), 10)
+            if frage is None:
+                falsch('Löschen: keine Abfrage bei Wiederholung')
+                break
+            if runde == 'loeschen':
+                app_schreibt(G, 'löschen')
+            druecke(frage)
+            m = warte(r'Kalender: Löschen vorgemerkt %s \S+ mod (\d+)' % re.escape(G), ab, 10)
+            (ok if m and m.group(1) == '7' else falsch)('Entf: Löschen vorgemerkt (alle), Toast (%s)' % (m and m.group(0)))
+            time.sleep(0.5)
+            (ok if termin_widget(titel[G], 0.3) is None else falsch)('Löschen: Termin sofort ausgeblendet')
+            if runde == 'rueckgaengig':
+                bild('toast-geloescht-hell')
+            else:
+                thema('dunkel')
+                bild('toast-geloescht-dunkel')
+                thema('hell')
+            if runde == 'rueckgaengig':
+                r = finde(wurzel(), 'button', 'Rückgängig')
+                (ok if r else falsch)('Toast „Termin gelöscht“ mit „Rückgängig“')
+                if r:
+                    klick(*mitte(r))
+                mr = warte(r'Kalender: Löschen rückgängig ', ab, 5)
+                time.sleep(7)
+                (ok if mr and not warte(r'Kalender: löschen ', ab, 1) else falsch)('Rückgängig: kein Schreibvorgang (Log)')
+                aus = testdaten('--termin-live', 'pruefen', G, datei(G, 'editor'))
+                (ok if 'VORHANDEN 1' in aus and termin_widget(titel[G], 10) else falsch)(
+                    'Rückgängig: Termin weiter da (Python-GI) und wieder sichtbar')
+            else:
+                m = warte(r'(\d\d):(\d\d):(\d\d\.\d+): Kalender: löschen %s (fertig|Fehler)' % re.escape(G), ab, 30)
+                v = warte(r'(\d\d):(\d\d):(\d\d\.\d+): Kalender: Löschen vorgemerkt %s ' % re.escape(G), ab, 1)
+                sek = lambda x: int(x.group(1)) * 3600 + int(x.group(2)) * 60 + float(x.group(3))
+                dauer = sek(m) - sek(v) if m and v else -1
+                (ok if m and m.group(4) == 'fertig' and 4.5 <= dauer <= 7 else falsch)(
+                    'Löschen nach Ablauf: geschrieben %.1f s nach dem Vormerken (Toast 5 s)' % dauer)
+                aus = testdaten('--termin-live', 'pruefen', G, datei(G, 'editor'))
+                srv = testdaten('--termin-server', G, uid[G])
+                (ok if 'VORHANDEN 0' in aus and 'SERVER-FEHLT' in srv else falsch)('Gelöscht: Python-GI fehlt, Server fehlt')
+
+    # 9. Löschen über den Editor („Termin löschen“), nach Ablauf weg (der gewechselte Termin, jetzt lokal).
+    if wechsel:
+        zur_woche(heute, 2)
+        dlg, _ = bearbeiten(titel[M], eigene)
+        ab = marke()
+        app_schreibt(L, 'löschen')
+        knopf = finde(dlg, 'button', 'Termin löschen')
+        zeigen(dlg, knopf)
+        klick(*mitte(knopf))  # Adw.ButtonRow::activated (Klick)
+        m = warte(r'Kalender: löschen %s (fertig|Fehler)' % re.escape(L), ab, 30)
+        (ok if m and m.group(1) == 'fertig' else falsch)('Löschen über den Editor, nach Ablauf: %s' % (m and m.group(0)))
+        aus = testdaten('--termin-live', 'pruefen', L, datei(L, 'wechsel'))
+        (ok if 'VORHANDEN 0' in aus else falsch)('Gelöscht: Python-GI fehlt')
+
+    # 10. Erinnerung abwarten (Mitschnitt), dann Erinnerungstermin per Entf löschen und Fenster sofort schließen.
+    if not mit_erinnerung:
+        return
+    rest = (erinnerung_um - datetime.datetime.now()).total_seconds() + 90
+    if rest > 0:
+        time.sleep(rest)
+    mon.terminate()
+    mon.wait()
+    mon_f.close()
+    mit = open(mon_pfad, encoding='utf-8', errors='replace').read()
+    treffer = len([b for b in re.split(r'\n(?=method call |signal |method return |error )', mit)
+                   if titel_e in b and re.search(r'member=(Notify|AddNotification)', b)])
+    (ok if treffer == 1 else falsch)('Erinnerung: Session-Bus zeigt Benachrichtigung mit „%s“ (%d×, %s)' % (
+        titel_e, treffer, ', '.join(sorted(set(re.findall(r'member=(Notify|AddNotification)', mit))))))
+    if os.path.exists(datei(L, 'erinnerung')):
+        zur_woche(heute)
+        ziel = L
+        popover_oeffnen(titel_e, eigene)
+        ab = marke()
+        app_schreibt(ziel, 'löschen beim Schließen')
+        taste('Delete')
+        m = warte(r'Kalender: Löschen vorgemerkt %s ' % re.escape(ziel), ab, 10)
+        (ok if m else falsch)('Entf ohne Wiederholung: sofort vorgemerkt (ohne Abfrage)')
+        w = fenster()
+        rc = schliessen(w) if w else None
+        m = warte(r'Kalender: löschen %s (fertig|Fehler)' % re.escape(ziel), ab, 10)
+        (ok if rc == 0 and m and m.group(1) == 'fertig' and warte(r'Fenster geschlossen, vorgemerktes Löschen jetzt', ab, 1)
+         else falsch)('Fenster schließen löscht sofort: Exit %s, %s' % (rc, m and m.group(0)))
+        aus = testdaten('--termin-live', 'pruefen', ziel, datei(ziel, 'erinnerung'))
+        (ok if 'VORHANDEN 0' in aus else falsch)('Nach dem Schließen: Erinnerungstermin gelöscht (Python-GI)')
+
+
+def tag_x(v, tag):
+    """x-Mitte der Spalte eines Tags in der Woche (Tageszahl im Kopf, AT-SPI)."""
+    lab = next((x for x in alle(v, 'label') if x.get_name() == str(tag.day)), None)
+    return mitte(lab)[0] if lab else None
+
+
+def ziehen(von, nach, schritte=12):
+    xtest.fake_input(d, X.MotionNotify, x=von[0], y=von[1])
+    d.sync()
+    time.sleep(0.3)
+    xtest.fake_input(d, X.ButtonPress, 1)
+    d.sync()
+    time.sleep(0.3)
+    for i in range(1, schritte + 1):
+        xtest.fake_input(d, X.MotionNotify, x=int(von[0] + (nach[0] - von[0]) * i / schritte),
+                         y=int(von[1] + (nach[1] - von[1]) * i / schritte))
+        d.sync()
+        time.sleep(0.08)
+    time.sleep(0.5)
+    xtest.fake_input(d, X.ButtonRelease, 1)
+    d.sync()
+    time.sleep(1)
+
+
+def nur_lesend(lesend):
+    """Termin aus einem EDS-schreibgeschützten Kalender: Popover mit „Zusätzliche Details anzeigen“, Entf wirkungslos,
+    Editor ohne „Termin löschen“ und ohne „Abbrechen“. Nur Termine, deren Kalender laut Log schreibgeschützt ist."""
+    mehr = finde(finde(wurzel(), 'panel', 'Woche'), 'toggle button', 'Zusätzliche Termine anzeigen')
+    if mehr is not None:
+        klick(*mitte(mehr))  # Kopfleiste aufklappen (alle ganztägigen Termine, gcal-week-header.c)
+        time.sleep(1)
+    kandidaten = {}
+    for m in re.finditer(r'Termin: \+ (\S+) (\S+) ', log_text()[log_start:]):
+        if m.group(1) in lesend:
+            kandidaten[m.group(2)] = m.group(1)
+    for w in [b for b in alle(wurzel(), 'toggle button') if b.get_name()]:
+        name = w.get_name()
+        if name.startswith('Revolution-Test') or name.startswith('Zusätzliche') or name.startswith('+'):
+            continue
+        ab = marke()
+        klick(*mitte(w))
+        m = warte(r'Kalender: Popover (\S+)$', ab, 5)
+        if m is None:
+            continue
+        if m.group(1) not in kandidaten:
+            taste('Escape')
+            time.sleep(0.5)
+            continue
+        time.sleep(0.8)
+        info = finde(wurzel(), 'button', 'Zusätzliche Details anzeigen')
+        bearb = finde(wurzel(), 'button', 'Zusätzliche Details bearbeiten')
+        (ok if info and not bearb else falsch)('Nur lesend (%s „%s“): Popover nur „Details anzeigen“' % (
+            kandidaten[m.group(1)][:8], name))
+        bild('popover-nurlesend')
+        ab = marke()
+        taste('Delete')
+        time.sleep(2)
+        (ok if not warte(r'Kalender: Löschen vorgemerkt', ab, 1) else falsch)('Nur lesend: Entf löscht nicht')
+        if not finde(wurzel(), 'button', 'Zusätzliche Details anzeigen'):
+            klick(*mitte(w))
+            time.sleep(1)
+        ab = marke()
+        taste('Return')
+        dlg = dialog()
+        (ok if dlg and not finde(dlg, 'button', 'Termin löschen') and not finde(dlg, 'button', 'Abbrechen') else falsch)(
+            'Nur lesend: Editor „Termindetails“ ohne Löschen und Abbrechen')
+        bild('editor-nurlesend')
+        taste('Escape')
+        time.sleep(1)
+        return
+    falsch('Nur lesend: kein Termin eines schreibgeschützten Kalenders in der Woche sichtbar')
 
 def pruefen():
     soll = vergleich()
@@ -803,6 +1740,9 @@ def pruefen():
         return
     if MODUS == 'woche':
         woche()
+        return
+    if MODUS == 'termine':
+        termine()
         return
     # Erstes Laden ohne Blättern: aktueller Monat je Kalender = Python-GI (Änderungen während des ersten Ladens,
     # gcal-calendar-monitor.c, Revolution #373).

@@ -16,8 +16,8 @@
  * Schließen und Wechsel der Mail brechen ab (revolution_mail_contact_popover_cancel, mail-header.c).
  *
  * Karte wie Evolution e_open_map_uri (e-misc-utils.c:4497-4540): maps:q=<Ort>, wenn ein Programm das Schema
- * bedient; sonst geo:0,0?q=<Ort> (RFC 5870 kennt q nicht, Android-Konvention). Den Web-Rückfall von Evolution
- * (openstreetmap.org) gibt es hier nicht. Fehlt ein Programm: Toast.
+ * bedient; sonst geo:0,0?q=<Ort> (RFC 5870 kennt q nicht, Android-Konvention); sonst im Browser wie dort
+ * https://www.openstreetmap.org/search?query=<Ort>. Fehlt auch dafür ein Programm: Toast.
  *
  * Copyright 2026 Arnd Messer
  *
@@ -500,9 +500,12 @@ on_place_clicked (RevolutionMailContactPopover *self)
 {
   g_autofree char *escaped = g_uri_escape_string (self->map, NULL, FALSE);
   g_autoptr (GAppInfo) maps = g_app_info_get_default_for_uri_scheme ("maps");
-  g_autofree char *uri = g_strconcat (maps != NULL ? "maps:q=" : "geo:0,0?q=", escaped, NULL);
+  g_autoptr (GAppInfo) geo = maps == NULL ? g_app_info_get_default_for_uri_scheme ("geo") : NULL;
+  const char *scheme = maps != NULL ? "maps" : geo != NULL ? "geo" : "https";
+  const char *prefix = maps != NULL ? "maps:q=" : geo != NULL ? "geo:0,0?q=" : "https://www.openstreetmap.org/search?query=";
+  g_autofree char *uri = g_strconcat (prefix, escaped, NULL);
 
-  open_uri (self, maps != NULL ? "maps" : "geo", uri, _("No App for Maps"));
+  open_uri (self, scheme, uri, _("No App for Maps"));
 }
 
 static void

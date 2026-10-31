@@ -14,14 +14,11 @@
  * kopieren). Suchordner gibt es hier nicht: die Suche aus #365 kennt nur „Nachricht enthält“ über Betreff,
  * Absender, Empfänger und Text (mail-search.c, revolution_mail_search_expression), nichts nur für den Absender.
  *
- * Warnungen in „Details“ (Kommentare 1293, 1295 in #455), beide erst beim ersten Öffnen je Nachricht:
- * - Signatur: multipart/signed prüfen wie Evolution (em-format/e-mail-parser-multipart-signed.c:133-157), Warnung
- *   bei CAMEL_CIPHER_VALIDITY_SIGN_BAD (e-mail-part-utils.c:154, in Evolution „Invalid signature“,
- *   e-mail-formatter-secure-button.c:58) und bei einem Fehler der Prüfung (kaputter Signaturblock, dort
- *   e-mail-parser-multipart-signed.c:160-172). Fehlender Schlüssel, unbekannt oder fremdes Protokoll warnen nicht.
- *   Im Worker-GTask aus dem Cache des Stores, der Wechsel der Mail bricht ab.
- * - Externer Absender: gibt es in Evolution nicht. Festlegung PM: Die Domain der From-Adresse ist keine Domain einer
- *   Identität des Kontos der Mail (ohne Groß/Klein). Eigene Mails nie.
+ * Warnung in „Details“ (Kommentare 1293, 1295 in #455), erst beim ersten Öffnen je Nachricht: multipart/signed prüfen
+ * wie Evolution (em-format/e-mail-parser-multipart-signed.c:133-157), Warnung bei CAMEL_CIPHER_VALIDITY_SIGN_BAD
+ * (e-mail-part-utils.c:154, in Evolution „Invalid signature“, e-mail-formatter-secure-button.c:58) und bei einem Fehler
+ * der Prüfung (kaputter Signaturblock, dort e-mail-parser-multipart-signed.c:160-172). Fehlender Schlüssel, unbekannt
+ * oder fremdes Protokoll warnen nicht. Im Worker-GTask aus dem Cache des Stores, der Wechsel der Mail bricht ab.
  *
  * Copyright 2026 Arnd Messer
  *
@@ -32,7 +29,6 @@
 
 #include "config.h"
 
-#include <string.h>
 #include <glib/gi18n.h>
 
 #include "mail-contact-popover.h"
@@ -65,7 +61,6 @@ struct _RevolutionMailHeader
   AdwWrapBox           *bcc_box;
   AdwWrapBox           *from_box;
   GtkLabel             *date_full;
-  GtkWidget            *external_row;
   GtkWidget            *signature_row;
   CamelSession         *session;
   char                 *store_uid;
@@ -379,72 +374,6 @@ update_names (RevolutionMailHeader *self)
   gtk_widget_set_visible (self->bcc_row, has_addresses (self->bcc));
 }
 
-static const char *
-domain_of (const char *address)
-{
-  const char *at = address != NULL ? strrchr (address, '@') : NULL;
-
-  return at != NULL ? at + 1 : NULL;
-}
-
-/* Adresse und Aliase einer Identität gegen address: exakt, oder mit same_domain nur die Domain. */
-static gboolean
-identity_matches (ESource    *identity,
-                  const char *address,
-                  gboolean    same_domain)
-{
-  ESourceMailIdentity *extension = e_source_get_extension (identity, E_SOURCE_EXTENSION_MAIL_IDENTITY);
-  g_autoptr (GHashTable) aliases = e_source_mail_identity_get_aliases_as_hash_table (extension);
-  g_autofree char *own = e_source_mail_identity_dup_address (extension);
-  GHashTableIter iter;
-  gpointer key;
-
-  if (own != NULL && g_ascii_strcasecmp (same_domain ? domain_of (own) : own, same_domain ? domain_of (address) : address) == 0)
-    return TRUE;
-  if (aliases == NULL)
-    return FALSE;
-  g_hash_table_iter_init (&iter, aliases);
-  while (g_hash_table_iter_next (&iter, &key, NULL))
-    {
-      const char *other = same_domain ? domain_of (key) : key;
-
-      if (other != NULL && g_ascii_strcasecmp (other, same_domain ? domain_of (address) : address) == 0)
-        return TRUE;
-    }
-  return FALSE;
-}
-
-/* Registry nur lesen (im Speicher, im UI-Thread zulässig, docs/ENTWICKLUNG.md „Worker“). */
-static gboolean
-sender_is_external (RevolutionMailHeader *self)
-{
-  GtkWidget *view = gtk_widget_get_ancestor (GTK_WIDGET (self), REVOLUTION_TYPE_MAIL_VIEW);
-  ESourceRegistry *registry = view != NULL ? revolution_mail_view_get_registry (REVOLUTION_MAIL_VIEW (view)) : NULL;
-  g_autolist (ESource) identities = NULL;
-  g_autoptr (ESource) account = NULL;
-  g_autoptr (ESource) identity = NULL;
-  g_autofree char *identity_uid = NULL;
-  const char *address = NULL;
-
-  if (registry == NULL || self->account_uid == NULL || self->from == NULL ||
-      !camel_internet_address_get (self->from, 0, NULL, &address) || domain_of (address) == NULL)
-    return FALSE;
-
-  /* Eigene Mails nie: auch von einem anderen Konto oder Alias. */
-  identities = e_source_registry_list_sources (registry, E_SOURCE_EXTENSION_MAIL_IDENTITY);
-  for (GList *l = identities; l != NULL; l = l->next)
-    if (identity_matches (l->data, address, FALSE))
-      return FALSE;
-
-  account = e_source_registry_ref_source (registry, self->account_uid);
-  if (account != NULL && e_source_has_extension (account, E_SOURCE_EXTENSION_MAIL_ACCOUNT))
-    identity_uid = e_source_mail_account_dup_identity_uid (e_source_get_extension (account, E_SOURCE_EXTENSION_MAIL_ACCOUNT));
-  identity = identity_uid != NULL ? e_source_registry_ref_source (registry, identity_uid) : NULL;
-  if (identity == NULL || !e_source_has_extension (identity, E_SOURCE_EXTENSION_MAIL_IDENTITY))
-    return FALSE;
-  return !identity_matches (identity, address, TRUE);
-}
-
 typedef struct
 {
   CamelSession *session;
@@ -570,15 +499,11 @@ static void
 check_warnings (RevolutionMailHeader *self)
 {
   g_autoptr (GTask) task = NULL;
-  gboolean external;
   Check *check;
 
   if (self->checked || !gtk_toggle_button_get_active (self->details_button) || self->from == NULL || self->session == NULL)
     return;
   self->checked = TRUE;
-  external = sender_is_external (self);
-  g_debug ("Kopf: Absender extern %s", external ? "ja" : "nein");
-  gtk_widget_set_visible (self->external_row, external);
 
   check = g_new0 (Check, 1);
   check->session = g_object_ref (self->session);
@@ -675,7 +600,7 @@ revolution_mail_header_set_date (RevolutionMailHeader *self,
 }
 
 /* Woher die Nachricht stammt: store_uid, folder_name und message_uid wie geladen (auch Suchordner), account_uid das
- * Konto des echten Ordners (Absender neuer Mails, Identität für „extern“). */
+ * Konto des echten Ordners (Absender neuer Mails). */
 void
 revolution_mail_header_set_source (RevolutionMailHeader *self,
                                    CamelSession         *session,
@@ -728,7 +653,6 @@ revolution_mail_header_clear (RevolutionMailHeader *self)
   g_cancellable_cancel (self->check);
   g_clear_object (&self->check);
   self->checked = FALSE;
-  gtk_widget_set_visible (self->external_row, FALSE);
   gtk_widget_set_visible (self->signature_row, FALSE);
   g_clear_object (&self->from);
   g_clear_object (&self->to);
@@ -926,7 +850,6 @@ revolution_mail_header_class_init (RevolutionMailHeaderClass *klass)
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailHeader, bcc_box);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailHeader, from_box);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailHeader, date_full);
-  gtk_widget_class_bind_template_child (widget_class, RevolutionMailHeader, external_row);
   gtk_widget_class_bind_template_child (widget_class, RevolutionMailHeader, signature_row);
   gtk_widget_class_bind_template_callback (widget_class, on_details_toggled);
 }

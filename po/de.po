@@ -2744,9 +2744,5 @@ msgid "No App for Maps"
 msgstr "Keine App für Karten"
 
 #: src/mail/mail-header.blp
-msgid "External sender"
-msgstr "Externer Absender"
-
-#: src/mail/mail-header.blp
 msgid "Invalid signature"
 msgstr "Ungültige Signatur"

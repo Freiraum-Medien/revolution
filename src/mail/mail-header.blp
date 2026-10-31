@@ -316,26 +316,6 @@ template $RevolutionMailHeader: Widget {
         }
 
         // Sichtbar nach der Prüfung beim ersten Öffnen (mail-header.c, check_warnings).
-        Box external_row {
-          visible: false;
-          spacing: 6;
-          margin-top: 4;
-
-          styles [
-            "warning",
-          ]
-
-          Image {
-            icon-name: "dialog-warning-symbolic";
-            accessible-role: presentation;
-          }
-
-          Label {
-            label: _("External sender");
-            xalign: 0;
-          }
-        }
-
         Box signature_row {
           visible: false;
           spacing: 6;
